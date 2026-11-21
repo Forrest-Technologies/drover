@@ -12,12 +12,6 @@ public static class ToolResults
 {
     #region Private Fields
 
-    /// <summary>The longest result read as JSON for display. A longer one is shown as it came.</summary>
-    public const int MaxReadLength = 1_048_576;
-
-    /// <summary>The deepest nesting read as JSON for display. A deeper result is shown as it came.</summary>
-    public const int MaxReadDepth = 64;
-
     private static readonly JsonReaderOptions readerOptions = new() { MaxDepth = MaxReadDepth };
 
     #endregion
@@ -109,7 +103,15 @@ public static class ToolResults
     /// is <see cref="ResultForm.Cut"/>. Anything else, including JSON that is invalid, nested deeper than
     /// <see cref="MaxReadDepth"/>, or longer than <see cref="MaxReadLength"/>, is <see cref="ResultForm.Text"/>.
     /// </summary>
-    public static ReadResult Read(string result) => Read(result, MaxReadLength);
+    public static ReadResult Read(string result)
+    {
+        if (result.Length > MaxReadLength)
+        {
+            return ReadResult.AsText with { Reason = TooLong };
+        }
+
+        return result.TrimStart() is ['{' or '[' or '"', ..] ? Parsed(result) : ReadResult.AsText;
+    }
 
     /// <summary>
     /// The text of a JSON string, or nothing when it is not a string. It is decoded from the string as written, so a
@@ -219,27 +221,22 @@ public static class ToolResults
 
     #region Reading
 
-    // Reads the text as JSON when it is no longer than the budget. The reader says why a text is not JSON only by
-    // throwing, so its reason is kept with the result that says to show the text as it came.
-    internal static ReadResult Read(string text, int maxLength)
+    // Reads text that opens a value as JSON. The reader says why a text is not JSON only by throwing, so its reason is
+    // kept with the result that says to show the text as it came.
+    private static ReadResult Parsed(string text)
     {
-        if (text.Length > maxLength)
-        {
-            return ReadResult.AsText with { Reason = TooLong };
-        }
-
-        if (text.TrimStart() is not ['{' or '[' or '"', ..])
-        {
-            return ReadResult.AsText;
-        }
-
-        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(text), isFinalBlock: false, new JsonReaderState(readerOptions));
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var reader = new Utf8JsonReader(bytes, isFinalBlock: false, new JsonReaderState(readerOptions));
 
         try
         {
-            return JsonElement.TryParseValue(ref reader, out var parsed) && parsed is { } whole
-                ? new(ResultForm.Whole, whole)
-                : ReadResult.AsCut;
+            if (!JsonElement.TryParseValue(ref reader, out var parsed) || parsed is not { } whole)
+            {
+                return ReadResult.AsCut;
+            }
+
+            // One whole value is all a result may hold: anything after it but white space makes it no JSON at all.
+            return OnlySpaceFrom(bytes, (int)reader.BytesConsumed) ? new(ResultForm.Whole, whole) : ReadResult.AsText with { Reason = TrailingText };
         }
         catch (JsonException exception)
         {
@@ -247,6 +244,9 @@ public static class ToolResults
             return ReadResult.AsText with { Reason = exception.Message };
         }
     }
+
+    private static bool OnlySpaceFrom(byte[] bytes, int start) =>
+        bytes.AsSpan(start).IndexOfAnyExcept(" \t\r\n"u8) < 0;
 
     // The UTF-16 unit of a \u escape at index, which holds a backslash. False when it is no such escape.
     private static bool TryUnit(string json, int index, out char unit)
@@ -308,6 +308,16 @@ public static class ToolResults
 
     #endregion
 
+    #region Constants
+
+    /// <summary>The longest text read as JSON for display, a result or a call's arguments. A longer one is shown as it came.</summary>
+    public const int MaxReadLength = 1_048_576;
+
+    /// <summary>The deepest nesting read as JSON for display. A deeper result is shown as it came.</summary>
+    public const int MaxReadDepth = 64;
+
+    #endregion
+
     #region Fixed Words
 
     public const string JsonLanguage = "json";
@@ -315,6 +325,8 @@ public static class ToolResults
     public const string OutputCutOff = "The output was cut off.";
 
     public const string TooLong = "The result is longer than is read for display.";
+
+    public const string TrailingText = "The result holds text after its JSON value.";
 
     #endregion
 }

@@ -256,6 +256,50 @@ public sealed class ToolResultTests
         card.Result.Should().Be("half \ufffd a pair", "a lone surrogate is read as the replacement character");
     }
 
+    [Theory]
+    [InlineData("search_web", "\"a whole string\" and then more")]
+    [InlineData("weather", "{\"city\":\"Oslo\"} trailing")]
+    [InlineData("weather", "[1,2] [3]")]
+    [InlineData("sandbox.run", "{\"exit_code\":0,\"stdout\":\"ok\"}x")]
+    public void A_whole_value_followed_by_more_text_is_shown_as_it_came_and_nothing_disappears(string tool, string result)
+    {
+        var call = Call(tool, "{}") with { Preview = result };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(result);
+        card.Output.Should().BeEmpty("text that is not one JSON value is not decoded");
+    }
+
+    [Fact]
+    public void A_whole_value_followed_only_by_white_space_is_still_decoded()
+    {
+        var call = Call("search_web", "{}") with { Preview = "\"first\\nsecond\" \r\n\t " };
+
+        call.ToCard().Result.Should().Be("first\nsecond");
+    }
+
+    [Fact]
+    public void A_stored_value_followed_by_more_text_is_shown_as_it_was_stored()
+    {
+        var stored = "{\"city\":\"Oslo\"}{\"city\":\"Bergen\"}";
+
+        Stored("weather", "{}", stored).Result.Should().Be(stored);
+    }
+
+    [Fact]
+    public void Arguments_longer_than_the_read_budget_are_shown_as_stored_and_never_read()
+    {
+        var arguments = JsonSerializer.Serialize(new { path = "/home/user/big.txt", content = new string('x', ToolResults.MaxReadLength) });
+        var stored = JsonSerializer.Serialize(new { path = "/home/user/big.txt", size = 3 });
+
+        var card = FluentActions.Invoking(() => Stored("sandbox_write_file", arguments, stored)).Should().NotThrow().Subject;
+
+        card.Arguments.Should().BeSameAs(arguments, "arguments past the budget are not read, copied, or laid out again");
+        card.Summary.Should().BeEmpty("arguments that were not read say nothing");
+        card.Result.Should().Contain("\"size\": 3", "the result is read as usual");
+    }
+
     [Fact]
     public void Arguments_that_are_not_json_never_fail_the_card()
     {

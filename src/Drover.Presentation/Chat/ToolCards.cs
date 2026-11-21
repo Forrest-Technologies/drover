@@ -338,10 +338,11 @@ public static partial class ToolCards
 
     private static string OneLine(string text) => WhiteSpace().Replace(text, " ").Trim();
 
-    // Arguments are stored as JSON, and shown indented. Arguments that cannot be read, or hold an escape the platform
-    // will not write out again, are shown as they were stored, and read as none, so the card still shows.
+    // Arguments are stored as JSON, and shown indented. Arguments that cannot be read within the display budget, or hold
+    // an escape the platform will not write out again, are shown as they were stored, and read as none, so the card
+    // still shows.
     private static (JsonElement Values, string Shown) ArgumentsOf(string arguments) =>
-        ToolResults.Read(arguments, int.MaxValue) is { Form: ResultForm.Whole } read
+        ToolResults.Read(arguments) is { Form: ResultForm.Whole } read
             ? (read.Value, ToolResults.HasHalfSurrogate(arguments) ? arguments : Pretty(read.Value))
             : (JsonElement.Parse("{}"), arguments);
 
