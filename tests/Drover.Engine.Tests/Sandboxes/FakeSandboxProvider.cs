@@ -47,6 +47,9 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>When set, every check of a handle finds another group's metadata.</summary>
     public bool MetadataMismatch { get; set; }
 
+    /// <summary>Awaited with the handle before a pause, so a test can retire the sandbox midway through one.</summary>
+    public Func<SandboxHandle, CancellationToken, Task>? BeforePause { get; set; }
+
     /// <summary>Awaited with the path before a file is read, as a slow provider or one that hangs would make the caller wait.</summary>
     public Func<string, CancellationToken, Task>? BeforeRead { get; set; }
 
@@ -124,11 +127,15 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         return Task.CompletedTask;
     }
 
-    public Task Pause(SandboxHandle sandbox, CancellationToken cancellationToken)
+    public async Task Pause(SandboxHandle sandbox, CancellationToken cancellationToken)
     {
+        if (BeforePause is { } before)
+        {
+            await before(sandbox, cancellationToken);
+        }
+
         Pauses.Enqueue(sandbox);
         Check(sandbox).State = ProviderSandboxState.Paused;
-        return Task.CompletedTask;
     }
 
     public Task<SandboxHandle> Resume(SandboxHandle sandbox, TimeSpan idle, CancellationToken cancellationToken)

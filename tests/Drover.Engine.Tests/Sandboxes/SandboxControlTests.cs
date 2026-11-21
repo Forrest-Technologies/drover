@@ -248,6 +248,95 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         (await Actions(world)).Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_pause_that_finishes_after_the_sandbox_was_retired_leaves_it_retiring()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await ControlWorld(provider);
+        await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        var retirement = DateTimeOffset.UtcNow.AddDays(3);
+
+        var paused = await PauseAfterRetiring(provider, world, () =>
+            world.Transact(services => services.GetRequiredService<SandboxRepository>().RetireLiveForOwner(world.BotId, retirement, RunWorld.Token)));
+
+        var row = await world.Read(db => db.Sandboxes.SingleAsync(RunWorld.Token));
+
+        paused.Refusal.Should().Be(SandboxControlRefusal.None);
+        paused.Value!.State.Should().Be("replacing");
+        row.State.Should().Be(SandboxState.Retiring);
+        row.RetireAfter.Should().Be(retirement);
+        (await Actions(world)).Should().Equal("sandbox.command");
+    }
+
+    [Fact]
+    public async Task A_pause_that_finishes_after_an_audience_narrowed_does_not_bring_the_sandbox_back()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await ControlWorld(provider);
+        await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        var retirement = DateTimeOffset.UtcNow.AddDays(3);
+
+        var paused = await PauseAfterRetiring(provider, world, () =>
+            world.Transact(services => services.GetRequiredService<SandboxRepository>().RetireLive(retirement, RunWorld.Token)));
+
+        var row = await world.Read(db => db.Sandboxes.SingleAsync(RunWorld.Token));
+
+        paused.Value!.State.Should().Be("replacing");
+        row.State.Should().Be(SandboxState.Retiring);
+        (await Actions(world)).Should().Equal("sandbox.command");
+    }
+
+    [Fact]
+    public async Task A_pause_that_finishes_after_turn_off_leaves_the_sandbox_destroyed_and_writes_no_audit_row()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await ControlWorld(provider);
+        await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+
+        var paused = await PauseAfterRetiring(provider, world, () => world.Read(async db =>
+        {
+            (await db.Sandboxes.SingleAsync(RunWorld.Token)).State = SandboxState.Destroyed;
+            return true;
+        }));
+
+        var row = await world.Read(db => db.Sandboxes.SingleAsync(RunWorld.Token));
+
+        paused.Refusal.Should().Be(SandboxControlRefusal.None);
+        paused.Value!.State.Should().Be("none");
+        row.State.Should().Be(SandboxState.Destroyed);
+        (await Actions(world)).Should().Equal("sandbox.command");
+    }
+
+    [Fact]
+    public async Task A_pause_of_a_retired_sandbox_whose_bot_already_has_a_new_one_does_not_fail()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await ControlWorld(provider);
+        await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+
+        var paused = await PauseAfterRetiring(provider, world, () => world.Read(async db =>
+        {
+            var older = await db.Sandboxes.SingleAsync(RunWorld.Token);
+            older.State = SandboxState.Retiring;
+            older.RetireAfter = DateTimeOffset.UtcNow;
+            db.Sandboxes.Add(new Sandbox
+            {
+                SpaceId = world.SpaceId,
+                OwnerBotId = world.BotId,
+                Provider = "fake",
+                ProviderSandboxId = "replacement",
+                State = SandboxState.Creating,
+            });
+            return true;
+        }));
+
+        paused.Refusal.Should().Be(SandboxControlRefusal.None);
+        paused.Value!.State.Should().Be("starting");
+        var rows = await world.Read(db => db.Sandboxes.AsNoTracking().ToListAsync(RunWorld.Token));
+        rows.Should().ContainSingle(row => row.ProviderSandboxId == "replacement" && row.State == SandboxState.Creating);
+        rows.Should().ContainSingle(row => row.ProviderSandboxId != "replacement" && row.State == SandboxState.Retiring);
+    }
+
     #endregion
 
     #region Screen And Input
@@ -672,6 +761,34 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     private static SandboxControlService Control(RunWorld world) =>
         (world.Hosts.Count > 1 ? world.Hosts[^1] : world.StartHost()).Services.GetRequiredService<SandboxControlService>();
+
+    /// <summary>Commits a retirement between the provider's pause and the broker's write to the row.</summary>
+    private static async Task<SandboxControlResult<BotSandboxStatus>> PauseAfterRetiring(
+        FakeSandboxProvider provider,
+        RunWorld world,
+        Func<Task> retire)
+    {
+        var pausing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.BeforePause = async (_, cancellationToken) =>
+        {
+            pausing.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        };
+
+        var pause = Control(world).Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        try
+        {
+            await pausing.Task.WaitAsync(RunWorld.Token);
+            await retire();
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        return await pause;
+    }
 
     private static Task<List<string>> Actions(RunWorld world) =>
         world.Read(db => db.AuditLog.AsNoTracking().Where(entry => entry.Action.StartsWith("sandbox.")).OrderBy(entry => entry.Id).Select(entry => entry.Action).ToListAsync(RunWorld.Token));
