@@ -40,6 +40,35 @@ public sealed class CodeBytesTests
     public void Text_that_is_not_mostly_a_bytes_literal_with_hex_escapes_is_none(string text) =>
         CodeBytes.Literal(text).Should().BeNull();
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void A_literal_of_backslashes_that_never_closes_is_read_in_one_pass(int extra)
+    {
+        var text = $"b'{new string('\\', 1_000_000 + extra)}";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var bytes = CodeBytes.Literal(text);
+
+        watch.Stop();
+        bytes.Should().BeNull();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2), "the scan is linear in the text, whatever it holds");
+        CodeContent.Detect(text).Kind.Should().NotBe(CodeKind.Bytes);
+    }
+
+    [Fact]
+    public void A_long_bytes_literal_is_read_whole_in_one_pass()
+    {
+        var text = $"b'{string.Concat(Enumerable.Repeat("\\x00", 200_000))}'";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var bytes = CodeBytes.Literal(text);
+
+        watch.Stop();
+        bytes.Should().HaveCount(200_000);
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
     #endregion
 
     #region Hex View

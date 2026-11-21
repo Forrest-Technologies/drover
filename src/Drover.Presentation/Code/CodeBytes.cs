@@ -5,7 +5,7 @@ namespace Drover.Presentation.Code;
 /// literal (<c>b'h\x1c\xfeK'</c>) as escapes. Either is summarized by its size and shown on demand as offset, hex,
 /// and printable characters.
 /// </summary>
-public static partial class CodeBytes
+public static class CodeBytes
 {
     #region Private Fields
 
@@ -63,14 +63,15 @@ public static partial class CodeBytes
     public static byte[]? Literal(string text)
     {
         var trimmed = text.Trim();
-        var found = BytesLiteral().Match(trimmed);
 
-        if (!found.Success || (trimmed.Length - found.Length) * LiteralShare > trimmed.Length || !found.Groups["body"].Value.Contains("\\x", StringComparison.Ordinal))
+        if (LiteralIn(trimmed) is not var (start, end) || (trimmed.Length - (end - start)) * LiteralShare > trimmed.Length)
         {
             return null;
         }
 
-        return Unescaped(found.Groups["body"].Value, found.Groups["quote"].Value[0]);
+        var quote = trimmed[start + 1];
+        var body = trimmed[(start + 2)..(end - 1)];
+        return body.Contains("\\x", StringComparison.Ordinal) ? Unescaped(body, quote) : null;
     }
 
     /// <summary>The bytes as the hex view shows them, <see cref="BytesPerLine"/> to a line.</summary>
@@ -171,8 +172,45 @@ public static partial class CodeBytes
         return new(offset.ToString("x8", CultureInfo.InvariantCulture), hex.ToString(), printable.ToString());
     }
 
-    [GeneratedRegex("""b(?<quote>['"])(?<body>(?:\\.|(?!\k<quote>).)*)\k<quote>""", RegexOptions.Singleline)]
-    private static partial Regex BytesLiteral();
+    // Where the first bytes literal stands, from its b to just past its closing quote, found in one pass: a backslash
+    // and the character after it are passed over together, so the cost is the length of the text whatever it holds.
+    // A literal that is most of the text starts in its first tenth; one that is never closed is none.
+    private static (int Start, int End)? LiteralIn(string text)
+    {
+        var reach = text.Length / LiteralShare;
+        var start = -1;
+
+        for (var index = 0; index + 1 < text.Length && index <= reach; index++)
+        {
+            if (text[index] is 'b' && text[index + 1] is '\'' or '"' && (index == 0 || !char.IsLetterOrDigit(text[index - 1])))
+            {
+                start = index;
+                break;
+            }
+        }
+
+        if (start < 0)
+        {
+            return null;
+        }
+
+        var quote = text[start + 1];
+
+        for (var index = start + 2; index < text.Length; index++)
+        {
+            if (text[index] == quote)
+            {
+                return (start, index + 1);
+            }
+
+            if (text[index] is '\\')
+            {
+                index++;
+            }
+        }
+
+        return null;
+    }
 
     #endregion
 }
