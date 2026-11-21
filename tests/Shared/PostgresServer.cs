@@ -156,7 +156,6 @@ public sealed class PostgresServer : IAsyncLifetime
         return builder;
     }
 
-
     private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 
     #endregion

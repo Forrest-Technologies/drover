@@ -205,8 +205,5 @@ public sealed class PostgresFixture : IAsyncLifetime
         }
     }
 
-
-    private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
-
     #endregion
 }
