@@ -16,6 +16,7 @@ public static class DeploymentPolicyExtensions
             .WithBoundedToolServers()
             .WithoutToolConnections()
             .WithBoundedSandboxes()
+            .WithBoundedSandboxSecrets()
             .WithBoundedBotsPerSpace()
             .WithBoundedSchedules()
             .WithBoundedFiles()
@@ -34,7 +35,11 @@ public static class DeploymentPolicyExtensions
             .WithBoundedConversationSummaries()
             .WithBoundedMemory()
             .WithoutWebTools()
-            .WithoutImageGeneration();
+            .WithoutImageGeneration()
+            .WithBoundedPushTests();
+
+    public static DeploymentPolicy WithBoundedPushTests(this DeploymentPolicy policy) =>
+        policy with { MaxPushTestsPerMinute = DeploymentPolicy.HostedMaxPushTestsPerMinute };
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -76,6 +81,9 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
+
+    public static DeploymentPolicy WithBoundedSandboxSecrets(this DeploymentPolicy policy) =>
+        policy with { MaxSandboxSecretsPerSpace = DeploymentPolicy.HostedMaxSandboxSecretsPerSpace };
 
     public static DeploymentPolicy WithBoundedSchedules(this DeploymentPolicy policy) =>
         policy with

@@ -18,7 +18,15 @@ public sealed record BotEdit(
     SandboxSettings? SandboxSettings,
     IReadOnlyList<Guid> SandboxSharedWith,
     BuildLimits BuildLimits,
-    RunLimits RunLimits);
+    RunLimits RunLimits)
+{
+    /// <summary>
+    /// Whether the handle is the one the name makes (true), one a person chose (false), or the request did not say
+    /// (null): then a handle that changed is a choice, and one that did not keeps what is stored. A bot's handle once
+    /// chosen stays chosen.
+    /// </summary>
+    public bool? HandleFollowsName { get; init; }
+}
 
 /// <summary>
 /// A bot to create: its name, what it is for as other bots read it, its instructions, and the model it talks to. It

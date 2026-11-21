@@ -17,6 +17,7 @@ public static class SpaceEndpoints
 
         space.MapGet("/", GetSpace).WithName("GetSpace");
         space.MapGet("/secrets", ListSecrets).RequireSpaceRole(MembershipRole.Admin).WithName("ListSecrets");
+        space.MapModelFallbackEndpoints();
 
         // Model connections choose their own filter: testing one waits on the provider and must not hold a scope.
         root.MapModelConnectionEndpoints();
@@ -37,6 +38,7 @@ public static class SpaceEndpoints
 
         // A bot's sandbox waits on the provider, so its controls open their own short scopes.
         root.MapSandboxEndpoints();
+        root.MapSandboxSecretEndpoints();
         return api;
     }
 

@@ -86,9 +86,10 @@ var nativeClient = app.UseNativeClientFiles();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseRequestLimits();
-app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+// After sign-in, so a limit can be a person's own. The sign-in limits are by address and are not affected.
+app.UseRateLimiter();
 app.UseMiddleware<SpaceMembershipMiddleware>();
 
 var api = app.MapGroup("/api").AddEndpointFilter<AntiforgeryFilter>();

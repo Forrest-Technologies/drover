@@ -96,9 +96,11 @@ public sealed class MessageVersionTests(PostgresFixture postgres)
         await using var scratch = await postgres.CreateScratchDatabase();
         await using var provider = scratch.BuildServices();
         var world = await TenantWorld.Seed(provider);
+        var botInA = await NewBot(provider, world.SpaceA, world.UserA1);
+        var botInB = await NewBot(provider, world.SpaceB, world.UserB1);
         await MigrateTo(scratch, "ConversationModels");
-        var inA = await InsertOldThread(provider, world.SpaceA, world.UserA1, 3);
-        var inB = await InsertOldThread(provider, world.SpaceB, world.UserB1, 2);
+        var inA = await InsertOldThread(provider, world.SpaceA, world.UserA1, botInA, 3);
+        var inB = await InsertOldThread(provider, world.SpaceB, world.UserB1, botInB, 2);
         await MigrateTo(scratch, null);
 
         (await Parents(provider, world.SpaceA, world.UserA1, inA.Thread)).Should().Equal(null, inA.Messages[0], inA.Messages[1]);
@@ -165,17 +167,24 @@ public sealed class MessageVersionTests(PostgresFixture postgres)
         return await new MessageRepository(session.Db).ListVersions(thread.Id, Token);
     }
 
-    /// <summary>A thread and its messages written through the application role, before messages named their parent.</summary>
-    private static async Task<(Guid Thread, List<Guid> Messages)> InsertOldThread(IServiceProvider provider, Guid spaceId, Guid owner, int count)
+    /// <summary>A bot made while the schema is current, so the old-schema steps of a migration test need not write it.</summary>
+    private static async Task<Guid> NewBot(IServiceProvider provider, Guid spaceId, Guid owner)
     {
-        var id = Guid.CreateVersion7();
-        List<Guid> messages = [];
         await using var session = await TenantSession.Open(provider, spaceId, owner);
         var connection = CoreRows.NewConnection();
         var bot = CoreRows.NewBot(connection);
         session.Db.ModelConnections.Add(connection);
         CoreRows.AddBot(session.Db, bot, []);
-        await session.Db.SaveChangesAsync(Token);
+        await session.Commit();
+        return bot.Id;
+    }
+
+    /// <summary>A thread and its messages written through the application role, before messages named their parent.</summary>
+    private static async Task<(Guid Thread, List<Guid> Messages)> InsertOldThread(IServiceProvider provider, Guid spaceId, Guid owner, Guid botId, int count)
+    {
+        var id = Guid.CreateVersion7();
+        List<Guid> messages = [];
+        await using var session = await TenantSession.Open(provider, spaceId, owner);
         await session.Execute(
             """
             INSERT INTO threads (id, space_id, bot_id, owner_user_id, audience_user_id, origin, last_activity_at)
@@ -183,7 +192,7 @@ public sealed class MessageVersionTests(PostgresFixture postgres)
             """,
             ("id", id),
             ("space", spaceId),
-            ("bot", bot.Id),
+            ("bot", botId),
             ("owner", owner));
 
         for (var position = 1; position <= count; position++)

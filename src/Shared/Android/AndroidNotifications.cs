@@ -33,12 +33,13 @@ internal static class AndroidNotifications
             // A reply is offered only where Android can ask for the device to be unlocked first. Without that,
             // whoever holds a locked phone could write to a bot as its owner.
             Post(wake.BotId, wake.ThreadId, wake.IsMain, wake.Body,
-                canReply && wake.SpaceId is { } space && OperatingSystem.IsAndroidVersionAtLeast(31) ? ReplyFor(wake, saved, space) : null);
+                canReply && wake.SpaceId is { } space && OperatingSystem.IsAndroidVersionAtLeast(31) ? ReplyFor(wake, saved, space) : null,
+                new Opening(saved.UserId, saved.Token, wake.SpaceId));
         }
     }
 
-    public static void ShowReplyResult(Guid bot, Guid thread, bool main, string body) =>
-        Post(bot, thread, main, body);
+    public static void ShowReplyResult(Guid bot, Guid thread, bool main, string body, Guid user, string registration, Guid space) =>
+        Post(bot, thread, main, body, opening: new Opening(user, registration, space));
 
     /// <summary>For a wake-up whose words could not be fetched: the person still learns that something happened.</summary>
     public static void ShowChange() => Post(Guid.Empty, Guid.Empty, true, "Something changed. Open Drover to see it.");
@@ -77,7 +78,14 @@ internal static class AndroidNotifications
 
     #region Private Methods
 
-    private static void Post(Guid bot, Guid thread, bool main, string body, Notification.Action? reply = null)
+    /// <summary>
+    /// What proves a tap came from this app's own notification: the person and the registration it was made for, which
+    /// no other app has, and the space the conversation is in. The activity is open to any app, so it opens a
+    /// conversation only for an intent that carries them (<see cref="IncomingIntents"/>).
+    /// </summary>
+    internal readonly record struct Opening(Guid User, string Registration, Guid? Space);
+
+    private static void Post(Guid bot, Guid thread, bool main, string body, Notification.Action? reply = null, Opening? opening = null)
     {
         if (!Allowed)
         {
@@ -90,6 +98,15 @@ internal static class AndroidNotifications
         using var target = new Intent(context, typeof(MainActivity)).SetAction(OpenAction)!
             .SetData(AndroidUri.Parse($"drover://conversation/{thread}"))!
             .PutExtra("bot", bot.ToString())!.PutExtra("thread", thread.ToString())!.PutExtra("main", main)!;
+        if (opening is { } proof)
+        {
+            target.PutExtra("user", proof.User.ToString())!.PutExtra("registration", proof.Registration);
+            if (proof.Space is { } space)
+            {
+                target.PutExtra("space", space.ToString());
+            }
+        }
+
         using var open = PendingIntent.GetActivity(context, 0, target, PendingIntentFlags.Immutable | PendingIntentFlags.UpdateCurrent);
         builder.SetSmallIcon(Resource.Drawable.drover_notification)!
             .SetContentTitle("Drover")!

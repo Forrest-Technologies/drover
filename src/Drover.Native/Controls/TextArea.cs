@@ -72,6 +72,8 @@ public sealed class TextArea : StackPanel
 
     public static readonly DependencyProperty DisabledProperty = Dp.Register<TextArea, bool>(nameof(Disabled), false, area => area.Describe());
 
+    public static readonly DependencyProperty MaxLengthProperty = Dp.Register<TextArea, int>(nameof(MaxLength), 0, area => area.Describe());
+
     public string Label
     {
         get => (string)GetValue(LabelProperty);
@@ -115,6 +117,13 @@ public sealed class TextArea : StackPanel
     {
         get => (bool)GetValue(DisabledProperty);
         set => SetValue(DisabledProperty, value);
+    }
+
+    /// <summary>The most characters the field takes, or 0 for no limit. Typing past it does nothing.</summary>
+    public int MaxLength
+    {
+        get => (int)GetValue(MaxLengthProperty);
+        set => SetValue(MaxLengthProperty, value);
     }
 
     #endregion
@@ -165,6 +174,7 @@ public sealed class TextArea : StackPanel
         hint.Text = Hint ?? string.Empty;
         hint.Visibility = Hint is null ? Visibility.Collapsed : Visibility.Visible;
         input.IsEnabled = !Disabled;
+        input.MaxLength = MaxLength;
         input.FontFamily = placeholder.FontFamily = Machine ? Tokens.FontMono : Tokens.FontUi;
         input.FontSize = placeholder.FontSize = size;
         input.MinHeight = Math.Max(Tokens.Number("DvTargetTouch"), (Rows * line) + (2 * Tokens.Number("DvSpace2")));

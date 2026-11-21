@@ -11,15 +11,20 @@ public sealed class SessionState(DroverApi api)
 
     private long openGeneration;
 
+    private Guid? chosen;
+
     #endregion
 
     #region Properties
 
     public SessionResponse? Current { get; private set; }
 
-    /// <summary>The space the screens work in. A person's own space comes first.</summary>
+    /// <summary>
+    /// The space the screens work in. A person's own space comes first, unless they were sent into another they belong
+    /// to, as a tapped notification does, which holds until they sign out or the app starts again.
+    /// </summary>
     public SpaceSummary? Space => Current?.Spaces is [var first, ..] spaces
-        ? spaces.FirstOrDefault(space => space.Kind == "personal") ?? first
+        ? spaces.FirstOrDefault(space => space.Id == chosen) ?? spaces.FirstOrDefault(space => space.Kind == "personal") ?? first
         : null;
 
     public event Action? Changed;
@@ -36,6 +41,19 @@ public sealed class SessionState(DroverApi api)
     #endregion
 
     #region Public Methods
+
+    /// <summary>
+    /// Works in the space a conversation is in. A space the person is not a member of is ignored when it is read, so
+    /// an address cannot take them into one. Naming none, or their own, goes back to their own space.
+    /// </summary>
+    public void ChooseSpace(Guid? space)
+    {
+        if (chosen != space)
+        {
+            chosen = space;
+            Changed?.Invoke();
+        }
+    }
 
     public async Task<SessionResponse?> Load(CancellationToken cancellationToken = default)
     {
@@ -101,6 +119,7 @@ public sealed class SessionState(DroverApi api)
     public void Begin(SessionResponse session)
     {
         Current = session;
+        chosen = null;
         loaded = true;
         Changed?.Invoke();
     }
@@ -109,6 +128,7 @@ public sealed class SessionState(DroverApi api)
     {
         await api.SignOut(cancellationToken);
         Current = null;
+        chosen = null;
         Changed?.Invoke();
     }
 

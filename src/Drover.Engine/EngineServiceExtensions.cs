@@ -60,6 +60,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<ToolSignInRenewal>();
         services.AddScoped<AuditLog>();
         services.AddScoped<BotService>();
+        services.AddScoped<ModelFallbackService>();
         services.AddScoped<ExtensionService>();
         services.AddScoped<ExtensionConnector>();
         services.AddScoped<GrantService>();
@@ -67,6 +68,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ScheduleFiring>();
         services.AddSingleton<ScheduleRunner>();
         services.AddScoped<RuleService>();
+        services.AddScoped<SandboxSecretService>();
         services.AddScoped<ThreadService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<ConversationModels>();

@@ -108,12 +108,40 @@ public sealed class AndroidPushRegistration(
 
     private async Task<DevicePushCheck> ReadCheck()
     {
-        var saved = await Read(server.Current);
+        var saved = await Reconcile(server.Current);
         var requiresPermission = OperatingSystem.IsAndroidVersionAtLeast(33) && !Preferences.Default.Get(PermissionAsked, false);
         var support = !AndroidNotifications.Allowed && !requiresPermission
             ? DevicePushSupport.Blocked
             : UnifiedPushTransport.Distributors().Count == 0 ? DevicePushSupport.NeedsDistributor : DevicePushSupport.Available;
         return new(support, saved?.Endpoint);
+    }
+
+    // A distributor that rotated its address while the server could not be reached leaves the server holding a dead
+    // one. The new address is kept at once, so what comes to it can be opened, and the server is told here, whenever the
+    // notifications control looks, until it has been.
+    private async Task<AndroidPushSubscription?> Reconcile(Uri? origin)
+    {
+        var saved = await Read(origin);
+        if (origin is null || saved is not { HasUnreportedEndpoint: true })
+        {
+            return saved;
+        }
+
+        await gate.WaitAsync();
+        try
+        {
+            saved = await Read(origin);
+            if (saved is { HasUnreportedEndpoint: true })
+            {
+                saved = await Report(origin, saved, CancellationToken.None);
+            }
+
+            return saved;
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private async Task<PushDeviceRequest?> SubscribeOnDevice(string publicKey, CancellationToken cancellationToken)
@@ -215,6 +243,7 @@ public sealed class AndroidPushRegistration(
                 AndroidNotifications.Clear();
                 pending?.TrySetResult(null);
                 pending = null;
+                await TellServerToStop(origin, saved, cancellationToken);
                 break;
         }
     }
@@ -229,7 +258,8 @@ public sealed class AndroidPushRegistration(
 
         if (pending is { } waiting)
         {
-            await storage.SetAsync(Key(origin), updated.Store());
+            // The caller that asked for this registration tells the server, so there is nothing left to report.
+            await storage.SetAsync(Key(origin), (updated with { Reported = endpoint }).Store());
             pending = null;
             waiting.TrySetResult(request);
             return;
@@ -237,19 +267,87 @@ public sealed class AndroidPushRegistration(
 
         if (saved.Endpoint != endpoint)
         {
+            // Keep the new address first, so a message sent to it can be opened whether or not the server hears of it now.
+            updated = updated with { Reported = saved.Reported ?? saved.Endpoint };
+            await storage.SetAsync(Key(origin), updated.Store());
+            await Report(origin, updated, cancellationToken);
+        }
+    }
+
+    // Tells the server the address the distributor gave, then stops it using the one it held. A failure leaves what
+    // the server was last told in place, so the next look tries again.
+    private async Task<AndroidPushSubscription> Report(Uri origin, AndroidPushSubscription saved, CancellationToken cancellationToken)
+    {
+        if (saved.Request() is not { } request)
+        {
+            return saved;
+        }
+
+        try
+        {
             await using var scope = scopes.CreateAsyncScope();
             var api = scope.ServiceProvider.GetRequiredService<DroverApi>();
-            if ((await api.GetSession(cancellationToken))?.UserId != saved.UserId)
+            var made = await OwnerBoundWrite.Run(
+                () => server.Current,
+                origin,
+                async () => (await api.GetSession(cancellationToken))?.UserId,
+                saved.UserId,
+                () => api.TurnOnPush(request, cancellationToken),
+                () => api.TurnOffPush(request.Endpoint, CancellationToken.None),
+                logger);
+            if (!made)
             {
-                return;
+                return saved;
             }
 
-            await api.TurnOnPush(request, cancellationToken);
-            await storage.SetAsync(Key(origin), updated.Store());
-            if (saved.Endpoint is { } previous)
+            var reported = saved with { Reported = saved.Endpoint };
+            await storage.SetAsync(Key(origin), reported.Store());
+            if (saved.Reported is { } previous && previous != saved.Endpoint)
             {
-                await api.TurnOffPush(previous, cancellationToken);
+                // The old address goes only while the same person is still signed in. If not, it stays and the
+                // next look removes it, since the server was told the new one.
+                await OwnerBoundWrite.Run(
+                    () => server.Current,
+                    origin,
+                    async () => (await api.GetSession(cancellationToken))?.UserId,
+                    saved.UserId,
+                    () => api.TurnOffPush(previous, cancellationToken),
+                    () => Task.CompletedTask);
             }
+
+            return reported;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or DroverApiException or OperationCanceledException)
+        {
+            logger.LogWarning("Drover could not tell the server the notification address changed; it will try again");
+            return saved;
+        }
+    }
+
+    // The registration is gone from the device, so the server must not keep sending to it. If the server cannot be
+    // reached now it learns from the distributor, whose answer to a message for a gone registration it acts on.
+    private async Task TellServerToStop(Uri origin, AndroidPushSubscription saved, CancellationToken cancellationToken)
+    {
+        string?[] addresses = [saved.Endpoint, saved.Reported];
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var api = scope.ServiceProvider.GetRequiredService<DroverApi>();
+            foreach (var address in addresses.OfType<string>().Distinct())
+            {
+                // Each removal is checked on its own, so one made after the person signed out is not made at all.
+                await OwnerBoundWrite.Run(
+                    () => server.Current,
+                    origin,
+                    async () => (await api.GetSession(cancellationToken))?.UserId,
+                    saved.UserId,
+                    () => api.TurnOffPush(address, cancellationToken),
+                    () => Task.CompletedTask);
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or DroverApiException or OperationCanceledException)
+        {
+            logger.LogWarning("Drover could not tell the server that this device stopped receiving notifications");
         }
     }
 

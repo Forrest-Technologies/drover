@@ -232,7 +232,10 @@ public sealed class FileCard : Grid
         facts.Text = model.Facts;
         deviceActions.Visibility = model.Delivers ? Visibility.Visible : Visibility.Collapsed;
         download.Visibility = model.Delivers ? Visibility.Collapsed : Visibility.Visible;
-        save.IsEnabled = share.IsEnabled = !model.Exporting;
+        // The pressed button stays enabled: disabling it would take keyboard and screen reader focus away from it. The
+        // model ignores a press while it works, and the state is told to assistive technology instead.
+        AutomationProperties.SetItemStatus(save, model.ExportingWords ?? string.Empty);
+        AutomationProperties.SetItemStatus(share, model.ExportingWords ?? string.Empty);
         AutomationProperties.SetName(save, model.SaveName);
         AutomationProperties.SetName(share, model.ShareName);
         AutomationProperties.SetName(download, model.DownloadName);
