@@ -37,6 +37,8 @@
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
     <Compile Include="..\Shared\TestRolePasswords.cs" Link="Shared\TestRolePasswords.cs" />
+    <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />
+    <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
     <Compile Include="..\Shared\SdkToolServer.cs" Link="Shared\SdkToolServer.cs" />
     <Compile Include="..\Shared\SignInDesk.cs" Link="Shared\SignInDesk.cs" />
   </ItemGroup>

@@ -26,7 +26,22 @@ public sealed class PostgresServer : IAsyncLifetime
 
     private PostgreSqlContainer? container;
 
+    private readonly PostgresLocator locator;
     private NpgsqlConnectionStringBuilder server = null!; // set first thing in InitializeAsync
+
+    #endregion
+
+    #region Constructors
+
+    public PostgresServer() =>
+        locator = new(
+        () => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"),
+        async cancellationToken =>
+        {
+            container = new PostgreSqlBuilder("postgres:16-alpine").Build();
+            await container.StartAsync(cancellationToken);
+            return container.GetConnectionString();
+        });
 
     #endregion
 
@@ -44,7 +59,7 @@ public sealed class PostgresServer : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        server = [with(await FindServer())];
+        server = [with(await locator.Find(TestContext.Current.CancellationToken))];
         ownerPassword = TestRolePasswords.For(server, "drover_owner");
         appPassword = TestRolePasswords.For(server, "drover_app");
 
@@ -103,20 +118,6 @@ public sealed class PostgresServer : IAsyncLifetime
     #endregion
 
     #region Private Methods
-
-    private async Task<string> FindServer()
-    {
-        var named = Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES");
-
-        if (!string.IsNullOrWhiteSpace(named))
-        {
-            return named;
-        }
-
-        container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-        await container.StartAsync();
-        return container.GetConnectionString();
-    }
 
     // Not ClearAllPools: other tests in this assembly are using their own pools at the same time.
     private Task Drop(string name) => ExecuteOnServer($"DROP DATABASE IF EXISTS {name} WITH (FORCE)");

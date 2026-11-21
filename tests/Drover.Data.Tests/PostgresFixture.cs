@@ -24,6 +24,14 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private PostgreSqlContainer? container;
 
+<<<<<<< HEAD
+=======
+    private readonly PostgresLocator locator;
+
+
+    private PostgresRoleLease? roleLease;
+
+>>>>>>> 4c24c01e (fix: give browser and PostgreSQL test lookups one clear failure)
     private string? scratchTemplateName;
 
     private NpgsqlConnectionStringBuilder serverConnection = null!; // set first thing in InitializeAsync
@@ -35,6 +43,14 @@ public sealed class PostgresFixture : IAsyncLifetime
     public PostgresFixture()
     {
         scratchTemplate = new Lazy<Task<string>>(BuildScratchTemplate);
+        locator = new(
+            () => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"),
+        async cancellationToken =>
+        {
+            container = new PostgreSqlBuilder("postgres:16-alpine").Build();
+            await container.StartAsync(cancellationToken);
+            return container.GetConnectionString();
+        });
     }
 
     #endregion
@@ -50,9 +66,14 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         elapsed.Start();
+<<<<<<< HEAD
         serverConnection = [with(await FindServer())];
         ownerPassword = TestRolePasswords.For(serverConnection, "drover_owner");
         appPassword = TestRolePasswords.For(serverConnection, "drover_app");
+=======
+        serverConnection = [with(await locator.Find(TestContext.Current.CancellationToken))];
+        roleLease = await PostgresRoleLease.Acquire(serverConnection.ConnectionString);
+>>>>>>> 4c24c01e (fix: give browser and PostgreSQL test lookups one clear failure)
 
         await CreateDatabase();
         await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
@@ -139,20 +160,6 @@ public sealed class PostgresFixture : IAsyncLifetime
     #endregion
 
     #region Private Methods
-
-    private async Task<string> FindServer()
-    {
-        var named = Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES");
-
-        if (!string.IsNullOrWhiteSpace(named))
-        {
-            return named;
-        }
-
-        container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-        await container.StartAsync();
-        return container.GetConnectionString();
-    }
 
     private Task CreateDatabase() => ExecuteOnServer($"CREATE DATABASE {databaseName}");
 

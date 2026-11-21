@@ -8,15 +8,6 @@ public sealed class TalkEscapeBrowserTests : IAsyncLifetime
 {
     #region Private Fields
 
-    private static readonly string[] browserPaths =
-    [
-        "/opt/pw-browsers/chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ];
-
     private IPlaywright? playwright;
 
     private IBrowser? browser;
@@ -125,7 +116,7 @@ public sealed class TalkEscapeBrowserTests : IAsyncLifetime
             Path.Combine(RepositoryFiles.Root, "src", "Drover.Ui", "Pages", "Talk.razor.js"),
             Xunit.TestContext.Current.CancellationToken);
         playwright = await Playwright.CreateAsync();
-        browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = BrowserPath() });
+        browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = TestBrowser.Path() });
         var context = await browser.NewContextAsync();
         page = await context.NewPageAsync();
     }
@@ -144,11 +135,6 @@ public sealed class TalkEscapeBrowserTests : IAsyncLifetime
 
     #region Private Methods
 
-    private static string BrowserPath() =>
-        Environment.GetEnvironmentVariable("DROVER_TEST_CHROMIUM") is { Length: > 0 } chosen
-            ? chosen
-            : browserPaths.FirstOrDefault(File.Exists)
-                ?? throw new InvalidOperationException("No Chromium executable found for TalkEscapeBrowserTests.");
 
     #endregion
 }

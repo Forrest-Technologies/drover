@@ -12,15 +12,6 @@ public sealed class HtmlPreviewBrowserTests : IAsyncLifetime
 
     private const string PreviewOriginCookie = "preview-origin-cookie=should-not-be-sent";
 
-    private static readonly string[] browserPaths =
-    [
-        "/opt/pw-browsers/chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ];
-
     private readonly List<CapturedRequest> previewRequests = [];
 
     private readonly List<string> unlistedRequests = [];
@@ -211,7 +202,7 @@ public sealed class HtmlPreviewBrowserTests : IAsyncLifetime
         });
 
         playwright = await Playwright.CreateAsync();
-        browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = BrowserPath() });
+        browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = TestBrowser.Path() });
         var context = await browser.NewContextAsync();
         page = await context.NewPageAsync();
     }
@@ -325,12 +316,6 @@ public sealed class HtmlPreviewBrowserTests : IAsyncLifetime
         return app;
     }
 
-    private static string BrowserPath() =>
-        Environment.GetEnvironmentVariable("DROVER_TEST_CHROMIUM") is { Length: > 0 } chosen
-            ? chosen
-            : browserPaths.FirstOrDefault(File.Exists)
-                ?? throw new InvalidOperationException(
-                    $"No Chromium found. Set DROVER_TEST_CHROMIUM to one, or install Chrome or Chromium at one of: {string.Join(", ", browserPaths)}.");
 
     #endregion
 
