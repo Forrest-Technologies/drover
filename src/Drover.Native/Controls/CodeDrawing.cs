@@ -56,7 +56,8 @@ internal sealed class CodeDrawing(FrameworkElement scope)
             }
         }
 
-        foreach (var grid in new[] { header, rows }.OfType<Grid>())
+        Grid?[] grids = [header, rows];
+        foreach (var grid in grids.OfType<Grid>())
         {
             for (var column = 0; column < table.ColumnCount; column++)
             {
