@@ -14,12 +14,6 @@ public sealed class RunDispatcher(
     IOptions<RunOptions> options,
     ILogger<RunDispatcher> logger)
 {
-    #region Private Fields
-
-    private static readonly TimeSpan errorDelay = TimeSpan.FromSeconds(2);
-
-    #endregion
-
     #region Properties
 
     /// <summary>The name this server's leases carry. A new one for every start, so a restarted server never mistakes an old lease for its own.</summary>
@@ -53,8 +47,13 @@ public sealed class RunDispatcher(
             }
         }
 
+        // The two waits are logged so a stop that does not finish says which of them it is stuck on.
+        logger.LogInformation(
+            "Run dispatcher {WorkerId} is stopping; waiting for {Running} running executions", WorkerId, running.Count);
         await Task.WhenAll(running.Values);
+        logger.LogInformation("Run dispatcher {WorkerId} is stopping; waiting for the notification listener", WorkerId);
         await listening;
+        logger.LogInformation("Run dispatcher {WorkerId} stopped", WorkerId);
     }
 
     #endregion
@@ -98,7 +97,13 @@ public sealed class RunDispatcher(
             logger.LogDebug(exception, "Run dispatcher {WorkerId} lost its host", WorkerId);
             throw;
         }
-        catch (Exception exception) when (!stopping.IsCancellationRequested)
+        catch (Exception exception) when (stopping.IsCancellationRequested)
+        {
+            // Stopping, so nothing is tried again: the loop ends through its own check of the token.
+            logger.LogWarning(exception, "Run dispatcher {WorkerId} failed to claim runs while stopping", WorkerId);
+            return false;
+        }
+        catch (Exception exception)
         {
             logger.LogError(exception, "Claiming runs failed; trying again shortly");
             await PauseAfterFailure(stopping);
@@ -106,15 +111,12 @@ public sealed class RunDispatcher(
         }
     }
 
-    /// <summary>
-    /// The pause before a retry must stop with the server. A fixed token here kept the dispatcher polling for two
-    /// seconds after shutdown was requested, which is what made EngineHost's dispose wait time out (#765).
-    /// </summary>
+    /// <summary>The pause before a retry ends when the server stops, so a stop never waits out a retry.</summary>
     private async Task PauseAfterFailure(CancellationToken stopping)
     {
         try
         {
-            await Task.Delay(errorDelay, stopping);
+            await Task.Delay(options.Value.ClaimRetryDelay, stopping);
         }
         catch (OperationCanceledException)
         {
