@@ -33,6 +33,16 @@ public sealed partial class CodeViewerModel(Navigator? navigator) : ObservableOb
 
     #region Public Methods
 
+    /// <summary>
+    /// What the view draws of a block: all of it, and a table as a grid only while all of it keeps to a grid's bounds
+    /// (<see cref="CodeLines.TableLayoutOf"/>). Past them, the table is drawn as its text, which costs no more than its
+    /// characters, so opening a table of a great many cells cannot stall the screen.
+    /// </summary>
+    public static CodeContent Viewed(CodeContent content) =>
+        content is { Kind: CodeKind.Table, Table: { } table } && CodeLines.TableLayoutOf(table, all: true) is TableLayout.Text
+            ? content with { Kind = CodeKind.Plain, Family = CodeFamily.None }
+            : content;
+
     /// <summary>The name of the full screen view of a block with this label.</summary>
     public static string FullScreenTitle(string label) => $"Full screen: {label}";
 

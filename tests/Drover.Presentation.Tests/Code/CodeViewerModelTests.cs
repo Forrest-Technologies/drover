@@ -28,6 +28,42 @@ public sealed class CodeViewerModelTests
 
     #endregion
 
+    #region What It Draws
+
+    [Fact]
+    public void A_table_of_a_great_many_empty_cells_opens_as_its_text_under_its_own_name()
+    {
+        var row = $"x{new string('\t', CodeLines.MaxColumns - 1)}";
+        var text = string.Concat(Enumerable.Repeat($"{row}\n", CodeLines.MaxLines * 2));
+        var content = CodeContent.Detect(text);
+        content.Kind.Should().Be(CodeKind.Table);
+
+        var viewed = CodeViewerModel.Viewed(content);
+
+        viewed.Kind.Should().Be(CodeKind.Plain, "a grid of that many cells would stall the screen");
+        viewed.Text.Should().Be(text, "all of it is still shown");
+        viewed.Label.Should().Be(content.Label);
+    }
+
+    [Fact]
+    public void A_table_whose_rows_all_keep_to_the_bounds_opens_as_a_grid()
+    {
+        var content = CodeContent.Detect(string.Concat(Enumerable.Range(1, 1_000).Select(row => $"{row}\tok\n")));
+
+        CodeViewerModel.Viewed(content).Should().BeSameAs(content);
+    }
+
+    [Fact]
+    public void A_table_past_the_column_bound_opens_as_text()
+    {
+        var row = $"x{new string('\t', CodeLines.MaxColumns)}";
+        var content = CodeContent.Detect(string.Concat(Enumerable.Repeat($"{row}\n", 3)));
+
+        CodeViewerModel.Viewed(content).Kind.Should().Be(CodeKind.Plain);
+    }
+
+    #endregion
+
     #region Wrap
 
     [Fact]

@@ -206,10 +206,12 @@ internal sealed class CodeViewer
 
     private void Draw()
     {
-        if (model.Content is not { } shown)
+        if (model.Content is not { } held)
         {
             return;
         }
+
+        var shown = CodeViewerModel.Viewed(held);
 
         layer.RequestedTheme = owner?.ActualTheme ?? ElementTheme.Default;
         scrim.Background = Tokens.Brush(layer, "DvScrim");
