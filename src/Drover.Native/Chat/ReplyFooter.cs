@@ -15,7 +15,16 @@ public sealed class ReplyFooter : Grid
 
     private readonly CopyButton copy = new() { Label = CopyLabel, Ink = "DvText3", VerticalAlignment = VerticalAlignment.Center };
 
-    // The versions' switch and the way to another reply stand here when the message is a reply.
+    private readonly IconButton regenerate = new()
+    {
+        Icon = IconName.Regenerate,
+        Label = ChatRows.RegenerateLabel,
+        Ink = "DvText3",
+        VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed,
+    };
+
+    // The versions' switch stands here when the message is a reply that has versions.
     private readonly StackPanel versionsSlot = new() { VerticalAlignment = VerticalAlignment.Center };
 
     private readonly PlainButton hint = new()
@@ -85,9 +94,14 @@ public sealed class ReplyFooter : Grid
         flyout.Opened += (_, _) => close.TakeFocus();
         flyout.Closed += (_, _) => Closed();
 
-        line.Children.Add(copy);
-        line.Children.Add(versionsSlot);
-        line.Children.Add(hint);
+        regenerate.Click += async (_, _) => await Regenerate();
+
+        // The parts stand in the order a footer's parts are named, so the line and its tests agree.
+        foreach (var part in Enum.GetValues<FooterPart>())
+        {
+            line.Children.Add(PartOf(part));
+        }
+
         Children.Add(line);
         this.WhenShownOrRethemed(Show);
     }
@@ -111,13 +125,19 @@ public sealed class ReplyFooter : Grid
 
     /// <summary>True when the line holds anything to use, so the reply shows it.</summary>
     public bool HasAny =>
-        copy.Visibility is Visibility.Visible || hint.Visibility is Visibility.Visible || versionsSlot.Children.Any(part => part.Visibility is Visibility.Visible);
+        copy.Visibility is Visibility.Visible
+        || regenerate.Visibility is Visibility.Visible
+        || hint.Visibility is Visibility.Visible
+        || versionsSlot.Children.Any(part => part.Visibility is Visibility.Visible);
+
+    /// <summary>Asks for another reply. Without it, the line offers none.</summary>
+    public Func<Task>? OnRegenerate { get; set; }
 
     #endregion
 
     #region Public Methods
 
-    /// <summary>Puts the versions' switch and the way to another reply on this line.</summary>
+    /// <summary>Puts the versions' switch on this line.</summary>
     public void Hold(UIElement versions)
     {
         if (!versionsSlot.Children.Contains(versions))
@@ -126,16 +146,36 @@ public sealed class ReplyFooter : Grid
         }
     }
 
-    /// <summary>Offers to copy the reply's words, or nothing while there are none to copy.</summary>
-    public void Offer(string? replyText)
+    /// <summary>Shows the parts of the line the reply has (<see cref="ChatRows.FooterParts"/>), with its words to copy.</summary>
+    public void Show(string replyText, IReadOnlyList<FooterPart> parts)
     {
-        copyText = replyText ?? string.Empty;
+        copyText = parts.Contains(FooterPart.Copy) ? replyText : string.Empty;
         copy.Visibility = copyText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        regenerate.Visibility = parts.Contains(FooterPart.Regenerate) && OnRegenerate is not null ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>Puts the focus on the regenerate icon.</summary>
+    public void TakeFocus() => regenerate.TakeFocus();
 
     #endregion
 
     #region Private Methods
+
+    private FrameworkElement PartOf(FooterPart part) => part switch
+    {
+        FooterPart.Copy => copy,
+        FooterPart.Regenerate => regenerate,
+        FooterPart.Versions => versionsSlot,
+        _ => hint,
+    };
+
+    private async Task Regenerate()
+    {
+        if (OnRegenerate is { } regenerateReply)
+        {
+            await regenerateReply();
+        }
+    }
 
     private void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs change) => Show();
 

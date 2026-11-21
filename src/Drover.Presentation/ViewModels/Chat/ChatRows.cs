@@ -16,6 +16,15 @@ public enum ChatEntryShape
     Bot,
 }
 
+/// <summary>A part of a reply's footer, in the order the parts stand on its line.</summary>
+public enum FooterPart
+{
+    Copy,
+    Regenerate,
+    Versions,
+    Usage,
+}
+
 /// <summary>Which card stands for a tool call in a conversation.</summary>
 public enum ToolCardShape
 {
@@ -92,12 +101,43 @@ public static class ChatRows
     public static bool OffersUsage(ChatMessage message, bool canRead) => canRead && message is { EndsReply: true, RunId: not null };
 
     /// <summary>
-    /// A reply's words are offered to copy where its footer stands: on the last words of a finished run, or a reply
-    /// that has versions or may get another. Never while the words still arrive.
+    /// A reply's words are offered to copy where its footer stands: on the last words of every finished reply, whoever
+    /// it was written for, or a reply that has versions or may get another. Never while the words still arrive.
     /// </summary>
     public static bool OffersCopy(ChatMessage message) =>
         message is { FromPerson: false, Streaming: false, Text.Length: > 0 }
-        && (message.EndsReply || message.MayRegenerate || message.Versions is not null);
+        && (message.FinishesReply || message.EndsReply || message.MayRegenerate || message.Versions is not null);
+
+    /// <summary>
+    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, another reply, the
+    /// switch between versions, then the hint of what the reply used.
+    /// </summary>
+    public static IReadOnlyList<FooterPart> FooterParts(ChatMessage message, bool canRegenerate, bool canSwitch, bool canReadUsage)
+    {
+        List<FooterPart> parts = [];
+
+        if (OffersCopy(message))
+        {
+            parts.Add(FooterPart.Copy);
+        }
+
+        if (OffersRegenerate(message, canRegenerate))
+        {
+            parts.Add(FooterPart.Regenerate);
+        }
+
+        if (canSwitch && message.Versions is not null)
+        {
+            parts.Add(FooterPart.Versions);
+        }
+
+        if (OffersUsage(message, canReadUsage))
+        {
+            parts.Add(FooterPart.Usage);
+        }
+
+        return parts;
+    }
 
     /// <summary>
     /// Another reply is offered where it is today: on a finished reply the server says may be written again, where the

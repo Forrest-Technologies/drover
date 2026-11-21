@@ -56,6 +56,12 @@ public sealed class MessageVersions : Grid
     /// <summary>Makes a new version: opens the edit of a person's message, or asks for another reply.</summary>
     public Func<Task>? OnAct { get; set; }
 
+    /// <summary>
+    /// False where a reply's footer holds the way to another reply, so this line holds only the switch and the order
+    /// of the footer stays: copy, another reply, the switch.
+    /// </summary>
+    public bool OffersReplyAction { get; set; } = true;
+
     /// <summary>True when there is anything on the line to use.</summary>
     public bool HasAny => switcher.Visibility is Visibility.Visible || action.Visibility is Visibility.Visible;
 
@@ -77,7 +83,7 @@ public sealed class MessageVersions : Grid
             next.IsEnabled = versions is { Enabled: true, Next: not null };
         }
 
-        var offered = message.FromPerson ? OnAct is not null && message.MayEdit : ChatRows.OffersRegenerate(message, OnAct is not null);
+        var offered = message.FromPerson ? OnAct is not null && message.MayEdit : OffersReplyAction && ChatRows.OffersRegenerate(message, OnAct is not null);
         action.Visibility = offered ? Visibility.Visible : Visibility.Collapsed;
         action.Icon = message.FromPerson ? IconName.Edit : IconName.Regenerate;
         action.Label = message.FromPerson ? ChatRows.EditMessageName : ChatRows.RegenerateLabel;

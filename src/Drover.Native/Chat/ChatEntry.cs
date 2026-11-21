@@ -377,11 +377,11 @@ public sealed class ChatEntry : ContentControl
 
         ShowUsage(message, parameters);
         ShowVersions(message, parameters);
-        ShowFooter(message);
+        ShowFooter(message, parameters);
     }
 
     // The footer is for a finished reply: copy, another reply, and the hint of what wrote it and what it used.
-    private void ShowFooter(ChatMessage message)
+    private void ShowFooter(ChatMessage message, ChatEntryParameters parameters)
     {
         if (shape is ChatEntryShape.Person or ChatEntryShape.Tools or ChatEntryShape.Compact)
         {
@@ -389,13 +389,15 @@ public sealed class ChatEntry : ContentControl
         }
 
         // While the bot writes, nothing stands under its words.
-        footer.Offer(ChatRows.OffersCopy(message) ? message.Text : null);
+        footer.OnRegenerate = parameters.Regenerate is not null ? Act : null;
+        footer.Show(message.Text, ChatRows.FooterParts(message, parameters.Regenerate is not null, parameters.ShowVersion is not null, parameters.LoadUsage is not null));
         footer.Visibility = Shown(!message.Streaming && footer.HasAny);
     }
 
     private void ShowVersions(ChatMessage message, ChatEntryParameters parameters)
     {
         versions.ShowVersion = parameters.ShowVersion;
+        versions.OffersReplyAction = shape is not ChatEntryShape.Bot;
         versions.OnAct = (message.FromPerson ? parameters.Edit is not null : parameters.Regenerate is not null) ? () => Act() : null;
         versions.Show(message);
         versions.Visibility = Shown(versions.HasAny && !editing);

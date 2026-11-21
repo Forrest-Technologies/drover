@@ -34,6 +34,12 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
 
     public bool EndsReply { get; init; }
 
+    /// <summary>
+    /// True on the last words of a finished run, for everyone who sees them: where the reply's footer stands. Unlike
+    /// <see cref="EndsReply"/>, it does not depend on who may read what the reply used.
+    /// </summary>
+    public bool FinishesReply { get; init; }
+
     public Guid? ActivityRunId { get; init; }
 
     public string? Model { get; init; }
