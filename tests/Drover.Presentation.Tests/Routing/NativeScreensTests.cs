@@ -10,6 +10,9 @@ public sealed partial class NativeScreensTests
 
     private static readonly string[] onlyOnTheWeb = ["/dev/starters"];
 
+    // Project screens are native. The Razor client does not grow in this change.
+    private static readonly string[] onlyOnNative = ["/projects", "/projects/{ProjectId:guid}"];
+
     #endregion
 
     #region Public Methods
@@ -23,7 +26,7 @@ public sealed partial class NativeScreensTests
             .ToList();
 
         web.Should().NotBeEmpty();
-        NativePatterns().Should().BeEquivalentTo(web, "an address is a promise: a link someone kept must open in either client");
+        NativePatterns().Except(onlyOnNative).Should().BeEquivalentTo(web, "an address is a promise: a link someone kept must open in either client");
     }
 
     [Fact]
@@ -40,7 +43,7 @@ public sealed partial class NativeScreensTests
         string[] written =
         [
             Addresses.Home, Addresses.SignIn, Addresses.Setup, Addresses.Share, Addresses.SetupModel, Addresses.SetupBot,
-            Addresses.Bots, Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
+            Addresses.Bots, Addresses.Projects, Addresses.Project(bot), Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
             Addresses.ExtensionFromBot(bot), Addresses.Status, Addresses.Usage, Addresses.Conversation(other),
             Addresses.Talk(bot), Addresses.Summary(bot), Addresses.Memory(bot), Addresses.Screen(bot), Addresses.Activity(bot),
             Addresses.Activity(bot, other), Addresses.Files(bot), Addresses.Moment(bot, other, Guid.NewGuid(), false),

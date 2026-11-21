@@ -55,7 +55,12 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly PhoneNav dock = new();
 
-    private readonly NavLink[] footerLinks = [new("Bots", Addresses.Bots), new("Tools", Addresses.Tools)];
+    private readonly NavLink[] footerLinks =
+    [
+        new("Projects", Addresses.Projects),
+        new("Bots", Addresses.Bots),
+        new("Tools", Addresses.Tools),
+    ];
 
     private readonly Border mainHeader = new();
 

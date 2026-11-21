@@ -21,6 +21,9 @@ public static class FileEndpoints
     {
         var rules = ((IEndpointRouteBuilder)space).ServiceProvider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
 
+        space.MapGet("/files/rules", GetFileRules)
+            .WithName("GetFileRules")
+            .WithSummary("The server's file size limit for uploads in this space.");
         space.MapGet("/threads/{threadId:guid}/attachment-rules", GetAttachmentRules)
             .AddEndpointFilter<TenantScopeFilter>()
             .WithName("GetAttachmentRules")
@@ -70,6 +73,9 @@ public static class FileEndpoints
     #endregion
 
     #region Endpoints
+
+    private static Ok<FileRules> GetFileRules(IOptions<DeploymentPolicyOptions> deployment) =>
+        TypedResults.Ok(new FileRules(deployment.Value.Rules.MaxFileBytes));
 
     private static async Task<Results<Ok<AttachmentRules>, NotFound>> GetAttachmentRules(Guid threadId, HttpContext context, FileService files) =>
         await files.GetRules(threadId, context.RequestAborted) is { } rules ? TypedResults.Ok(rules) : TypedResults.NotFound();

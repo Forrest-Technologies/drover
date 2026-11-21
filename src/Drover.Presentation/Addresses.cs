@@ -22,6 +22,8 @@ public static class Addresses
 
     public const string Bots = "/bots";
 
+    public const string Projects = "/projects";
+
     public const string Models = "/models";
 
     public const string Tools = "/tools";
@@ -85,6 +87,9 @@ public static class Addresses
     public static string Work(Guid botId, Guid workerId, Guid threadId) => $"/talk/{botId}/work/{workerId}/{threadId}";
 
     public static string Bot(Guid botId) => $"/bots/{botId}";
+
+    /// <summary>One project: its instructions, its files, and its conversations.</summary>
+    public static string Project(Guid projectId) => $"/projects/{projectId}";
 
     /// <summary>A bot's editor with its Memory section open.</summary>
     public static string BotMemory(Guid botId) => $"/bots/{botId}?section=memory";
