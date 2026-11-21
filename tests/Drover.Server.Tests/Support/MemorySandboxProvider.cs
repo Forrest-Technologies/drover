@@ -147,9 +147,14 @@ public sealed class MemorySandboxProvider : ISandboxProvider
     {
         var found = Find(sandbox);
 
-        return found.State is ProviderSandboxState.Running && found.Token == sandbox.AccessToken
+        if (found.State is not ProviderSandboxState.Running)
+        {
+            throw new SandboxProviderException(SandboxFailure.NotRunning, "The sandbox is paused.");
+        }
+
+        return found.Token == sandbox.AccessToken
             ? found
-            : throw new SandboxProviderException(SandboxFailure.Rejected, "The sandbox is paused or refused the token.");
+            : throw new SandboxProviderException(SandboxFailure.Unauthorized, "The sandbox refused the token.");
     }
 
     private static byte[] MakePicture()

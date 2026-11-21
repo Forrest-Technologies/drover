@@ -15,6 +15,15 @@ public enum SandboxFailure
     /// <summary>The sandbox refused the handle's access token.</summary>
     Unauthorized,
 
+    /// <summary>The sandbox exists but is paused or stopped. Resuming it and trying again can work.</summary>
+    NotRunning,
+
+    /// <summary>The sandbox is changing state (starting, pausing, resuming) or another request for it is in flight. Trying again shortly can work.</summary>
+    Conflict,
+
+    /// <summary>The provider account is not allowed to do this: suspended, blocked, or without access to the feature. Trying again changes nothing.</summary>
+    Forbidden,
+
     /// <summary>The provider cannot do this right now, but may shortly.</summary>
     RetryLater,
 

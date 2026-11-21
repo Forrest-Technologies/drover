@@ -53,6 +53,9 @@ public sealed partial class E2BSandboxProvider(
 
         if (!IsSandboxId(created.SandboxId))
         {
+            logger.LogWarning(
+                "The provider answered a creation with an id of length {Length} Drover does not read; nothing can be cleaned up by that id",
+                created.SandboxId?.Length ?? 0);
             throw FailureMapping.Malformed();
         }
 
@@ -86,7 +89,18 @@ public sealed partial class E2BSandboxProvider(
     {
         if (StateOf(await Check(sandbox, cancellationToken)) == ProviderSandboxState.Running)
         {
-            await api.Pause(sandbox.ProviderSandboxId, cancellationToken);
+            try
+            {
+                await api.Pause(sandbox.ProviderSandboxId, cancellationToken);
+            }
+            catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.Conflict)
+            {
+                // A pause that lost a race is a success when the record now says paused.
+                if (StateOf(await Check(sandbox, cancellationToken)) != ProviderSandboxState.Paused)
+                {
+                    throw;
+                }
+            }
         }
     }
 
@@ -203,8 +217,21 @@ public sealed partial class E2BSandboxProvider(
 
     #region Private Methods
 
-    private static ProviderSandboxState StateOf(SandboxDetailReply detail) =>
-        detail.State == "paused" ? ProviderSandboxState.Paused : ProviderSandboxState.Running;
+    private ProviderSandboxState StateOf(SandboxDetailReply detail)
+    {
+        if (detail.State == "paused")
+        {
+            return ProviderSandboxState.Paused;
+        }
+
+        if (detail.State == "running")
+        {
+            return ProviderSandboxState.Running;
+        }
+
+        logger.LogDebug("The provider reported sandbox state {State}", detail.State);
+        return ProviderSandboxState.Running;
+    }
 
     /// <summary>E2B's time-to-live is whole seconds, at least one.</summary>
     private static int Seconds(TimeSpan duration) =>

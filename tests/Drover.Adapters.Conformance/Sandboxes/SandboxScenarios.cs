@@ -21,6 +21,10 @@ public static class SandboxScenarios
 
     public const string PausesAndResumes = "pauses_and_resumes";
 
+    public const string RefusesAPausedSandbox = "refuses_a_paused_sandbox";
+
+    public const string PausesAPausedSandbox = "pauses_a_paused_sandbox";
+
     public const string Destroys = "destroys";
 
     public const string RefusesAnotherGroupsHandle = "refuses_another_groups_handle";
