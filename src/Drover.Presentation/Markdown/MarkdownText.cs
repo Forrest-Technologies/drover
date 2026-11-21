@@ -1,7 +1,13 @@
 namespace Drover.Ui.Markdown;
 
-/// <summary>The inline styling a drawn piece of markdown carries. It mirrors the flags <c>MarkdownView</c> uses.</summary>
-public sealed record MarkdownInlineStyle(bool Strong = false, bool Emphasis = false, bool Struck = false, bool Machine = false);
+/// <summary>
+/// The inline styling a drawn piece of markdown carries. It mirrors the flags <c>MarkdownView</c> uses.
+/// </summary>
+public sealed record MarkdownInlineStyle(
+    bool Strong = false,
+    bool Emphasis = false,
+    bool Struck = false,
+    bool Machine = false);
 
 /// <summary>One drawn piece of text and the style it is drawn with.</summary>
 public sealed record MarkdownSpan(string Text, MarkdownInlineStyle Style);

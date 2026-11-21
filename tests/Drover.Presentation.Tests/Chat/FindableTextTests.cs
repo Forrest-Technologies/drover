@@ -13,7 +13,8 @@ public sealed class FindableTextTests
 
         var segments = new FindableText().Of(message);
 
-        segments.Should().ContainSingle().Which.Should().Be(new FindSegment("m1", new FindPart("Said"), "recovery token"));
+        var expected = new FindSegment("m1", new FindPart("Said"), "recovery token");
+        segments.Should().ContainSingle().Which.Should().Be(expected);
     }
 
     [Fact]
@@ -78,17 +79,29 @@ public sealed class FindableTextTests
         {
             Tools = [new ToolCard(Guid.NewGuid(), ToolPhase.Done, "Ran one", "run", "one", "{}", true, null, null, [])],
         };
-        var tool = new ToolCard(Guid.NewGuid(), ToolPhase.Done, "Handed work", "delegate", "Scout", "{}", true, null, null, [])
+        var tool = new ToolCard(
+            Guid.NewGuid(), ToolPhase.Done, "Handed work", "delegate", "Scout", "{}", true, null, null, [])
         {
             Delegation = new DelegationItem(
-                Guid.NewGuid(), "Lead", Guid.NewGuid(), "Scout", "a task", DelegationPhase.Done, "done", DelegationRefusal.None, null, 1)
+                Guid.NewGuid(),
+                "Lead",
+                Guid.NewGuid(),
+                "Scout",
+                "a task",
+                DelegationPhase.Done,
+                "done",
+                DelegationRefusal.None,
+                null,
+                1)
             {
                 Work = [child],
             },
         };
         var message = new ChatMessage("parent", false, "words") { Tools = [tool] };
 
-        var segments = new FindableText().Of(message).Where(segment => segment.Part.Name.StartsWith("Delegation", StringComparison.Ordinal)).ToList();
+        var segments = new FindableText().Of(message)
+            .Where(segment => segment.Part.Name.StartsWith("Delegation", StringComparison.Ordinal))
+            .ToList();
 
         segments.Should().Contain(segment => segment.Text == "first block" && segment.MessageKey == "parent");
         segments.Should().Contain(segment => segment.Text == "second block" && segment.MessageKey == "parent");
@@ -101,22 +114,34 @@ public sealed class FindableTextTests
     public void A_growing_delegated_child_recomputes_the_parent_segments()
     {
         var child = new ChatMessage("child", true, "short");
-        var tool = new ToolCard(Guid.NewGuid(), ToolPhase.Done, "Handed work", "delegate", "Scout", "{}", true, null, null, [])
+        var tool = new ToolCard(
+            Guid.NewGuid(), ToolPhase.Done, "Handed work", "delegate", "Scout", "{}", true, null, null, [])
         {
             Delegation = new DelegationItem(
-                Guid.NewGuid(), "Lead", Guid.NewGuid(), "Scout", "a task", DelegationPhase.Done, "done", DelegationRefusal.None, null, 1)
+                Guid.NewGuid(),
+                "Lead",
+                Guid.NewGuid(),
+                "Scout",
+                "a task",
+                DelegationPhase.Done,
+                "done",
+                DelegationRefusal.None,
+                null,
+                1)
             {
                 Work = [child],
             },
         };
         var before = new ChatMessage("parent", false, "words") { Tools = [tool] };
+        var grownChild = child with { Text = "short and much longer" };
         var grown = new ChatMessage("parent", false, "words")
         {
-            Tools = [tool with { Delegation = tool.Delegation with { Work = [child with { Text = "short and much longer" }] } }],
+            Tools = [tool with { Delegation = tool.Delegation with { Work = [grownChild] } }],
         };
         var findable = new FindableText();
 
-        findable.Of(before).Should().NotContain(segment => segment.Text.Contains("much longer", StringComparison.Ordinal));
+        var beforeTexts = findable.Of(before).Select(segment => segment.Text).ToList();
+        beforeTexts.Should().NotContain(text => text.Contains("much longer", StringComparison.Ordinal));
         findable.Of(grown).Should().Contain(segment => segment.Text.Contains("much longer", StringComparison.Ordinal));
     }
 

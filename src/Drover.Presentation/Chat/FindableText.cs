@@ -108,7 +108,9 @@ public sealed class FindableText
         }
         else
         {
-            foreach (var (block, index) in MarkdownText.Blocks(MarkdownDocument.Parse(message.Text)).Select((block, index) => (block, index)))
+            var blocks = MarkdownText.Blocks(MarkdownDocument.Parse(message.Text));
+
+            foreach (var (block, index) in blocks.Select((block, index) => (block, index)))
             {
                 Add(segments, message, new("Markdown", index), block.Text);
             }
@@ -131,7 +133,8 @@ public sealed class FindableText
 
             foreach (var (fact, factIndex) in tool.Facts.Select((fact, index) => (fact, index)))
             {
-                Add(segments, message, new("ToolFact", factIndex, index.ToString(CultureInfo.InvariantCulture)), $"{fact.Name}: {fact.Value}");
+                var owner = index.ToString(CultureInfo.InvariantCulture);
+                Add(segments, message, new("ToolFact", factIndex, owner), $"{fact.Name}: {fact.Value}");
             }
 
             if (tool.Delegation is { Work.Count: > 0 } delegation)
@@ -141,7 +144,9 @@ public sealed class FindableText
                     foreach (var segment in Of(child))
                     {
                         var childPath = segment.Part.Path ?? segment.Part.Index.ToString(CultureInfo.InvariantCulture);
-                        Add(segments, message, new FindPart($"Delegation{segment.Part.Name}", segment.Part.Index, $"{index}.{workIndex}.{childPath}"), segment.Text);
+                        var path = $"{index}.{workIndex}.{childPath}";
+                        var part = new FindPart($"Delegation{segment.Part.Name}", segment.Part.Index, path);
+                        Add(segments, message, part, segment.Text);
                     }
                 }
             }
@@ -152,9 +157,12 @@ public sealed class FindableText
             Add(segments, message, new("FileName", index), file.Name);
             Add(segments, message, new("FileCaption", index), file.Caption);
 
-            foreach (var (line, lineIndex) in (file.Preview ?? string.Empty).Split('\n').Select((line, index) => (line, index)))
+            var previewLines = (file.Preview ?? string.Empty).Split('\n');
+
+            foreach (var (line, lineIndex) in previewLines.Select((line, index) => (line, index)))
             {
-                Add(segments, message, new("FilePreview", lineIndex, index.ToString(CultureInfo.InvariantCulture)), line);
+                var owner = index.ToString(CultureInfo.InvariantCulture);
+                Add(segments, message, new("FilePreview", lineIndex, owner), line);
             }
         }
 

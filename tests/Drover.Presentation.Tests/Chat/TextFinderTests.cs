@@ -131,6 +131,35 @@ public sealed class TextFinderTests
     }
 
     [Fact]
+    public void A_leftover_budget_too_small_for_the_query_does_not_skip_the_next_segment()
+    {
+        FindSegment[] segments =
+        [
+            new("first", new FindPart("Said"), "xxxxxxxxx"),
+            new("second", new FindPart("Said"), "zzzz"),
+        ];
+        var finder = new TextFinder();
+        var all = finder.Find("zz", segments).Matches;
+        List<FindMatch> sliced = [];
+        FindCursor? cursor = null;
+
+        while (true)
+        {
+            var result = finder.Find("zz", segments, default, budget: 10, start: cursor);
+            sliced.AddRange(result.Matches);
+
+            if (result.Finished)
+            {
+                break;
+            }
+
+            cursor = result.Next;
+        }
+
+        sliced.Should().Equal(all);
+    }
+
+    [Fact]
     public void A_budget_smaller_than_the_query_still_makes_progress_and_finishes()
     {
         var text = new string('a', 100);

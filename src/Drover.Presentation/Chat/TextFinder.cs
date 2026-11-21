@@ -69,6 +69,14 @@ public sealed class TextFinder
             }
 
             var remaining = allowance - CharactersExamined;
+
+            // Earlier segments spent the allowance. Let the next call start this segment with a whole one; moving
+            // the cursor here would skip the characters this call never examined.
+            if (remaining < query.Length)
+            {
+                return new(matches, false, new(index, offset));
+            }
+
             var end = Math.Min(text.Length, offset + remaining);
             var slice = text[offset..end];
             var from = 0;
