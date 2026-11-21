@@ -16,6 +16,10 @@ internal static class Program
 
     private const string Passed = "ui-check result: passed";
 
+    // How long the server gets to say it is ready. It listens in process, so a healthy one answers at once; this is
+    // the bound for one that does not, and it fails with the server's own log.
+    private static readonly TimeSpan serverPatience = TimeSpan.FromSeconds(60);
+
     #endregion
 
     #region Public Methods
@@ -77,10 +81,11 @@ internal static class Program
         await using var server = new CheckServer(database, certificate, folder);
 
         server.Start();
+        await server.WaitUntilReady(serverPatience, logger);
         var account = await CheckAccount.Create(server, certificate);
         logger.LogInformation("The test server is at {Origin}; starting the app", server.Origin);
 
-        return await app.Run(new Dictionary<string, string>
+        var lines = await app.Run(new Dictionary<string, string>
         {
             ["DROVER_UI_CHECK_SERVER"] = server.Origin.AbsoluteUri,
             ["DROVER_UI_CHECK_EMAIL"] = account.Email,
@@ -89,6 +94,13 @@ internal static class Program
             ["DROVER_UI_CHECK_REPLY"] = CheckServer.Reply,
             ["DROVER_UI_CHECK_RUN"] = Guid.NewGuid().ToString("N"),
         }, logger);
+
+        if (!lines.Contains(Passed))
+        {
+            logger.LogError("The end of the test server's log:{NewLine}{Log}", Environment.NewLine, server.RecentLog());
+        }
+
+        return lines;
     }
 
     #endregion
