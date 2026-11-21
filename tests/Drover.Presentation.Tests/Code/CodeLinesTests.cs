@@ -92,6 +92,30 @@ public sealed class CodeLinesTests
         capped.TotalLines.Should().Be(2);
     }
 
+    [Fact]
+    public void A_cut_at_the_size_cap_never_splits_a_character_beyond_the_basic_plane()
+    {
+        var face = char.ConvertFromUtf32(0x1F600);
+        var text = $"{new string('x', CodeLines.MaxCharacters - 1)}{face}tail";
+
+        var capped = CodeLines.Capped(text);
+
+        capped.IsCut.Should().BeTrue();
+        capped.Shown.Should().HaveLength(CodeLines.MaxCharacters - 1, "the pair that straddles the cap is left out whole");
+        char.IsHighSurrogate(capped.Shown[^1]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_character_beyond_the_basic_plane_that_ends_inside_the_cap_is_kept()
+    {
+        var face = char.ConvertFromUtf32(0x1F600);
+        var text = $"{new string('x', CodeLines.MaxCharacters - 2)}{face}tail";
+
+        var capped = CodeLines.Capped(text);
+
+        capped.Shown.Should().HaveLength(CodeLines.MaxCharacters).And.EndWith(face);
+    }
+
     [Theory]
     [InlineData("", 0)]
     [InlineData("a", 1)]

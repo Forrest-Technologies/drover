@@ -101,7 +101,7 @@ public static partial class CodeLines
             end = next < 0 ? text.Length : next + 1;
         }
 
-        return new(text[..Math.Min(end, MaxCharacters)], lines, true);
+        return new(text[..WholeCharactersTo(text, Math.Min(end, MaxCharacters))], lines, true);
     }
 
     /// <summary>The number of lines in a text. A last line break ends the last line, and starts no new one.</summary>
@@ -114,6 +114,11 @@ public static partial class CodeLines
     #endregion
 
     #region Private Methods
+
+    // A cut that would leave the first half of a surrogate pair at the end moves back before it, so the start of a
+    // block never ends in half a character.
+    private static int WholeCharactersTo(string text, int end) =>
+        end > 0 && end < text.Length && char.IsHighSurrogate(text[end - 1]) && char.IsLowSurrogate(text[end]) ? end - 1 : end;
 
     private static bool IsDiffShaped(string line) =>
         line is ['+' or '-' or ' ', ..] || line.StartsWith("@@", StringComparison.Ordinal) || line.StartsWith('\\') || DiffHeader().IsMatch(line);
