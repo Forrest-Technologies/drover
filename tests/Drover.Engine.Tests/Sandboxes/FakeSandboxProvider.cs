@@ -248,7 +248,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
         if (found.State is not ProviderSandboxState.Running)
         {
-            throw new SandboxProviderException(SandboxFailure.Rejected, "The sandbox is paused.");
+            throw new SandboxProviderException(SandboxFailure.NotRunning, "The sandbox is paused.");
         }
 
         return found.Token == sandbox.AccessToken

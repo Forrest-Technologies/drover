@@ -1162,11 +1162,20 @@ public sealed class SandboxBroker(
     private BuiltinToolException Refusal(SandboxProviderException failure, string? path = null)
     {
         logger.LogWarning("A sandbox call failed: {Failure}", failure.Failure);
+        var wait = SandboxWaits.Words(failure.RetryAfter);
+
         return new BuiltinToolException(failure.Failure switch
         {
             SandboxFailure.NotFound when path is not null => $"There is no file or folder at {path} in the sandbox.",
             SandboxFailure.NotFound => "The sandbox is gone at the provider. Try again to start a new one.",
-            SandboxFailure.HandleMismatch or SandboxFailure.Unauthorized =>
+            SandboxFailure.NotRunning => "The sandbox paused before this could run. Try again.",
+            SandboxFailure.Conflict => $"The sandbox is starting, pausing or resuming. Try again {wait}.",
+            SandboxFailure.Forbidden => "The server's sandbox account is not allowed to do this. Tell the server's operator.",
+            SandboxFailure.RateLimited => $"The sandbox provider is limiting requests. Try again {wait}.",
+            SandboxFailure.RetryLater => $"The sandbox provider cannot do this right now. Try again {wait}.",
+            SandboxFailure.Unauthorized =>
+                "The sandbox refused Drover's access to it, so nothing was done. Turning the sandbox off and starting a new one clears this. The server's operator can find the details in its log.",
+            SandboxFailure.HandleMismatch =>
                 "The provider's record of this sandbox does not match this bot, so nothing was done. The server's operator can find the details in its log.",
             SandboxFailure.TooLarge => "That is more than the sandbox accepts.",
             SandboxFailure.QuotaExceeded => "The server's sandbox account is at its limit. Tell the server's operator.",

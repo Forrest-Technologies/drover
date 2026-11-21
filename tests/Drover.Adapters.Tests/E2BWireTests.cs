@@ -104,10 +104,14 @@ public sealed class E2BWireTests
     [Theory]
     [InlineData(401, false, SandboxFailure.InvalidKey)]
     [InlineData(401, true, SandboxFailure.Unauthorized)]
+    [InlineData(403, false, SandboxFailure.Forbidden)]
     [InlineData(403, true, SandboxFailure.Unauthorized)]
     [InlineData(402, false, SandboxFailure.QuotaExceeded)]
     [InlineData(404, false, SandboxFailure.NotFound)]
-    [InlineData(409, false, SandboxFailure.Rejected)]
+    [InlineData(408, false, SandboxFailure.RetryLater)]
+    [InlineData(408, true, SandboxFailure.RetryLater)]
+    [InlineData(409, false, SandboxFailure.Conflict)]
+    [InlineData(409, true, SandboxFailure.Conflict)]
     [InlineData(429, false, SandboxFailure.RateLimited)]
     [InlineData(503, false, SandboxFailure.RetryLater)]
     [InlineData(502, true, SandboxFailure.Unavailable)]
@@ -380,7 +384,7 @@ public sealed class E2BWireTests
             .Awaiting(() => onlyPaused.Subject.Provider.ListFiles(E2BRig.Handle(), "/home/user", CancellationToken.None))
             .Should().ThrowAsync<SandboxProviderException>();
 
-        failure.Which.Failure.Should().Be(SandboxFailure.Rejected);
+        failure.Which.Failure.Should().Be(SandboxFailure.NotRunning);
         onlyPaused.Handler.Requests.Should().ContainSingle().Which.Method.Should().Be(HttpMethod.Get);
     }
 
@@ -409,6 +413,143 @@ public sealed class E2BWireTests
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
 
         provider.GetRequiredService<ISandboxProvider>().Kind.Should().Be("e2b");
+    }
+
+    #endregion
+
+    #region Failure Words
+
+    [Fact]
+    public async Task A_pause_that_meets_a_conflict_succeeds_when_the_sandbox_is_paused()
+    {
+        var rig = RigForARacingPause(Record("running"), Record("paused"));
+
+        await rig.Subject.Provider.Pause(E2BRig.Handle(), CancellationToken.None);
+
+        (await rig.Subject.Provider.Describe(E2BRig.Handle(), CancellationToken.None)).State.Should().Be(ProviderSandboxState.Paused);
+    }
+
+    [Fact]
+    public async Task A_pause_that_meets_a_conflict_fails_when_the_sandbox_is_not_paused()
+    {
+        var rig = RigForARacingPause(Record("running"), Record("running"));
+
+        var failure = await FluentActions.Awaiting(() => rig.Subject.Provider.Pause(E2BRig.Handle(), CancellationToken.None))
+            .Should().ThrowAsync<SandboxProviderException>();
+
+        failure.Which.Failure.Should().Be(SandboxFailure.Conflict);
+        failure.Which.RetryAfter.Should().Be(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task A_creation_answered_with_an_unreadable_id_is_logged()
+    {
+        var fixture = new RecordedFixture
+        {
+            Provenance = "hand-written",
+            Note = "A creation answered with an id that is not an E2B id, written from the adapter's id rule.",
+            Exchanges =
+            [
+                new RecordedExchange
+                {
+                    Method = "POST",
+                    Path = "/v2/sandboxes",
+                    Status = 201,
+                    Body = """{"sandboxID":"UPPER","envdAccessToken":"fixture-envd-token"}""",
+                    Headers = new Dictionary<string, string>(),
+                    ContentType = "application/json",
+                },
+            ],
+        };
+        var log = new CapturedLog();
+        var provider = new E2BSandboxProvider(
+            new FixtureHttpClientFactory(new RecordedHandler(fixture)),
+            Options.Create(new E2BOptions { ApiKey = TestKeys.Generate(), Domain = E2BRig.Domain }),
+            log);
+
+        var failure = await FluentActions.Awaiting(() => provider.Create(E2BRig.Spec(), CancellationToken.None))
+            .Should().ThrowAsync<SandboxProviderException>();
+
+        failure.Which.Failure.Should().Be(SandboxFailure.Unavailable);
+        log.Lines.Should().ContainSingle().Which.Should().Contain("does not read").And.NotContain("UPPER");
+    }
+
+    private static string Record(string state) =>
+        new JsonObject
+        {
+            ["sandboxID"] = E2BRig.SandboxId,
+            ["state"] = state,
+            ["endAt"] = "2026-11-21T10:00:00Z",
+            ["metadata"] = new JsonObject
+            {
+                ["drover.space"] = E2BRig.SpaceId.ToString("D"),
+                ["drover.group"] = E2BRig.SharingGroupId.ToString("D"),
+            },
+        }.ToJsonString();
+
+    private static E2BRigged RigForARacingPause(string before, string after) =>
+        E2BRig.Start(new RecordedFixture
+        {
+            Provenance = "hand-written",
+            Note = "A pause racing another call, written from E2B's documented pause answers.",
+            Exchanges =
+            [
+                new RecordedExchange
+                {
+                    Method = "GET",
+                    Path = $"/sandboxes/{E2BRig.SandboxId}",
+                    Status = 200,
+                    Body = before,
+                    Headers = new Dictionary<string, string>(),
+                    ContentType = "application/json",
+                },
+                new RecordedExchange
+                {
+                    Method = "POST",
+                    Path = $"/sandboxes/{E2BRig.SandboxId}/pause",
+                    Status = 409,
+                    Body = """{"code":409,"message":"The sandbox changed state."}""",
+                    Headers = new Dictionary<string, string> { ["Retry-After"] = "30" },
+                    ContentType = "application/json",
+                },
+                new RecordedExchange
+                {
+                    Method = "GET",
+                    Path = $"/sandboxes/{E2BRig.SandboxId}",
+                    Status = 200,
+                    Body = after,
+                    Headers = new Dictionary<string, string>(),
+                    ContentType = "application/json",
+                },
+            ],
+        });
+
+    /// <summary>Keeps each formatted log line, so a test can say what did and did not reach it.</summary>
+    private sealed class CapturedLog : ILogger<E2BSandboxProvider>
+    {
+        #region Private Fields
+
+        private readonly ConcurrentQueue<string> lines = new();
+
+        #endregion
+
+        #region Properties
+
+        public IReadOnlyList<string> Lines => [.. lines];
+
+        #endregion
+
+        #region Interface Implementations
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            lines.Enqueue(formatter(state, exception));
+
+        #endregion
     }
 
     #endregion

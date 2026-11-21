@@ -671,6 +671,75 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
 
     #endregion
 
+    #region Failure Words
+
+    [Fact]
+    public async Task A_rate_limit_tells_the_wait_the_provider_asked_for()
+    {
+        var provider = new FakeSandboxProvider();
+        provider.Behaviour = (_, _, _) => FailWith(new SandboxProviderException(
+            SandboxFailure.RateLimited, "provider detail", TimeSpan.FromSeconds(30)));
+        await using var world = await SandboxWorld(provider);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        var broker = world.StartHost().Services.GetRequiredService<SandboxBroker>();
+
+        var failure = await FluentActions.Awaiting(() => broker.Run(Call(world, world.BotId), null, "echo hi", null, null, RunWorld.Token))
+            .Should().ThrowAsync<BuiltinToolException>();
+
+        failure.Which.Message.Should().Be("The sandbox provider is limiting requests. Try again in about 30 seconds.");
+        failure.Which.Message.Should().NotContain("provider detail");
+    }
+
+    [Fact]
+    public async Task A_paused_sandbox_reads_as_paused_not_refused()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await SandboxWorld(provider);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        var broker = world.StartHost().Services.GetRequiredService<SandboxBroker>();
+        await broker.Run(Call(world, world.BotId), null, "echo hi", null, null, RunWorld.Token);
+
+        provider.Behaviour = (_, _, _) => FailWith(new SandboxProviderException(SandboxFailure.NotRunning, "The sandbox is paused."));
+        var failure = await FluentActions.Awaiting(() => broker.Run(Call(world, world.BotId), null, "echo hi", null, null, RunWorld.Token))
+            .Should().ThrowAsync<BuiltinToolException>();
+        failure.Which.Message.Should().Be("The sandbox paused before this could run. Try again.");
+
+        provider.Behaviour = (_, _, _) => Succeeds();
+        (await broker.Run(Call(world, world.BotId), null, "echo hi", null, null, RunWorld.Token)).ExitCode.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_forbidden_account_tells_the_person_to_call_the_operator()
+    {
+        var provider = new FakeSandboxProvider();
+        provider.Behaviour = (_, _, _) => FailWith(new SandboxProviderException(SandboxFailure.Forbidden, "account suspended"));
+        await using var world = await SandboxWorld(provider);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        var broker = world.StartHost().Services.GetRequiredService<SandboxBroker>();
+
+        var failure = await FluentActions.Awaiting(() => broker.Run(Call(world, world.BotId), null, "echo hi", null, null, RunWorld.Token))
+            .Should().ThrowAsync<BuiltinToolException>();
+
+        failure.Which.Message.Should().Be("The server's sandbox account is not allowed to do this. Tell the server's operator.");
+        failure.Which.Message.Should().NotContain("account suspended");
+    }
+
+    private static async IAsyncEnumerable<CommandOutput> FailWith(SandboxProviderException failure)
+    {
+        await Task.Yield();
+        yield return new CommandStarted(1);
+        throw failure;
+    }
+
+    private static async IAsyncEnumerable<CommandOutput> Succeeds()
+    {
+        await Task.Yield();
+        yield return new CommandStarted(1);
+        yield return new CommandExited(0, null);
+    }
+
+    #endregion
+
     #region Helpers
 
     private async Task<RunWorld> SandboxWorld(FakeSandboxProvider provider, ScriptedModel? script = null, DeploymentPolicy? policy = null) =>
