@@ -39,9 +39,10 @@ public sealed class FileCard : Grid
 
     private readonly FlowPanel deviceActions = new() { Gap = Tokens.Number("DvSpace1"), VerticalAlignment = VerticalAlignment.Center };
 
-    private readonly Button save = new() { Content = FileCardViewModel.Save };
+    // Save, share, and download are known by their icons; each is named with the file it acts on, also as its tooltip.
+    private readonly IconButton save = new() { Icon = IconName.Download, Label = FileCardViewModel.Save };
 
-    private readonly Button share = new() { Content = FileCardViewModel.Share };
+    private readonly IconButton share = new() { Icon = IconName.Share, Label = FileCardViewModel.Share };
 
     private readonly OpensFile download = new() { HoverFill = null, Radius = null, VerticalAlignment = VerticalAlignment.Center };
 
@@ -97,12 +98,11 @@ public sealed class FileCard : Grid
         deviceActions.Children.Add(save);
         deviceActions.Children.Add(share);
 
-        var downloadWords = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
-        downloadWords.Children.Add(new Icon { NameOfIcon = IconName.Download, VerticalAlignment = VerticalAlignment.Center });
-        downloadWords.Children.Add(new TextBlock { Text = FileCardViewModel.Download, VerticalAlignment = VerticalAlignment.Center });
-        download.Content = downloadWords;
+        var downloadMark = new Icon { NameOfIcon = IconName.Download, Size = 20, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        download.Content = downloadMark;
         download.Padding = new(0);
-        download.MinHeight = Tokens.Number("DvTargetTouch");
+        download.Width = download.Height = Targets.Minimum;
+        download.RegisterPropertyChangedCallback(Control.ForegroundProperty, (_, _) => downloadMark.Foreground = download.Foreground);
         download.Click += (_, _) => OpenFile(toKeep: true);
 
         openPreview.Click += async (_, _) =>
@@ -236,9 +236,10 @@ public sealed class FileCard : Grid
         // model ignores a press while it works, and the state is told to assistive technology instead.
         AutomationProperties.SetItemStatus(save, model.ExportingWords ?? string.Empty);
         AutomationProperties.SetItemStatus(share, model.ExportingWords ?? string.Empty);
-        AutomationProperties.SetName(save, model.SaveName);
-        AutomationProperties.SetName(share, model.ShareName);
+        save.Label = model.SaveName;
+        share.Label = model.ShareName;
         AutomationProperties.SetName(download, model.DownloadName);
+        ToolTipService.SetToolTip(download, model.DownloadName);
 
         exported.Kind = model.ExportFailed ? NoteKind.Danger : NoteKind.Ok;
         exported.Text = model.ExportStatus;
