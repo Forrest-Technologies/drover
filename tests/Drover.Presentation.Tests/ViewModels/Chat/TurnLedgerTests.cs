@@ -92,7 +92,9 @@ public sealed class TurnLedgerTests
         TurnLedger.Folds(note).Should().BeFalse("a kept note offers to forget it");
         TurnLedger.Folds(plain).Should().BeTrue();
 
-        var turns = new[] { Bot("1", run) with { Tools = [plain, waiting, note] } }.InTurns();
+        ChatMessage[] messages = [Bot("1", run) with { Tools = [plain, waiting, note] }];
+
+        var turns = messages.InTurns();
         turns[0].Ledger.Should().ContainSingle().Which.Calls.Should().Equal(plain);
     }
 

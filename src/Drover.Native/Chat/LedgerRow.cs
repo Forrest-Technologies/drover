@@ -59,7 +59,8 @@ internal sealed class LedgerRow : StackPanel
         failure.TextTrimming = TextTrimming.CharacterEllipsis;
 
         var line = new Grid { ColumnSpacing = Tokens.Number("DvSpace2") };
-        foreach (var width in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
+        GridLength[] widths = [GridLength.Auto, GridLength.Auto, new(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto];
+        foreach (var width in widths)
         {
             line.ColumnDefinitions.Add(new() { Width = width });
         }
@@ -77,7 +78,8 @@ internal sealed class LedgerRow : StackPanel
         var words = new StackPanel();
         words.Children.Add(line);
         words.Children.Add(failure);
-        foreach (var part in new UIElement[] { kind, label, summary, duration, state, running, mark, failure })
+        UIElement[] read = [kind, label, summary, duration, state, running, mark, failure];
+        foreach (var part in read)
         {
             AutomationProperties.SetAccessibilityView(part, AccessibilityView.Raw);
         }

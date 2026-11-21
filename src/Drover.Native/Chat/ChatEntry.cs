@@ -221,8 +221,11 @@ public sealed class ChatEntry : ContentControl
                 && message.Files.SequenceEqual(before.Files)
                 && message.Sources.SequenceEqual(before.Sources)));
 
-    private bool HasAnyShown() =>
-        new UIElement[] { words, sources, tools, files, footer }.Any(part => part.Visibility is Visibility.Visible);
+    private bool HasAnyShown()
+    {
+        UIElement[] parts = [words, sources, tools, files, footer];
+        return parts.Any(part => part.Visibility is Visibility.Visible);
+    }
 
     /// <summary>Puts the focus on the message a link named, so a keyboard or a screen reader lands there too.</summary>
     public void Land() => Focus(FocusState.Programmatic);
