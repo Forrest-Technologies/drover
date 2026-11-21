@@ -8,6 +8,10 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
     {
         ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Information",
+
+        // The run worker claims runs on a real-time poll even in a test with no runs, and its query names
+        // principal_user_id. With no workers it never asks the database, so the recorder sees only the request.
+        ["Runs:Workers"] = "0",
     };
 
     #endregion
@@ -484,7 +488,7 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     {
         var before = Logs.Entries.Count;
         (await request()).StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        return
+        List<string> commands =
         [
             .. Logs.Entries.Skip(before)
                 .Where(entry => entry.Category == "Microsoft.EntityFrameworkCore.Database.Command"
@@ -492,6 +496,11 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
                 .Select(entry => entry.Text[(entry.Text.IndexOf('\n', StringComparison.Ordinal) + 1)..])
                 .Where(sql => sql.Contains("user", StringComparison.Ordinal)),
         ];
+
+        // The run worker is off for this class (Runs:Workers = 0). Guard that it stayed off: a claim query names
+        // principal_user_id and would otherwise be mistaken for one of the account calls being compared.
+        commands.Should().NotContain(sql => sql.Contains("claim_runs", StringComparison.Ordinal));
+        return commands;
     }
 
     private async Task<string> PasswordHashOf(Guid userId)
