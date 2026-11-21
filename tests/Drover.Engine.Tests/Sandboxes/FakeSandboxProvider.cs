@@ -47,6 +47,9 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>When set, every check of a handle finds another group's metadata.</summary>
     public bool MetadataMismatch { get; set; }
 
+    /// <summary>Awaited with the spec before a creation, so a test can refuse a rebuild's new sandbox.</summary>
+    public Func<SandboxSpec, CancellationToken, Task>? BeforeCreate { get; set; }
+
     /// <summary>Awaited with the handle before a pause, so a test can retire the sandbox midway through one.</summary>
     public Func<SandboxHandle, CancellationToken, Task>? BeforePause { get; set; }
 
@@ -98,9 +101,14 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     #region Interface Implementations
 
-    public Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
+    public async Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
     {
         Specs.Enqueue(spec);
+
+        if (BeforeCreate is { } before)
+        {
+            await before(spec, cancellationToken);
+        }
 
         lock (creating)
         {
@@ -112,7 +120,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
             }
 
             var sandbox = sandboxes[id];
-            return Task.FromResult(new SandboxHandle(id, sandbox.SpaceId, sandbox.GroupId, sandbox.Token));
+            return new SandboxHandle(id, sandbox.SpaceId, sandbox.GroupId, sandbox.Token);
         }
     }
 
