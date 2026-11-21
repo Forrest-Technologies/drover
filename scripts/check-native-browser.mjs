@@ -56,6 +56,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox'] });
 const spaceId = '00000000-0000-7000-8000-0000000000b1';
 const previewApiRequests = [];
+const unsettledRequests = new Set();
 const botId = '0196f1a0-0000-7000-8000-000000000004';
 const connectionId = '0196f1a0-0000-7000-8000-000000000003';
 const htmlFileId = '0196f1a0-0000-7000-8000-0000000000f1';
@@ -190,16 +191,21 @@ try {
             });
             let externalPreviewRequests = 0;
             previewApiRequests.length = 0;
-            page.on('request', request => previewApiRequests.push({
-                method: request.method(),
-                path: new URL(request.url()).pathname,
-            }));
+            unsettledRequests.clear();
+            page.on('request', request => {
+                previewApiRequests.push({ method: request.method(), path: new URL(request.url()).pathname });
+                unsettledRequests.add(request);
+            });
+            page.on('requestfinished', request => unsettledRequests.delete(request));
+            page.on('requestfailed', request => unsettledRequests.delete(request));
             await page.route('https://preview-image.example.test/**', async route => {
                 externalPreviewRequests++;
                 await route.abort();
             });
             let previewRequests = 0;
-            let panelPreviewRequests = 0;
+            // The file card in the conversation and in the Files panel reads the same preview path as the panel's
+            // Preview toggle, so the answer is chosen by the step under test, not by the order of the requests.
+            let panelPreviewBroken = false;
             let completePreview;
             const previewGate = new Promise(resolve => { completePreview = resolve; });
             let extensionFailures = 0;
@@ -369,7 +375,7 @@ try {
                     }
                 }
                 else if (address.endsWith(`/files/${panelFile.id}/native-preview`)) {
-                    body = { image: ++panelPreviewRequests === 1 ? samplePng : 'iVBORw0KGgo=' };
+                    body = { image: panelPreviewBroken ? 'iVBORw0KGgo=' : samplePng };
                 }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
@@ -634,31 +640,43 @@ try {
                     }
                     const panelPreview = page.getByRole('button', { name: 'Preview sample-panel.png', exact: true });
                     const closePanel = page.getByRole('button', { name: 'Close preview of sample-panel.png' });
-                    const panelPath = `/files/${panelFile.id}/native-preview`;
+                    const requestPath = `/api/spaces/${spaceId}/files/${panelFile.id}/native-preview`;
+                    // A file card can read the same preview path to draw its own picture. Let any such read settle
+                    // first, so the only preview request counted below is the one the toggle sends.
+                    await panelPreview.waitFor({ state: 'attached', timeout: 10000 });
+                    await waitUntilSettled(requestPath);
                     for (const state of ['picture', 'picture-error']) {
-                        const requestPath = `/api/spaces/${spaceId}${panelPath}`;
+                        panelPreviewBroken = state === 'picture-error';
+                        const shownBefore = await page.locator('[role="img"][aria-label="sample-panel.png"]').count();
                         const before = previewRequestCount(requestPath);
                         const answer = page.waitForResponse(reply => reply.request().method() === 'GET'
                             && new URL(reply.url()).pathname === requestPath);
                         await panelPreview.press('Enter');
                         await closePanel.waitFor({ state: 'attached', timeout: 10000 });
                         await (await answer).finished();
+                        // The preview shows its picture, or its decode failure, only once the answer is drawn.
+                        if (state === 'picture') {
+                            await page.waitForFunction(
+                                ({ name, count }) => document.querySelectorAll(`[role="img"][aria-label="${name}"]`).length > count,
+                                { name: 'sample-panel.png', count: shownBefore }, { timeout: 10000 });
+                        } else {
+                            // The hybrid renderer exposes a status sentence as text or as the note's accessible name.
+                            const decodeFailed = 'Could not decode this picture. Download the file to keep it.';
+                            await page.locator(`[aria-label="${decodeFailed}"]`)
+                                .or(page.getByText(decodeFailed, { exact: true }))
+                                .first()
+                                .waitFor({ state: 'attached', timeout: 10000 });
+                        }
+                        await page.locator('[aria-label="Loading preview."]')
+                            .or(page.getByText('Loading preview.', { exact: true }))
+                            .waitFor({ state: 'detached', timeout: 10000 });
                         assert.equal(previewRequestCount(requestPath), before + 1,
                             `${state}: expected exactly one panel preview request`);
-                        if (state === 'picture') {
-                            const picture = page.locator('[aria-label="sample-panel.png"]');
-                            await picture.waitFor({ state: 'attached', timeout: 10000 });
-                        } else {
-                            await page.waitForFunction(() => {
-                                const words = document.body.innerText;
-                                return words.includes('Could not decode this picture')
-                                    || words.includes('Could not show the preview');
-                            }, null, { timeout: 10000 });
-                        }
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
                         await closePanel.press('Space');
                         await panelPreview.waitFor({ state: 'attached', timeout: 10000 });
                     }
+                    panelPreviewBroken = false;
                 }
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
@@ -1116,8 +1134,17 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
 }
 
-function previewRequestCount(path) {
-    return previewApiRequests.filter(request => request.method === 'GET' && request.path === path).length;
+function previewRequestCount(requestPath) {
+    return previewApiRequests.filter(request => request.method === 'GET' && request.path === requestPath).length;
+}
+
+// Waits until no request to this path is still open, so a later count starts from a quiet page.
+async function waitUntilSettled(requestPath) {
+    const deadline = Date.now() + 10000;
+    while ([...unsettledRequests].some(request => new URL(request.url()).pathname === requestPath)) {
+        assert(Date.now() < deadline, `A request to ${requestPath} is still open after 10 s.`);
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
 }
 
 // The exact search request, registered before the typing that triggers it. The hybrid text field updates its value
