@@ -102,6 +102,20 @@ public sealed class PostgresLocatorTests
     }
 
     [Fact]
+    public async Task Resetting_an_attempt_allows_a_new_lookup()
+    {
+        var attempt = new PostgresAttempt();
+        var first = new PostgresLocator(() => null, _ => Task.FromResult("first"), attempt);
+
+        (await first.Find(TestContext.Current.CancellationToken)).Should().Be("first");
+
+        attempt.Reset();
+        var second = new PostgresLocator(() => null, _ => Task.FromResult("second"), attempt);
+
+        (await second.Find(TestContext.Current.CancellationToken)).Should().Be("second");
+    }
+
+    [Fact]
     public async Task A_successful_lookup_is_remembered_without_starting_twice()
     {
         var starts = 0;
