@@ -229,12 +229,17 @@
        build that must not use that service; such a build needs a distributor app. The build's check of its Java
        dependencies stops on a package reference the platform's SDK adds without a version, so it is off for this one
        library: its two dependencies, the Kotlin runtime 2.1 or later and coroutines, are already in the app at 2.4 and
-       1.11 through the platform's Android packages. -->
+       1.11 through the platform's Android packages. Central is the only repository that carries this artifact: the
+       platform SDK's other repository returns 404 for both files. The artifact is an AAR, not a JAR, so the SDK's
+       default file order would ask for a file that cannot exist before the one that does; name the AAR to skip that
+       request. Version and file name move together, so both are pinned here. -->
   <PropertyGroup>
     <DroverEmbeddedPush Condition="'$(DroverEmbeddedPush)' == ''">true</DroverEmbeddedPush>
   </PropertyGroup>
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(DroverEmbeddedPush)' == 'true'">
-    <AndroidMavenLibrary Include="org.unifiedpush.android:embedded-fcm-distributor" Version="3.1.0" Bind="false" VerifyDependencies="false" />
+    <AndroidMavenLibrary Include="org.unifiedpush.android:embedded-fcm-distributor" Version="3.1.0"
+                         Repository="Central" ArtifactFilename="embedded-fcm-distributor-3.1.0.aar"
+                         Bind="false" VerifyDependencies="false" />
   </ItemGroup>
 
   <!-- The Android shell's notifications over UnifiedPush, shares in, files out, and what Android hands the activity:
