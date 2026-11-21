@@ -391,6 +391,7 @@ public sealed class E2BWireTests
         var provider = new E2BSandboxProvider(
             new FixtureHttpClientFactory(handler),
             Options.Create(new E2BOptions()),
+            TimeProvider.System,
             NullLogger<E2BSandboxProvider>.Instance);
 
         var failure = await FluentActions.Awaiting(() => provider.Create(E2BRig.Spec(), CancellationToken.None))
@@ -413,7 +414,355 @@ public sealed class E2BWireTests
 
     #endregion
 
+    #region Upload Timing
+
+    [Fact]
+    public async Task An_upload_that_keeps_moving_past_one_minute_succeeds()
+    {
+        var start = new DateTimeOffset(2026, 11, 21, 9, 0, 0, TimeSpan.Zero);
+        var time = new FakeTimeProvider(start);
+        var source = new TickStream(new byte[81_920 * 8], time, TimeSpan.FromSeconds(20));
+        var handler = new UploadHandler(Drain, Ok);
+        var client = UploadClient(handler, time);
+
+        await client.WriteFile(E2BRig.Handle(), "/home/user/probe/data.bin", source, CancellationToken.None);
+
+        handler.ContentLength.Should().Be(81_920 * 8);
+        time.GetUtcNow().Should().BeAfter(start.AddMinutes(2));
+    }
+
+    [Fact]
+    public async Task An_upload_that_stalls_is_given_up_after_the_idle_time()
+    {
+        var time = new FakeTimeProvider();
+        var path = "/home/user/probe/stalled.bin";
+        var token = E2BRig.Handle().AccessToken;
+        var log = new CapturedLog();
+        var handler = new UploadHandler(Drain, Ok);
+        var client = UploadClient(handler, time, log);
+        var write = client.WriteFile(E2BRig.Handle(), path, new StalledStream(), CancellationToken.None);
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        time.Advance(TimeSpan.FromSeconds(31));
+
+        var failure = await FluentActions.Awaiting(() => write).Should().ThrowAsync<SandboxProviderException>();
+        failure.Which.Failure.Should().Be(SandboxFailure.Unavailable);
+        log.Lines.Should().Contain(line => line.Contains(handler.Host!, StringComparison.Ordinal));
+        log.Lines.Should().OnlyContain(line => !line.Contains(path, StringComparison.Ordinal) && !line.Contains(token, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_upload_whose_answer_never_starts_is_given_up_a_minute_after_the_last_byte()
+    {
+        var time = new FakeTimeProvider();
+        var handler = new UploadHandler(Drain, async cancellation =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellation);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = UploadClient(handler, time);
+        var write = client.WriteFile(E2BRig.Handle(), "/home/user/probe/data.bin", new MemoryStream([1, 2, 3]), CancellationToken.None);
+        await handler.BodyRead.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        time.Advance(TimeSpan.FromSeconds(61));
+
+        var failure = await FluentActions.Awaiting(() => write).Should().ThrowAsync<SandboxProviderException>();
+        failure.Which.Failure.Should().Be(SandboxFailure.Unavailable);
+    }
+
+    [Fact]
+    public async Task An_upload_can_wait_almost_a_minute_for_its_answer()
+    {
+        var time = new FakeTimeProvider();
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new UploadHandler(Drain, async cancellation =>
+        {
+            await answer.Task.WaitAsync(cancellation);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = UploadClient(handler, time);
+        var write = client.WriteFile(E2BRig.Handle(), "/home/user/probe/data.bin", new MemoryStream([1, 2, 3]), CancellationToken.None);
+        await handler.BodyRead.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        time.Advance(TimeSpan.FromSeconds(59));
+
+        answer.TrySetResult();
+        await write;
+    }
+
+    [Fact]
+    public async Task An_upload_ends_at_its_ceiling()
+    {
+        var time = new FakeTimeProvider();
+        var handler = new UploadHandler(Drain, Ok);
+        var client = UploadClient(handler, time);
+        var write = client.WriteFile(E2BRig.Handle(), "/home/user/probe/data.bin", new EndlessStream(), CancellationToken.None);
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        time.Advance(TimeSpan.FromMinutes(31));
+
+        var failure = await FluentActions.Awaiting(() => write).Should().ThrowAsync<SandboxProviderException>();
+        failure.Which.Failure.Should().Be(SandboxFailure.Unavailable);
+    }
+
+    [Fact]
+    public async Task A_cancelled_upload_is_cancelled_not_failed()
+    {
+        var time = new FakeTimeProvider();
+        var handler = new UploadHandler(Drain, Ok);
+        var client = UploadClient(handler, time);
+        using var caller = new CancellationTokenSource();
+        var write = client.WriteFile(E2BRig.Handle(), "/home/user/probe/data.bin", new StalledStream(), caller.Token);
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        await caller.CancelAsync();
+
+        await FluentActions.Awaiting(() => write).Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    #endregion
+
     #region Helpers
+
+    private static EnvdClient UploadClient(HttpMessageHandler handler, TimeProvider time, ILogger? logger = null) =>
+        new(new FixtureHttpClientFactory(handler), new E2BOptions { Domain = E2BRig.Domain }, time, logger ?? NullLogger.Instance);
+
+    private static async Task Drain(Stream body, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[8192];
+
+        while (await body.ReadAsync(buffer, cancellationToken) > 0)
+        {
+        }
+    }
+
+    private static Task<HttpResponseMessage> Ok(CancellationToken _) =>
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+
+    /// <summary>Reads the upload under the test's control and records what it was sent.</summary>
+    private sealed class UploadHandler(
+        Func<Stream, CancellationToken, Task> read,
+        Func<CancellationToken, Task<HttpResponseMessage>> answer) : HttpMessageHandler
+    {
+        #region Properties
+
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource BodyRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string? Host { get; private set; }
+
+        public long? ContentLength { get; private set; }
+
+        #endregion
+
+        #region Interface Implementations
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            Host = request.RequestUri!.Host;
+            ContentLength = request.Content!.Headers.ContentLength;
+            var body = await request.Content.ReadAsStreamAsync(cancellationToken);
+            await read(body, cancellationToken);
+            BodyRead.TrySetResult();
+            return await answer(cancellationToken);
+        }
+
+        #endregion
+    }
+
+    /// <summary>Moves the clock on each piece, so many slow pieces cover more than a minute.</summary>
+    private sealed class TickStream(byte[] bytes, FakeTimeProvider time, TimeSpan step) : Stream
+    {
+        #region Private Fields
+
+        private long position;
+
+        #endregion
+
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => true;
+
+        public override bool CanWrite => false;
+
+        public override long Length => bytes.Length;
+
+        public override long Position { get => position; set => position = value; }
+
+        #endregion
+
+        #region Public Methods
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            time.Advance(step);
+            var size = (int)Math.Min(count, bytes.Length - position);
+
+            if (size <= 0)
+            {
+                return 0;
+            }
+
+            bytes.AsMemory((int)position, size).CopyTo(buffer.AsMemory(offset, size));
+            position += size;
+            return size;
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            time.Advance(step);
+            var count = (int)Math.Min(buffer.Length, bytes.Length - position);
+
+            if (count <= 0)
+            {
+                return ValueTask.FromResult(0);
+            }
+
+            bytes.AsMemory((int)position, count).CopyTo(buffer);
+            position += count;
+            return ValueTask.FromResult(count);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => position + offset,
+                _ => bytes.Length + offset,
+            };
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        #endregion
+    }
+
+    /// <summary>A source that stops giving bytes, as a stalled link does.</summary>
+    private sealed class StalledStream : Stream
+    {
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        #endregion
+
+        #region Public Methods
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        #endregion
+    }
+
+    /// <summary>A source that always has another piece, so only the total limit ends the transfer.</summary>
+    private sealed class EndlessStream : Stream
+    {
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        #endregion
+
+        #region Public Methods
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            buffer.Span.Fill(1);
+            return buffer.Length;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        #endregion
+    }
+
+    /// <summary>Keeps each formatted log line, so a test can say what did and did not reach it.</summary>
+    private sealed class CapturedLog : ILogger
+    {
+        #region Private Fields
+
+        private readonly ConcurrentQueue<string> lines = new();
+
+        #endregion
+
+        #region Properties
+
+        public IReadOnlyList<string> Lines => [.. lines];
+
+        #endregion
+
+        #region Interface Implementations
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            lines.Enqueue(formatter(state, exception));
+
+        #endregion
+    }
+
 
     private static MemoryStream Frames(params (byte Flags, string Json)[] frames)
     {

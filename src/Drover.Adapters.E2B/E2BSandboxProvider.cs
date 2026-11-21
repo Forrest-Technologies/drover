@@ -9,6 +9,7 @@ namespace Drover.Adapters.E2B;
 public sealed partial class E2BSandboxProvider(
     IHttpClientFactory httpClients,
     IOptions<E2BOptions> options,
+    TimeProvider time,
     ILogger<E2BSandboxProvider> logger) : ISandboxProvider
 {
     #region Private Fields
@@ -25,7 +26,7 @@ public sealed partial class E2BSandboxProvider(
 
     private readonly ControlPlaneClient api = new(httpClients, options.Value, logger);
 
-    private readonly EnvdClient envd = new(httpClients, options.Value, logger);
+    private readonly EnvdClient envd = new(httpClients, options.Value, time, logger);
 
     #endregion
 

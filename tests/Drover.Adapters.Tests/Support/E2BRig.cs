@@ -46,6 +46,7 @@ public static class E2BRig
         new(
             httpClients,
             Options.Create(new E2BOptions { ApiKey = TestKeys.Generate(), Domain = Domain }),
+            TimeProvider.System,
             NullLogger<E2BSandboxProvider>.Instance);
 
     /// <summary>A handle for the fixtures' sandbox, as the broker would build it from a row.</summary>
