@@ -42,6 +42,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxBotsPerSpace), "1000", "100"),
         new(nameof(DeploymentPolicy.MinScheduleIntervalMinutes), "1", "15"),
         new(nameof(DeploymentPolicy.MaxSchedulesPerSpace), "1000", "100"),
+        new(nameof(DeploymentPolicy.MaxSandboxSecretsPerSpace), "100", "50"),
         new(nameof(DeploymentPolicy.MaxFileBytes), "26214400", "10485760"),
         new(nameof(DeploymentPolicy.MaxFilesPerMessage), "10", "5"),
         new(nameof(DeploymentPolicy.MaxSpaceFileMegabytes), "10240", "1024"),
@@ -76,6 +77,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxWebPageBytes), "4194304", "1048576"),
         new(nameof(DeploymentPolicy.MaxWebRequestSeconds), "30", "15"),
         new(nameof(DeploymentPolicy.AllowImageGeneration), "true", "false"),
+        new(nameof(DeploymentPolicy.MaxPushTestsPerMinute), "5", "3"),
     ];
 
     /// <summary>

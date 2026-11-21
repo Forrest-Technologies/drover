@@ -24,7 +24,9 @@ public static class BotViews
                 bot.ModelSettings.MaxOutputTokens,
                 bot.ModelSettings.ReasoningEffort,
                 Words.Of(bot.ModelSettings.WebSearch),
-                bot.ModelSettings.StructuredOutput),
+                bot.ModelSettings.StructuredOutput,
+                [.. bot.ModelSettings.Fallbacks.Select(fallback => new ModelFallbackBody(fallback.ConnectionId, fallback.Model))],
+                bot.ModelSettings.UseSpaceFallbacks),
             new MemorySettingsBody(
                 bot.MemorySettings.Enabled,
                 Words.Of(bot.MemorySettings.Compaction),
@@ -46,7 +48,8 @@ public static class BotViews
             new BuildLimitsBody(bot.BuildLimits.MaxChildren, bot.BuildLimits.MaxDepthBelow),
             new RunLimitsBody(bot.RunLimits.MaxSteps, bot.RunLimits.MaxTokens, bot.RunLimits.MaxDelegations),
             bot.CreatedByUserId,
-            bot.CreatedByBotId);
+            bot.CreatedByBotId,
+            bot.HandleChosen);
     }
 
     /// <summary>
@@ -70,7 +73,10 @@ public static class BotViews
             request.SandboxSettings is { } sandbox ? Read(sandbox) : bot.SandboxSettings,
             request.SandboxSharedWith ?? current.SandboxSharedWith,
             request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits,
-            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations } : bot.RunLimits);
+            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations } : bot.RunLimits)
+        {
+            HandleFollowsName = request.HandleFollowsName,
+        };
     }
 
     public static BotToolEntry ToEntry(this BotToolView view)
@@ -150,6 +156,8 @@ public static class BotViews
                 ReasoningEffort = string.IsNullOrWhiteSpace(body.ReasoningEffort) ? null : body.ReasoningEffort.Trim(),
                 WebSearch = webSearch,
                 StructuredOutput = body.StructuredOutput,
+                Fallbacks = [.. (body.Fallbacks ?? []).Select(fallback => new ModelFallback(fallback.ConnectionId, fallback.Model))],
+                UseSpaceFallbacks = body.UseSpaceFallbacks,
             }
             : null;
 

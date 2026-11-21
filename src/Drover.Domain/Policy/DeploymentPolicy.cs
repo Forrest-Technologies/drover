@@ -128,6 +128,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxSchedulesPerSpace = 100;
 
+    public const int SelfHostedMaxSandboxSecretsPerSpace = 100;
+
+    public const int HostedMaxSandboxSecretsPerSpace = 50;
+
     public const int SelfHostedMaxFileBytes = 25 * 1024 * 1024;
 
     public const int HostedMaxFileBytes = 10 * 1024 * 1024;
@@ -173,6 +177,10 @@ public sealed record DeploymentPolicy
     public const int SelfHostedMaxWebRequestSeconds = 30;
 
     public const int HostedMaxWebRequestSeconds = 15;
+
+    public const int SelfHostedMaxPushTestsPerMinute = 5;
+
+    public const int HostedMaxPushTestsPerMinute = 3;
 
     #endregion
 
@@ -248,6 +256,9 @@ public sealed record DeploymentPolicy
 
     /// <summary>The most schedules a space may hold, across all of its bots. Each is unattended work on the operator's server.</summary>
     public int MaxSchedulesPerSpace { get; init; } = SelfHostedMaxSchedulesPerSpace;
+
+    /// <summary>The most sandbox secrets a space may hold. Each is a credential the operator's server keeps and hands out.</summary>
+    public int MaxSandboxSecretsPerSpace { get; init; } = SelfHostedMaxSandboxSecretsPerSpace;
 
     /// <summary>The most bytes of one file a person attaches to a message. A larger one is refused, not cut.</summary>
     public int MaxFileBytes { get; init; } = SelfHostedMaxFileBytes;
@@ -432,6 +443,12 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowImageGeneration { get; init; } = true;
 
+    /// <summary>
+    /// How many test notifications one signed-in person may ask for in a minute. Each is a signed request the server
+    /// makes to an address the person registered, so a shared server bounds how many strangers can have it make.
+    /// </summary>
+    public int MaxPushTestsPerMinute { get; init; } = SelfHostedMaxPushTestsPerMinute;
+
     #endregion
 
     #region Rule Table
@@ -530,6 +547,11 @@ public sealed record DeploymentPolicy
             policy => policy.MaxSchedulesPerSpace,
             HostedMaxSchedulesPerSpace,
             Enforcement.Now("ScheduleService, when a schedule is added")),
+        PolicyRule.Limit(
+            nameof(MaxSandboxSecretsPerSpace),
+            policy => policy.MaxSandboxSecretsPerSpace,
+            HostedMaxSandboxSecretsPerSpace,
+            Enforcement.Now("SandboxSecretService, when a secret is added")),
         PolicyRule.Limit(
             nameof(MaxFileBytes),
             policy => policy.MaxFileBytes,
@@ -682,6 +704,11 @@ public sealed record DeploymentPolicy
             nameof(AllowImageGeneration),
             policy => policy.AllowImageGeneration,
             Enforcement.Now("RunExecutor, which offers no image.create tool, and every image.create call")),
+        PolicyRule.Limit(
+            nameof(MaxPushTestsPerMinute),
+            policy => policy.MaxPushTestsPerMinute,
+            HostedMaxPushTestsPerMinute,
+            Enforcement.Now("The test notification endpoint's rate limit, kept for each signed-in person")),
     ];
 
     #endregion

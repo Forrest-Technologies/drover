@@ -23,6 +23,8 @@ public sealed class PushService(
     /// </summary>
     public const int MaxDevicesPerPerson = 10;
 
+    public const int MaxEndpointLength = 2048;
+
     /// <summary>The prime of the P-256 field, and the constant b of its curve y² = x³ − 3x + b.</summary>
     private static readonly BigInteger curvePrime = BigInteger.Parse("0FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", NumberStyles.HexNumber);
 
@@ -133,6 +135,11 @@ public sealed class PushService(
 
     public async Task<bool> IsOn(Guid userId, string endpoint, CancellationToken cancellationToken)
     {
+        if (endpoint.Length is 0 or > MaxEndpointLength)
+        {
+            return false;
+        }
+
         tenant.SetUser(userId);
         await using var work = await scope.Begin(cancellationToken);
         var on = await push.HasSubscription(endpoint, cancellationToken);
@@ -238,7 +245,7 @@ public sealed class PushService(
     private static bool IsSubscription(PushDeviceRequest device) =>
         Uri.TryCreate(device.Endpoint, UriKind.Absolute, out var endpoint)
         && endpoint.Scheme == Uri.UriSchemeHttps
-        && device.Endpoint.Length <= 2048
+        && device.Endpoint.Length <= MaxEndpointLength
         && !IsPlainlyPrivate(endpoint)
         && IsPointOnTheCurve(device.PublicKey)
         && DecodedLength(device.AuthSecret) == 16;

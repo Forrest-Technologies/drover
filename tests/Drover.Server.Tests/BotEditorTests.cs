@@ -20,6 +20,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         [nameof(Bot.CreatedByUserId)] = "provenance",
         [nameof(Bot.CreatedByBotId)] = "provenance",
         [nameof(Bot.Status)] = "changed by pause, resume, and remove, which have routes of their own",
+        [nameof(Bot.HandleChosen)] = "recorded by the server from HandleFollowsName and from a handle that changed, never set directly",
     };
 
     private ScriptedModel script = new();
@@ -67,6 +68,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var second = await CreateConnection(client, alice.SpaceId, "Second");
         var fileId = await SeedFile(alice.SpaceId, alice.UserId);
         await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "seeing", new ModelCapabilities { Vision = true });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "backup-model", new ModelCapabilities());
         var untouched = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
         var edit = new UpdateBotRequest(
             "Atlas",
@@ -76,7 +78,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             "Answer in one paragraph.",
             second.Id,
             "other-model",
-            new ModelSettingsBody(0.4, 900, "high", "automatic", true),
+            new ModelSettingsBody(0.4, 900, "high", "automatic", true, [new ModelFallbackBody(second.Id, "backup-model")], UseSpaceFallbacks: false),
             new MemorySettingsBody(true, "summarization", 60_000, 12, 300, 4000),
             "named",
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
@@ -111,7 +113,8 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             });
 
         // Each part differs from what a new bot holds, so a part that was silently dropped fails here.
-        foreach (var part in typeof(UpdateBotRequest).GetProperties())
+        // HandleFollowsName is how the client says the handle is not one a person chose. It is not stored.
+        foreach (var part in typeof(UpdateBotRequest).GetProperties().Where(part => part.Name != nameof(UpdateBotRequest.HandleFollowsName)))
         {
             var readPart = typeof(BotDetail).GetProperty(part.Name)!;
             JsonSerializer.Serialize(readPart.GetValue(read)).Should().NotBe(JsonSerializer.Serialize(readPart.GetValue(untouched)), $"{part.Name} was edited");
@@ -131,6 +134,188 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             new UpdateBotRequest("Renamed", null, null, null, null, null, null, null, null, null, null, null, null));
 
         saved.Should().Match<BotDetail>(found => found.Name == "Renamed" && found.Handle == bot.Handle && found.Instructions == bot.Instructions && found.Model == bot.Model);
+    }
+
+    [Fact]
+    public async Task A_handle_the_name_made_follows_a_rename_and_the_server_keeps_it_unique()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var first = await CreateBot(client, alice.SpaceId, "New bot");
+        var second = await CreateBot(client, alice.SpaceId, "New bot");
+        var handSet = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = (BotSummary bot) => $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest Rename(string name, string handle, bool follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+
+        first.Handle.Should().Be("new-bot");
+        second.Handle.Should().Be("new-bot-2", "the server adds a number to keep a handle unique");
+
+        // The second "New bot" is renamed to "Writer": its numbered handle follows.
+        var writer = await PutFor<BotDetail>(client, route(second), Rename("Writer", BotHandles.Stem("Writer"), follows: true));
+        writer.Handle.Should().Be("writer");
+
+        // Another bot is renamed to a name whose handle is taken: the handle follows and the server numbers it.
+        var other = await PutFor<BotDetail>(client, route(first), Rename("Writer", BotHandles.Stem("Writer"), follows: true));
+        other.Handle.Should().Be("writer-2");
+
+        // A handle a person chose stays when the name changes, and a taken one is refused, not renumbered, even when it
+        // is exactly the handle the new name makes.
+        await PutFor<BotDetail>(client, route(handSet), Rename("Scout", "my-scout", follows: false));
+        var renamed = await PutFor<BotDetail>(client, route(handSet), Rename("Scout the second", null!, follows: false));
+        renamed.Handle.Should().Be("my-scout");
+        var takenByChoice = await client.Put(route(handSet), Rename("Writer", "writer", follows: false));
+        takenByChoice.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a handle a person chose is refused when it is taken, not renumbered");
+        (await GetFor<BotDetail>(client, route(handSet))).Handle.Should().Be("my-scout");
+    }
+
+    [Fact]
+    public async Task A_handle_a_person_set_is_stored_as_chosen_and_stays_chosen_in_a_later_session_through_a_rename()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        await CreateBot(client, alice.SpaceId, "New bot");
+        var second = await CreateBot(client, alice.SpaceId, "New bot");
+        var route = $"{Space(alice.SpaceId)}/bots/{second.Id}/definition";
+        UpdateBotRequest Edit(string? name, string? handle, bool? follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+        second.Handle.Should().Be("new-bot-2", "the server numbered it");
+        (await GetFor<BotDetail>(client, route)).HandleChosen.Should().BeFalse("the name made it");
+
+        // The person sets new-bot-2 themselves. It is the very handle the server made, spelled the same.
+        var chosen = await PutFor<BotDetail>(client, route, Edit(null, "new-bot-2", follows: false));
+
+        chosen.HandleChosen.Should().BeTrue();
+        (await GetFor<BotDetail>(client, route)).HandleChosen.Should().BeTrue("it is stored, so a fresh editor session reads it");
+
+        // A client that renames and still says the handle follows the name cannot undo the choice.
+        var renamed = await PutFor<BotDetail>(client, route, Edit("Writer", "new-bot-2", follows: true));
+
+        renamed.Handle.Should().Be("new-bot-2");
+        renamed.HandleChosen.Should().BeTrue("a choice is never undone by an update");
+    }
+
+    [Fact]
+    public async Task Two_successive_renames_that_say_the_handle_follows_the_name_number_a_collision_and_keep_following()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var taken = await CreateBot(client, alice.SpaceId, "Writer");
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        // The request an editor builds from a draft whose handle follows the name: the name's handle, and the intent.
+        UpdateBotRequest Rename(string name) =>
+            new(name, BotHandles.Stem(name), null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: true);
+
+        // The first rename collides with another bot's handle: the server numbers it instead of refusing.
+        var first = await PutFor<BotDetail>(client, route, Rename("Writer"));
+        // A second rename, saved after the first, still follows: the first save did not record a choice.
+        var second = await PutFor<BotDetail>(client, route, Rename("Author"));
+
+        taken.Handle.Should().Be("writer");
+        first.Handle.Should().Be("writer-2");
+        first.HandleChosen.Should().BeFalse("a handle the name made is not recorded as chosen, even when it was numbered");
+        second.Handle.Should().Be("author");
+        second.HandleChosen.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_client_that_does_not_say_whether_the_handle_follows_records_it_as_chosen_so_a_rename_through_it_stops_following()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest WithoutIntent(string name, string handle) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null);
+
+        var renamed = await PutFor<BotDetail>(client, route, WithoutIntent("Writer", "writer"));
+
+        renamed.HandleChosen.Should().BeTrue("this is why every editor builds its request from BotDraft, which says what it means");
+    }
+
+    [Fact]
+    public async Task A_handle_that_was_chosen_is_not_renumbered_by_a_client_that_says_it_follows_the_name()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var other = await CreateBot(client, alice.SpaceId, "Writer");
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest Edit(string? name, string? handle, bool? follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+        await PutFor<BotDetail>(client, route, Edit(null, "scout", follows: false));
+
+        var refused = await client.Put(route, Edit("Writer", BotHandles.Stem("Writer"), follows: true));
+
+        other.Handle.Should().Be("writer");
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a chosen handle is never renumbered, so the taken one is refused");
+        (await GetFor<BotDetail>(client, route)).Handle.Should().Be("scout");
+    }
+
+    [Fact]
+    public async Task A_request_that_does_not_say_records_a_changed_handle_as_chosen_and_keeps_an_unchanged_one()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest Edit(string? name, string? handle) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null);
+
+        var untouched = await PutFor<BotDetail>(client, route, Edit("Scout the first", null));
+        var changed = await PutFor<BotDetail>(client, route, Edit(null, "my-scout"));
+        var later = await PutFor<BotDetail>(client, route, Edit("Scout again", null));
+
+        untouched.HandleChosen.Should().BeFalse("no handle was sent");
+        changed.HandleChosen.Should().BeTrue("a client that does not say and changes the handle has chosen it");
+        later.HandleChosen.Should().BeTrue();
+        later.Handle.Should().Be("my-scout");
+    }
+
+    [Fact]
+    public async Task A_handle_an_earlier_server_made_with_every_separator_kept_follows_a_rename()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId, "A  B");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        bot.Handle.Should().Be("a-b", "separators now make one hyphen");
+        UpdateBotRequest Edit(string name, string handle, bool follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+
+        // A bot from before the server stored whether the handle was chosen: its handle has every separator kept and
+        // its flag is false, so only the spelling says the name made it.
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            await db.Bots.Where(found => found.Id == bot.Id)
+                .ExecuteUpdateAsync(set => set.SetProperty(found => found.Handle, "a--b").SetProperty(found => found.HandleChosen, false), Token);
+            return 0;
+        });
+
+        var renamed = await PutFor<BotDetail>(client, route, Edit("Writer", BotHandles.Stem("Writer"), follows: true));
+
+        renamed.Handle.Should().Be("writer", "the handle an earlier server made from the name follows it");
+    }
+
+    [Fact]
+    public async Task A_name_longer_than_a_handle_may_be_still_makes_a_handle_the_server_accepts()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var first = await CreateBot(client, alice.SpaceId, "First");
+        var longName = new string('a', 150);
+        var route = $"{Space(alice.SpaceId)}/bots/{first.Id}/definition";
+        await CreateBot(client, alice.SpaceId, longName);
+
+        var renamed = await PutFor<BotDetail>(
+            client,
+            route,
+            new UpdateBotRequest(longName, BotHandles.Stem(longName), null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: true));
+
+        renamed.Handle.Length.Should().BeLessThanOrEqualTo(BotHandles.MaxLength);
+        renamed.Handle.Should().StartWith(BotHandles.Stem(longName)).And.EndWith("-2", "the stem is taken by the bot made with that name");
     }
 
     [Theory]
@@ -623,6 +808,128 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         Fact(granted, "effect").Should().Be(("allow", "ask"));
         entries.Should().OnlyContain(entry => !entry.Data.GetRawText().Contains(key, StringComparison.Ordinal), "no secret is written to the audit log");
         Logs.AllText().Should().NotContain(key);
+    }
+
+    #endregion
+
+    #region Model Fallbacks
+
+    [Fact]
+    public async Task Space_fallbacks_are_admin_written_member_read_and_describe_the_effective_chain()
+    {
+        var alice = await SeedPerson("fallback-owner");
+        var member = await SeedMember(alice.SpaceId, "fallback-member", MembershipRole.Member);
+        var outsider = await SeedPerson("fallback-outsider");
+        var asOwner = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var asOutsider = await SignIn(outsider);
+        var bot = await CreateBot(asOwner, alice.SpaceId);
+        var definition = await GetFor<BotDetail>(asOwner, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
+        await SeedCatalogEntry(
+            alice.SpaceId,
+            alice.UserId,
+            definition.ModelConnectionId,
+            "backup",
+            new ModelCapabilities { ToolCalling = false, ContextTokens = 32_000, StructuredOutput = true });
+        await SeedCatalogEntry(
+            alice.SpaceId,
+            alice.UserId,
+            definition.ModelConnectionId,
+            "bot-backup",
+            new ModelCapabilities { ContextTokens = 64_000, StructuredOutput = true });
+        var body = new SpaceModelFallbacks([new ModelFallbackBody(definition.ModelConnectionId, "backup")]);
+        var root = $"{Space(alice.SpaceId)}/model-fallbacks";
+
+        var saved = await PutFor<SpaceModelFallbacks>(asOwner, root, body);
+        var read = await GetFor<SpaceModelFallbacks>(asMember, root);
+        var chain = await GetFor<BotModelChain>(asMember, $"{Space(alice.SpaceId)}/bots/{bot.Id}/model-chain");
+
+        saved.Fallbacks.Should().Equal(body.Fallbacks);
+        read.Should().BeEquivalentTo(saved);
+        chain.Models.Select(model => model.Model).Should().Equal(definition.Model, "backup");
+        chain.Models[1].Capabilities.ContextTokens.Should().Be(32_000);
+        chain.Models[1].Mismatches.Should().OnlyContain(sentence => sentence.EndsWith('.'));
+        var audit = (await InSpace(
+            alice.SpaceId,
+            alice.UserId,
+            services => services.GetRequiredService<AuditRepository>().ListEntriesAbout(alice.SpaceId, Token)))
+            .Single(entry => entry.Action == "space.updated");
+        audit.TargetKind.Should().Be(AuditTargets.Space);
+        audit.Data.GetProperty("changes").TryGetProperty("model_fallbacks", out _).Should().BeTrue();
+
+        var botFallbacks = new[] { new ModelFallbackBody(definition.ModelConnectionId, "bot-backup") };
+        var updated = await PutFor<BotDetail>(
+            asOwner,
+            $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition",
+            Nothing() with
+            {
+                ModelSettings = definition.ModelSettings with
+                {
+                    Fallbacks = botFallbacks,
+                    UseSpaceFallbacks = false,
+                },
+            });
+        var botChain = await GetFor<BotModelChain>(asMember, $"{Space(alice.SpaceId)}/bots/{bot.Id}/model-chain");
+        updated.ModelSettings.Fallbacks.Should().Equal(botFallbacks);
+        updated.ModelSettings.UseSpaceFallbacks.Should().BeFalse();
+        botChain.Models.Select(model => model.Model).Should().Equal(definition.Model, "bot-backup");
+
+        (await asMember.Put(root, body)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await asOutsider.Get(root)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_chain_skips_a_stored_fallback_whose_connection_no_longer_exists()
+    {
+        var alice = await SeedPerson("fallback-removed-connection");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var connectionId = await InSpace(alice.SpaceId, alice.UserId, services =>
+        {
+            var connection = new ModelConnection
+            {
+                SpaceId = alice.SpaceId,
+                Name = "Disposable fallback",
+                Kind = "scripted",
+                Status = ConnectionStatus.Ready,
+            };
+            services.GetRequiredService<ModelConnectionRepository>().Add(connection);
+            return Task.FromResult(connection.Id);
+        });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, connectionId, "temporary", new ModelCapabilities());
+        await PutFor<SpaceModelFallbacks>(
+            client,
+            $"{Space(alice.SpaceId)}/model-fallbacks",
+            new SpaceModelFallbacks([new ModelFallbackBody(connectionId, "temporary")]));
+
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var repository = services.GetRequiredService<ModelConnectionRepository>();
+            var database = services.GetRequiredService<DroverDbContext>();
+            database.ModelCatalog.RemoveRange(await repository.ListCatalog(connectionId, Token));
+            database.ModelConnections.Remove((await repository.GetConnection(connectionId, Token))!);
+            return true;
+        });
+
+        var chain = await GetFor<BotModelChain>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/model-chain");
+
+        chain.Models.Should().ContainSingle(model => model.ConnectionId != connectionId);
+    }
+
+    [Fact]
+    public async Task An_unknown_space_fallback_is_refused_in_a_sentence()
+    {
+        var alice = await SeedPerson("fallback-validation");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var definition = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
+        var body = new SpaceModelFallbacks([new ModelFallbackBody(definition.ModelConnectionId, "not-in-catalog")]);
+
+        var response = await client.Put($"{Space(alice.SpaceId)}/model-fallbacks", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonDocument>(Token))!.RootElement
+            .GetProperty("title").GetString().Should().EndWith(".");
     }
 
     #endregion

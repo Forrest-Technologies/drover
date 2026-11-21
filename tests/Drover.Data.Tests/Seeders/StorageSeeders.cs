@@ -137,3 +137,31 @@ public sealed class MemoryNoteSeeder : PlainSeeder<MemoryNote>
         ["source_message_id"] = Guid.CreateVersion7(),
     };
 }
+
+public sealed class SandboxSecretSeeder : PlainSeeder<SandboxSecret>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["name"] = seed.Unique("SAMPLE_TOKEN").ToUpperInvariant().Replace('-', '_'),
+        ["description"] = string.Empty,
+        ["mode"] = "brokered",
+        ["hosts"] = new List<string> { "api.example.com" },
+        ["allow_in_query"] = false,
+        ["allow_in_body"] = false,
+        ["scope"] = "project",
+        ["project_id"] = seed.Parent("projects"),
+        ["secret_id"] = Guid.CreateVersion7(),
+        ["created_by_user_id"] = seed.Placement.User,
+    };
+}
+
+public sealed class SandboxSecretBotSeeder : PlainSeeder<SandboxSecretBot>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["sandbox_secret_id"] = seed.Parent("sandbox_secrets"),
+        ["bot_id"] = seed.Parent("bots"),
+        ["name"] = seed.Unique("SAMPLE_TOKEN").ToUpperInvariant().Replace('-', '_'),
+    };
+}

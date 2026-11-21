@@ -91,9 +91,6 @@ public sealed partial class BotSandboxViewModel(
 
     public static string CommandLabel => "Shell command";
 
-    /// <summary>How long a shell command may be.</summary>
-    public static int LongestCommand => 4000;
-
     public Guid BotId { get; private set; }
 
     public BotSummary? Bot { get; private set; }

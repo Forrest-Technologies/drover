@@ -43,6 +43,34 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         });
         """ + "\n";
 
+    // The headless browser has no push service, so it has no subscription. This gives the worker one the test sets,
+    // and counts how many times the worker ends it.
+    private const string SubscriptionStub = """
+        self.testSubscription = 'https://push.example/test-subscription';
+        self.unsubscribeCount = 0;
+        PushManager.prototype.getSubscription = async function () {
+            const endpoint = self.testSubscription;
+            return endpoint === null ? null : {
+                endpoint,
+                unsubscribe: async () => { self.unsubscribeCount++; self.testSubscription = null; return true; },
+            };
+        };
+        self.addEventListener('message', message => {
+            if (message.data === null || typeof message.data !== 'object' || !('subscription' in message.data || message.data.unsubscribeCount)) return;
+            if ('subscription' in message.data) self.testSubscription = message.data.subscription;
+            message.ports[0].postMessage(self.unsubscribeCount);
+        });
+        """ + "\n";
+
+    private const string TestSubscription = "https://push.example/test-subscription";
+
+    private const string AnotherPersonsSubscription = "https://push.example/another-persons-subscription";
+
+    /// <summary>The person the test server knows from the sign-in cookie, and a different one a wake can be sent for.</summary>
+    private static readonly Guid signedInPerson = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+
+    private static readonly Guid anotherPerson = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d2");
+
     /// <summary>The person's sign-in, as a cookie the worker's own request to the server must carry.</summary>
     private const string SignInCookie = "drover-test-session=signed-in";
 
@@ -135,23 +163,90 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
     [Fact]
     public async Task A_push_shows_what_the_server_says_asked_for_with_the_persons_own_sign_in()
     {
-        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{signedInPerson}}"}""");
 
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Sample bot finished.|{Home}talk/{botId}");
-        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}&user={signedInPerson}|{SignInCookie}|{TestSubscription}");
     }
 
     [Fact]
     public async Task A_push_the_server_does_not_explain_still_shows_without_any_of_the_conversation()
     {
-        await DeliverPush($$"""{"kind":"run.finished","thread":"{{Guid.Empty}}"}""");
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{Guid.Empty}}","user":"{{signedInPerson}}"}""");
 
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Something changed. Open Drover to see it.|{Home}");
-        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}|{SignInCookie}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}&user={signedInPerson}|{SignInCookie}|{TestSubscription}");
+    }
+
+    [Fact]
+    public async Task A_push_left_for_the_last_person_shows_nothing_and_ends_the_browsers_subscription()
+    {
+        await SetSubscription(AnotherPersonsSubscription);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{signedInPerson}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty("the signed-in person holds no subscription for this address, so nothing is shown");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}&user={signedInPerson}|{SignInCookie}|{AnotherPersonsSubscription}");
+        (await SetSubscription(null)).Should().Be(1, "the worker ends a subscription the signed-in person does not hold");
+    }
+
+    [Fact]
+    public async Task A_push_for_the_last_person_while_their_subscription_is_still_installed_ends_it_and_shows_nothing()
+    {
+        // The next person signed in on the last person's browser and has not turned notifications on, so the
+        // subscription is still the last person's. The push names the last person, who is not the signed-in person:
+        // the missing subscription is what the server reports first, so the worker ends it.
+        await SetSubscription(AnotherPersonsSubscription);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{anotherPerson}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty();
+        (await SetSubscription(null)).Should().Be(1, "the subscription that is not the signed-in person's is ended, not kept");
+    }
+
+    [Fact]
+    public async Task A_push_already_queued_for_the_last_person_shows_nothing_to_the_next_and_keeps_their_own_subscription()
+    {
+        // The next person has turned notifications on, so this browser's subscription is theirs. The push was sent
+        // for the last person before the switch.
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{anotherPerson}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty("a wake sent for someone else is not described to the person signed in");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}&user={anotherPerson}|{SignInCookie}|{TestSubscription}");
+        (await SetSubscription(TestSubscription)).Should().Be(0, "the signed-in person's own subscription is not ended");
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{signedInPerson}}"}""");
+
+        (await WaitForNotifications()).Should().Equal([$"Drover|Sample bot finished.|{Home}talk/{botId}"], "a wake sent for the signed-in person is described");
+    }
+
+    [Fact]
+    public async Task A_push_queued_before_it_named_the_person_shows_nothing_and_asks_the_server_nothing_across_a_subscription_replacement()
+    {
+        // The last person's push was queued before the upgrade, so it names nobody. The next person has registered
+        // their own subscription since, which the worker would otherwise supply for it.
+        await SetSubscription(TestSubscription);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty("nothing says the push was for the person signed in");
+        wakeQueries.Should().BeEmpty();
+        (await SetSubscription(TestSubscription)).Should().Be(0, "the signed-in person's own subscription is kept");
+    }
+
+    [Fact]
+    public async Task A_push_with_no_subscription_to_name_shows_nothing_and_asks_the_server_nothing()
+    {
+        await SetSubscription(null);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{signedInPerson}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty();
+        wakeQueries.Should().BeEmpty();
     }
 
     [Fact]
@@ -194,7 +289,22 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             MapClient(app, Home, Shell);
             app.MapGet("/api/push/wake", (HttpContext http) =>
             {
-                wakeQueries.Add($"{http.Request.QueryString}|{http.Request.Headers.Cookie}");
+                var endpoint = http.Request.Headers["Push-Endpoint"].ToString();
+                wakeQueries.Add($"{http.Request.QueryString}|{http.Request.Headers.Cookie}|{endpoint}");
+
+                // The server answers only the person the wake was sent for, and only while they hold a subscription
+                // for the address the worker names.
+                // Ownership of the subscription is checked first, as the real server does.
+                if (endpoint == AnotherPersonsSubscription)
+                {
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+
+                if (!http.Request.Query.TryGetValue("user", out var intended) || intended != signedInPerson.ToString())
+                {
+                    return Results.StatusCode(StatusCodes.Status409Conflict);
+                }
+
                 return http.Request.Query["thread"] == threadId.ToString() && http.Request.Headers.Cookie == SignInCookie
                     ? Results.Json(new { body = "Sample bot finished.", botId, threadId, isMain = true })
                     : Results.NotFound();
@@ -257,7 +367,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         app.MapGet($"{home}talk/{{bot}}", () => Results.Content(shellPage, "text/html"));
         app.MapGet($"{home}register.js", () => Results.Content($"navigator.serviceWorker.register('{home}service-worker.js');", "text/javascript"));
         app.MapGet($"{home}service-worker.js", async () => Results.Content(
-            $"{RejectionRecorder}{OpenRecorder}{PushDispatcher}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
+            $"{RejectionRecorder}{OpenRecorder}{PushDispatcher}{SubscriptionStub}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
             "text/javascript"));
         app.MapGet($"{home}push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
         app.MapGet($"{home}service-worker-assets.js", () => Results.Content(AssetsManifest(shellPage), "text/javascript"));
@@ -287,6 +397,23 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             })
             """, payload).WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
     }
+
+    /// <summary>The notifications the worker shows now, after a push whose handling has finished.</summary>
+    private async Task<string[]> ShownNotifications() =>
+        await page.EvaluateAsync<string[]>(
+            "async () => (await (await navigator.serviceWorker.ready).getNotifications()).map(n => `${n.title}|${n.body}|${n.data.url}`)");
+
+    /// <summary>Sets the subscription the worker finds in its browser, or none, and returns how many times it has ended one.</summary>
+    private async Task<int> SetSubscription(string? endpoint) =>
+        await page.EvaluateAsync<int>(
+            """
+            endpoint => new Promise(done => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = ({ data }) => { channel.port1.close(); done(data); };
+                navigator.serviceWorker.controller.postMessage({ subscription: endpoint }, [channel.port2]);
+            })
+            """,
+            endpoint).WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
 
     /// <summary>The notifications the worker shows, as title, body, and the address a tap opens.</summary>
     private async Task<string[]> WaitForNotifications()

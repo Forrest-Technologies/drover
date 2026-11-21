@@ -163,6 +163,11 @@ If you cannot meet one of these, stop and say which and why. Do not work around 
 
 - GitHub Issues are the source of truth for tasks. `ROADMAP.md` gives direction and links to tracking issues; it never holds status.
 - One issue, one branch, one pull request. The pull request body starts with `Closes #n` and says how the issue's verification plan was carried out.
+- Name every new work branch `<type>/<short-description>` before the first commit.
+  Use `feat/` for features, `bug/` or `fix/` for fixes, and `docs/`, `test/`, `build/`, `refactor/`, or `chore/` as appropriate.
+  Use lowercase, hyphen-separated words that describe the change, such as
+  `feat/add-run-timeline`, `bug/fix-mobile-scroll`, or `docs/require-descriptive-branch-names`.
+  An issue number may precede the description. If your tool creates a placeholder branch like `yello-buttle-972hy`, rename it before committing, pushing, or opening a pull request.
 - Work only on an issue whose acceptance criteria you can meet. If the issue is unclear or wrong, say so on the issue instead of guessing.
 - Do not widen scope. If you find something else that needs doing, open an issue for it.
 - Pull request titles follow Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `build:`, `refactor:`, with `!` for a breaking change.

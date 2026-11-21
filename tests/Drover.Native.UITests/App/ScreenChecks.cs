@@ -23,6 +23,13 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private static readonly TimeSpan startPatience = TimeSpan.FromSeconds(120);
 
+    // The widths a desktop window is made in turn, in pixels: the two the app is required to work at. A phone has the
+    // one width it has, which is taken as it is (0).
+    private static readonly int[] requiredWidths = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() ? [0] : [360, 1280];
+
+    /// <summary>The width the checks run at when a check has made the window another.</summary>
+    private const int PhoneWidth = 420;
+
     private static readonly TimeSpan poll = TimeSpan.FromMilliseconds(100);
 
     private readonly ILogger<ScreenChecks> logger = Log.For<ScreenChecks>();
@@ -47,7 +54,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("connect", Connect);
                 await Step("sign in", SignIn);
                 await Step("open a conversation", OpenConversation);
+                await Step("composer bounds", ComposerBounds);
                 await Step("send a message", SendMessage);
+                await Step("stop while working", StopWhileWorking);
                 await Step("back", Back);
             }
 
@@ -139,6 +148,127 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             Find("ComposerField") is TextBox { IsEnabled: true } field ? field : null);
     }
 
+    /// <summary>
+    /// The automation box of each composer button is where the button is drawn, within 2 px, at both widths the app
+    /// is required to work at, with the options row open and again once the field is three lines tall, which moves
+    /// everything above it. The browser build keeps its accessible boxes apart from the drawn controls, so
+    /// <c>check-native-browser.mjs</c> asks the canvas; here the peer's rectangle is compared with the control's own.
+    /// </summary>
+    private async Task ComposerBounds()
+    {
+        await Shown("ComposerField");
+
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            await Press("ComposerMore");
+            await AreWhereDrawn($"at {Width():0} px with the options open", "ComposerMore", "ComposerAttach", "ComposerSend");
+            var oneLine = (await Shown("ComposerField")).ActualHeight;
+            await Type("ComposerField", "one\ntwo\nthree");
+            await Until("the field to grow", () => Find("ComposerField") is { } grown && grown.ActualHeight > oneLine + 20 ? grown : null);
+            await AreWhereDrawn($"at {Width():0} px with the field three lines tall", "ComposerMore", "ComposerAttach", "ComposerSend");
+            await Type("ComposerField", string.Empty);
+            await Press("ComposerMore");
+        }
+
+        await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// While a run is in progress Stop stands where Send was. The check server's model holds its second run until it
+    /// is stopped, so this sends a message, looks at Stop and the options button at both required widths, and then
+    /// presses Stop, which ends the run and brings Send back.
+    /// </summary>
+    private async Task StopWhileWorking()
+    {
+        await Type("ComposerField", "hold this run");
+        await Press("ComposerSend");
+        await Shown("ComposerStop");
+
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            await AreWhereDrawn($"at {Width():0} px with a run in progress", "ComposerMore", "ComposerStop");
+        }
+
+        await AtWidth(PhoneWidth);
+        await Press("ComposerStop");
+        await Until("Send to come back once the run is stopped", () => Find("ComposerStop") is null ? Find("ComposerSend") : null);
+    }
+
+    /// <summary>
+    /// Makes the window <paramref name="width"/> wide. A resize asked for before the window is ready can be undone by
+    /// the host's own first size, and asking for the same size again changes nothing, so each ask differs from the
+    /// last by a few pixels. A window can refuse a width (a smallest size a system keeps a window above, a screen
+    /// smaller than the width), so after a few seconds the width it gave is taken if it is in the same layout, phone
+    /// or wide, as the width asked for: what the check is about is that layout.
+    /// </summary>
+    private async Task AtWidth(int width)
+    {
+        if (width == 0)
+        {
+            return;
+        }
+
+#if !__ANDROID__ && !__IOS__
+        var asked = 0;
+        var resizedAt = TimeSpan.MinValue;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await Until($"a window {width} px wide", () =>
+        {
+            var phone = (double)Styles.Dictionary["DvBreakPhone"];
+            if (Math.Abs(Width() - width) <= 8
+                || (watch.Elapsed > TimeSpan.FromSeconds(6) && Width() > 0 && (Width() < phone) == (width < phone)))
+            {
+                return window.Content;
+            }
+
+            if (resizedAt == TimeSpan.MinValue || watch.Elapsed - resizedAt >= TimeSpan.FromSeconds(1))
+            {
+                window.AppWindow.Resize(new(width + (asked++ % 2 * 4), 860));
+                resizedAt = watch.Elapsed;
+            }
+
+            return null;
+        });
+
+        // The content takes its new layout on the frames after the window reaches its width: look until it is the
+        // same twice running.
+        var lastWidth = -1d;
+        await Until("the layout to settle", () =>
+        {
+            var now = (window.Content as FrameworkElement)?.ActualWidth ?? 0;
+            var settled = Math.Abs(now - lastWidth) < 0.5;
+            lastWidth = now;
+            return settled ? window.Content : null;
+        });
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    private async Task AreWhereDrawn(string state, params string[] ids)
+    {
+        var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
+
+        foreach (var id in ids)
+        {
+            var element = await Shown(id);
+            var drawn = element.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            var peer = FrameworkElementAutomationPeer.CreatePeerForElement(element)
+                ?? throw new CheckFailedException($"{id} has no automation peer");
+            var box = peer.GetBoundingRectangle();
+
+            if (Math.Abs(box.X - drawn.X) > 2 || Math.Abs(box.Y - drawn.Y) > 2
+                || Math.Abs(box.Width - drawn.Width) > 2 || Math.Abs(box.Height - drawn.Height) > 2)
+            {
+                var said = $"its automation box is {box.X:0.#},{box.Y:0.#} {box.Width:0.#}x{box.Height:0.#}";
+                throw new CheckFailedException(
+                    $"{id} {state}: {said} but it is drawn at {drawn.X:0.#},{drawn.Y:0.#} {drawn.Width:0.#}x{drawn.Height:0.#}");
+            }
+        }
+    }
+
     private async Task SendMessage()
     {
         await Type("ComposerField", Message);
@@ -200,7 +330,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 box.Password = text;
                 break;
 #if __ANDROID__
-            case Droid.AndroidAddressEditor box:
+            case Droid.AndroidTextEditor box:
                 box.Text = text;
                 break;
 #endif
@@ -340,7 +470,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
         TextBox or PasswordBox => true,
 #if __ANDROID__
-        Droid.AndroidAddressEditor => true,
+        Droid.AndroidTextEditor => true,
 #endif
         _ => false,
     };

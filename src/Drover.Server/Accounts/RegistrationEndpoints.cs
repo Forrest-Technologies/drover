@@ -61,9 +61,9 @@ public static class RegistrationEndpoints
             return TypedResults.Problem(title: refusal, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (string.IsNullOrWhiteSpace(request.DisplayName) || request.DisplayName.Length > 200)
+        if (string.IsNullOrWhiteSpace(request.DisplayName) || request.DisplayName.Length > FieldLimits.DisplayName)
         {
-            return TypedResults.Problem(title: "A display name of up to 200 characters is required.", statusCode: StatusCodes.Status400BadRequest);
+            return TypedResults.Problem(title: $"A display name of up to {FieldLimits.DisplayName} characters is required.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var result = await accounts.Register(
