@@ -17,6 +17,9 @@ public sealed class MessageMapping : IEntityTypeConfiguration<Message>
         builder.HasIndex(message => new { message.SpaceId, message.ThreadId, message.Position })
             .IsUnique()
             .HasFilter("shelved_at IS NULL");
+        builder.HasIndex(message => new { message.SpaceId, message.CreatedAt, message.Id })
+            .IsDescending(false, true, true)
+            .HasFilter("position IS NOT NULL AND shelved_at IS NULL AND role IN ('user', 'assistant')");
         builder.WithinSpace<Message, ChatThread>(nameof(Message.ThreadId), audience: true);
         builder.WithinSpace<Message, Run>(nameof(Message.RunId));
         builder.WithinSpace<Message, Bot>(nameof(Message.AuthorBotId));

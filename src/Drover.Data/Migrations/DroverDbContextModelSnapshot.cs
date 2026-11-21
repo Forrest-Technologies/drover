@@ -2442,6 +2442,11 @@ namespace Drover.Data.Migrations
                     b.HasIndex("SpaceId", "RunId")
                         .HasDatabaseName("ix_messages_space_id_run_id");
 
+                    b.HasIndex("SpaceId", "CreatedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("ix_messages_space_id_created_at_id")
+                        .HasFilter("position IS NOT NULL AND shelved_at IS NULL AND role IN ('user', 'assistant')");
+
                     b.HasIndex("SpaceId", "ParentId", "AudienceUserId")
                         .HasDatabaseName("ix_messages_space_id_parent_id_audience_user_id");
 

@@ -104,6 +104,23 @@ const sampleImageAddress = 'https://preview-image.example.test/sample.png';
 if (!reference) {
     messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
 }
+const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
+const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
+const searchMessages = Array.from({ length: 25 }, (_, index) => ({
+    id: `0196f1a0-0000-7000-8000-${String(index + 101).padStart(12, '0')}`,
+    threadId: thread.id,
+    position: index + 1,
+    role: index % 2 === 0 ? 'assistant' : 'user',
+    parts: [{
+        kind: 'text',
+        text: index === 0
+            ? 'The lighthouse keeper visits on Tuesdays.'
+            : index === 24
+                ? 'The lighthouse lamp was polished today.'
+                : `Routine conversation filler message number ${index + 1} with enough words to fill vertical viewport space.`,
+    }],
+    createdAt: thread.lastActivityAt,
+}));
 const usage = {
     botId, botName: bot.name, model: bot.model, own: { cost: 1.23, inputTokens: 120, outputTokens: 45 }, children: [],
 };
@@ -280,6 +297,38 @@ try {
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
                     body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
                 }
+                else if (address === `/api/spaces/${spaceId}/threads/search` && route.request().method() === 'POST') {
+                    const { query } = route.request().postDataJSON() ?? {};
+                    const hits = query === 'lighthouse'
+                        ? [
+                            {
+                                messageId: searchTopMessageId,
+                                threadId: thread.id,
+                                botId,
+                                botName: bot.name,
+                                threadTitle: null,
+                                inMainConversation: true,
+                                fromBot: true,
+                                sentAt: thread.lastActivityAt,
+                                snippet: 'The lighthouse keeper visits on Tuesdays.',
+                                matches: [{ start: 4, length: 10 }],
+                            },
+                            {
+                                messageId: searchBottomMessageId,
+                                threadId: thread.id,
+                                botId,
+                                botName: bot.name,
+                                threadTitle: null,
+                                inMainConversation: true,
+                                fromBot: false,
+                                sentAt: thread.lastActivityAt,
+                                snippet: 'The lighthouse lamp was polished today.',
+                                matches: [{ start: 4, length: 10 }],
+                            },
+                        ]
+                        : [];
+                    body = { hits, window: 2000, older: null };
+                }
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
                 else if (address.endsWith('/stream')) { await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }); return; }
@@ -341,7 +390,7 @@ try {
                     await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
                     return;
                 }
-                else if (address.endsWith('/messages')) { body = messages; }
+                else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
                 else if (address.endsWith(`/files/${htmlFileId}/preview`) && route.request().method() === 'POST') {
                     body = { address: `${previewOrigin}/preview/file?grant=sample-grant`, problem: null, grant: 'sample-grant' };
@@ -608,6 +657,10 @@ try {
                 }
             }
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
+            if (!reference) {
+                current = 'conversation-search';
+                await checkConversationSearch(page, width);
+            }
             await context.close();
         }
     }
@@ -1038,6 +1091,85 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     await iframe.waitFor({ state: 'detached', timeout: 5000 });
     await revoked;
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
+}
+
+// Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
+// scrolls its message into the viewport rather than remaining stuck at the conversation foot.
+async function checkConversationSearch(page, width) {
+    const target = width === 360 ? '/native/' : `/native/talk/${botId}`;
+    await page.evaluate(url => { history.pushState(null, '', url); dispatchEvent(new PopStateEvent('popstate')); }, target);
+
+    const searchBox = page.getByRole('textbox', { name: 'Search conversations', exact: true });
+    await searchBox.waitFor({ state: 'attached', timeout: 15000 });
+
+    const topMessage = page.getByText('The lighthouse keeper visits on Tuesdays.', { exact: true }).first();
+    if (width === 1280) {
+        await page.getByText('The lighthouse lamp was polished today.', { exact: true }).first().waitFor({ state: 'attached', timeout: 15000 });
+        await topMessage.waitFor({ state: 'attached', timeout: 15000 });
+        await page.waitForFunction(() => {
+            const group = [...document.querySelectorAll('[role="group"]')].find(node =>
+                node.textContent?.includes('The lighthouse keeper visits on Tuesdays.'));
+            if (!group) { return false; }
+            const box = group.getBoundingClientRect();
+            return box.bottom <= 120;
+        }, null, { timeout: 10000 });
+    }
+
+    await searchBox.focus();
+    await searchBox.fill('zebra');
+    await page.waitForFunction(() => {
+        const el = [...document.querySelectorAll('input, textarea')].find(node =>
+            node.getAttribute('aria-label') === 'Search conversations');
+        return el && el.value === 'zebra';
+    }, null, { timeout: 5000 });
+    await page.keyboard.press('Enter');
+    const nothing = page.getByRole('heading', { name: 'Nothing matches “zebra”', exact: true });
+    await nothing.waitFor({ state: 'attached', timeout: 10000 });
+    await page.getByRole('button', { name: 'Clear the search', exact: true }).last().dispatchEvent('click');
+    await nothing.waitFor({ state: 'detached', timeout: 10000 });
+
+    await searchBox.focus();
+    await searchBox.fill('lighthouse');
+    await page.waitForFunction(() => {
+        const el = [...document.querySelectorAll('input, textarea')].find(node =>
+            node.getAttribute('aria-label') === 'Search conversations');
+        return el && el.value === 'lighthouse';
+    }, null, { timeout: 5000 });
+    const searchResponse = page.waitForResponse(response =>
+        new URL(response.url()).pathname.endsWith('/threads/search') && response.request().method() === 'POST',
+    { timeout: 10000 });
+    await page.keyboard.press('Enter');
+    await searchResponse;
+    await page.locator('[aria-label="2 messages found."]')
+        .or(page.getByText('2 messages found.', { exact: true }))
+        .waitFor({ state: 'attached', timeout: 10000 });
+
+    const firstHit = page.getByRole('link', { name: /The lighthouse keeper visits on Tuesdays\./ });
+    const secondHit = page.getByRole('link', { name: /The lighthouse lamp was polished today\./ });
+    await firstHit.waitFor({ state: 'attached', timeout: 10000 });
+    await secondHit.waitFor({ state: 'attached', timeout: 10000 });
+
+    await firstHit.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForFunction(() =>
+        (document.activeElement?.getAttribute('aria-label') ?? '').includes('The lighthouse lamp was polished today.'),
+    null, { timeout: 5000 });
+    await page.keyboard.press('ArrowUp');
+    await page.waitForFunction(() =>
+        (document.activeElement?.getAttribute('aria-label') ?? '').includes('The lighthouse keeper visits on Tuesdays.'),
+    null, { timeout: 5000 });
+
+    await firstHit.dispatchEvent('click');
+    await page.waitForURL(url => url.pathname.endsWith(`/talk/${botId}`) && url.hash === `#message-${searchTopMessageId}`, { timeout: 15000 });
+    await topMessage.waitFor({ state: 'attached', timeout: 15000 });
+    await page.waitForFunction(() => {
+        const group = [...document.querySelectorAll('[role="group"]')].find(node =>
+            node.textContent?.includes('The lighthouse keeper visits on Tuesdays.'));
+        if (!group) { return false; }
+        const box = group.getBoundingClientRect();
+        return box.height > 0 && box.top >= 80 && box.bottom <= 900;
+    }, null, { timeout: 10000 });
+    process.stdout.write(`conversation-search ${width}: passed\n`);
 }
 
 /**

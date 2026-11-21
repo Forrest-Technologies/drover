@@ -43,6 +43,8 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly CrewList crew = new();
 
+    private readonly ConversationSearch search = new();
+
     private readonly TextBlock crewHeading = Styles.Text("Conversations", "DvTextH1");
 
     private readonly Border listFooter = new();
@@ -203,7 +205,9 @@ internal sealed class TalkWorkspace : Grid
         var crewColumn = new StackPanel();
         crewColumn.Children.Add(crewHeading);
         crewColumn.Children.Add(crewNotice);
+        crewColumn.Children.Add(search);
         crewColumn.Children.Add(crew);
+        search.ActiveChanged += QueueDraw;
         var crewScroll = new ScrollViewer
         {
             Content = crewColumn,
@@ -401,7 +405,8 @@ internal sealed class TalkWorkspace : Grid
     {
         var ready = model.NotReady is WorkspaceState.Ready;
         AutomationProperties.SetAccessibilityView(crewHeading, model.At is "crew" ? AccessibilityView.Content : AccessibilityView.Raw);
-        crew.Visibility = Shown(ready);
+        search.Visibility = Shown(ready);
+        crew.Visibility = Shown(ready && !search.IsActive);
 
         if (ready)
         {
