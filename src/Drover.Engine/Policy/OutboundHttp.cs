@@ -115,24 +115,42 @@ public static class OutboundHttp
         Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
         CancellationToken cancellationToken)
     {
-        Exception? lastFailure = null;
+        SocketException? lastFailure = null;
 
         foreach (var address in addresses)
         {
-            try
+            var attempt = await TryConnect(address, port, connect, cancellationToken);
+
+            if (attempt.Stream is { } stream)
             {
-                return await connect(address, port, cancellationToken);
+                return stream;
             }
-            catch (SocketException failure)
-            {
-                lastFailure = failure;
-            }
+
+            lastFailure = attempt.Failure;
         }
 
         throw new HttpRequestException(
             HttpRequestError.ConnectionError,
             "None of the addresses for the host could be reached.",
             lastFailure);
+    }
+
+    private static async ValueTask<(Stream? Stream, SocketException? Failure)> TryConnect(
+        IPAddress address,
+        int port,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await connect(address, port, cancellationToken), null);
+        }
+        catch (SocketException failure)
+        {
+            // A machine without IPv6 refuses the socket itself. Keep the failure and let the caller try the next
+            // address, so a missing address family is no different from a refused connection.
+            return (null, failure);
+        }
     }
 
     private static async ValueTask<Stream> Connect(

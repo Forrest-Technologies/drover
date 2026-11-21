@@ -135,15 +135,16 @@ public sealed class PostgresServer : IAsyncLifetime
     {
         await using var connection = new NpgsqlConnection(server.ConnectionString);
         await connection.OpenAsync();
-        var role = NpgsqlCommandBuilder.QuoteIdentifier(privilegedRole);
-        await using var command = new NpgsqlCommand($"CREATE ROLE {role} LOGIN SUPERUSER PASSWORD @password", connection);
-        command.Parameters.AddWithValue("password", privilegedPassword);
+        // PostgreSQL does not accept a bind parameter in CREATE ROLE. The password is hex generated above, so it
+        // cannot hold a quote; there is nothing to inject in it.
+        var role = $"\"{privilegedRole}\"";
+        await using var command = new NpgsqlCommand($"CREATE ROLE {role} LOGIN SUPERUSER PASSWORD '{privilegedPassword}'", connection);
         _ = await command.ExecuteNonQueryAsync();
     }
 
     private Task DropPrivilegedRole()
     {
-        var role = NpgsqlCommandBuilder.QuoteIdentifier(privilegedRole);
+        var role = $"\"{privilegedRole}\"";
         return ExecuteOnServer($"DROP ROLE IF EXISTS {role}");
     }
 
