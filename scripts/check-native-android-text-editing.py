@@ -22,6 +22,34 @@ def shell(*args):
     return subprocess.check_output(["adb", "shell", *args], text=True).strip()
 
 
+def wait_for_boot(timeout=90):
+    """Wait until the device answers a shell command after adbd restarts as root."""
+    deadline = time.monotonic() + timeout
+
+    while True:
+        state = subprocess.run(["adb", "get-state"], text=True, capture_output=True)
+        booted = subprocess.run(["adb", "shell", "getprop", "sys.boot_completed"], text=True, capture_output=True)
+        if (state.returncode == 0 and state.stdout.strip() == "device"
+                and booted.returncode == 0 and booted.stdout.strip() == "1"):
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError("The Android device did not come back online after adb root.")
+        time.sleep(1)
+
+
+def capture(*args):
+    """Capture a screen once, and once more if the device dropped offline mid-capture."""
+    for attempt in range(2):
+        result = subprocess.run(["adb", "exec-out", *args], capture_output=True)
+        offline = b"device offline" in result.stderr or b"device not found" in result.stderr
+        if result.returncode == 0 and result.stdout and not offline:
+            return result.stdout
+        if attempt == 0 and offline:
+            wait_for_boot()
+    detail = result.stderr.decode("utf-8", "replace").strip()
+    raise AssertionError(f"Could not capture {' '.join(args)} from Android: {detail}")
+
+
 def start_app():
     shell("am", "force-stop", PACKAGE)
     activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
@@ -114,7 +142,7 @@ def check_edits():
 def screenshot(name):
     folder = Path("artifacts/android-layout")
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{name}.png").write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
+    (folder / f"{name}.png").write_bytes(capture("screencap", "-p"))
 
 
 def system_bar_edge(displays, bar, edge):
@@ -132,7 +160,7 @@ def check_yard_edges(theme):
     displays = shell("dumpsys", "window", "displays")
     status_bottom = system_bar_edge(displays, "statusBars", 2)
     navigation_top = system_bar_edge(displays, "navigationBars", 1)
-    pixels = subprocess.check_output(["adb", "exec-out", "screencap"])
+    pixels = capture("screencap")
     width, height, format_id, _ = struct.unpack_from("<4I", pixels)
     if (width, height, format_id) != (720, 1600, 1):
         raise AssertionError(f"Expected a 720 × 1600 RGBA emulator image, got {width} × {height} format {format_id}.")
@@ -173,8 +201,10 @@ def check_safe_area():
         check_yard_edges("dark")
 
         # The fresh emulator uses a debuggable system image. Seed the app's saved light choice before it launches.
-        subprocess.run(["adb", "root"], check=True)
-        subprocess.run(["adb", "wait-for-device"], check=True, timeout=30)
+        identity = subprocess.run(["adb", "shell", "id"], text=True, capture_output=True)
+        if identity.returncode != 0 or "uid=0(root)" not in identity.stdout:
+            subprocess.run(["adb", "root"], check=True)
+            wait_for_boot()
         shell("am", "force-stop", PACKAGE)
         data = f"/data/user/0/{PACKAGE}"
         preferences = f"{data}/shared_prefs"
@@ -189,8 +219,15 @@ def check_safe_area():
         if abs(light_top - normal_top) > 2:
             raise AssertionError("Changing the theme moved the server address relative to the safe area.")
     finally:
-        shell("wm", "size", "reset")
-        shell("wm", "density", "reset")
+        # A device that went offline must not hide the assertion that found it.
+        try:
+            wait_for_boot()
+            shell("wm", "size", "reset")
+            shell("wm", "density", "reset")
+        except Exception as error:
+            if sys.exc_info()[0] is None:
+                raise
+            print(f"Could not reset the Android display after the check: {error}")
 
 
 def check_unreachable_open():
