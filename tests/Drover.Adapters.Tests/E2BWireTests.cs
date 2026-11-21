@@ -556,7 +556,6 @@ public sealed class E2BWireTests
         #endregion
     }
 
-
     private static MemoryStream Frames(params (byte Flags, string Json)[] frames)
     {
         var stream = new MemoryStream();

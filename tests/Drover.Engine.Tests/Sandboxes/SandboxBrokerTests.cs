@@ -742,7 +742,6 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         yield return new CommandExited(0, null);
     }
 
-
     private async Task<RunWorld> SandboxWorld(FakeSandboxProvider provider, ScriptedModel? script = null, DeploymentPolicy? policy = null) =>
         await RunWorld.Create(
             postgres,
