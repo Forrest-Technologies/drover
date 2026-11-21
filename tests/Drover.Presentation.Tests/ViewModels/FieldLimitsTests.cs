@@ -1,22 +1,13 @@
 namespace Drover.Presentation.Tests.ViewModels;
 
 /// <summary>
-/// A field the web client limits is limited in the native client too, and both read the number from the constant the
-/// server's validators read (<see cref="FieldLimits"/>, and <see cref="ExtensionFile.MaxIdLength"/> for an id), so
-/// no client stops a person short of what the server takes or lets them type what it refuses.
+/// Every length the native client sets on a field comes from the constant the server's validators read
+/// (<see cref="FieldLimits"/>, and <see cref="ExtensionFile.MaxIdLength"/> for an id), and every shared limit is set
+/// there, so a person is stopped while typing instead of after sending.
 /// </summary>
 public sealed partial class FieldLimitsTests
 {
     #region Public Methods
-
-    [Fact]
-    public void Every_limit_on_a_web_field_reads_a_shared_constant()
-    {
-        var limits = WebLimits().ToList();
-
-        limits.Should().NotBeEmpty();
-        limits.Should().AllSatisfy(limit => limit.Value.Should().MatchRegex(SharedConstant().ToString(), $"{limit.Path} sets a length of its own"));
-    }
 
     [Fact]
     public void Every_limit_on_a_native_field_reads_a_shared_constant()
@@ -28,38 +19,27 @@ public sealed partial class FieldLimitsTests
     }
 
     [Fact]
-    public void Every_shared_limit_the_web_client_sets_is_set_as_often_in_the_native_client()
+    public void Every_shared_limit_is_set_in_the_native_client()
     {
+        var shared = typeof(FieldLimits)
+            .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(field => field.IsLiteral && field.FieldType == typeof(int))
+            .Select(field => $"{nameof(FieldLimits)}.{field.Name}")
+            .Append($"{nameof(ExtensionFile)}.{nameof(ExtensionFile.MaxIdLength)}")
+            .ToArray();
+
         var native = Repository.NativeFiles(".cs", ".xaml")
             .SelectMany(file => SharedConstant().Matches(file.Text).Select(match => match.Value))
-            .CountBy(name => name)
-            .ToDictionary();
+            .ToHashSet(StringComparer.Ordinal);
 
-        var missing = WebLimits()
-            .Select(limit => SharedConstant().Match(limit.Value).Value)
-            .CountBy(name => name)
-            .Where(web => native.GetValueOrDefault(web.Key) < web.Value)
-            .Select(web => $"{web.Key}: {web.Value} on the web, {native.GetValueOrDefault(web.Key)} in the native client");
+        var missing = shared.Where(name => !native.Contains(name)).ToArray();
 
-        missing.Should().BeEmpty();
+        missing.Should().BeEmpty("every shared limit is set in the native client");
     }
 
     #endregion
 
     #region Private Methods
-
-    private static IEnumerable<(string Path, string Value)> WebLimits()
-    {
-        var folder = Path.Combine(Repository.Root, "src", "Drover.Ui");
-
-        return Directory.EnumerateFiles(folder, "*.razor", SearchOption.AllDirectories)
-            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}Starters{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            .SelectMany(path => WebLimit().Matches(File.ReadAllText(path))
-                .Select(match => (Path.GetRelativePath(folder, path), match.Groups["value"].Value)));
-    }
-
-    [GeneratedRegex("""maxlength="(?<value>[^"]*)"\s*""", RegexOptions.IgnoreCase)]
-    private static partial Regex WebLimit();
 
     [GeneratedRegex(@"\b(FieldLimits\.\w+|ExtensionFile\.MaxIdLength)\b")]
     private static partial Regex SharedConstant();

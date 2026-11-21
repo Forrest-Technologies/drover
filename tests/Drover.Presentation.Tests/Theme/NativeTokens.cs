@@ -9,7 +9,7 @@ public static partial class NativeTokens
 
     private static readonly XDocument document = XDocument.Load(Repository.NativeTokens);
 
-    private static readonly string css = File.ReadAllText(Repository.WebTokens);
+    private static readonly string css = File.ReadAllText(Repository.TokenSpecification);
 
     #endregion
 

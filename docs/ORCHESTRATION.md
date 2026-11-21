@@ -14,7 +14,7 @@ The owner chats with a bot that uses MCP tools, through a compose deployment, ev
 | --- | --- |
 | Design | Written. `docs/architecture/README.md` is the index. Decisions are in `docs/adr`. |
 | Solution | `Drover.slnx` builds with zero warnings. 14 source projects, empty, in the dependency direction a test enforces. |
-| Server | Runs. Serves the web client and health checks on port 8080. Nothing else yet. |
+| Server | Runs. Serves the browser client and health checks on port 8080. Nothing else yet. |
 | CI | Live on hosted runners: build, format, tests, vulnerable packages, license check, CodeQL, secret scan, workflow lint. |
 | Rules | `AGENTS.md`, `CODE_STYLE.md`, `DESIGN.md`. All binding. |
 | Work | 19 open issues under tracking issue #1. Step 1 (#2) closes when its pull request merges. |

@@ -1,15 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Everything about the interface that is not tied to a UI framework: words, drafts, layouts as data, and the
-       view models. Both the Blazor components and the native client build on it. The moved files keep the
-       Drover.Ui namespaces they were written in, so no caller changed when they moved here. -->
+       view models. The native client builds on it. The files moved here from the retired web client keep the
+       Drover.Ui namespaces they were written in, so no caller changed when they moved. -->
   <PropertyGroup>
     <RootNamespace>Drover.Ui</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Drover.Ui" />
-    <InternalsVisibleTo Include="Drover.Ui.Tests" />
     <InternalsVisibleTo Include="Drover.Presentation.Tests" />
     <InternalsVisibleTo Include="Drover.Native" />
   </ItemGroup>

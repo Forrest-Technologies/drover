@@ -1,15 +1,16 @@
 namespace Drover.Presentation.Tests.Support;
 
-/// <summary>Finds the source files of the two clients, so tests can read what ships.</summary>
+/// <summary>Finds the client's source files, so tests can read what ships.</summary>
 public static class Repository
 {
     #region Properties
 
     public static string Root { get; } = FindRoot();
 
-    public static string WebTokens => Path.Combine(Root, "src", "Drover.Ui", "wwwroot", "tokens.css");
-
     public static string NativeFolder => Path.Combine(Root, "src", "Drover.Native");
+
+    /// <summary>The design tokens as CSS custom properties: the specification <c>Tokens.xaml</c> restates.</summary>
+    public static string TokenSpecification => Path.Combine(NativeFolder, "Theme", "tokens.css");
 
     public static string NativeTokens => Path.Combine(NativeFolder, "Theme", "Tokens.xaml");
 

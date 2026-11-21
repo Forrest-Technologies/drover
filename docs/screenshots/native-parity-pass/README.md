@@ -15,3 +15,7 @@ These captures establish that the sampled states render. They do not establish p
 keyboard, zoom, screen-reader, provider, or device coverage. In particular the desktop usage table has not yet
 been translated, spacing differences remain, and the four placeholder screens are excluded. Current gaps and
 upstream constraints are recorded in `docs/architecture/18-native-client.md`.
+
+The Blazor client and the reference mode were retired on 2026-11-20; the browser client is now served at `/`, and
+the script runs from the Playwright runtime of `tests/Drover.Presentation.Tests` against that client alone. These
+pictures are kept as the record of that pass.

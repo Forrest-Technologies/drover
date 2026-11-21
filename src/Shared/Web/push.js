@@ -39,6 +39,75 @@ export async function subscribe(publicKey) {
     return { endpoint: json.endpoint, publicKey: json.keys.p256dh, authSecret: json.keys.auth };
 }
 
+// The note the retired worker of the client's former address, /native/, leaves when it ends a subscription
+// (retired-native-worker.js in the server). The client at the root takes it up again (MovedNotifications).
+const movedNote = "drover-push-moved";
+
+// Its one entry, at a path from the root, as the retired worker writes it.
+const movedEntry = "/drover-push-moved";
+
+// The subscription an attempt to take the moved one up made, kept until the server's answer about it is known, and
+// the account it was made for: only that account may settle it.
+const candidateEntry = "/drover-push-candidate";
+const candidateAccountEntry = "/drover-push-candidate-account";
+
+// "none" without the note; otherwise whether the browser still allows notifications, so the client at the root can
+// subscribe without asking.
+export async function moved() {
+    if (!("caches" in self) || !await caches.has(movedNote)) {
+        return "none";
+    }
+
+    return "Notification" in window && Notification.permission === "granted" ? "permission-kept" : "permission-lost";
+}
+
+// The push service address of the subscription the move ended, so the client can ask the server whose it was.
+export function movedEndpoint() {
+    return readNote(movedEntry);
+}
+
+export function moveCandidate() {
+    return readNote(candidateEntry);
+}
+
+export function moveCandidateAccount() {
+    return readNote(candidateAccountEntry);
+}
+
+export async function rememberMoveCandidate(endpoint, account) {
+    const note = await caches.open(movedNote);
+    await note.put(candidateAccountEntry, new Response(account));
+    await note.put(candidateEntry, new Response(endpoint));
+}
+
+// Ends the subscription only while it is the one at this address. One another account made since is left alone.
+export async function unsubscribeOnly(endpoint) {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+
+    if (subscription === null || subscription.endpoint !== endpoint) {
+        return false;
+    }
+
+    return await subscription.unsubscribe();
+}
+
+async function readNote(entry) {
+    if (!("caches" in self)) {
+        return null;
+    }
+
+    const note = await (await caches.open(movedNote)).match(entry);
+    const text = note === undefined ? "" : await note.text();
+    return text === "" ? null : text;
+}
+
+export async function forgetMove() {
+    if ("caches" in self) {
+        await caches.delete(movedNote);
+    }
+}
+
 export async function unsubscribe() {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();

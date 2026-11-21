@@ -25,9 +25,6 @@ public sealed class SolutionLayoutTests
         ["Drover.Adapters.SearXng"] = ["Drover.Domain"],
         ["Drover.Client"] = ["Drover.Contracts"],
         ["Drover.Presentation"] = ["Drover.Client", "Drover.Contracts"],
-        ["Drover.Ui"] = ["Drover.Presentation", "Drover.Client", "Drover.Contracts"],
-        ["Drover.Web"] = ["Drover.Ui"],
-        ["Drover.App"] = ["Drover.Ui"],
         ["Drover.Native"] = ["Drover.Presentation", "Drover.Client", "Drover.Contracts"],
         ["Drover.Server"] =
         [
@@ -41,12 +38,11 @@ public sealed class SolutionLayoutTests
             "Drover.Adapters.E2B",
             "Drover.Adapters.WebPush",
             "Drover.Adapters.SearXng",
-            "Drover.Web",
         ],
     };
 
     private static readonly string[] clientProjects =
-        ["Drover.Client", "Drover.Presentation", "Drover.Ui", "Drover.Web", "Drover.App", "Drover.Native"];
+        ["Drover.Client", "Drover.Presentation", "Drover.Native"];
 
     private static readonly string[] serverOnlyProjects = ["Drover.Domain", "Drover.Data", "Drover.Engine"];
 
@@ -114,15 +110,16 @@ public sealed class SolutionLayoutTests
     }
 
     [Fact]
-    public void The_MAUI_shell_is_only_in_the_apps_solution()
+    public void The_native_client_is_only_in_its_own_solution()
     {
+        // It needs workloads the main solution's build does not have (docs/architecture/18-native-client.md).
         var root = FindRepositoryRoot();
         XDocument.Load(Path.Combine(root, "Drover.slnx")).Descendants("Project")
             .Should().NotContain(project => project.Attribute("Path")!.Value.EndsWith(
-                "Drover.App.csproj", StringComparison.Ordinal));
-        XDocument.Load(Path.Combine(root, "Drover.Apps.slnx")).Descendants("Project")
+                "Drover.Native.csproj", StringComparison.Ordinal));
+        XDocument.Load(Path.Combine(root, "Drover.Native.slnx")).Descendants("Project")
             .Should().ContainSingle(project => project.Attribute("Path")!.Value.EndsWith(
-                "Drover.App.csproj", StringComparison.Ordinal));
+                "Drover.Native.csproj", StringComparison.Ordinal));
     }
 
     [Fact]

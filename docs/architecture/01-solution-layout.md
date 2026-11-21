@@ -1,12 +1,13 @@
 # 1. Solution and project layout
 
-## Three solutions
+## Two solutions
 
 | File | Contains | Why separate |
 | --- | --- | --- |
-| `Drover.slnx` | Server, web client, shared libraries, adapters, analyzers, all tests | Builds with the plain .NET SDK. This is what `docker compose build` and pull request CI touch. |
-| `Drover.Apps.slnx` | The MAUI shell, plus references to the shared libraries | Needs MAUI workloads and platform SDKs. Keeping it out of the main solution keeps the image build small and CI fast. |
-| `Drover.Native.slnx` | The native client, plus references to the shared libraries | Needs the `wasm-tools` workload and platform SDKs. It is apart from `Drover.Apps.slnx` because the Android preview workflow formats and license-checks that whole solution without restoring it. See [18-native-client.md](18-native-client.md). |
+| `Drover.slnx` | Server, shared libraries, adapters, analyzers, all tests | Builds with the plain .NET SDK. This is what pull request CI builds and tests. |
+| `Drover.Native.slnx` | The native client, plus references to the shared libraries | Needs the `wasm-tools` workload and platform SDKs. Keeping it out of the main solution keeps the main build and its CI free of them; the native and Android preview workflows format and license-check this solution on their own. See [18-native-client.md](18-native-client.md). |
+
+The Blazor web client (`Drover.Ui`, `Drover.Web`) and the MAUI Android shell (`Drover.App`, in `Drover.Apps.slnx`) were retired on 2026-11-20 by the owner's decision. The native client replaces both.
 
 Both use `.slnx`. Never keep a `.sln` beside a `.slnx`; the SDK treats that as an error.
 
@@ -30,8 +31,6 @@ Drover.slnx
     Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
     Drover.Client                 typed API client, SSE reader with reconnect, run state reducer and view model
     Drover.Presentation           the interface without a UI framework: words, drafts, models, view models, the router
-    Drover.Ui                     Razor class library: every screen and component
-    Drover.Web                    Blazor WebAssembly host for Drover.Ui
     Drover.Server                 ASP.NET Core host: API, SSE, auth, workers, composition root
     Drover.AppHost                Aspire, local development only
   tools/
@@ -45,26 +44,21 @@ Drover.slnx
     Drover.Adapters.Tests         each adapter run through its suite
     Drover.Server.Tests           API tests through WebApplicationFactory
     Drover.Client.Tests           the reducer against event logs recorded from the engine
-    Drover.Presentation.Tests     the router, view models, native token parity and contrast, native interface rules
-    Drover.Ui.Tests               component tests
+    Drover.Presentation.Tests     the router, view models, wording, token parity and contrast, native interface rules,
+                                  the shared web files in a real Chromium
     Drover.Analyzers.Tests
-
-Drover.Apps.slnx
-  src/
-    Drover.App                    MAUI Blazor Hybrid shell: Android, Windows, [iOS, Mac Catalyst]
-    (references Drover.Ui, Drover.Client, Drover.Contracts)
 ```
 
 ```
 Drover.Native.slnx
   src/
-    Drover.Native                 Uno Platform app: web (WebAssembly), desktop, Android, [iOS, Mac Catalyst]
+    Drover.Native                 Uno Platform app: web (WebAssembly), desktop, Android, [iOS]
     (references Drover.Presentation, Drover.Client, Drover.Contracts)
 ```
 
 `tests/Drover.Native.Desktop.Tests` runs the desktop credential store against the computer's real one. It is in neither solution: `Drover.slnx`'s Linux CI has no Secret Service, and the Android and browser jobs that license-check `Drover.Native.slnx` never restore a desktop project. The desktop workflow runs it by path on each system.
 
-`src/Shared/Transport` holds how a client reaches the server, as source files linked into the projects that need them: `AntiforgeryHandler` into `Drover.Web` and the native browser build; `AppRequests`, `NativeSession`, `NativeSessionTokens`, and `ServerAddress` into `Drover.App` and the native device builds. One source, so the two clients cannot drift apart on security.
+`src/Shared/Transport` holds how a client reaches the server, as source files linked into the native client: `AntiforgeryHandler` into its browser build; `AppRequests`, `NativeSession`, `NativeSessionTokens`, and `ServerAddress` into its device builds. `src/Shared/Web` holds the browser build's start script, service worker, notification scripts, and icons, and `src/Shared/Android` its Android notifications, shares, and file delivery. They were shared with the retired web client and Android shell and stay where they were.
 
 Later adapters get their own projects in the same pattern: `Drover.Adapters.Docker`, `Drover.Adapters.Apns`, `Drover.Adapters.S3`, and so on.
 
@@ -82,9 +76,6 @@ The model transport uses Drover-owned records and `IModelChatClient` in `Domain`
 | `Drover.Adapters.*` | One vendor each. Translation between the vendor's types and Drover's | Business rules, and database access of their own. An adapter whose store is a table (`Drover.Adapters.DataProtection`) reaches it only through a repository in `Drover.Data` and runs inside the caller's tenant scope. |
 | `Drover.Client` | `HttpClient`-based API client, SSE reader with resume, client-side run state reducer | UI |
 | `Drover.Presentation` | Everything about the interface that does not draw: words, drafts, tool cards, timelines, bot looks, icon shapes, the markdown node model, session state, toasts, view models, the router | Any UI framework type: no Razor, no XAML |
-| `Drover.Ui` | Components, design tokens, markdown rendering, platform service interfaces (`IPushRegistration`, `ISecureStore`, `IFilePicker`, `IMicrophone`) | Direct `HttpClient` use; it goes through `Drover.Client` |
-| `Drover.Web` | WebAssembly entry point, web implementations of the platform services, service worker, PWA manifest | Screens |
-| `Drover.App` | MAUI entry point, MAUI implementations of the platform services, platform folders | Screens |
 | `Drover.Native` | The native client: tokens, controls, layouts, shell, pages, platform folders | Interface logic that could live in `Drover.Presentation`; direct `HttpClient` use outside its two `PlatformServices` files |
 | `Drover.Server` | Endpoint mapping, authentication, hosted services, dependency injection wiring, status page | Business rules; endpoints call the engine |
 
@@ -96,16 +87,13 @@ Contracts  <-  Domain  <-  Data  <-  Engine  <-  Server
                  |           +----  Agents  <------+   (Server wires these in)
                  +----------------  Adapters.*  <--+
 
-Contracts  <-  Client  <-  Presentation  <-  Ui  <-  Web
-                                 ^            ^
-                                 |            +----  App
-                                 +----  Native
+Contracts  <-  Client  <-  Presentation  <-  Native
 ```
 
 Rules, enforced by project references and by analyzer `DRV0007`:
 
 1. Arrows point one way. `Domain` references only `Contracts`. `Engine` never references an adapter.
-2. A vendor package is referenced by exactly one adapter project. An adapter references `Drover.Domain`, and `Drover.Data` only when its store is a table. Because `Engine`, `Data`, `Contracts`, and `Ui` do not reference it, a vendor type cannot appear in a contract, a column, or a component even by accident. `DRV0007` reports the attempt with a readable message before the compiler does.
+2. A vendor package is referenced by exactly one adapter project. An adapter references `Drover.Domain`, and `Drover.Data` only when its store is a table. Because `Engine`, `Data`, `Contracts`, and `Presentation` do not reference it, a vendor type cannot appear in a contract, a column, or a view model even by accident. `DRV0007` reports the attempt with a readable message before the compiler does.
 3. `Server` is the only project that references the engine together with `Agents` and the adapters. It is the composition root.
 4. Agent framework types are allowed in `Drover.Agents` and in `Server`'s wiring, and nowhere else. `Agents` is the one non-adapter project that holds a vendor's types, because the owner chose to build on that framework fully; it may read and write through `Drover.Data`.
 5. Client projects never reference `Domain`, `Data`, or `Engine`. The server owns the work.
@@ -120,17 +108,17 @@ Rules, enforced by project references and by analyzer `DRV0007`:
 
 ## Web hosting model
 
-`Drover.Web` is Blazor WebAssembly with global interactivity, served as static files by `Drover.Server`. Reasons:
+The browser client is the native client's WebAssembly build, published into the server's web root and served by `Drover.Server` as static files at `/` (`Clients/NativeClientFiles.cs`; `NativeClient:Path` names another folder). Every address that is not a file is its page. Reasons:
 
-- The MAUI shell cannot use server-side interactivity, so every screen needs an API-backed path anyway. Making the web use the same path removes a whole class of "works on web, breaks in the app" bugs.
+- Every target, the browser included, uses the same API-backed path, which removes a whole class of "works on web, breaks in the app" bugs.
 - The server keeps no per-user UI circuit. That matters for the hosted service's memory use and lets a deploy restart the server without dropping anyone's UI state.
-- It can be installed as a PWA, which is the Linux desktop answer for now.
+- It can be installed as a PWA.
 
-Cost: a larger first download than server-side rendering. The shell is cached by the service worker after first load. The worker answers only GET requests for Drover's own files and pages: a page is asked of the server first and falls back to the stored shell, a file comes from the stored shell, and a request the worker cannot answer gets a network error response, never an unhandled rejection. The API and sign-in callbacks (`/api/`, `/health/`, `/openapi/`, `/oauth/`), anything that is not a GET, and every request to another host go to the network as if there were no worker, because a request the worker made itself would be held to the worker's own content security policy. `ServiceWorkerTests` (in `Drover.Ui.Tests`) checks this in a real Chromium against the published worker.
+Until 2026-11-20 the build was served at `/native/` beside the retired web client. That address sends the browser to the same address at `/` (or to `/` alone when the path is not plain segments), `/native/service-worker.js` is answered with a worker that removes the worker and stored shell a browser kept from there and hands its push subscription to the client at the root, and an app installed from there is moved to the root by a start page and a manifest that keeps its identity (`Clients/RetiredNativeAddress.cs`, [18-native-client.md](18-native-client.md)).
+
+Cost: a larger first download than server-side rendering. The shell is cached by the service worker after first load. The worker answers only GET requests for Drover's own files and pages: a page is asked of the server first and falls back to the stored shell, a file comes from the stored shell, and a request the worker cannot answer gets a network error response, never an unhandled rejection. The API and sign-in callbacks (`/api/`, `/health/`, `/openapi/`, `/oauth/`), the retired `/native/` address, anything that is not a GET, and every request to another host go to the network as if there were no worker, because a request the worker made itself would be held to the worker's own content security policy. `ServiceWorkerTests` and `RetiredNativeWorkerTests` (in `Drover.Presentation.Tests`) check this in a real Chromium against the published worker.
 
 ## Apple switch
-
-The first app implements only Android. Windows and Apple targets below describe the intended layout once their entry points exist.
 
 One MSBuild property, `DroverEnableApple`, default `false`, defined in `Directory.Build.props`:
 
@@ -140,23 +128,20 @@ One MSBuild property, `DroverEnableApple`, default `false`, defined in `Director
 </PropertyGroup>
 ```
 
-`Drover.App.csproj` builds its target list from it:
+`Drover.Native.csproj` builds its target list from it:
 
 ```xml
 <PropertyGroup>
-  <TargetFrameworks>net11.0-android</TargetFrameworks>
-  <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
-  <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
+  <TargetFrameworks>net11.0-desktop;net11.0-browserwasm;net11.0-android</TargetFrameworks>
+  <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios</TargetFrameworks>
 </PropertyGroup>
 ```
 
-`Platforms/iOS` and `Platforms/MacCatalyst` stay in the tree with their service implementations. The APNs adapter and relay are designed in [13-deployment-and-push.md](13-deployment-and-push.md) and built last. Turning Apple on is: set the property, add signing, add the CI job.
+macOS uses the desktop target. The APNs adapter and relay are designed in [13-deployment-and-push.md](13-deployment-and-push.md) and built last. Turning iOS on is: set the property, add signing, add the CI job.
 
 ## Linux desktop
 
-Recommendation: no shell now. Linux users install the PWA.
-
-Revisit in Phase 2 with a thin Avalonia window hosting a web view pointed at the same `Drover.Ui` components. Avalonia is MIT and its web view became open source in Avalonia 12 (verified). The other candidates were checked and set aside: one has had no release since January 2025, one depends on a browser engine build that common distributions do not package, and the MAUI backend for Avalonia is a preview that requires .NET 11.
+The native client's desktop target runs on Linux, as on macOS and Windows ([18-native-client.md](18-native-client.md)). The PWA remains an option.
 
 ## Root files
 
