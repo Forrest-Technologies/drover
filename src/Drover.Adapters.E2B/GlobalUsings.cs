@@ -19,6 +19,7 @@ global using Drover.Domain.Bots;
 global using Drover.Domain.Policy;
 global using Drover.Domain.Sandboxes;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.DependencyInjection.Extensions;
 global using Microsoft.Extensions.Http.Resilience;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Options;
