@@ -299,7 +299,7 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
         (await Find(world.BotId, memberId, memberId)).Should().BeNull();
 
         // The audit log has no audience: both entries are visible to either caller, with their own actor recorded.
-        foreach (var userId in new[] { world.UserId, memberId })
+        foreach (var userId in (Guid[])[world.UserId, memberId])
         {
             (await Audit(userId)).Where(entry => entry.Action == AllowAllService.EndedAction && entry.ActorId == userId)
                 .Should().ContainSingle()

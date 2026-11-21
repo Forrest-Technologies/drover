@@ -46,14 +46,14 @@ namespace Drover.Data.Migrations
                         name: "fk_allow_all_windows_bots_space_id_bot_id",
                         columns: x => new { x.space_id, x.bot_id },
                         principalTable: "bots",
-                        principalColumns: new[] { "space_id", "id" },
+                        principalColumns: ["space_id", "id"],
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
                 name: "ux_allow_all_windows_one_open",
                 table: "allow_all_windows",
-                columns: new[] { "space_id", "bot_id", "audience_user_id" },
+                columns: ["space_id", "bot_id", "audience_user_id"],
                 unique: true,
                 filter: "ended_at IS NULL");
 
