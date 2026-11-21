@@ -11,9 +11,6 @@ public sealed record CodeContent(CodeKind Kind, string Source, string Text, stri
 {
     #region Private Fields
 
-    /// <summary>The longest text whose kind is looked for. A longer one is plain text.</summary>
-    public const int MaxDetectLength = 1_048_576;
-
     private static readonly JsonWriterOptions indented = new() { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     #endregion
@@ -131,6 +128,13 @@ public sealed record CodeContent(CodeKind Kind, string Source, string Text, stri
 
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
+
+    #endregion
+
+    #region Limits
+
+    /// <summary>The longest text whose kind is looked for. A longer one is plain text.</summary>
+    public const int MaxDetectLength = 1_048_576;
 
     #endregion
 

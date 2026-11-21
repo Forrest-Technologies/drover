@@ -9,9 +9,6 @@ public static class CodeBytes
 {
     #region Private Fields
 
-    /// <summary>The bytes on one line of the hex view.</summary>
-    public const int BytesPerLine = 16;
-
     // Past one control character in a hundred, decoded text is bytes.
     private const int ControlShare = 100;
 
@@ -211,6 +208,13 @@ public static class CodeBytes
 
         return null;
     }
+
+    #endregion
+
+    #region Limits
+
+    /// <summary>The bytes on one line of the hex view.</summary>
+    public const int BytesPerLine = 16;
 
     #endregion
 }

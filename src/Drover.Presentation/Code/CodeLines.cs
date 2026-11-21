@@ -8,12 +8,6 @@ public static partial class CodeLines
 {
     #region Private Fields
 
-    /// <summary>The most lines laid out before "Show all" is asked for.</summary>
-    public const int MaxLines = 400;
-
-    /// <summary>The most characters laid out before "Show all" is asked for: 64 KiB.</summary>
-    public const int MaxCharacters = 65_536;
-
     // Of the lines with words, the share that must look like a diff's, or a log's, for the block to be one.
     private const double DiffShare = 0.8;
 
@@ -139,6 +133,16 @@ public static partial class CodeLines
 
     [GeneratedRegex(@"\b(ERROR|ERR|FATAL|CRITICAL|CRIT|WARNING|WARN|INFO|DEBUG|TRACE)\b")]
     private static partial Regex LevelWord();
+
+    #endregion
+
+    #region Limits
+
+    /// <summary>The most lines laid out before "Show all" is asked for.</summary>
+    public const int MaxLines = 400;
+
+    /// <summary>The most characters laid out before "Show all" is asked for: 64 KiB.</summary>
+    public const int MaxCharacters = 65_536;
 
     #endregion
 }
