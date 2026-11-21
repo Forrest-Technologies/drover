@@ -14,7 +14,7 @@ Option A. There is no new kind of conversation. When a bot leads its bots with a
 
 The person may mention any member bot by name to address it directly in the lead's conversation, as well as addressing the lead. Members are bots beneath the lead, so the existing delegation safety checks are reused unchanged: grants, budgets, the loop check, and cancel.
 
-Between two messages from a person, bots may take at most four turns by default. The cap is configurable per space under a deployment ceiling, so a space can only lower the preset value. The number four is the orchestrator's judgment call recorded in the owner decision, not a number the owner chose.
+Between two messages from a person, bots may take at most four turns by default. The cap is configurable per space under a deployment ceiling, so a space cannot raise it above that ceiling; a space may set any value up to the ceiling, including one above four. The ceiling's own default is a decision for the policy layer [#715](https://github.com/Forrest-Technologies/drover/issues/715), which this ADR does not settle. The number four is a default proposed in the decision for the owner to confirm, not a number the owner chose.
 
 ## Alternatives considered
 
