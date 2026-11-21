@@ -117,6 +117,28 @@ public sealed class CodeLinesTests
     }
 
     [Fact]
+    public void A_table_of_fewer_than_four_hundred_very_wide_rows_is_laid_out_as_capped_text()
+    {
+        var wide = new string('x', 2_000);
+        var text = string.Concat(Enumerable.Range(1, 100).Select(row => $"{row}\t{wide}\n"));
+        var table = CodeTable.Read(text)!;
+
+        table.Rows.Count.Should().BeLessThan(CodeLines.MaxLines);
+        CodeLines.TableLayoutOf(table).Should().Be(TableLayout.Text, "its cells hold more than the 64 KiB cap");
+        CodeLines.Capped(text).IsCut.Should().BeTrue("as text it is cut at the same cap");
+    }
+
+    [Fact]
+    public void A_table_past_four_hundred_narrow_rows_shows_its_first_rows_and_a_small_one_shows_whole()
+    {
+        var many = CodeTable.Read(string.Concat(Enumerable.Range(1, 500).Select(row => $"{row}\tok\n")))!;
+        var few = CodeTable.Read("a\tb\n1\t2\n")!;
+
+        CodeLines.TableLayoutOf(many).Should().Be(TableLayout.FirstRows);
+        CodeLines.TableLayoutOf(few).Should().Be(TableLayout.Whole);
+    }
+
+    [Fact]
     public void A_capped_table_offers_all_its_rows_in_words() => CodeLines.ShowAllRows(1_200).Should().Be("Show all 1,200 rows");
 
     [Theory]

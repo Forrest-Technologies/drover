@@ -111,6 +111,28 @@ public static partial class CodeLines
     /// <summary>The words of the button that lays out all of a capped block: "Show all 1,200 lines".</summary>
     public static string ShowAll(int lines) => $"Show all {lines.ToString("N0", CultureInfo.InvariantCulture)} lines";
 
+    /// <summary>
+    /// How much of a table is laid out before "Show all" is asked for. The same cap holds as for text: 400 rows, and
+    /// 64 KiB of cells in those rows. A table whose first rows hold more than that is laid out as capped text instead,
+    /// so a few very wide rows cost no more than a long text does.
+    /// </summary>
+    public static TableLayout TableLayoutOf(CodeTable table)
+    {
+        var characters = table.Header?.Sum(cell => cell.Length) ?? 0;
+
+        foreach (var row in table.Rows.Take(MaxLines))
+        {
+            characters += row.Sum(cell => cell.Length);
+
+            if (characters > MaxCharacters)
+            {
+                return TableLayout.Text;
+            }
+        }
+
+        return table.Rows.Count > MaxLines ? TableLayout.FirstRows : TableLayout.Whole;
+    }
+
     /// <summary>The words of the button that lays out all of a capped table: "Show all 1,200 rows".</summary>
     public static string ShowAllRows(int rows) => $"Show all {rows.ToString("N0", CultureInfo.InvariantCulture)} rows";
 
@@ -193,6 +215,19 @@ public static partial class CodeLines
     public const int TabWidth = 4;
 
     #endregion
+}
+
+/// <summary>How much of a table is laid out at once.</summary>
+public enum TableLayout
+{
+    /// <summary>Every row.</summary>
+    Whole,
+
+    /// <summary>The first <see cref="CodeLines.MaxLines"/> rows, with a button for the rest.</summary>
+    FirstRows,
+
+    /// <summary>Its text, capped as any text is: its cells are too wide to lay out as a grid at once.</summary>
+    Text,
 }
 
 /// <summary>What one line of a diff is.</summary>

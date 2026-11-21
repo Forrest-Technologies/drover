@@ -197,9 +197,14 @@ public sealed class CodeBlock : Grid
         label.Foreground = Tokens.Brush(this, "DvText2");
         body.FocusVisualPrimaryBrush = Tokens.Brush(this, "DvEmber");
 
-        var shown = content ??= CodeContent.Detect(Code, CodeLanguage, PlainLabel);
-        label.Text = shown.Label;
-        AutomationProperties.SetName(body, shown.Label);
+        var read = content ??= CodeContent.Detect(Code, CodeLanguage, PlainLabel);
+        label.Text = read.Label;
+        AutomationProperties.SetName(body, read.Label);
+
+        // A table too wide to lay out as a grid at once is drawn as capped text until all of it is asked for.
+        var shown = !all && read is { Kind: CodeKind.Table, Table: { } wide } && CodeLines.TableLayoutOf(wide) is TableLayout.Text
+            ? read with { Kind = CodeKind.Plain, Family = CodeFamily.None }
+            : read;
 
         var isText = shown.Kind is not (CodeKind.Table or CodeKind.Binary or CodeKind.Bytes) || bytesView is BytesView.Literal;
         wrap.Visibility = isText ? Visibility.Visible : Visibility.Collapsed;
@@ -390,7 +395,7 @@ public sealed class CodeBlock : Grid
     // Each value is named with its column for someone who cannot see the grid.
     private (FrameworkElement Drawn, string? CutTo) DrawTable(CodeTable table)
     {
-        var cut = !all && table.Rows.Count > CodeLines.MaxLines;
+        var cut = !all && CodeLines.TableLayoutOf(table) is TableLayout.FirstRows;
         var rows = table.Rows.Take(cut ? CodeLines.MaxLines : table.Rows.Count);
         var grid = new Grid { ColumnSpacing = Tokens.Number("DvSpace4") };
         AutomationProperties.SetName(grid, table.Label);
