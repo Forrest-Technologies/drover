@@ -8,11 +8,11 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 {
     #region Private Fields
 
-    private static readonly (ThemeChoice Choice, string Name)[] themeNames =
+    private static readonly (ThemeMode Mode, string Name)[] themeNames =
     [
-        (ThemeChoice.Dark, "Dark theme"),
-        (ThemeChoice.Light, "Light theme"),
-        (ThemeChoice.System, "Match this device"),
+        (ThemeMode.Dark, "Dark theme"),
+        (ThemeMode.Light, "Light theme"),
+        (ThemeMode.System, "Match this device"),
     ];
 
     private static readonly TimeSpan devicePatience = TimeSpan.FromSeconds(2);
@@ -89,7 +89,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         Compact && session.Current is { } person ? $"Account for {person.DisplayName}" : null;
 
     public IReadOnlyList<ThemeOption> Themes =>
-        [.. themeNames.Select(name => new ThemeOption(name.Choice, name.Name, theme.Choice == name.Choice))];
+        [.. themeNames.Select(name => new ThemeOption(name.Mode, name.Name, theme.Choice.Mode == name.Mode))];
 
     /// <summary>The status screen is for the people who run the space.</summary>
     public bool ShowsStatus => session.Space?.Role is "owner" or "admin";
@@ -142,7 +142,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void ChooseTheme(ThemeChoice choice) => theme.Choose(choice);
+    public void ChooseTheme(ThemeMode mode) => theme.Choose(mode);
 
     [RelayCommand]
     public void Open(string address) => navigator.NavigateTo(address);
