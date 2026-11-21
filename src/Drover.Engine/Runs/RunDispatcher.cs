@@ -98,11 +98,27 @@ public sealed class RunDispatcher(
             logger.LogDebug(exception, "Run dispatcher {WorkerId} lost its host", WorkerId);
             throw;
         }
-        catch (Exception exception)
+        catch (Exception exception) when (!stopping.IsCancellationRequested)
         {
             logger.LogError(exception, "Claiming runs failed; trying again shortly");
-            await Task.Delay(errorDelay, CancellationToken.None);
+            await PauseAfterFailure(stopping);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The pause before a retry must stop with the server. A fixed token here kept the dispatcher polling for two
+    /// seconds after shutdown was requested, which is what made EngineHost's dispose wait time out (#765).
+    /// </summary>
+    private async Task PauseAfterFailure(CancellationToken stopping)
+    {
+        try
+        {
+            await Task.Delay(errorDelay, stopping);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogDebug("Run dispatcher {WorkerId} stopped after a failed claim", WorkerId);
         }
     }
 

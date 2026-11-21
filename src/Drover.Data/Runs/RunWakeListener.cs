@@ -11,9 +11,6 @@ public sealed class RunWakeListener(string connectionString, ILogger<RunWakeList
 
     private static readonly TimeSpan retryDelay = TimeSpan.FromSeconds(5);
 
-    /// <summary>How often the wait is renewed so stopping is checked even if the provider does not cancel a read.</summary>
-    private static readonly TimeSpan waitSlice = TimeSpan.FromSeconds(1);
-
     #endregion
 
     #region Public Methods
@@ -27,20 +24,8 @@ public sealed class RunWakeListener(string connectionString, ILogger<RunWakeList
             {
                 await ListenOnce(wake, cancellationToken);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                // Stopping is a normal end, not a dropped connection. The dispatcher that owns this loop waits for
-                // it on shutdown, so it must finish without faulting or waiting on the provider to cancel a read.
-                logger.LogDebug("The run notification listener stopped with the server");
-                return;
-            }
-            catch (Exception exception)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
-
                 logger.LogWarning(exception, "The run notification connection dropped; reconnecting. Polling covers the gap");
                 await Task.Delay(retryDelay, cancellationToken);
             }
@@ -63,10 +48,7 @@ public sealed class RunWakeListener(string connectionString, ILogger<RunWakeList
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            // A bounded wait makes the loop check stopping again even when the provider cannot cancel a read that
-            // is already waiting for a notification. A slice that ends with no message is not an error: the loop
-            // simply waits again, and stopping is seen at the next check.
-            await connection.WaitAsync(waitSlice, cancellationToken);
+            await connection.WaitAsync(cancellationToken);
             wake();
         }
     }
