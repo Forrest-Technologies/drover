@@ -1,9 +1,8 @@
 namespace Drover.Data.Repositories;
 
 /// <summary>
-/// The session lock that keeps a command and a tainted write from using one sandbox at once. It outlives the
-/// transaction that decided the sandbox was clean, and the caller holds it until the provider call returns, then
-/// releases it. No tenant transaction stays open across that call. <see cref="SandboxCommandLocks"/> makes it.
+/// The session lock that keeps a command and a write from using one sandbox at once. The caller holds it until the
+/// provider call returns, then releases it. No tenant transaction stays open across that call. <see cref="SandboxCommandLocks"/> makes it.
 /// </summary>
 public sealed class SandboxCommandGate : IAsyncDisposable
 {

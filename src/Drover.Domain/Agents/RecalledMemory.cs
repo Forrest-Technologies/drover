@@ -12,9 +12,6 @@ public sealed record RecalledMemory(IReadOnlyList<RecalledNote> Notes, int MaxCh
 {
     #region Properties
 
-    /// <summary>A note was written by a tainted run, so a run given these notes is tainted from its start.</summary>
-    public bool Tainted { get; init; }
-
     /// <summary>The run may call memory_list, so it can be pointed there for the notes that did not fit.</summary>
     public bool CanList { get; init; }
 

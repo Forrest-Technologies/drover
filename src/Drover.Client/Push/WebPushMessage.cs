@@ -23,7 +23,7 @@ public static class WebPushMessage
     {
         if (authSecret.Length != 16 || payload.Length <= HeaderLength + TagLength || payload.Length > 4096
             || payload[20] != 65 || payload[21] != 4
-            || BinaryPrimitives.ReadUInt32BigEndian(payload[16..20]) <= payload.Length - HeaderLength)
+            || BinaryPrimitives.ReadUInt32BigEndian(payload[16..20]) < payload.Length - HeaderLength)
         {
             throw new CryptographicException("The push record has an invalid header.");
         }

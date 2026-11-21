@@ -128,8 +128,8 @@ public sealed partial class RunExecutor
 
     /// <summary>
     /// The child's thread, its first message (the task), and its run. The thread has the audience of the tree's root
-    /// thread, so exactly the people who can see the root can see it. The run acts for the same person, starts
-    /// working at once inside the parent's call, and starts tainted when its parent is.
+    /// thread, so exactly the people who can see the root can see it. The run acts for the same person and starts
+    /// working at once inside the parent's call.
     /// </summary>
     private async Task<Run> AddChild(IServiceProvider services, RunSession parent, DelegationRequest request, Bot target, Guid callRowId, CancellationToken cancellationToken)
     {
@@ -162,7 +162,6 @@ public sealed partial class RunExecutor
             Depth = parent.Depth + 1,
             Status = RunStatus.Running,
             StartedAt = now,
-            Tainted = parent.Tainted,
         };
         var task = new Message
         {
@@ -202,7 +201,9 @@ public sealed partial class RunExecutor
             await ExecuteChildSession(parent, loaded, serverStopping, cancellationToken);
         }
 
-        return await tenant.Transact(services => ReadReport(services, childRunId, cancellationToken), CancellationToken.None);
+        return await tenant.Transact(
+            async services => await ReadOutcome(services, await services.GetRequiredService<RunRepository>().FindRun(childRunId, cancellationToken), cancellationToken),
+            CancellationToken.None);
     }
 
     private async Task ExecuteChildSession(RunSession parent, LoadedRun loaded, CancellationToken serverStopping, CancellationToken cancellationToken)
@@ -257,12 +258,6 @@ public sealed partial class RunExecutor
     }
 
     /// <summary>How the child ended, and its last reply as its answer. A failure's answer is what went wrong.</summary>
-    private static async Task<ChildRunReport> ReadReport(IServiceProvider services, Guid childRunId, CancellationToken cancellationToken)
-    {
-        var child = await services.GetRequiredService<RunRepository>().FindRun(childRunId, cancellationToken);
-        return await ReadOutcome(services, child, cancellationToken) with { Tainted = child?.Tainted ?? false };
-    }
-
     private static async Task<ChildRunReport> ReadOutcome(IServiceProvider services, Run? child, CancellationToken cancellationToken)
     {
         switch (child?.Status)

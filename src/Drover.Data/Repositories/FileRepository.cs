@@ -62,10 +62,6 @@ public sealed class FileRepository(DroverDbContext db)
                 """)
             .ToListAsync(cancellationToken);
 
-    /// <summary>Whether a message of the thread the caller can see carries a file.</summary>
-    public Task<bool> AnySentInThread(Guid threadId, CancellationToken cancellationToken) =>
-        db.Files.AnyAsync(file => file.ThreadId == threadId && file.MessageId != null, cancellationToken);
-
     /// <summary>
     /// The files the person and the bot exchanged in the person's own conversations with it, newest first, at most
     /// <paramref name="limit"/>: each one the bot shared and each one the person sent. A file another member sent in
@@ -87,10 +83,6 @@ public sealed class FileRepository(DroverDbContext db)
             .ToListAsync(cancellationToken);
         return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
     }
-
-    /// <summary>Whether the project has a shared file the caller can see.</summary>
-    public Task<bool> AnyProjectFile(Guid projectId, CancellationToken cancellationToken) =>
-        db.Files.AnyAsync(file => file.ProjectId == projectId, cancellationToken);
 
     /// <summary>The files shared in a project that the caller can see, newest first.</summary>
     public Task<List<StoredFile>> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>

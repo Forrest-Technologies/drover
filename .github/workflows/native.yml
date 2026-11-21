@@ -20,12 +20,27 @@ jobs:
     name: Android
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Cache Android dependency downloads
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ${{ env.NUGET_PACKAGES }}
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.cache/dotnet-android/MavenCacheDirectory
+            ~/.local/share/Xamarin/zips
+          key: android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'global.json', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json', '**/*.gradle', '**/*.gradle.kts', '**/gradle.properties', '**/gradle-wrapper.properties', '**/libs.versions.toml', '**/gradle.lockfile', '**/pom.xml') }}
+          restore-keys: |
+            android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
