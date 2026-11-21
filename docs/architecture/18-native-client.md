@@ -78,8 +78,12 @@ dotnet test --project tests/Drover.Presentation.Tests
 ```
 
 Android URL fields host an Android `EditText` in the shared field frame. The editor keeps the selection and composing
-text with Android's input connection. The native-client workflow exercises the address field on an API 35 emulator
-with a test keyboard that composes, commits, and deletes text and with hardware key events. Run the same check with
+text with Android's input connection. Sign-in and account fields with an `Autofill` name host one too, with Android's
+autofill hint (`username`, `password`, `newPassword`) and `ImportantForAutofill.Yes`: the platform's own text box gives
+the autofill service no structure to read. The native-client workflow exercises the address field on an API 35 emulator
+with a test keyboard that composes, commits, and deletes text and with hardware key events, and checks in a gated build
+that the hosted `EditText` views carry those hints and `ImportantForAutofill.Yes` (filling with a real Android password
+manager was not tried). Run the same check with
 `bash scripts/check-native-android-text-editing.sh` on a fresh emulator with the Drover development APK installed.
 
 On Android, the edge-to-edge window draws its background behind the system bars. The shell and custom popup
@@ -198,7 +202,7 @@ Every component of `src/Drover.Ui/Components` has a control of the same name in 
 | `Disclosure` | `Title`, `Summary`, `Status`, `Open` (two-way), `Body`, `Edge` (a color token, in place of the web's `Class`), `Running` |
 | `DroverMark` | `Foreground` |
 | `EmptyState` | `Title`, `Cause`, `ActionLabel`, `ActionHref`, `ActionCommand` or the `Action` event |
-| `Field` | `Label`, `Value` (two-way), `Type`, `Placeholder`, `Hint`, `Error`, `Disabled`, the `Submitted` event |
+| `Field` | `Label`, `Value` (two-way), `Type`, `Placeholder`, `Hint`, `Error`, `Disabled`, `MaxLength` (the web's `maxlength`), `Autofill` (the web's `autocomplete`), the `Submitted` event |
 | `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`. Drawn from `IconShapes` |
 | `IconButton` | `Icon`, `Label` (required: it throws without one) |
 | `MarkdownView` | `Text`, `Streaming`. Draws the nodes of `MarkdownDocument` as native text |
@@ -211,7 +215,7 @@ Every component of `src/Drover.Ui/Components` has a control of the same name in 
 | `StatusNote` | `Text`, `Kind` |
 | `Switch` | `Label`, `About`, `Value` (two-way) |
 | `Tabs` | `Label`, `Items`, `Active` (two-way), `Panel` or `PanelFor` |
-| `TextArea` | `Label`, `Value` (two-way), `Rows`, `Placeholder`, `Hint`, `Machine`, `Disabled` |
+| `TextArea` | `Label`, `Value` (two-way), `Rows`, `Placeholder`, `Hint`, `Machine`, `Disabled`, `MaxLength` |
 | `Timeline` | `Model`, `Label`, `EmptyText`, `AsList`, `PageSize`, `Detail` |
 | `ToastHost` | `Model`. The shell has the one instance |
 | `Tooltip` | `Text`, `Described` |
@@ -389,8 +393,8 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 | --- | --- |
 | Accessibility in a browser | The app now sets `FeatureConfiguration.AutomationPeer.AutoEnableAccessibility` before creating its UI, so the semantic tree does not require a hidden opt-in. The resolved 7.0.65 runtime activates too early and can leave an empty semantic root, so the shell rebuilds it through the runtime’s own managed accessibility exports after loading. The published smoke check requires actual headings on every tested route and invokes the download through its accessible button. This deliberately accepts the runtime cost. Screen-reader testing across supported platforms is still required. Historical foundation observation: the interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
 | Links in the browser accessibility tree | Uno 7.0.65 creates semantic anchors without `href`. The browser adapter gives those anchors a link role and keeps Uno's activation handlers. The published smoke check activates the usage link for a bot and checks that its details open |
-| Password managers | Measured in the DOM of `/native/sign-in` while each field had the focus (integration pass): the email field is an `input type="text"` (not `email`) and the password field an `input type="password"`; neither carries `autocomplete` or `name`, and the page has no `form`. The web client's fields are `type="email" autocomplete="username" name="email"` and `type="password" autocomplete="current-password" name="password"` inside one `form`. A browser's heuristics can still see a text input followed by a password input, but nothing names them as a user name and current password, and no form submission happens for a manager to offer saving on. Not yet tried with a real password manager |
-| Text entry and input methods | Typing goes through that one hidden `input`. `inputmode` follows the field's type. Composition for languages that need it was not tested |
+| Password managers | The platform keeps one real `input` per field in the accessibility tree (type `text` or `password`, named by the field's label), and focus and typing go to it, by keyboard and by pointer. A field with an `Autofill` name has it written to that input's `autocomplete` while the field is on screen (`Platforms/WebAssembly/WasmScripts/Fields.js`): on `/native/sign-in` the inputs carry `username` and `current-password`, on `/native/setup` `username` and `new-password`, which the browser check asserts. The page still has no `form`, so a manager that offers to save only on a form submission does not offer it; a value a manager fills reaches the field through the input's `input` event. The email input is `type="text"`: the platform sets it. Not yet tried with a real password manager |
+| Text entry and input methods | Typing goes to the field's `input` in the accessibility tree, focused by keyboard or by pointer (measured in headless Chromium). That input carries no `inputmode`, so a phone's keyboard does not follow the field's type. The platform's hidden `input`, whose `inputmode` does, was not seen in use while that tree is on. Composition for languages that need it was not tested |
 | Find in page, reader mode, translation, selection across the page | None works. Measured: `window.find("Use the account you made")` is false on `/native/sign-in` and true on `/sign-in`; the words exist only as labels of the semantic tree, which is not drawn. Selection works inside one text block that enables it |
 | Browser zoom and text size | Page zoom scales the canvas. At 200 percent (a 640 px wide CSS viewport at twice the pixel ratio) sign-in draws sharp, at the same layout as the web client, with no sideways scroll. The browser's text-size setting has no effect (not re-measured) |
 | Clipboard | Copying is asked of the browser without waiting for its answer, so a refusal cannot be told to the person |
@@ -637,7 +641,7 @@ before), against 239 to 262 ms for the same move in the web client. The browser 
 Links measured without a role or name in this pass; the browser adapter merged alongside it now gives them the
 link role (see the limits table).
 
-1. No password manager semantics (type, autocomplete, form) on sign-in.
+1. Sign-in has autocomplete names but no `form` and no `type="email"` (see the limits table).
 2. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
    sign-in at load).
 

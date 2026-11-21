@@ -26,6 +26,7 @@ global using Drover.Adapters.Venice;
 global using Drover.Adapters.WebPush;
 global using Drover.Agents;
 global using Drover.Agents.Runtime;
+global using Drover.Contracts;
 global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;

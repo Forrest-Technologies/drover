@@ -27,7 +27,7 @@ else
     <p class="dv-entry-lead">This is the first account on this server. It owns the server and everything on it.</p>
 
     <form class="dv-entry-form" @onsubmit="Submit">
-        <Field Label="Your name" @bind-Value="displayName" name="name" autocomplete="name" required="true" maxlength="200"
+        <Field Label="Your name" @bind-Value="displayName" name="name" autocomplete="name" required="true" maxlength="@FieldLimits.DisplayName"
                Disabled="busy" />
         <Field Label="Email" Type="email" @bind-Value="email" name="email" autocomplete="username" required="true"
                Disabled="busy" />

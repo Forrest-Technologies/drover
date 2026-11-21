@@ -35,21 +35,21 @@
                 else
                 {
                     <div class="dv-extension-editor-fields">
-                        <Field Label="Extension name" Value="@draft.Name" ValueChanged="Rename" maxlength="200" autocomplete="off" Disabled="busy" />
-                        <Field Label="Id" Value="@draft.Id" ValueChanged="ChooseId" maxlength="100" autocomplete="off" spellcheck="false" Disabled="busy"
+                        <Field Label="Extension name" Value="@draft.Name" ValueChanged="Rename" maxlength="@FieldLimits.BotName" autocomplete="off" Disabled="busy" />
+                        <Field Label="Id" Value="@draft.Id" ValueChanged="ChooseId" maxlength="@ExtensionFile.MaxIdLength" autocomplete="off" spellcheck="false" Disabled="busy"
                                Hint="Names the extension wherever it is installed. Lower-case letters, digits, dots, and hyphens." />
-                        <TextArea Label="What the extension is for" @bind-Value="draft.Description" Rows="2" Disabled="busy" maxlength="2000" />
+                        <TextArea Label="What the extension is for" @bind-Value="draft.Description" Rows="2" Disabled="busy" maxlength="@FieldLimits.BotDescription" />
 
                         <h2 class="dv-extension-editor-part">The bot it adds</h2>
                         <Switch Label="Adds a bot" @bind-Value="draft.AddsBot" Disabled="busy" />
                         @if (draft.AddsBot)
                         {
-                            <Field Label="Bot name" @bind-Value="draft.BotName" maxlength="200" autocomplete="off" Disabled="busy" />
-                            <TextArea Label="What the bot is for" @bind-Value="draft.BotDescription" Rows="2" Disabled="busy" maxlength="2000"
+                            <Field Label="Bot name" @bind-Value="draft.BotName" maxlength="@FieldLimits.BotName" autocomplete="off" Disabled="busy" />
+                            <TextArea Label="What the bot is for" @bind-Value="draft.BotDescription" Rows="2" Disabled="busy" maxlength="@FieldLimits.BotDescription"
                                       Hint="Other bots read this to decide whether to hand it a task." />
                             <TextArea Label="Instructions" @bind-Value="draft.Instructions" Rows="10" Disabled="busy"
                                       Hint="Everything the bot is told. Whoever imports the file reads all of it first." />
-                            <Field Label="Suggested model" @bind-Value="draft.SuggestedModel" maxlength="200" autocomplete="off" spellcheck="false" Disabled="busy"
+                            <Field Label="Suggested model" @bind-Value="draft.SuggestedModel" maxlength="@FieldLimits.ModelName" autocomplete="off" spellcheck="false" Disabled="busy"
                                    Hint="Optional. Used only where the importing space has a model by this name." />
                         }
 
@@ -58,7 +58,7 @@
                         @if (draft.NamesServer)
                         {
                             <p class="dv-extension-editor-hint">The file says where the server is. It never holds a key: whoever imports it types their own.</p>
-                            <Field Label="Server name" @bind-Value="draft.ServerName" maxlength="200" autocomplete="off" Disabled="busy" Hint="What it is called, such as Calendar." />
+                            <Field Label="Server name" @bind-Value="draft.ServerName" maxlength="@FieldLimits.ToolServerName" autocomplete="off" Disabled="busy" Hint="What it is called, such as Calendar." />
                             <Field Label="Server address" Type="url" @bind-Value="draft.ServerAddress" autocomplete="off" spellcheck="false" Disabled="busy"
                                    Placeholder="https://" Hint="The address of the server's MCP endpoint, with nothing after the path." />
                             <div class="dv-extension-editor-choice">
@@ -67,7 +67,7 @@
                             </div>
                             @if (draft.ServerAuth is "header")
                             {
-                                <Field Label="Header name" @bind-Value="draft.HeaderName" maxlength="100" autocomplete="off" spellcheck="false" Disabled="busy"
+                                <Field Label="Header name" @bind-Value="draft.HeaderName" maxlength="@FieldLimits.HeaderName" autocomplete="off" spellcheck="false" Disabled="busy"
                                        Hint="Such as Authorization or X-Api-Key. Its value is not part of the file." />
                             }
                             <TextArea Label="Tools to suggest for the bot" @bind-Value="draft.SuggestedTools" Rows="4" Machine="true" Disabled="busy" spellcheck="false"

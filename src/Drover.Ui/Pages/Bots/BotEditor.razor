@@ -36,11 +36,11 @@
                 </div>
                 <div class="dv-editor-names">
                     <h1 class="dv-visually-hidden" tabindex="-1">Edit @saved.Name</h1>
-                    <Field Label="Name" Value="@draft.Name" ValueChanged="Rename" autocomplete="off" maxlength="200" />
+                    <Field Label="Name" Value="@draft.Name" ValueChanged="Rename" autocomplete="off" maxlength="@FieldLimits.BotName" />
                     @if (editingHandle)
                     {
                         <Field Label="Handle" @bind-Value="draft.Handle" @bind-Value:after="Changed" autocomplete="off" spellcheck="false"
-                               autocapitalize="off" maxlength="100" Hint="Lower-case letters, digits, and hyphens. Other bots and people address it by this." />
+                               autocapitalize="off" maxlength="@FieldLimits.BotHandle" Hint="Lower-case letters, digits, and hyphens. Other bots and people address it by this." />
                     }
                     else
                     {
