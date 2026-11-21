@@ -341,7 +341,7 @@ Every screen of the retired web client has moved; the steps below were how, and 
 
        public BotListViewModel Model { get; } = Make<BotListViewModel>();
 
-       protected override async void Opened(RouteMatch<Type> route) => await Model.Load();
+       protected override Task Opened(RouteMatch<Type> route) => Model.Load();
    }
    ```
 
