@@ -103,6 +103,63 @@ public sealed class ToolNamesTests
 
     #endregion
 
+    #region Crafted Names And Summaries
+
+    [Fact]
+    public void A_server_cannot_craft_a_name_that_leaves_two_tools_with_one_model_name()
+    {
+        var a = Tool("repo.get_file", 0, 1);
+        var b = Tool("repo_get_file", 1, 2);
+        var c = Tool("repo_get_file_f17887", 2, 3);
+        var d = Tool("repo_get_file_f1788792aa", 3, 4);
+
+        var names = ToolNames.ForConnection("repo", [a, b, c, d]);
+        var reversed = ToolNames.ForConnection("repo", [d, c, b, a]);
+
+        names.Values.Should().OnlyHaveUniqueItems();
+        names.Values.Should().OnlyContain(name => name.Length <= 64);
+        names[a.Id].Should().Be("repo__repo_get_file");
+        names[c.Id].Should().Be("repo__repo_get_file_f17887");
+        names[d.Id].Should().Be("repo__repo_get_file_f1788792aa");
+        names[b.Id].Should().StartWith("repo__repo_get_file_f17887");
+        names[b.Id].Should().MatchRegex("_f17887[0-9a-f]{8}$");
+        reversed.Should().BeEquivalentTo(names);
+    }
+
+    [Fact]
+    public void A_crafted_tool_only_changes_the_suffix_length_of_a_tool_it_clashes_with()
+    {
+        var plain = Tool("unrelated", 0, 1);
+        var a = Tool("repo.get_file", 1, 2);
+        var b = Tool("repo_get_file", 2, 3);
+        var aimed = Tool("repo_get_file_f17887", 3, 4);
+
+        var before = ToolNames.ForConnection("repo", [plain, a, b]);
+        var after = ToolNames.ForConnection("repo", [plain, a, b, aimed]);
+
+        after.Values.Should().OnlyHaveUniqueItems();
+        after[plain.Id].Should().Be(before[plain.Id], "a server cannot rename a tool it does not clash with");
+        after[a.Id].Should().Be(before[a.Id], "the first-seen tool keeps its plain name");
+        after[b.Id].Should().StartWith(before[b.Id][..^6], "the suffix still comes from that tool's own name");
+    }
+
+    [Fact]
+    public void A_connection_summary_reports_the_model_name_each_clashing_tool_really_gets()
+    {
+        var connection = new ToolConnection { Name = "Repo", Slug = "repo", Url = "https://tools.example.test/mcp" };
+        var first = Catalog("repo.get_file", 0, 1);
+        var second = Catalog("repo_get_file", 1, 2);
+        var refresh = new ToolRefresh(connection, [new(first, false), new(second, false)], null, null, null);
+
+        var summary = refresh.ToResponse();
+
+        summary.Tools.Select(tool => tool.ModelName).Should().BeEquivalentTo(
+            "repo__repo_get_file",
+            "repo__repo_get_file_f17887");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static ToolName Tool(string name, int order, int index) =>
@@ -111,6 +168,15 @@ public sealed class ToolNamesTests
             Guid.Empty,
             name,
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero).AddSeconds(order));
+
+    private static Tool Catalog(string name, int order, int index) => new()
+    {
+        Id = Guid.Parse($"00000000-0000-0000-0000-{index:D12}"),
+        Name = name,
+        DefinitionHash = "sample",
+        InputSchema = JsonElement.Parse("{}"),
+        FirstSeenAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero).AddSeconds(order),
+    };
 
     #endregion
 }
