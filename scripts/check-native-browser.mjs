@@ -597,11 +597,22 @@ try {
                     const loaded = page.waitForResponse(reply => reply.request().method() === 'GET'
                         && new URL(reply.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
                     completePreview();
-                    await (await loaded).finished();
+                    await loaded;
+                    await waitForShown(page, 'Sample preview heading');
+                    await waitForPreviewLoaded(page);
                     await page.waitForTimeout(500);
                     assert.equal(externalPreviewRequests, 0);
                     await page.screenshot({ path: path.join(pictures, `preview-markdown-${width}-${theme}.png`) });
                     await closePreview.press('Space');
+                    // What each state draws once its answer is applied; the request alone does not prove that.
+                    const drawn = {
+                        pdf: 'Sample PDF page one summary.',
+                        diagram: 'Diagram node Upload file',
+                        limit: 'Preview limits are 16 KiB for text, 1 MiB and 4 million pixels for pictures, and 1 MiB and 10 pages for PDF files. Download the file to keep it.',
+                        error: 'Could not show the preview. Download the file to keep it.',
+                        malformed: 'This file contains invalid preview data. Download it to keep it.',
+                        unsupported: 'This file format has no native preview. Download it to keep it.',
+                    };
                     for (const state of ['pdf', 'diagram', 'limit', 'error', 'malformed', 'unsupported']) {
                         const requestPath = `/api/spaces/${spaceId}${previewPath}`;
                         const before = previewRequestCount(requestPath);
@@ -613,8 +624,9 @@ try {
                         await preview.press('Enter');
                         await closePreview.waitFor({ state: 'attached', timeout: 10000 });
                         await download.waitFor({ state: 'attached' });
-                        const answer = await settled;
-                        if (state !== 'error') { await answer.finished(); }
+                        await settled;
+                        await waitForShown(page, drawn[state]);
+                        await waitForPreviewLoaded(page);
                         assert.equal(previewRequestCount(requestPath), before + 1,
                             `${state}: expected exactly one preview request`);
                         await page.waitForTimeout(500);
@@ -653,23 +665,16 @@ try {
                             && new URL(reply.url()).pathname === requestPath);
                         await panelPreview.press('Enter');
                         await closePanel.waitFor({ state: 'attached', timeout: 10000 });
-                        await (await answer).finished();
+                        await answer;
                         // The preview shows its picture, or its decode failure, only once the answer is drawn.
                         if (state === 'picture') {
                             await page.waitForFunction(
                                 ({ name, count }) => document.querySelectorAll(`[role="img"][aria-label="${name}"]`).length > count,
                                 { name: 'sample-panel.png', count: shownBefore }, { timeout: 10000 });
                         } else {
-                            // The hybrid renderer exposes a status sentence as text or as the note's accessible name.
-                            const decodeFailed = 'Could not decode this picture. Download the file to keep it.';
-                            await page.locator(`[aria-label="${decodeFailed}"]`)
-                                .or(page.getByText(decodeFailed, { exact: true }))
-                                .first()
-                                .waitFor({ state: 'attached', timeout: 10000 });
+                            await waitForShown(page, 'Could not decode this picture. Download the file to keep it.');
                         }
-                        await page.locator('[aria-label="Loading preview."]')
-                            .or(page.getByText('Loading preview.', { exact: true }))
-                            .waitFor({ state: 'detached', timeout: 10000 });
+                        await waitForPreviewLoaded(page);
                         assert.equal(previewRequestCount(requestPath), before + 1,
                             `${state}: expected exactly one panel preview request`);
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
@@ -1136,6 +1141,19 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
 
 function previewRequestCount(requestPath) {
     return previewApiRequests.filter(request => request.method === 'GET' && request.path === requestPath).length;
+}
+
+// The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
+function shown(page, words) {
+    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true })).first();
+}
+
+async function waitForShown(page, words) {
+    await shown(page, words).waitFor({ state: 'attached', timeout: 10000 });
+}
+
+async function waitForPreviewLoaded(page) {
+    await shown(page, 'Loading preview.').waitFor({ state: 'detached', timeout: 10000 });
 }
 
 // Waits until no request to this path is still open, so a later count starts from a quiet page.
