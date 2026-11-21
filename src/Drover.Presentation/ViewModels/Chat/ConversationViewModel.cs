@@ -1078,7 +1078,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             fileId => api.FileAddress(SpaceId, fileId),
             new Handover(Bot.Name, parameters.Crew.ToDictionary(bot => bot.Id, bot => bot.Name), parameters.WorkAddress),
             Reader)
-        .OfferingVersions(idle: !ReadOnly && !loading && !sending && !changing && !Working && thread is not null);
+        .OfferingVersions(idle: !ReadOnly && !loading && !sending && !changing && !Working && thread is not null)
+        .InTurns();
 
     // What a handler changed is shown when it first waits and again when it is done, as a screen does.
     private async Task Rendered(Task work)

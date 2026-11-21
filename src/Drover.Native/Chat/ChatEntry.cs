@@ -77,6 +77,9 @@ public sealed class ChatEntry : ContentControl
 
     private readonly ReplyReasoning reasoning = new();
 
+    // The turn's work as one list, on the turn's first message.
+    private readonly WorkLedger ledger = new();
+
     private readonly ReplySources sources = new();
 
     private readonly StackPanel tools = new() { Spacing = Tokens.Number("DvSpace2") };
@@ -200,6 +203,10 @@ public sealed class ChatEntry : ContentControl
         AutomationProperties.SetName(this, ChatRows.EntryName(message, parameters.BotName, parameters.Asker));
         IsTabStop = isMoment;
         Describe(message, parameters);
+
+        // Words further on in a turn hang close under the message above; one with nothing left to show takes no room.
+        Margin = shape is ChatEntryShape.Continued ? new(0, Tokens.Number("DvSpace2") - Tokens.Number("DvSpace5"), 0, 0) : new(0);
+        Visibility = Shown(shape is not ChatEntryShape.Continued || HasAnyShown());
         Fit();
         Paint();
     }
@@ -214,6 +221,9 @@ public sealed class ChatEntry : ContentControl
                 && message.Files.SequenceEqual(before.Files)
                 && message.Sources.SequenceEqual(before.Sources)));
 
+    private bool HasAnyShown() =>
+        new UIElement[] { words, sources, tools, files, footer }.Any(part => part.Visibility is Visibility.Visible);
+
     /// <summary>Puts the focus on the message a link named, so a keyboard or a screen reader lands there too.</summary>
     public void Land() => Focus(FocusState.Programmatic);
 
@@ -225,19 +235,28 @@ public sealed class ChatEntry : ContentControl
 
     private FrameworkElement Lay(ChatEntryShape wanted)
     {
-        Detach(words, reasoning, sources, tools, files, footer, versions, editor, bubble, sentBy, pending, plate, name, writing, run);
+        Detach(words, reasoning, ledger, sources, tools, files, footer, versions, editor, bubble, sentBy, pending, plate, name, writing, run);
 
         return wanted switch
         {
             ChatEntryShape.Person => Column(HorizontalAlignment.Right, bubble, editor, sentBy, files, pending, versions),
             ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, sources, files, versions),
             ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, words, sources, tools, files),
+            ChatEntryShape.Continued => Continued(),
             _ => Spoken(),
         };
     }
 
-    // A bot's words beside its head: the plate, then who speaks, what it reasoned, the words and the sources they cite,
-    // what it did, and what the reply used.
+    // Words further on in a turn hang under its head, in line with its words: the words, what they cite, the calls that
+    // stay cards, and the footer where the reply ends.
+    private StackPanel Continued()
+    {
+        footer.Hold(versions);
+        return Column(HorizontalAlignment.Stretch, words, sources, tools, files, footer);
+    }
+
+    // A bot's words beside its head: the plate, then who speaks, what it reasoned or, for a turn, its work as one list,
+    // the words and the sources they cite, the calls that stay cards, and what the reply used.
     private Grid Spoken()
     {
         var from = new Grid { ColumnSpacing = Tokens.Number("DvSpace2") };
@@ -252,7 +271,7 @@ public sealed class ChatEntry : ContentControl
 
         // A reply's versions and the way to another reply stand on its footer's one line, after copy.
         footer.Hold(versions);
-        var body = Column(HorizontalAlignment.Stretch, from, reasoning, words, sources, tools, files, footer);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, words, sources, tools, files, footer);
         body.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
 
         var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
@@ -301,9 +320,14 @@ public sealed class ChatEntry : ContentControl
         }
 
         var wide = XamlRoot is { } root && root.Size.Width >= (double)Styles.Dictionary["DvBreakPhone"];
-        var inset = shape is ChatEntryShape.Tools && !with.Compact && wide
-            ? Tokens.Number("DvAvatar48") + (2 * Tokens.Number("DvSpace1")) + (2 * Tokens.Number("DvBorder")) + Tokens.Number("DvSpace3")
-            : 0;
+        var under = Tokens.Number("DvAvatar48") + (2 * Tokens.Number("DvSpace1")) + (2 * Tokens.Number("DvBorder")) + Tokens.Number("DvSpace3");
+        var inset = shape is ChatEntryShape.Tools && !with.Compact && wide ? under : 0;
+
+        // Words further on in a turn line up with the turn's words, beside where its head stands.
+        if (shape is ChatEntryShape.Continued && ring.Child is FrameworkElement laid)
+        {
+            laid.Margin = new(wide ? under : 0, 0, 0, 0);
+        }
         var most2 = shape is ChatEntryShape.Person ? most : double.PositiveInfinity;
 
         if (tools.Margin.Left != inset)
@@ -356,8 +380,17 @@ public sealed class ChatEntry : ContentControl
         }
 
         words.Visibility = Shown(message.Text.Length > 0);
-        reasoning.Visibility = Shown(message.Reasoning is not null);
-        if (message.Reasoning is { } reasoned)
+        // In a turn, the reasoning and the calls that fold are rows of the turn's ledger, on its first message.
+        var inTurn = message.Ledger is not null || message.ContinuesTurn;
+        reasoning.Visibility = Shown(message.Reasoning is not null && !inTurn);
+        ledger.Visibility = Shown(message.Ledger is not null);
+        if (message.Ledger is { } work)
+        {
+            ledger.Parameters = parameters;
+            ledger.Show(work);
+        }
+
+        if (message.Reasoning is { } reasoned && !inTurn)
         {
             reasoning.Show(reasoned, message.Thinking);
         }
@@ -365,8 +398,9 @@ public sealed class ChatEntry : ContentControl
         sources.Sources = message.Sources;
         sources.Visibility = Shown(message.Sources.Count > 0);
 
-        Keyed.Sync(tools, message.Tools, tool => $"{tool.Id}:{ChatRows.Shape(tool, parameters.Takeovers)}", tool => Card(tool, parameters), (card, tool) => Tell(card, tool, parameters));
-        tools.Visibility = Shown(message.Tools.Count > 0);
+        var cards = message.Tools.Where(tool => !inTurn || !TurnLedger.Folds(tool)).ToList();
+        Keyed.Sync(tools, cards, tool => $"{tool.Id}:{ChatRows.Shape(tool, parameters.Takeovers)}", tool => Card(tool, parameters), (card, tool) => Tell(card, tool, parameters));
+        tools.Visibility = Shown(cards.Count > 0);
         Keyed.Sync(files, message.Files, file => file.Id.ToString(), _ => new FileCard(), (card, file) =>
         {
             card.File = file;
@@ -397,7 +431,7 @@ public sealed class ChatEntry : ContentControl
     private void ShowVersions(ChatMessage message, ChatEntryParameters parameters)
     {
         versions.ShowVersion = parameters.ShowVersion;
-        versions.OffersReplyAction = shape is not ChatEntryShape.Bot;
+        versions.OffersReplyAction = shape is not (ChatEntryShape.Bot or ChatEntryShape.Continued);
         versions.OnAct = (message.FromPerson ? parameters.Edit is not null : parameters.Regenerate is not null) ? () => Act() : null;
         versions.Show(message);
         versions.Visibility = Shown(versions.HasAny && !editing);

@@ -50,6 +50,18 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
 
     public bool MayRegenerate { get; init; }
 
+    /// <summary>
+    /// True for a bot's message that goes on the turn begun by the message before it: the same run, nothing from a
+    /// person between. It stands under that message without a head of its own. Set by <see cref="TurnLedger.InTurns"/>.
+    /// </summary>
+    public bool ContinuesTurn { get; init; }
+
+    /// <summary>
+    /// On the first message of a bot's turn, the whole turn's work as one list: its reasoning and its calls in order,
+    /// a run of three or more calls of one tool as one step. Null where the work is drawn as cards, as in handed work.
+    /// </summary>
+    public IReadOnlyList<LedgerStep>? Ledger { get; init; }
+
     #endregion
 }
 
