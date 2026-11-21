@@ -429,9 +429,58 @@ public sealed class RunRuleTests(PostgresServer postgres)
 
         var runId = await world.Post(threadId, "What is the word?");
 
-        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        RunWorld.Summaries(await world.ReadMessages(threadId))[^1].Should().Contain("Never say the word").And.NotContain(Secret,
-            "a bot moved up is still bound by the rule it followed before the move");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status
+            .Should().Be(RunStatus.Completed);
+        RunWorld.Summaries(await world.ReadMessages(threadId))[^1]
+            .Should().Contain("Never say the word")
+            .And.NotContain(Secret, "a bot moved up is still bound by the rule it followed before the move");
+    }
+
+    [Fact]
+    public async Task A_rule_write_held_open_serializes_with_a_keep_remove()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var scoutId = await world.NewBotBeneath(world.BotId, "Scout");
+        var ruleId = await AddRule(world, "Never say the word", RuleCheckpoint.BeforeReply,
+            RuleEffect.Redact, Contains(Secret));
+        var writing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var write = Task.Run(async () =>
+        {
+            await using var scope = world.Hosts[0].Services.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
+            await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(RunWorld.Token);
+            var change = await scope.ServiceProvider.GetRequiredService<Drover.Engine.Rules.RuleService>().Update(
+                world.BotId,
+                ruleId,
+                new Drover.Contracts.Rules.BotRuleBody("Tightened", true, "before_reply", "block", []),
+                world.UserId,
+                RunWorld.Token);
+            change.Problem.Should().BeNull();
+            writing.TrySetResult();
+            await release.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+            await work.Commit(RunWorld.Token);
+        }, TestContext.Current.CancellationToken);
+
+        await writing.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        var remove = Task.Run(
+            () => world.Transact(services => services.GetRequiredService<BotService>()
+                .Remove(world.BotId, BotsBeneath.Keep, AuditActor.Person(world.UserId), RunWorld.Token)),
+            TestContext.Current.CancellationToken);
+        var late = Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        var first = await Task.WhenAny((Task)remove, late);
+        first.Should().NotBe(remove, "a rule write holds the tree lock until its transaction commits");
+        release.TrySetResult();
+        var change = await remove.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        change.Problem.Should().BeNull();
+        var copied = await world.Read(db => db.BotRules.AsNoTracking()
+            .Where(rule => rule.BotId == scoutId)
+            .Select(rule => rule.Name)
+            .ToListAsync(RunWorld.Token));
+        copied.Should().ContainSingle()
+            .Which.Should().Be("Tightened", "the child gets the committed rule, not the older one");
+        await write;
     }
 
     [Fact]

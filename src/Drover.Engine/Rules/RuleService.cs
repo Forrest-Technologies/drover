@@ -69,6 +69,10 @@ public sealed class RuleService(
 
     public async Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
     {
+        // Rule writes share the tree lock with a remove that copies rules up. Without it a rule saved while a bot
+        // is removed can land on a bot that no longer binds anyone, or be lost from the copies the move makes.
+        await bots.LockTree(cancellationToken);
+
         if (await FindBot(botId, cancellationToken) is not { } bot)
         {
             return RuleChange.NotFound;
@@ -106,6 +110,8 @@ public sealed class RuleService(
 
     public async Task<RuleChange> Update(Guid botId, Guid ruleId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
     {
+        await bots.LockTree(cancellationToken);
+
         if (await FindBot(botId, cancellationToken) is not { } bot)
         {
             return RuleChange.NotFound;
@@ -144,6 +150,8 @@ public sealed class RuleService(
     /// <summary>Removes one of the bot's own rules. False when there is no such bot or rule.</summary>
     public async Task<bool> Remove(Guid botId, Guid ruleId, Guid actorUserId, CancellationToken cancellationToken)
     {
+        await bots.LockTree(cancellationToken);
+
         if (await FindBot(botId, cancellationToken) is null)
         {
             return false;

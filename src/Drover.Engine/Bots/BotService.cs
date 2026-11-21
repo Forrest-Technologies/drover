@@ -515,7 +515,12 @@ public sealed class BotService(
     /// that moves up follows every rule it followed before. Rules switched off bound nothing and are not copied; a
     /// rule of a bot above still applies through the closure rows. Only direct children get copies.
     /// </summary>
-    private async Task CopyRules(Bot removed, Bot moved, IReadOnlyList<BotRule> removedRules, AuditActor actor, CancellationToken cancellationToken)
+    private async Task CopyRules(
+        Bot removed,
+        Bot moved,
+        IReadOnlyList<BotRule> removedRules,
+        AuditActor actor,
+        CancellationToken cancellationToken)
     {
         var own = await rules.GetRules(moved.Id, cancellationToken);
         var position = 0;
