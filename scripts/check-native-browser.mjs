@@ -597,22 +597,22 @@ try {
                     await page.screenshot({ path: path.join(pictures, `preview-markdown-${width}-${theme}.png`) });
                     await closePreview.press('Space');
                     for (const state of ['pdf', 'diagram', 'limit', 'error', 'malformed', 'unsupported']) {
-                        const path = `/api/spaces/${spaceId}${previewPath}`;
-                        const before = previewRequestCount(path);
+                        const requestPath = `/api/spaces/${spaceId}${previewPath}`;
+                        const before = previewRequestCount(requestPath);
                         const settled = state === 'error'
                             ? page.waitForEvent('requestfailed', request => request.method() === 'GET'
-                                && new URL(request.url()).pathname === path)
+                                && new URL(request.url()).pathname === requestPath)
                             : page.waitForResponse(reply => reply.request().method() === 'GET'
-                                && new URL(reply.url()).pathname === path);
+                                && new URL(reply.url()).pathname === requestPath);
                         await preview.press('Enter');
                         await closePreview.waitFor({ state: 'attached', timeout: 10000 });
                         await download.waitFor({ state: 'attached' });
                         const answer = await settled;
                         if (state !== 'error') { await answer.finished(); }
-                        assert.equal(previewRequestCount(path), before + 1,
+                        assert.equal(previewRequestCount(requestPath), before + 1,
                             `${state}: expected exactly one preview request`);
                         await page.waitForTimeout(500);
-                        assert.equal(previewRequestCount(path), before + 1,
+                        assert.equal(previewRequestCount(requestPath), before + 1,
                             `${state}: no second preview request may arrive late`);
                         if (state === 'pdf') {
                             await page.getByRole('button', { name: 'Next PDF page', exact: true }).press('Enter');
@@ -636,14 +636,14 @@ try {
                     const closePanel = page.getByRole('button', { name: 'Close preview of sample-panel.png' });
                     const panelPath = `/files/${panelFile.id}/native-preview`;
                     for (const state of ['picture', 'picture-error']) {
-                        const path = `/api/spaces/${spaceId}${panelPath}`;
-                        const before = previewRequestCount(path);
+                        const requestPath = `/api/spaces/${spaceId}${panelPath}`;
+                        const before = previewRequestCount(requestPath);
                         const answer = page.waitForResponse(reply => reply.request().method() === 'GET'
-                            && new URL(reply.url()).pathname === path);
+                            && new URL(reply.url()).pathname === requestPath);
                         await panelPreview.press('Enter');
                         await closePanel.waitFor({ state: 'attached', timeout: 10000 });
                         await (await answer).finished();
-                        assert.equal(previewRequestCount(path), before + 1,
+                        assert.equal(previewRequestCount(requestPath), before + 1,
                             `${state}: expected exactly one panel preview request`);
                         if (state === 'picture') {
                             const picture = page.locator('[aria-label="sample-panel.png"]');
