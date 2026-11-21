@@ -11,8 +11,9 @@ public sealed partial class NativeScreensTests
     private static readonly string[] onlyOnTheWeb = ["/dev/starters"];
 
     // The web client still makes a bot when New bot is pressed. The native client opens the editor on a bot that is
-    // not made yet, at this address, and nothing is stored until it is saved.
-    private static readonly string[] onlyOnNative = ["/bots/new"];
+    // not made yet, at /bots/new, and nothing is stored until it is saved. Project screens are native too. The Razor
+    // client does not grow in this change.
+    private static readonly string[] onlyOnNative = ["/bots/new", "/projects", "/projects/{ProjectId:guid}"];
 
     #endregion
 
@@ -44,7 +45,7 @@ public sealed partial class NativeScreensTests
         string[] written =
         [
             Addresses.Home, Addresses.SignIn, Addresses.Setup, Addresses.Share, Addresses.SetupModel, Addresses.SetupBot,
-            Addresses.Bots, Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
+            Addresses.Bots, Addresses.Projects, Addresses.Project(bot), Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
             Addresses.ExtensionFromBot(bot), Addresses.Status, Addresses.Usage, Addresses.Conversation(other),
             Addresses.Talk(bot), Addresses.Summary(bot), Addresses.Memory(bot), Addresses.Screen(bot), Addresses.Activity(bot),
             Addresses.Activity(bot, other), Addresses.Files(bot), Addresses.Moment(bot, other, Guid.NewGuid(), false),

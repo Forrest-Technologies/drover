@@ -1,6 +1,6 @@
 namespace Drover.Native.Layouts;
 
-/// <summary>The dock of a narrow window: the three places a person goes most, and the account menu.</summary>
+/// <summary>The dock of a narrow window: the places a person goes most, and the account menu.</summary>
 public sealed class PhoneNav : Grid
 {
     #region Private Fields
@@ -10,6 +10,7 @@ public sealed class PhoneNav : Grid
     private readonly NavLink[] links =
     [
         new("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
+        new("Projects", Addresses.Projects, icon: IconName.Project),
         new("Bots", Addresses.Bots, icon: IconName.Crew),
         new("Tools", Addresses.Tools, icon: IconName.Settings),
     ];
