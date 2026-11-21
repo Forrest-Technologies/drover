@@ -5,7 +5,7 @@ namespace Drover.Adapters.E2B;
 /// listings go over Connect RPC with the JSON codec. Every call carries the sandbox's access token, and RPCs name the
 /// sandbox's user with HTTP Basic and an empty password, as E2B's own SDK does.
 /// </summary>
-internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions options, ILogger logger)
+internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions options, TimeProvider time, ILogger logger)
 {
     #region Private Fields
 
@@ -17,8 +17,17 @@ internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions opti
 
     private const string ConnectJson = "application/connect+json";
 
-    /// <summary>How long the daemon has to start answering. A command's output then runs to its own time limit.</summary>
+    /// <summary>
+    /// How long the daemon has to start answering a small call, and for an upload, from the last byte sent. A
+    /// command's output then runs to its own time limit.
+    /// </summary>
     private static readonly TimeSpan headersTimeout = TimeSpan.FromMinutes(1);
+
+    /// <summary>An upload fails when no byte reaches the connection for this long.</summary>
+    private static readonly TimeSpan uploadIdleTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>An upload cannot hold a connection open past this, however well the bytes keep moving.</summary>
+    private static readonly TimeSpan uploadCeiling = TimeSpan.FromMinutes(30);
 
     /// <summary>Extra time past the command's limit for the daemon's own deadline answer to arrive first.</summary>
     private static readonly TimeSpan deadlineGrace = TimeSpan.FromSeconds(5);
@@ -104,10 +113,11 @@ internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions opti
     public async Task WriteFile(SandboxHandle sandbox, string path, Stream content, CancellationToken cancellationToken)
     {
         using var request = Build(sandbox, HttpMethod.Post, FilePath(path));
-        request.Content = new StreamContent(content);
+        using var upload = new IdleTimedContent(content, time, uploadIdleTimeout, headersTimeout, uploadCeiling, cancellationToken);
+        request.Content = upload;
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
-        using var response = await Send(request, HttpCompletionOption.ResponseContentRead, cancellationToken, cancellationToken);
+        using var response = await Send(request, HttpCompletionOption.ResponseContentRead, null, cancellationToken, upload.Deadline);
     }
 
     public async Task<IReadOnlyList<SandboxEntry>> ListDir(SandboxHandle sandbox, string path, CancellationToken cancellationToken)
@@ -259,14 +269,32 @@ internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions opti
     /// Sends with a limit on waiting for the answer to start. <paramref name="caller"/> is the caller's own
     /// cancellation, which is never turned into a failure; <paramref name="cancellationToken"/> may be a deadline.
     /// </summary>
-    private async Task<HttpResponseMessage> Send(
+    private Task<HttpResponseMessage> Send(
         HttpRequestMessage request,
         HttpCompletionOption completion,
         CancellationToken caller,
+        CancellationToken cancellationToken) =>
+        Send(request, completion, headersTimeout, caller, cancellationToken);
+
+    /// <summary>
+    /// An upload brings its own deadline, which arms the answer limit after the last byte. A null
+    /// <paramref name="answerTimeout"/> leaves that to the body instead of timing the whole call from its start.
+    /// </summary>
+    private async Task<HttpResponseMessage> Send(
+        HttpRequestMessage request,
+        HttpCompletionOption completion,
+        TimeSpan? answerTimeout,
+        CancellationToken caller,
         CancellationToken cancellationToken)
     {
-        using var headers = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        headers.CancelAfter(headersTimeout);
+        using var answer = new CancellationTokenSource(Timeout.InfiniteTimeSpan, time);
+
+        if (answerTimeout is { } limit)
+        {
+            answer.CancelAfter(limit);
+        }
+
+        using var headers = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, answer.Token);
 
         HttpResponseMessage response;
 

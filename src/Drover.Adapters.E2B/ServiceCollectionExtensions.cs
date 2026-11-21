@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddE2BSandboxProvider(this IServiceCollection services, Action<E2BOptions> configure)
     {
         services.AddOptions<E2BOptions>().Configure(configure);
+        services.TryAddSingleton(TimeProvider.System);
 
         // The resilience handler's limits govern; the client's own 100-second default would cut across its retries.
         services.AddHttpClient(E2BSandboxProvider.ApiClientName, client =>
