@@ -79,6 +79,7 @@ public static class RunEndpoints
             RetryOutcome.BotUnavailable => TypedResults.Problem(
                 title: "This bot is paused or removed, so it cannot answer.",
                 statusCode: StatusCodes.Status409Conflict),
+            RetryOutcome.ReadOnly => TypedResults.Problem(title: RunService.HandoffIsReadOnly, statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Accepted($"/api/spaces/{access.SpaceId}/runs/{retry.Run!.Id}", retry.Run.ToSummary()),
         };
     }
