@@ -114,7 +114,7 @@ so each shows the same controls.
 - **The harness.** `tests/Drover.Native.UITests` runs the real server in process on a loopback HTTPS port, with a
   certificate made for the run, a scripted model, and PostgreSQL from `DROVER_TEST_POSTGRES` or a container. It
   waits until `/health/ready` answers over the same HTTPS connection the app will use (a bounded wait that fails with
-  the end of the server's log), makes an account and one bot through the API, starts the app with the server's
+  the end of the server log), makes an account and one bot through the API, starts the app with the server's
   address, the account, and the certificate's SHA-256 hash, and exits with 0 only when the app reports that every
   check passed. The app's connect step gives the server 30 s and tries a refused connection again after 0.5, 1 and 2
   s, logging each attempt; a server that never answers still fails with the screen's own problem text, and a failed

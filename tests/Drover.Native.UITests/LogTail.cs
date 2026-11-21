@@ -7,7 +7,7 @@ internal sealed class LogTail : ILoggerProvider
 {
     #region Private Fields
 
-    private const int Capacity = 60;
+    private const int Capacity = 120;
 
     private readonly Queue<string> lines = [];
 

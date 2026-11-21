@@ -40,6 +40,9 @@ internal sealed class CheckServer(TestDatabase database, X509Certificate2 certif
 
     #region Public Methods
 
+    /// <summary>The end of what the server logged, oldest first, for a check that failed.</summary>
+    public string RecentLog() => log.Text();
+
     /// <summary>Starts listening on a free loopback port.</summary>
     public void Start()
     {
@@ -115,7 +118,12 @@ internal sealed class CheckServer(TestDatabase database, X509Certificate2 certif
         builder.UseSetting("Drover:SignInRateLimit:PermitLimit", "1000");
         builder.ConfigureLogging(logging =>
         {
-            logging.SetMinimumLevel(LogLevel.Warning);
+            // The console still shows only warnings. The tail keeps what the server's own code says at information
+            // too, such as a cancel request and how the run ended, so a failed check can be traced from the log.
+            logging.SetMinimumLevel(LogLevel.Information);
+            logging.AddFilter("Microsoft", LogLevel.Warning);
+            logging.AddFilter("System", LogLevel.Warning);
+            logging.AddFilter<Microsoft.Extensions.Logging.Console.ConsoleLoggerProvider>(null, LogLevel.Warning);
             logging.AddProvider(log);
         });
         builder.ConfigureServices(services =>
