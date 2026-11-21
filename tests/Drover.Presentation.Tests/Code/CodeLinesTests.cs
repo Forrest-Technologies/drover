@@ -139,6 +139,42 @@ public sealed class CodeLinesTests
     }
 
     [Fact]
+    public void A_sparse_table_wider_than_the_column_bound_is_laid_out_as_text()
+    {
+        var row = $"x{new string('\t', CodeLines.MaxColumns)}";
+        var text = string.Concat(Enumerable.Repeat($"{row}\n", 50));
+        var table = CodeTable.Read(text)!;
+
+        table.ColumnCount.Should().Be(CodeLines.MaxColumns + 1);
+        text.Length.Should().BeLessThan(CodeLines.MaxCharacters, "its characters alone would pass the cap");
+        CodeLines.TableLayoutOf(table).Should().Be(TableLayout.Text);
+        CodeLines.TableLayoutOf(table, all: true).Should().Be(TableLayout.Text);
+    }
+
+    [Fact]
+    public void A_table_of_many_empty_cells_under_the_column_bound_is_held_to_the_cell_bound()
+    {
+        var row = $"x{new string('\t', CodeLines.MaxColumns - 1)}";
+        var text = string.Concat(Enumerable.Repeat($"{row}\n", CodeLines.MaxLines));
+        var table = CodeTable.Read(text)!;
+
+        (table.ColumnCount * table.Rows.Count).Should().BeGreaterThan(CodeLines.MaxCells);
+        text.Length.Should().BeLessThan(CodeLines.MaxCharacters);
+        CodeLines.TableLayoutOf(table).Should().Be(TableLayout.Text, "empty cells cost a control each");
+    }
+
+    [Fact]
+    public void All_of_a_table_is_held_to_the_same_bounds_as_its_first_rows()
+    {
+        var narrow = CodeTable.Read(string.Concat(Enumerable.Range(1, 500).Select(row => $"{row}\tok\n")))!;
+        var many = CodeTable.Read(string.Concat(Enumerable.Range(1, CodeLines.MaxCells).Select(row => $"{row}\tok\n")))!;
+
+        CodeLines.TableLayoutOf(narrow, all: true).Should().Be(TableLayout.Whole);
+        CodeLines.TableLayoutOf(many).Should().Be(TableLayout.FirstRows, "its first rows fit");
+        CodeLines.TableLayoutOf(many, all: true).Should().Be(TableLayout.Text, "all of its cells would not");
+    }
+
+    [Fact]
     public void A_capped_table_offers_all_its_rows_in_words() => CodeLines.ShowAllRows(1_200).Should().Be("Show all 1,200 rows");
 
     [Theory]
