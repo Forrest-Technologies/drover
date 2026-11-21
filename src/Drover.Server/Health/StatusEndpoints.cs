@@ -22,7 +22,8 @@ public static class StatusEndpoints
 
     private const string Off = "off";
 
-    private static readonly string sandboxKeySetting = SandboxServiceExtensions.KeySetting.Replace(":", "__", StringComparison.Ordinal);
+    private static readonly string sandboxKeySetting = SandboxServiceExtensions.KeySetting
+        .Replace(":", "__", StringComparison.Ordinal);
 
     #endregion
 
@@ -176,11 +177,19 @@ public static class StatusEndpoints
                 $"{workload.QueuedRuns} queued, {workload.RunningRuns} running, {workload.WaitingRuns} waiting for an answer.");
 
     /// <summary>Whether bots can have sandboxes here. Only that: never which provider, and never anything of its key.</summary>
-    private static StatusRow Sandboxes(SandboxAvailability sandboxes) =>
-        sandboxes.IsConfigured
-            ? Row(Server, "Sandboxes", Ok, "Configured. Bots given a sandbox can run code in it.")
-            : Row(Server, "Sandboxes", Off,
-                $"Not configured. Bots cannot run code. To turn sandboxes on, set E2B_API_KEY in .env (or {sandboxKeySetting}) and restart. Steps: Sandboxes in docs/self-hosting.md.");
+    private static StatusRow Sandboxes(SandboxAvailability sandboxes)
+    {
+        if (sandboxes.IsConfigured)
+        {
+            return Row(Server, "Sandboxes", Ok, "Configured. Bots given a sandbox can run code in it.");
+        }
+
+        var setting = $"set E2B_API_KEY in .env (or {sandboxKeySetting})";
+        var cause = "Not configured. Bots cannot run code.";
+        var action = $"To turn sandboxes on, {setting} and restart.";
+        var steps = "Steps: Sandboxes in docs/self-hosting.md.";
+        return Row(Server, "Sandboxes", Off, $"{cause} {action} {steps}");
+    }
 
     private static StatusRow ModelRow(ModelConnection connection) =>
         connection.Status switch

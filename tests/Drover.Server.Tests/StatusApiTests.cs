@@ -218,7 +218,8 @@ public sealed class ConfiguredSandboxStatusApiTests(PostgresServer postgres) : S
         var (client, session, _) = await SetUpFirstAccount();
 
         var response = await client.Get($"/api/spaces/{session.Spaces[0].Id}/status");
-        var row = (await response.Content.ReadFromJsonAsync<StatusReport>(Token))!.Rows.Single(found => found.Name == "Sandboxes");
+        var rows = (await response.Content.ReadFromJsonAsync<StatusReport>(Token))!.Rows;
+        var row = rows.Single(found => found.Name == "Sandboxes");
 
         row.State.Should().Be("ok");
         row.Summary.Should().Contain("Configured").And.NotContain("E2B").And.NotContain("e2b").And.NotContain(key);
