@@ -16,6 +16,8 @@ public static class ToolNames
 
     private const int LongSuffix = 10;
 
+    private const int SuffixStep = 4;
+
     #endregion
 
     #region Public Methods
@@ -27,9 +29,10 @@ public static class ToolNames
     }
 
     /// <summary>
-    /// The model-visible name of every tool of one connection, by tool id. Tools whose cleaned names clash keep the
-    /// base name for the one first seen; the others get a suffix made from their own name, lengthened when two short
-    /// suffixes still clash. A tool that works today keeps its name.
+    /// The model-visible name of every tool of one connection, by tool id. Each plain name belongs to the tool that
+    /// had it alone or saw it first; every other tool takes the shortest suffix from its own name that no other
+    /// tool holds. A server-named tool can aim at another tool's suffix, so candidates are checked against all plain
+    /// names as well as the ones already given out. Names are unique by construction, and no tool is left out.
     /// </summary>
     public static IReadOnlyDictionary<Guid, string> ForConnection(string connectionSlug, IReadOnlyList<ToolName> tools)
     {
@@ -40,40 +43,38 @@ public static class ToolNames
             baseNames[tool.Id] = ForModel(connectionSlug, tool.Name);
         }
 
-        var shared = baseNames.Values
-            .GroupBy(name => name, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .ToHashSet(StringComparer.Ordinal);
         Dictionary<Guid, string> names = [];
-        HashSet<Guid> suffixed = [];
+        HashSet<string> taken = [];
+        var ordered = tools
+            .OrderBy(tool => tool.FirstSeenAt)
+            .ThenBy(tool => tool.Name, StringComparer.Ordinal)
+            .ToList();
 
-        foreach (var tool in tools)
+        // The plain names go first: a tool that already works today keeps its name whatever another server lists.
+        foreach (var group in ordered.GroupBy(tool => baseNames[tool.Id], StringComparer.Ordinal))
         {
-            var baseName = baseNames[tool.Id];
+            var keeper = group.First();
+            names[keeper.Id] = baseNames[keeper.Id];
+            taken.Add(baseNames[keeper.Id]);
+        }
 
-            if (shared.Contains(baseName) && FirstSeen(tools, baseNames, baseName).Id != tool.Id)
+        Dictionary<Guid, int> starting = [];
+
+        // Two tools whose six-character suffixes are the same both take a longer one, as the catalog rule says.
+        foreach (var group in ordered
+            .Where(tool => !names.ContainsKey(tool.Id))
+            .GroupBy(tool => Suffixed(connectionSlug, tool.Name, ShortSuffix), StringComparer.Ordinal)
+            .Where(group => group.Count() > 1))
+        {
+            foreach (var tool in group)
             {
-                names[tool.Id] = Suffixed(connectionSlug, tool.Name, ShortSuffix);
-                suffixed.Add(tool.Id);
-            }
-            else
-            {
-                names[tool.Id] = baseName;
+                starting[tool.Id] = LongSuffix;
             }
         }
 
-        // Two short suffixes from two different names can still be the same. Those tools take a longer one; a base
-        // name never changes, so a tool that already works keeps it whatever another tool's hash does.
-        var stillShared = names.Values
-            .GroupBy(name => name, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var tool in tools.Where(tool => suffixed.Contains(tool.Id) && stillShared.Contains(names[tool.Id])))
+        foreach (var tool in ordered.Where(tool => !names.ContainsKey(tool.Id)))
         {
-            names[tool.Id] = Suffixed(connectionSlug, tool.Name, LongSuffix);
+            names[tool.Id] = FreeName(connectionSlug, tool, starting.GetValueOrDefault(tool.Id, ShortSuffix), taken);
         }
 
         return names;
@@ -83,12 +84,35 @@ public static class ToolNames
 
     #region Private Methods
 
-    private static ToolName FirstSeen(IReadOnlyList<ToolName> tools, Dictionary<Guid, string> baseNames, string baseName) =>
-        tools
-            .Where(tool => baseNames[tool.Id] == baseName)
-            .OrderBy(tool => tool.FirstSeenAt)
-            .ThenBy(tool => tool.Name, StringComparer.Ordinal)
-            .First();
+    private static string FreeName(string connectionSlug, ToolName tool, int length, HashSet<string> taken)
+    {
+        for (; length < MaxLength; length += SuffixStep)
+        {
+            var candidate = Suffixed(connectionSlug, tool.Name, length);
+
+            if (taken.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        // Only reachable if two tools of one connection have the very same name, which the catalog does not allow.
+        // The tie-break is the order the tools were given, so a restart sees the same name and neither is dropped.
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tool.Name))).ToLowerInvariant();
+
+        for (var index = 0; ; index++)
+        {
+            var suffix = $"{hash[..LongSuffix]}{index:x}";
+            var prefix = Base(connectionSlug, tool.Name);
+            var cut = Math.Min(prefix.Length, MaxLength - suffix.Length - 1);
+            var candidate = $"{prefix[..cut]}_{suffix}";
+
+            if (taken.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
 
     private static string Suffixed(string connectionSlug, string toolName, int suffixLength)
     {
