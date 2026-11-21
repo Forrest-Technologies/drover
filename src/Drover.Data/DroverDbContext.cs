@@ -38,6 +38,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<SandboxSecretBot> SandboxSecretBots => Set<SandboxSecretBot>();
 
+    public DbSet<AllowAllWindow> AllowAllWindows => Set<AllowAllWindow>();
+
     public DbSet<ToolGrant> ToolGrants => Set<ToolGrant>();
 
     public DbSet<ExtensionInstall> ExtensionInstalls => Set<ExtensionInstall>();

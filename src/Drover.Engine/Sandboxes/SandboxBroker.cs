@@ -479,6 +479,7 @@ public sealed class SandboxBroker(
         }
         catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.NotFound)
         {
+            // A sandbox the provider no longer has is gone in every state: no pause can bring it back.
             logger.LogInformation("Sandbox {SandboxId} of bot {BotId} was gone at the provider when a person paused it", target.Row.Id, target.Owner.Id);
             await Retire(person.Tenant, target.Row.Id, cancellationToken);
             return false;
@@ -488,16 +489,25 @@ public sealed class SandboxBroker(
             throw Refusal(failure);
         }
 
-        await person.Tenant.Transact(
+        // A running sandbox becomes paused; one already paused stays. A row retired or destroyed while the provider
+        // worked is left alone, so a pause cannot bring back a sandbox taken out of use.
+        return await person.Tenant.Transact(
             async services =>
             {
-                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(target.Row.Id, cancellationToken) is { } row)
+                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(target.Row.Id, cancellationToken) is not { } row)
+                {
+                    return false;
+                }
+
+                if (row.State is SandboxState.Running)
                 {
                     row.State = SandboxState.Paused;
+                    row.ExpiresAt = time.GetUtcNow();
                 }
+
+                return row.State is SandboxState.Paused;
             },
             cancellationToken);
-        return true;
     }
 
     /// <summary>Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made.</summary>

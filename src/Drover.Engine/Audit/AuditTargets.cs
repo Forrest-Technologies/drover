@@ -13,6 +13,8 @@ public static class AuditTargets
 
     public const string SandboxSecret = "sandbox_secret";
 
+    public const string AllowAllWindow = "allow_all_window";
+
     public const string Space = "space";
 
     #endregion

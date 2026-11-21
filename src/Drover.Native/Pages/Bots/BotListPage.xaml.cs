@@ -11,7 +11,7 @@ public sealed partial class BotListPage : Screen
 
     private BotListState? shownState;
 
-    private (IReadOnlyList<BotSummary>? Bots, bool Creating) shownCrew;
+    private IReadOnlyList<BotSummary>? shownCrew;
 
     #endregion
 
@@ -48,18 +48,17 @@ public sealed partial class BotListPage : Screen
     {
         var state = Model.State;
         NewBot.Shown(Model.ShowsNewBot);
-        newBotWords.Text = Model.NewBotLabel;
-        AutomationProperties.SetName(NewBot, Model.NewBotLabel);
-        NewBot.IsEnabled = !Model.Creating;
+        newBotWords.Text = BotListViewModel.NewBotLabel;
+        AutomationProperties.SetName(NewBot, BotListViewModel.NewBotLabel);
         ShowStage(state);
         Loading.Shown(state is BotListState.Loading);
         NoBotForMember.Shown(state is BotListState.NoBotForMember);
         MemberHint.Shown(state is BotListState.Listed && !Model.CanEdit);
         Crew.Shown(state is BotListState.Listed);
 
-        if (shownCrew != (Model.Bots, Model.Creating))
+        if (shownCrew != Model.Bots)
         {
-            shownCrew = (Model.Bots, Model.Creating);
+            shownCrew = Model.Bots;
             Crew.Fill(state is BotListState.Listed ? [.. Model.Crew.Select(node => new CrewRow(Model, node, Open))] : []);
         }
     }
@@ -73,7 +72,7 @@ public sealed partial class BotListPage : Screen
 
         if (state is BotListState.NoBot && Stage.Content is EmptyState noBot)
         {
-            noBot.ActionLabel = Model.MakeBotLabel;
+            noBot.ActionLabel = BotListViewModel.MakeBotLabel;
         }
 
         if (shownState == state)
@@ -92,7 +91,7 @@ public sealed partial class BotListPage : Screen
                 ActionLabel = BotListViewModel.NoModelAction,
                 ActionHref = BotListViewModel.NoModelAddress,
             },
-            BotListState.NoBot => Empty(BotListViewModel.NoBotTitle, BotListViewModel.NoBotCause, Model.MakeBotLabel, () => _ = Model.Create(null)),
+            BotListState.NoBot => Empty(BotListViewModel.NoBotTitle, BotListViewModel.NoBotCause, BotListViewModel.MakeBotLabel, () => Model.Create(null)),
             _ => null,
         };
         Stage.Shown(Stage.Content is not null);
@@ -117,7 +116,7 @@ public sealed partial class BotListPage : Screen
 
     private void Open(string address) => navigator.NavigateTo(address);
 
-    private void MakeBot(object sender, RoutedEventArgs args) => _ = Model.Create(null);
+    private void MakeBot(object sender, RoutedEventArgs args) => Model.Create(null);
 
     #endregion
 }

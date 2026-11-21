@@ -165,3 +165,16 @@ public sealed class SandboxSecretBotSeeder : PlainSeeder<SandboxSecretBot>
         ["name"] = seed.Unique("SAMPLE_TOKEN").ToUpperInvariant().Replace('-', '_'),
     };
 }
+
+public sealed class AllowAllWindowSeeder : PlainSeeder<AllowAllWindow>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["bot_id"] = seed.Parent("bots"),
+        ["kind"] = "hour_1",
+        ["ends_at"] = DateTimeOffset.UtcNow.AddHours(1),
+        ["started_at"] = DateTimeOffset.UtcNow,
+        ["started_from"] = "bot",
+    };
+}

@@ -10,8 +10,10 @@ public sealed partial class NativeScreensTests
 
     private static readonly string[] onlyOnTheWeb = ["/dev/starters"];
 
-    // Project screens are native. The Razor client does not grow in this change.
-    private static readonly string[] onlyOnNative = ["/projects", "/projects/{ProjectId:guid}"];
+    // The web client still makes a bot when New bot is pressed. The native client opens the editor on a bot that is
+    // not made yet, at /bots/new, and nothing is stored until it is saved. Project screens are native too. The Razor
+    // client does not grow in this change.
+    private static readonly string[] onlyOnNative = ["/bots/new", "/projects", "/projects/{ProjectId:guid}"];
 
     #endregion
 
@@ -48,7 +50,7 @@ public sealed partial class NativeScreensTests
             Addresses.Talk(bot), Addresses.Summary(bot), Addresses.Memory(bot), Addresses.Screen(bot), Addresses.Activity(bot),
             Addresses.Activity(bot, other), Addresses.Files(bot), Addresses.Moment(bot, other, Guid.NewGuid(), false),
             Addresses.SideChats(bot), Addresses.NewSideChat(bot), Addresses.SideChat(bot, other), Addresses.Work(bot, other, other),
-            Addresses.Bot(bot), Addresses.BotMemory(bot), Addresses.BotSandbox(bot), Addresses.BotTerminal(bot),
+            Addresses.Bot(bot), Addresses.NewBot(), Addresses.NewBot(bot), Addresses.BotMemory(bot), Addresses.BotSandbox(bot), Addresses.BotTerminal(bot),
             Addresses.UsageFor("7d"), Addresses.UsageFor("7d", bot), Addresses.ToolSignIn("done", "sample"),
             Addresses.ToolSignIn("failed", null), Addresses.ToolSignInReturn("sample ticket"),
         ];

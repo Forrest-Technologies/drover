@@ -31,6 +31,7 @@ public static class SecurityServiceExtensions
         services.AddTrustedProxies(configuration);
         services.AddSingleton<PreviewGrantStore>();
         services.AddSingleton<PreviewFileService>();
+        services.AddSingleton<ConversationSearchLimiter>();
         if (previewOrigin is not null)
         {
             services.AddSingleton(previewOrigin);
