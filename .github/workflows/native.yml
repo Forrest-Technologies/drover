@@ -77,6 +77,9 @@ jobs:
           dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android
           -p:DroverFieldCheck=true -c Release -warnaserror -o "$RUNNER_TEMP/field-check-android"
 
+      # No emulator is needed: prove a failing display reset is raised only when no check already failed.
+      - name: Check the Android cleanup error handling
+        run: python3 scripts/check-native-android-text-editing.py --self-test-cleanup
       - name: Check Android address editing, safe-area layout, and the shared screen checks
         timeout-minutes: 20
         run: |
