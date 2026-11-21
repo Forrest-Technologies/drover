@@ -49,6 +49,45 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
     public Task<string?> Unsubscribe(CancellationToken cancellationToken = default) =>
         Call(UnsubscribeWith, "unsubscribe");
 
+    public async Task<MovedPush> FindMovedSubscription(CancellationToken cancellationToken = default)
+    {
+        var state = await Call(MovedWith, "moved") switch
+        {
+            "permission-kept" => MovedSubscription.PermissionKept,
+            "permission-lost" => MovedSubscription.PermissionLost,
+            _ => MovedSubscription.None,
+        };
+
+        if (state is MovedSubscription.None)
+        {
+            return new MovedPush(state);
+        }
+
+        var account = await Call(MoveCandidateAccountWith, "moveCandidateAccount");
+        return new MovedPush(
+            state,
+            await Call(MovedEndpointWith, "movedEndpoint"),
+            await Call(MoveCandidateWith, "moveCandidate"),
+            Guid.TryParse(account, out var id) ? id : null);
+    }
+
+    public Task RememberMoveCandidate(string endpoint, Guid account, CancellationToken cancellationToken = default) =>
+        Call(async () =>
+        {
+            await RememberMoveCandidateWith(endpoint, account.ToString());
+            return true;
+        }, "rememberMoveCandidate");
+
+    public Task<bool> UnsubscribeOnly(string endpoint, CancellationToken cancellationToken = default) =>
+        Call(() => UnsubscribeOnlyWith(endpoint), "unsubscribeOnly");
+
+    public Task ForgetMovedSubscription(CancellationToken cancellationToken = default) =>
+        Call(async () =>
+        {
+            await ForgetMoveWith();
+            return true;
+        }, "forgetMove");
+
     #endregion
 
     #region Private Methods
@@ -75,6 +114,27 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
 
     [JSImport("unsubscribe", Module)]
     private static partial Task<string?> UnsubscribeWith();
+
+    [JSImport("moved", Module)]
+    private static partial Task<string> MovedWith();
+
+    [JSImport("movedEndpoint", Module)]
+    private static partial Task<string?> MovedEndpointWith();
+
+    [JSImport("moveCandidate", Module)]
+    private static partial Task<string?> MoveCandidateWith();
+
+    [JSImport("moveCandidateAccount", Module)]
+    private static partial Task<string?> MoveCandidateAccountWith();
+
+    [JSImport("rememberMoveCandidate", Module)]
+    private static partial Task RememberMoveCandidateWith(string endpoint, string account);
+
+    [JSImport("unsubscribeOnly", Module)]
+    private static partial Task<bool> UnsubscribeOnlyWith(string endpoint);
+
+    [JSImport("forgetMove", Module)]
+    private static partial Task ForgetMoveWith();
 
     #endregion
 }

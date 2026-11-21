@@ -70,8 +70,6 @@ services:
   database-init:
     build: &drover-build
       context: .
-      args:
-        DROVER_BUILD_NATIVE: "${DROVER_BUILD_NATIVE:-true}"
     image: drover:local
     user: "0:0"
     restart: "no"

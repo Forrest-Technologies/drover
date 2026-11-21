@@ -1,21 +1,17 @@
 namespace Drover.Server.Clients;
 
 /// <summary>
-/// The native client's browser build, served beside the web client under <c>/native/</c> while screens move to it
-/// (docs/adr/0015-one-native-client.md). Its files come from a folder the deployment fills with the published
-/// <c>wwwroot</c>: the one <c>NativeClient:Path</c> names, or <c>native</c> in the server's web root. A server without
-/// that folder answers nothing under <c>/native/</c>. The files are served under the same security headers as every
-/// other response: nothing here widens the content security policy.
+/// The browser client: the native client's browser build, served at the root. Its files come from a folder the
+/// deployment fills with the published <c>wwwroot</c>: the one <c>NativeClient:Path</c> names, or the server's web
+/// root. A server without that folder serves the API alone. The files are served under the same security headers as
+/// every other response: nothing here widens the content security policy. The address the build was served under
+/// before it took the root, <c>/native/</c>, is kept as a way in (<see cref="RetiredNativeAddress"/>).
 /// </summary>
 public static class NativeClientFiles
 {
     #region Private Fields
 
-    public const string BasePath = "/native";
-
     private const string PathSetting = "NativeClient:Path";
-
-    private const string DefaultFolder = "native";
 
     private const string Page = "index.html";
 
@@ -25,41 +21,29 @@ public static class NativeClientFiles
 
     #region Public Methods
 
-    /// <summary>Serves the native client's files. Call it where the web client's files are served.</summary>
+    /// <summary>Serves the client's files, and sends the retired address to the root.</summary>
     public static StaticFileOptions UseNativeClientFiles(this WebApplication app)
     {
-        var folder = app.Configuration[PathSetting] ?? Path.Combine(app.Environment.WebRootPath ?? app.Environment.ContentRootPath, DefaultFolder);
+        var folder = app.Configuration[PathSetting] ?? app.Environment.WebRootPath;
         var options = new StaticFileOptions
         {
-            RequestPath = BasePath,
             FileProvider = Directory.Exists(folder) ? new PhysicalFileProvider(Path.GetFullPath(folder)) : new NullFileProvider(),
             ContentTypeProvider = ContentTypes(),
             OnPrepareResponse = PrecompressedFiles.Describe,
         };
 
-        // The page names its files relative to the folder, so the folder is always asked for with its slash.
-        app.Use((context, next) =>
-        {
-            if (context.Request.Path.Value == BasePath)
-            {
-                return TypedResults.LocalRedirect($"{BasePath}/{context.Request.QueryString}").ExecuteAsync(context);
-            }
-
-            return next(context);
-        });
+        app.UseMiddleware<RetiredNativeAddress>();
         app.UseMiddleware<PrecompressedFiles>(options);
         app.UseStaticFiles(options);
         return options;
     }
 
     /// <summary>
-    /// Every address of the native client that is not a file is its page, so an address can be opened, reloaded,
-    /// and shared. A missing file stays missing: a script or a framework file is never answered with the page.
+    /// Every address that is not a file is the client's page, so an address can be opened, reloaded, and shared. A
+    /// missing file stays missing: a script or a framework file is never answered with the page.
     /// </summary>
-    public static void MapNativeClientPages(this WebApplication app, StaticFileOptions files)
-    {
-        app.MapFallbackToFile($"{BasePath}/{{*path:nonfile}}", $"{BasePath.TrimStart('/')}/{Page}", files);
-    }
+    public static void MapNativeClientPages(this WebApplication app, StaticFileOptions files) =>
+        app.MapFallbackToFile(Page, files);
 
     #endregion
 

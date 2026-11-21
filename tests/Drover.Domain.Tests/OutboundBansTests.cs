@@ -36,9 +36,7 @@ public sealed class OutboundBansTests
         exempt.Should().BeEquivalentTo(
         [
             "[src/Drover.Engine/Policy/OutboundHttp.cs]",
-            "[src/Drover.Web/Program.cs]",
             "[src/Shared/Transport/AppRequests.cs]",
-            "[src/Drover.App/MauiProgram.cs]",
             "[src/Drover.Native/{Device,Platforms/WebAssembly}/PlatformServices.cs]",
             "[tests/Drover.Engine.Tests/OutboundHttpTests.cs]",
             "[tests/Drover.Native.UITests/App/CheckSettings.cs]",
