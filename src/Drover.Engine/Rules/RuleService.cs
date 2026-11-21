@@ -263,7 +263,8 @@ public sealed class RuleService(
         return notes;
     }
 
-    private static JsonObject Snapshot(BotRule rule) =>
+    /// <summary>The rule as an audit entry keeps it.</summary>
+    public static JsonObject Snapshot(BotRule rule) =>
         AuditLog.Snapshot(new { rule.Name, rule.Enabled, rule.Position, rule.Checkpoint, rule.Effect, rule.Conditions });
 
     private static JsonObject About(BotRule rule) => new() { ["rule_id"] = rule.Id };
@@ -311,7 +312,8 @@ public sealed class RuleService(
     }
 
     // Puts the rule at a place among the bot's others and numbers them all from zero, in order.
-    private static void Place(List<BotRule> others, BotRule rule, int position)
+    // Shared with BotService, which copies rules when a bot is kept and its children move up.
+    public static void Place(List<BotRule> others, BotRule rule, int position)
     {
         others.Insert(Math.Clamp(position, 0, others.Count), rule);
         Renumber(others);

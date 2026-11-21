@@ -412,6 +412,29 @@ public sealed class RunRuleTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_block_rule_of_a_removed_parent_still_blocks_a_bot_that_was_kept_and_moved_up()
+    {
+        var script = new ScriptedModel([new TextOutput($"The word is {Secret}.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        await AddRule(world, "Never say the word", RuleCheckpoint.BeforeReply, RuleEffect.Block, Contains(Secret));
+        var childId = await AddChild(world);
+        var removed = await world.Transact(services => services.GetRequiredService<BotService>()
+            .Remove(world.BotId, BotsBeneath.Keep, AuditActor.Person(world.UserId), RunWorld.Token));
+        removed.Problem.Should().BeNull();
+        (await world.Read(db => db.BotRules.AsNoTracking().CountAsync(rule => rule.BotId == childId, RunWorld.Token)))
+            .Should().Be(1, "the removed bot's rule became the moved bot's own");
+        world.StartHost();
+        var threadId = (await world.Transact(services => services.GetRequiredService<ThreadService>()
+            .Create(childId, null, world.UserId, RunWorld.Token)))!.Id;
+
+        var runId = await world.Post(threadId, "What is the word?");
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        RunWorld.Summaries(await world.ReadMessages(threadId))[^1].Should().Contain("Never say the word").And.NotContain(Secret,
+            "a bot moved up is still bound by the rule it followed before the move");
+    }
+
+    [Fact]
     public async Task A_rule_that_is_switched_off_does_nothing()
     {
         var script = new ScriptedModel([new TextOutput($"The word is {Secret}.")]);
