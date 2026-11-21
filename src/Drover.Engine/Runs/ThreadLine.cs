@@ -32,6 +32,11 @@ public sealed class ThreadLine(
     /// </summary>
     public async Task<QueuedRun> Queue(ChatThread thread, Message trigger, Guid principalUserId, CancellationToken cancellationToken)
     {
+        if (thread.Origin is ThreadOrigin.Delegation)
+        {
+            throw new InvalidOperationException("A delegation conversation takes no messages from people, so it starts no run.");
+        }
+
         var run = new Run
         {
             ThreadId = thread.Id,
