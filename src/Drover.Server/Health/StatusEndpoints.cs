@@ -22,6 +22,8 @@ public static class StatusEndpoints
 
     private const string Off = "off";
 
+    private static readonly string sandboxKeySetting = SandboxServiceExtensions.KeySetting.Replace(":", "__", StringComparison.Ordinal);
+
     #endregion
 
     #region Public Methods
@@ -177,7 +179,8 @@ public static class StatusEndpoints
     private static StatusRow Sandboxes(SandboxAvailability sandboxes) =>
         sandboxes.IsConfigured
             ? Row(Server, "Sandboxes", Ok, "Configured. Bots given a sandbox can run code in it.")
-            : Row(Server, "Sandboxes", Off, "Not configured. Bots cannot run code until the operator sets a sandbox provider key.");
+            : Row(Server, "Sandboxes", Off,
+                $"Not configured. Bots cannot run code. To turn sandboxes on, set E2B_API_KEY in .env (or {sandboxKeySetting}) and restart. Steps: Sandboxes in docs/self-hosting.md.");
 
     private static StatusRow ModelRow(ModelConnection connection) =>
         connection.Status switch

@@ -20,6 +20,15 @@ public sealed class SandboxKeySettingTests
     }
 
     [Fact]
+    public void An_empty_key_setting_means_no_provider()
+    {
+        using var services = Build(new() { [SandboxServiceExtensions.KeySetting] = string.Empty });
+
+        services.GetServices<ISandboxProvider>().Should().BeEmpty();
+        services.GetRequiredService<SandboxAvailability>().IsConfigured.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_key_in_the_setting_registers_the_provider_and_the_sandbox_tools_with_the_key_held_in_memory()
     {
         var key = NewKey();

@@ -32,6 +32,18 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task The_sandbox_row_names_the_setting_to_set_when_nothing_is_configured()
+    {
+        var (client, session, _) = await SetUpFirstAccount();
+
+        var summary = Row(await Status(client, session.Spaces[0].Id), "Sandboxes").Summary;
+
+        summary.Should().Contain("E2B_API_KEY")
+            .And.Contain(SandboxServiceExtensions.KeySetting.Replace(":", "__", StringComparison.Ordinal))
+            .And.Contain("docs/self-hosting.md");
+    }
+
+    [Fact]
     public async Task Each_model_connection_of_the_space_is_a_row_with_its_last_result_and_no_key()
     {
         var (client, session, _) = await SetUpFirstAccount();
@@ -184,6 +196,40 @@ public sealed class PublicAddressTests(PostgresServer postgres) : ServerTestBase
         SetupCodeAnnouncer.SetupAddresses(null, ["http://[::]:8080", "http://+:8080", "http://127.0.0.1:5000/"])
             .Should().Equal("http://localhost:8080/setup", "http://127.0.0.1:5000/setup");
     }
+
+    #endregion
+}
+
+
+/// <summary>A server with a sandbox key: the configured row stays quiet about the provider and the key.</summary>
+public sealed class ConfiguredSandboxStatusApiTests(PostgresServer postgres) : ServerTestBase(postgres)
+{
+    #region Private Fields
+
+    private readonly string key = SandboxKeySettingTests.NewKey();
+
+    #endregion
+
+    #region Public Methods
+
+    [Fact]
+    public async Task The_sandbox_row_names_no_provider_when_one_is_configured()
+    {
+        var (client, session, _) = await SetUpFirstAccount();
+
+        var response = await client.Get($"/api/spaces/{session.Spaces[0].Id}/status");
+        var row = (await response.Content.ReadFromJsonAsync<StatusReport>(Token))!.Rows.Single(found => found.Name == "Sandboxes");
+
+        row.State.Should().Be("ok");
+        row.Summary.Should().Contain("Configured").And.NotContain("E2B").And.NotContain("e2b").And.NotContain(key);
+    }
+
+    #endregion
+
+    #region Overrides
+
+    protected override IReadOnlyDictionary<string, string?> Settings =>
+        new Dictionary<string, string?>(base.Settings) { [SandboxServiceExtensions.KeySetting] = key };
 
     #endregion
 }
