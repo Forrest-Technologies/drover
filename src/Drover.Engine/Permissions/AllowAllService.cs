@@ -27,12 +27,17 @@ public sealed class AllowAllService(
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
+        if (source is AllowAllWindowSource.Approval && toolCallId is null)
+        {
+            throw new ArgumentException("A window started from an approval card must name the call it came from.", nameof(toolCallId));
+        }
+
         var now = time.GetUtcNow();
         await windows.LockSpaceWindows(cancellationToken);
 
         if (await windows.FindOpen(botId, audienceUserId, cancellationToken) is { } previous)
         {
-            End(previous, AllowAllWindowEndReason.AskedAgain, actorUserId);
+            End(previous, HasExpired(previous, now) ? AllowAllWindowEndReason.Expired : AllowAllWindowEndReason.AskedAgain, actorUserId);
         }
 
         var window = new AllowAllWindow
@@ -70,8 +75,11 @@ public sealed class AllowAllService(
         return window;
     }
 
-    /// <summary>Ends one window with a reason. A second end writes nothing.</summary>
-    public bool End(AllowAllWindow window, AllowAllWindowEndReason reason, Guid actorUserId)
+    /// <summary>
+    /// Ends a window the caller has already locked. A second end writes nothing: the caller reads with
+    /// <c>FOR UPDATE</c>, so another ending waits for this transaction and then sees the row as ended.
+    /// </summary>
+    private bool End(AllowAllWindow window, AllowAllWindowEndReason reason, Guid actorUserId)
     {
         if (window.EndedAt is not null)
         {

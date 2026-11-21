@@ -1185,7 +1185,11 @@ namespace Drover.Data.Migrations
 
                             t.HasCheckConstraint("ck_allow_all_windows_kind", "kind IN ('minutes_30', 'hour_1', 'until_done', 'until_off')");
 
+                            t.HasCheckConstraint("ck_allow_all_windows_ends_at", "(kind IN ('minutes_30', 'hour_1')) = (ends_at IS NOT NULL)");
+
                             t.HasCheckConstraint("ck_allow_all_windows_started_from", "started_from IN ('bot', 'approval')");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_source", "(started_from = 'approval') = (tool_call_id IS NOT NULL)");
                         });
                 });
 

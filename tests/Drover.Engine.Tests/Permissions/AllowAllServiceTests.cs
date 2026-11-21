@@ -83,6 +83,55 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
     }
 
     [Fact]
+    public async Task Opening_over_an_expired_window_records_expired_not_asked_again()
+    {
+        var expired = await Open(world.BotId, world.UserId, AllowAllWindowKind.Minutes30, AllowAllWindowSource.Bot, null, world.UserId);
+        clock.Advance(TimeSpan.FromMinutes(31));
+
+        var replacement = await Open(world.BotId, world.UserId, AllowAllWindowKind.Hour1, AllowAllWindowSource.Bot, null, world.UserId);
+
+        (await Read(world.UserId, expired.Id)).EndedReason.Should().Be(AllowAllWindowEndReason.Expired);
+        (await Read(world.UserId, replacement.Id)).EndedAt.Should().BeNull();
+        (await Audit(world.UserId)).Should().ContainSingle(entry => entry.Action == AllowAllService.EndedAction
+            && entry.Data.GetProperty("ended_reason").GetString() == "expired");
+    }
+
+    [Fact]
+    public async Task Two_openings_for_one_bot_and_person_overlap_and_leave_one_window()
+    {
+        var first = InScope(world.UserId, services => services.GetRequiredService<AllowAllService>()
+            .Open(world.BotId, world.UserId, AllowAllWindowKind.UntilOff, AllowAllWindowSource.Bot, null, world.UserId, RunWorld.Token));
+        var second = InScope(world.UserId, services => services.GetRequiredService<AllowAllService>()
+            .Open(world.BotId, world.UserId, AllowAllWindowKind.UntilOff, AllowAllWindowSource.Bot, null, world.UserId, RunWorld.Token));
+
+        var both = await Task.WhenAll(first, second);
+
+        both[0].Id.Should().NotBe(both[1].Id);
+        var open = await InScope(world.UserId, services => services.GetRequiredService<AllowAllWindowRepository>()
+            .ListOpenForBot(world.BotId, RunWorld.Token));
+        open.Select(window => window.Id).Should().HaveCount(1);
+        var ended = both.Single(window => window.Id != open[0].Id);
+        (await Read(world.UserId, ended.Id)).EndedReason.Should().Be(AllowAllWindowEndReason.AskedAgain);
+        (await Audit(world.UserId)).Should().ContainSingle(entry => entry.Action == AllowAllService.EndedAction
+            && entry.Data.GetProperty("ended_reason").GetString() == "asked_again");
+    }
+
+    [Fact]
+    public async Task Two_endings_of_one_window_overlap_and_only_one_writes_an_audit_row()
+    {
+        var window = await Open(world.BotId, world.UserId, AllowAllWindowKind.UntilOff, AllowAllWindowSource.Bot, null, world.UserId);
+        var first = End(window.Id, AllowAllWindowEndReason.BotPaused, world.UserId);
+        var second = End(window.Id, AllowAllWindowEndReason.BotRemoved, world.UserId);
+
+        var decisions = await Task.WhenAll(first, second);
+
+        decisions.Should().Equal(true, false);
+        var stored = await Read(world.UserId, window.Id);
+        stored.EndedReason.Should().Be(AllowAllWindowEndReason.BotPaused);
+        (await Audit(world.UserId)).Should().ContainSingle(entry => entry.Action == AllowAllService.EndedAction);
+    }
+
+    [Fact]
     public async Task The_database_refuses_a_second_open_window_for_the_same_bot_and_person()
     {
         var first = NewWindow(world.BotId, world.UserId, AllowAllWindowKind.UntilOff);
@@ -99,6 +148,32 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
 
         failure.Which.InnerException.Should().BeOfType<PostgresException>()
             .Which.SqlState.Should().Be(PostgresErrorCodes.UniqueViolation);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_a_timed_window_without_an_end()
+    {
+        var window = NewWindow(world.BotId, world.UserId, AllowAllWindowKind.Minutes30);
+
+        await AssertRefused(window);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_end_on_a_window_that_does_not_expire()
+    {
+        var window = NewWindow(world.BotId, world.UserId, AllowAllWindowKind.UntilDone);
+        window.EndsAt = started.AddHours(1);
+
+        await AssertRefused(window);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_approval_window_without_a_call()
+    {
+        var window = NewWindow(world.BotId, world.UserId, AllowAllWindowKind.UntilOff);
+        window.StartedFrom = AllowAllWindowSource.Approval;
+
+        await AssertRefused(window);
     }
 
     [Fact]
@@ -231,6 +306,20 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
     #endregion
 
     #region Private Methods
+
+    private async Task AssertRefused(AllowAllWindow window)
+    {
+        var insert = async () => await world.Transact(async services =>
+        {
+            services.GetRequiredService<DroverDbContext>().AllowAllWindows.Add(window);
+            await services.GetRequiredService<DroverDbContext>().SaveChangesAsync(RunWorld.Token);
+            return true;
+        });
+        var failure = await insert.Should().ThrowAsync<DbUpdateException>();
+
+        failure.Which.InnerException.Should().BeOfType<PostgresException>()
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
 
     private AllowAllWindow NewWindow(Guid botId, Guid audienceUserId, AllowAllWindowKind kind) => new()
     {

@@ -15,6 +15,14 @@ public sealed class AllowAllWindowMapping : IEntityTypeConfiguration<AllowAllWin
             table => table.HasCheckConstraint(
                 "ck_allow_all_windows_kind",
                 "kind IN ('minutes_30', 'hour_1', 'until_done', 'until_off')"));
+        builder.ToTable(
+            table => table.HasCheckConstraint(
+                "ck_allow_all_windows_ends_at",
+                "(kind IN ('minutes_30', 'hour_1')) = (ends_at IS NOT NULL)"));
+        builder.ToTable(
+            table => table.HasCheckConstraint(
+                "ck_allow_all_windows_source",
+                "(started_from = 'approval') = (tool_call_id IS NOT NULL)"));
         builder.HasKey(window => window.Id);
         builder.Property(window => window.Id).ValueGeneratedNever();
         builder.Property(window => window.StartedAt).HasDefaultValueSql("now()");
