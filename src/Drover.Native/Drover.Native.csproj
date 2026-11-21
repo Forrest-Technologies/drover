@@ -265,6 +265,10 @@
 
   <!-- The screen checks run inside a build made for them, on a device or a desktop, and nowhere else: a product
        build never contains them. tests/Drover.Native.UITests starts the build with a test server to talk to. -->
+  <PropertyGroup Condition="'$(DroverUiChecks)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_UI_CHECKS</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(DroverUiChecks)' == 'true'">
     <Compile Include="../../tests/Drover.Native.UITests/App/*.cs" Link="UiChecks/%(Filename)%(Extension)" />
   </ItemGroup>
