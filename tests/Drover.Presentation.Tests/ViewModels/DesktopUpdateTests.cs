@@ -359,7 +359,7 @@ public sealed class DesktopUpdateTests
     {
         using var package = await SignedPackage(nameof(Turning_checks_off_during_a_pending_install_is_not_undone_by_the_result));
         var live = new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0");
-        var shown = new List<DesktopUpdateState>();
+        List<DesktopUpdateState> shown = [];
 
         var state = await UpdateInstall.Run(
             new RecordingInstaller([], null),
@@ -482,8 +482,8 @@ public sealed class DesktopUpdateTests
     public async Task A_download_over_the_limit_is_refused_before_the_installer_and_before_it_is_verified()
     {
         using var package = await SignedPackage(nameof(A_download_over_the_limit_is_refused_before_the_installer_and_before_it_is_verified));
-        var events = new List<string>();
-        var shown = new List<DesktopUpdatePhase>();
+        List<string> events = [];
+        List<DesktopUpdatePhase> shown = [];
 
         var state = await UpdateInstall.Run(
             new RecordingInstaller(events, null),
@@ -526,9 +526,9 @@ public sealed class DesktopUpdateTests
     {
         var host = hostName is "windows" ? UpdateHost.Windows : UpdateHost.Mac;
         using var package = await SignedPackage($"{nameof(A_verified_package_starts_the_installer_and_the_window_closes_after_it)}{hostName}");
-        var events = new List<string>();
+        List<string> events = [];
         var installer = new RecordingInstaller(events, null);
-        var shown = new List<DesktopUpdatePhase>();
+        List<DesktopUpdatePhase> shown = [];
 
         var state = await UpdateInstall.Run(
             installer,
@@ -551,7 +551,7 @@ public sealed class DesktopUpdateTests
     public async Task A_failed_installer_leaves_the_window_open_and_shows_the_problem()
     {
         using var package = await SignedPackage(nameof(A_failed_installer_leaves_the_window_open_and_shows_the_problem));
-        var events = new List<string>();
+        List<string> events = [];
         var installer = new RecordingInstaller(events, InstallUpdateFailureReason.CouldNotBuildInstallerCommand);
 
         var state = await UpdateInstall.Run(
@@ -598,7 +598,7 @@ public sealed class DesktopUpdateTests
         };
         using var package = await SignedPackage($"{nameof(A_package_that_fails_verification_never_reaches_the_installer)}{hostName}");
         await File.AppendAllTextAsync(package.Path, "changed", TestContext.Current.CancellationToken);
-        var events = new List<string>();
+        List<string> events = [];
 
         var state = await UpdateInstall.Run(
             new RecordingInstaller(events, null),
@@ -620,7 +620,7 @@ public sealed class DesktopUpdateTests
     public async Task Linux_keeps_the_verified_package_and_never_starts_an_installer()
     {
         using var package = await SignedPackage(nameof(Linux_keeps_the_verified_package_and_never_starts_an_installer));
-        var events = new List<string>();
+        List<string> events = [];
 
         var state = await UpdateInstall.Run(
             new RecordingInstaller(events, null),
@@ -641,7 +641,7 @@ public sealed class DesktopUpdateTests
     [Fact]
     public async Task A_failed_download_never_reaches_the_installer()
     {
-        var events = new List<string>();
+        List<string> events = [];
         var act = () => UpdateInstall.Run(
             new RecordingInstaller(events, null),
             () => throw new InvalidDataException("The download failed."),
