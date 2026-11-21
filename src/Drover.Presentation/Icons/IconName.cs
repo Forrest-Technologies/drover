@@ -18,6 +18,7 @@ public enum IconName
     Crew,
     Download,
     Edit,
+    Expand,
     ExternalLink,
     Info,
     Microphone,
