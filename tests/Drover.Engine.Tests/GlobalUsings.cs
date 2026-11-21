@@ -65,6 +65,7 @@ global using Drover.Engine.Files;
 global using Drover.Engine.Images;
 global using Drover.Engine.Memory;
 global using Drover.Engine.Models;
+global using Drover.Engine.Permissions;
 global using Drover.Engine.Policy;
 global using Drover.Engine.Projects;
 global using Drover.Engine.Push;

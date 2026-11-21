@@ -29,7 +29,6 @@ public sealed class AllowAllWindowMapping : IEntityTypeConfiguration<AllowAllWin
             .HasDatabaseName("ux_allow_all_windows_one_open");
 
         builder.WithinSpace<AllowAllWindow, Bot>(nameof(AllowAllWindow.BotId));
-        builder.ReferencesUser(nameof(AllowAllWindow.AudienceUserId));
     }
 
     #endregion

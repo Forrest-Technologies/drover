@@ -41,23 +41,12 @@ namespace Drover.Data.Migrations
                     table.CheckConstraint("ck_allow_all_windows_kind", "kind IN ('minutes_30', 'hour_1', 'until_done', 'until_off')");
                     table.CheckConstraint("ck_allow_all_windows_started_from", "started_from IN ('bot', 'approval')");
                     table.ForeignKey(
-                        name: "fk_allow_all_windows_asp_net_users_audience_user_id",
-                        column: x => x.audience_user_id,
-                        principalTable: "users",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
                         name: "fk_allow_all_windows_bots_space_id_bot_id",
                         columns: x => new { x.space_id, x.bot_id },
                         principalTable: "bots",
                         principalColumns: new[] { "space_id", "id" },
                         onDelete: ReferentialAction.Restrict);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_allow_all_windows_audience_user_id",
-                table: "allow_all_windows",
-                column: "audience_user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ux_allow_all_windows_one_open",

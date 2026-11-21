@@ -54,7 +54,13 @@ public sealed class AllowAllService(
             window.Id,
             null,
             null,
-            AuditLog.Snapshot(new { kind, window.EndsAt, started_from = source, window.ToolCallId }));
+            AuditLog.Snapshot(new
+            {
+                kind = AllowAllWindowKindNames.Of(kind),
+                window.EndsAt,
+                started_from = source,
+                window.ToolCallId,
+            }));
         logger.LogInformation(
             "Allow-all window {WindowId} opened for bot {BotId} by person {UserId} with kind {Kind}",
             window.Id,
@@ -82,8 +88,15 @@ public sealed class AllowAllService(
             AuditTargets.AllowAllWindow,
             window.Id,
             null,
-            AuditLog.Snapshot(new { ended_at = now, ended_reason = reason }),
-            AuditLog.Snapshot(new { window.Kind, window.BotId, audience_user_id = window.AudienceUserId }));
+            null,
+            AuditLog.Snapshot(new
+            {
+                ended_at = now,
+                ended_reason = reason,
+                kind = AllowAllWindowKindNames.Of(window.Kind),
+                window.BotId,
+                audience_user_id = window.AudienceUserId,
+            }));
         logger.LogInformation(
             "Allow-all window {WindowId} ended with reason {Reason}",
             window.Id,
@@ -98,7 +111,11 @@ public sealed class AllowAllService(
         return window is not null && End(window, reason, actorUserId);
     }
 
-    /// <summary>Ends every open window of a bot, when it is paused or removed.</summary>
+    /// <summary>
+    /// Ends the open windows of a bot that the caller can see, when it is paused or removed. Row-level security shows
+    /// a caller only their own audience, so each person's window is ended by a transaction running for that person;
+    /// a window no longer visible to its person is never approved at the gate.
+    /// </summary>
     public async Task EndForBot(Guid botId, AllowAllWindowEndReason reason, Guid actorUserId, CancellationToken cancellationToken)
     {
         foreach (var window in await windows.ListOpenForBot(botId, cancellationToken))
@@ -107,7 +124,10 @@ public sealed class AllowAllService(
         }
     }
 
-    /// <summary>Ends every open window addressed to a person, when they leave the space.</summary>
+    /// <summary>
+    /// Ends the open windows addressed to one person, when they leave. Called in the leaving person's scope, which
+    /// is the scope that can see those rows.
+    /// </summary>
     public async Task EndForAudience(Guid audienceUserId, AllowAllWindowEndReason reason, Guid actorUserId, CancellationToken cancellationToken)
     {
         foreach (var window in await windows.ListOpenForAudience(audienceUserId, cancellationToken))

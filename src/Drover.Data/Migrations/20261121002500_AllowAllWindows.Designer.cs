@@ -14,7 +14,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations
 {
     [DbContext(typeof(DroverDbContext))]
-    [Migration("20261121000949_AllowAllWindows")]
+    [Migration("20261121002500_AllowAllWindows")]
     partial class AllowAllWindows
     {
         /// <inheritdoc />
@@ -1174,9 +1174,6 @@ namespace Drover.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_allow_all_windows");
-
-                    b.HasIndex("AudienceUserId")
-                        .HasDatabaseName("ix_allow_all_windows_audience_user_id");
 
                     b.HasIndex("SpaceId", "BotId", "AudienceUserId")
                         .IsUnique()
@@ -3015,13 +3012,6 @@ namespace Drover.Data.Migrations
 
             modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
                 {
-                    b.HasOne("Drover.Data.Identity.User", null)
-                        .WithMany()
-                        .HasForeignKey("AudienceUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_allow_all_windows_asp_net_users_audience_user_id");
-
                     b.HasOne("Drover.Domain.Bots.Bot", null)
                         .WithMany()
                         .HasForeignKey("SpaceId", "BotId")
