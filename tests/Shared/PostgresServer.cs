@@ -11,10 +11,6 @@ public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
-    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
-
-    private string appPassword = null!;
-
     private readonly string privilegedPassword = NewPassword();
 
     private readonly string privilegedRole = $"drover_test_superuser_{Guid.NewGuid():N}";
@@ -24,9 +20,14 @@ public sealed class PostgresServer : IAsyncLifetime
     // Roles belong to the server, so two bootstraps at once race on them. Databases are made one at a time.
     private readonly SemaphoreSlim creating = new(1, 1);
 
+    private readonly PostgresLocator locator;
+
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
+
+    private string appPassword = null!;
+
     private PostgreSqlContainer? container;
 
-    private readonly PostgresLocator locator;
     private NpgsqlConnectionStringBuilder server = null!; // set first thing in InitializeAsync
 
     #endregion
@@ -34,14 +35,12 @@ public sealed class PostgresServer : IAsyncLifetime
     #region Constructors
 
     public PostgresServer() =>
-        locator = new(
-        () => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"),
-        async cancellationToken =>
-        {
-            container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-            await container.StartAsync(cancellationToken);
-            return container.GetConnectionString();
-        });
+        locator = PostgresLocator.Shared(async cancellationToken =>
+            {
+                container = new PostgreSqlBuilder("postgres:16-alpine").Build();
+                await container.StartAsync(cancellationToken);
+                return container.GetConnectionString();
+            });
 
     #endregion
 

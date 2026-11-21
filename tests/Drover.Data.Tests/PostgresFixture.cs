@@ -14,24 +14,18 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly string databaseName = $"drover_test_{Guid.NewGuid():N}";
 
-    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
-
-    private string appPassword = null!;
-
     private readonly Stopwatch elapsed = new();
 
     private readonly Lazy<Task<string>> scratchTemplate;
 
-    private PostgreSqlContainer? container;
-
-<<<<<<< HEAD
-=======
     private readonly PostgresLocator locator;
 
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
 
-    private PostgresRoleLease? roleLease;
+    private string appPassword = null!;
 
->>>>>>> 4c24c01e (fix: give browser and PostgreSQL test lookups one clear failure)
+    private PostgreSqlContainer? container;
+
     private string? scratchTemplateName;
 
     private NpgsqlConnectionStringBuilder serverConnection = null!; // set first thing in InitializeAsync
@@ -43,14 +37,12 @@ public sealed class PostgresFixture : IAsyncLifetime
     public PostgresFixture()
     {
         scratchTemplate = new Lazy<Task<string>>(BuildScratchTemplate);
-        locator = new(
-            () => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"),
-        async cancellationToken =>
-        {
-            container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-            await container.StartAsync(cancellationToken);
-            return container.GetConnectionString();
-        });
+        locator = PostgresLocator.Shared(async cancellationToken =>
+            {
+                container = new PostgreSqlBuilder("postgres:16-alpine").Build();
+                await container.StartAsync(cancellationToken);
+                return container.GetConnectionString();
+            });
     }
 
     #endregion
@@ -66,14 +58,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         elapsed.Start();
-<<<<<<< HEAD
-        serverConnection = [with(await FindServer())];
+        serverConnection = [with(await locator.Find(TestContext.Current.CancellationToken))];
         ownerPassword = TestRolePasswords.For(serverConnection, "drover_owner");
         appPassword = TestRolePasswords.For(serverConnection, "drover_app");
-=======
-        serverConnection = [with(await locator.Find(TestContext.Current.CancellationToken))];
-        roleLease = await PostgresRoleLease.Acquire(serverConnection.ConnectionString);
->>>>>>> 4c24c01e (fix: give browser and PostgreSQL test lookups one clear failure)
 
         await CreateDatabase();
         await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);

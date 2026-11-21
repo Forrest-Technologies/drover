@@ -47,22 +47,53 @@ public sealed class TestBrowserTests
         path.Should().Be(paths[1]);
     }
 
-    [Fact]
-    public void The_newest_downloaded_chromium_is_chosen()
+    [Theory]
+    [InlineData(TestBrowser.TestBrowserOS.Linux, "chromium-200/chrome-linux/chrome", "chromium-100/chrome-linux/chrome")]
+    [InlineData(TestBrowser.TestBrowserOS.MacOS, "chromium-200/chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chromium-100/chrome-mac/Chromium.app/Contents/MacOS/Chromium")]
+    [InlineData(TestBrowser.TestBrowserOS.Windows, "chromium-200/chrome-win/chrome.exe", "chromium-100/chrome-win/chrome.exe")]
+    public void The_newest_downloaded_chromium_is_chosen_for_each_system(
+        TestBrowser.TestBrowserOS system,
+        string newerRelative,
+        string olderRelative)
     {
         var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"drover-browsers-{Guid.NewGuid():N}");
-        var older = System.IO.Path.Combine(root, "chromium-100", "chrome-linux", "chrome");
-        var newer = System.IO.Path.Combine(root, "chromium-200", "chrome-linux", "chrome");
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(older)!);
+        var newer = System.IO.Path.Combine(root, newerRelative);
+        var older = System.IO.Path.Combine(root, olderRelative);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(newer)!);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(older)!);
 
         try
         {
             var path = TestBrowser.Path(
                 variable => variable is "PLAYWRIGHT_BROWSERS_PATH" ? root : null,
-                candidate => candidate == older || candidate == newer);
+                candidate => candidate == newer || candidate == older,
+                system);
 
             path.Should().Be(newer);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_four_digit_revision_beats_a_smaller_one()
+    {
+        var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"drover-browsers-{Guid.NewGuid():N}");
+        var newest = System.IO.Path.Combine(root, "chromium-1000/chrome-linux/chrome");
+        var older = System.IO.Path.Combine(root, "chromium-999/chrome-linux/chrome");
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(newest)!);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(older)!);
+
+        try
+        {
+            var path = TestBrowser.Path(
+                variable => variable is "PLAYWRIGHT_BROWSERS_PATH" ? root : null,
+                candidate => candidate == newest || candidate == older,
+                TestBrowser.TestBrowserOS.Linux);
+
+            path.Should().Be(newest);
         }
         finally
         {

@@ -3,15 +3,26 @@ namespace Drover.Tests.Common;
 /// <summary>
 /// Finds one PostgreSQL for a test assembly, and says in one sentence what went wrong when it cannot. Environment
 /// and the container start are parameters so the two messages and the once-only rule can be tested without Docker.
-/// A connection string never appears in either message: only its parsed host, port and user do.
+/// A connection string never appears in either message: only its parsed host, port and user do. The fixture locator
+/// sets <paramref name="shareInProcess"/> so every assembly fixture in one process shares the first result, whether
+/// it is a connection or a failure; tests use separate instances with their own state.
 /// </summary>
 public sealed class PostgresLocator(
     Func<string?> environment,
-    Func<CancellationToken, Task<string>>? startContainer = null)
+    Func<CancellationToken, Task<string>> startContainer,
+    bool shareInProcess = false)
 {
     #region Private Fields
 
-    private readonly Func<CancellationToken, Task<string>> start = startContainer ?? StartContainer;
+    private static readonly object sharedGate = new();
+
+    private static TestEnvironmentException? sharedFailure;
+
+    private static string? sharedConnection;
+
+    private readonly Func<CancellationToken, Task<string>> start = startContainer;
+
+    private readonly bool share = shareInProcess;
 
     private TestEnvironmentException? failure;
 
@@ -20,6 +31,10 @@ public sealed class PostgresLocator(
     #endregion
 
     #region Public Methods
+
+    /// <summary>The locator the assembly fixtures use: one result for the whole process.</summary>
+    public static PostgresLocator Shared(Func<CancellationToken, Task<string>> start) =>
+        new(() => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"), start, shareInProcess: true);
 
     public async Task<string> Find(CancellationToken cancellationToken)
     {
@@ -33,14 +48,51 @@ public sealed class PostgresLocator(
             return connectionString;
         }
 
+        if (share)
+        {
+            lock (sharedGate)
+            {
+                if (sharedFailure is not null)
+                {
+                    failure = sharedFailure;
+                    throw sharedFailure;
+                }
+
+                if (sharedConnection is not null)
+                {
+                    connectionString = sharedConnection;
+                    return sharedConnection;
+                }
+            }
+        }
+
         try
         {
-            connectionString = await FindNow(cancellationToken);
-            return connectionString;
+            var found = await FindNow(cancellationToken);
+            connectionString = found;
+
+            if (share)
+            {
+                lock (sharedGate)
+                {
+                    sharedConnection ??= found;
+                }
+            }
+
+            return found;
         }
         catch (TestEnvironmentException found)
         {
             failure = found;
+
+            if (share)
+            {
+                lock (sharedGate)
+                {
+                    sharedFailure ??= found;
+                }
+            }
+
             throw;
         }
     }
@@ -103,13 +155,6 @@ public sealed class PostgresLocator(
                 """,
                 failed);
         }
-    }
-
-    private static async Task<string> StartContainer(CancellationToken cancellationToken)
-    {
-        var container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-        await container.StartAsync(cancellationToken);
-        return container.GetConnectionString();
     }
 
     #endregion

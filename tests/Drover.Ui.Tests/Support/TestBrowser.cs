@@ -12,7 +12,10 @@ public static class TestBrowser
     public static string Path() => Path(Environment.GetEnvironmentVariable, File.Exists);
 
     /// <summary>The same lookup with injectable inputs. <paramref name="exists"/> sees paths, not URLs.</summary>
-    public static string Path(Func<string, string?> environment, Func<string, bool> exists)
+    public static string Path(Func<string, string?> environment, Func<string, bool> exists) =>
+        Path(environment, exists, CurrentSystem());
+
+    internal static string Path(Func<string, string?> environment, Func<string, bool> exists, TestBrowserOS system)
     {
         string[] variables = [ChosenVariable, PlaywrightVariable];
 
@@ -26,7 +29,7 @@ public static class TestBrowser
             }
         }
 
-        List<string> tried = [.. FixedPaths()];
+        List<string> tried = [.. FixedPaths(system)];
 
         foreach (var path in tried)
         {
@@ -36,7 +39,7 @@ public static class TestBrowser
             }
         }
 
-        var downloaded = Downloaded(environment, exists);
+        var downloaded = Downloaded(environment, exists, system);
 
         if (downloaded is not null)
         {
@@ -55,9 +58,11 @@ public static class TestBrowser
     }
 
     /// <summary>The fixed paths for this system, in lookup order. Also used by the error message.</summary>
-    public static List<string> FixedPaths()
+    public static List<string> FixedPaths() => FixedPaths(CurrentSystem());
+
+    internal static List<string> FixedPaths(TestBrowserOS system)
     {
-        if (OperatingSystem.IsMacOS())
+        if (system is TestBrowserOS.MacOS)
         {
             List<string> mac = [];
             string[] homes = ["/Applications", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)];
@@ -75,7 +80,7 @@ public static class TestBrowser
             return mac;
         }
 
-        if (OperatingSystem.IsWindows())
+        if (system is TestBrowserOS.Windows)
         {
             List<string> windows = [];
 
@@ -95,6 +100,11 @@ public static class TestBrowser
 
     #region Private Methods
 
+    private static TestBrowserOS CurrentSystem() =>
+        OperatingSystem.IsMacOS() ? TestBrowserOS.MacOS
+            : OperatingSystem.IsWindows() ? TestBrowserOS.Windows
+            : TestBrowserOS.Linux;
+
     private static List<string> Roots() =>
     [
         Environment.GetEnvironmentVariable("ProgramFiles") ?? string.Empty,
@@ -102,23 +112,56 @@ public static class TestBrowser
         Environment.GetEnvironmentVariable("LocalAppData") ?? string.Empty,
     ];
 
-    private static string? Downloaded(Func<string, string?> environment, Func<string, bool> exists)
+    private static string DefaultDownloadRoot(TestBrowserOS system) =>
+        system switch
+        {
+            TestBrowserOS.MacOS => System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/Caches/ms-playwright"),
+            TestBrowserOS.Windows => System.IO.Path.Combine(
+                Environment.GetEnvironmentVariable("LocalAppData") ?? string.Empty, "ms-playwright"),
+            _ => System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache/ms-playwright"),
+        };
+
+    private static string[] ExecutablePaths(TestBrowserOS system) =>
+        system switch
+        {
+            TestBrowserOS.MacOS =>
+            [
+                "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+                "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+                "chrome-mac-64/Chromium.app/Contents/MacOS/Chromium",
+            ],
+            TestBrowserOS.Windows => ["chrome-win/chrome.exe", "chrome-win64/chrome.exe"],
+            _ => ["chrome-linux/chrome", "chrome-linux64/chrome"],
+        };
+
+    private static int Revision(string folder)
+    {
+        var name = System.IO.Path.GetFileName(folder);
+        var digits = name.StartsWith("chromium-", StringComparison.Ordinal) ? name["chromium-".Length..] : string.Empty;
+        return int.TryParse(digits, out var number) ? number : -1;
+    }
+
+    private static string? Downloaded(Func<string, string?> environment, Func<string, bool> exists, TestBrowserOS system)
     {
         var root = environment("PLAYWRIGHT_BROWSERS_PATH");
 
         if (string.IsNullOrWhiteSpace(root))
         {
-            root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "ms-playwright");
+            root = DefaultDownloadRoot(system);
         }
 
-        if (!Directory.Exists(root))
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
         {
             return null;
         }
 
+        var candidates = ExecutablePaths(system);
+
         return Directory.GetDirectories(root, "chromium-*")
-            .OrderByDescending(directory => directory, StringComparer.Ordinal)
-            .Select(directory => System.IO.Path.Combine(directory, "chrome-linux", "chrome"))
+            .OrderByDescending(Revision)
+            .SelectMany(folder => candidates.Select(relative => System.IO.Path.Combine(folder, relative)))
             .Where(exists)
             .FirstOrDefault();
     }
@@ -130,6 +173,18 @@ public static class TestBrowser
     private const string ChosenVariable = "DROVER_TEST_CHROMIUM";
 
     private const string PlaywrightVariable = "PLAYWRIGHT_CHROMIUM_EXECUTABLE";
+
+    #endregion
+
+    #region Nested Types
+
+    /// <summary>Which system layout a test is checking. The shipped lookup derives this from the runtime.</summary>
+    public enum TestBrowserOS
+    {
+        Linux,
+        MacOS,
+        Windows,
+    }
 
     #endregion
 }
