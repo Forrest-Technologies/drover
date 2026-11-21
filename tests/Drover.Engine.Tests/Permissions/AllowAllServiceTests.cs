@@ -125,9 +125,10 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
 
         var decisions = await Task.WhenAll(first, second);
 
-        decisions.Should().Equal(true, false);
+        decisions.Order().Should().Equal(false, true);
+        var winner = decisions[0] ? AllowAllWindowEndReason.BotPaused : AllowAllWindowEndReason.BotRemoved;
         var stored = await Read(world.UserId, window.Id);
-        stored.EndedReason.Should().Be(AllowAllWindowEndReason.BotPaused);
+        stored.EndedReason.Should().Be(winner);
         (await Audit(world.UserId)).Should().ContainSingle(entry => entry.Action == AllowAllService.EndedAction);
     }
 

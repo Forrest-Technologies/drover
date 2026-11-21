@@ -1,8 +1,10 @@
 namespace Drover.Data.Repositories;
 
 /// <summary>
-/// Allow-all windows in the caller's tenant scope. The caller owns the scope and commits it; this class only reads
-/// and tracks rows. The audience policy keeps one person's windows invisible to another run's principal.
+/// Allow-all windows in the caller's tenant scope. The caller owns the scope and commits it. Reads track rows, while
+/// <see cref="TryEnd"/> writes outside the change tracker, so an entity loaded earlier in the same scope can still
+/// look open after its row was ended. The audience policy keeps one person's windows invisible to another run's
+/// principal.
 /// </summary>
 public sealed class AllowAllWindowRepository(DroverDbContext db)
 {
@@ -54,12 +56,6 @@ public sealed class AllowAllWindowRepository(DroverDbContext db)
     /// <summary>A window by id, open or ended, for the audit facts written after <see cref="TryEnd"/>.</summary>
     public Task<AllowAllWindow?> Find(Guid id, CancellationToken cancellationToken) =>
         db.AllowAllWindows.AsNoTracking().SingleOrDefaultAsync(window => window.Id == id, cancellationToken);
-
-    /// <summary>An open window by id, locked for the caller that ends it.</summary>
-    public async Task<AllowAllWindow?> FindOpenById(Guid id, CancellationToken cancellationToken) =>
-        (await db.AllowAllWindows.FromSql(
-            $"SELECT * FROM allow_all_windows WHERE id = {id} AND ended_at IS NULL FOR UPDATE")
-            .ToListAsync(cancellationToken)).SingleOrDefault();
 
     /// <summary>Every open window of a bot, in id order so two callers cannot lock them in different orders.</summary>
     public Task<List<AllowAllWindow>> ListOpenForBot(Guid botId, CancellationToken cancellationToken) =>
