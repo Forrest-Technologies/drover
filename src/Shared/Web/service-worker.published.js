@@ -17,7 +17,9 @@ const shellPrefix = path => path === "/" ? "drover-shell-" : `drover-shell${path
 const cacheNamePrefix = shellPrefix(scope);
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
 const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/, /\.css$/, /\.woff2$/, /\.ttf$/, /\.manifest$/, /\.png$/, /\.svg$/, /\.webmanifest$/, /\.dat$/, /\.blat$/];
-const neverCached = [/^service-worker\.js$/];
+// The color emoji font is large and nothing draws it yet. It ships with the build but is fetched only when a glyph
+// needs it, so a first visit does not pay for it. The UI fonts stay in the shell.
+const neverCached = [/^service-worker\.js$/, /NotoColorEmoji-Regular\.ttf$/];
 const serverPaths = ["/api/", "/health/", "/openapi/", "/oauth/"];
 
 // A new build takes over as soon as its shell is stored, without waiting for every open tab to close: a person
