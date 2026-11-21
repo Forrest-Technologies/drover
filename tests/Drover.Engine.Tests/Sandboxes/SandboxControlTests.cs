@@ -254,7 +254,9 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         var provider = new FakeSandboxProvider();
         await using var world = await ControlWorld(provider);
         await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
-        var retirement = DateTimeOffset.UtcNow.AddDays(3);
+        var due = DateTimeOffset.UtcNow.AddDays(3);
+        // PostgreSQL keeps microseconds, not the full tick precision of DateTimeOffset.
+        var retirement = new DateTimeOffset(due.Ticks - due.Ticks % 10, TimeSpan.Zero);
 
         var paused = await PauseAfterRetiring(provider, world, () =>
             world.Transact(services => services.GetRequiredService<SandboxRepository>().RetireLiveForOwner(world.BotId, retirement, RunWorld.Token)));
@@ -274,7 +276,9 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         var provider = new FakeSandboxProvider();
         await using var world = await ControlWorld(provider);
         await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
-        var retirement = DateTimeOffset.UtcNow.AddDays(3);
+        var due = DateTimeOffset.UtcNow.AddDays(3);
+        // PostgreSQL keeps microseconds, not the full tick precision of DateTimeOffset.
+        var retirement = new DateTimeOffset(due.Ticks - due.Ticks % 10, TimeSpan.Zero);
 
         var paused = await PauseAfterRetiring(provider, world, () =>
             world.Transact(services => services.GetRequiredService<SandboxRepository>().RetireLive(retirement, RunWorld.Token)));
