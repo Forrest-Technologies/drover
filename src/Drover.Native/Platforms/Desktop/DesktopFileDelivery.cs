@@ -33,7 +33,7 @@ internal sealed class DesktopFileDelivery(DroverApi api, ILogger<DesktopFileDeli
         }
         catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or UnauthorizedAccessException)
         {
-            throw new IOException("The system's save dialog could not be opened.", exception);
+            throw new FileDeliveryException("The system’s save dialog could not be opened.", exception);
         }
 
         if (destination is null)
@@ -64,14 +64,14 @@ internal sealed class DesktopFileDelivery(DroverApi api, ILogger<DesktopFileDeli
         {
             if (!await Launcher.LaunchUriAsync(new Uri(folder.FullName)))
             {
-                throw new IOException("The folder with the file could not be opened.");
+                throw new FileDeliveryException("The folder with the file could not be opened.");
             }
         }
         catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or UnauthorizedAccessException
             or System.ComponentModel.Win32Exception)
         {
             logger.LogWarning(exception, "The system could not open the folder of a conversation file");
-            throw new IOException("The folder with the file could not be opened.", exception);
+            throw new FileDeliveryException("The folder with the file could not be opened.", exception);
         }
     }
 

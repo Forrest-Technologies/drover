@@ -61,6 +61,7 @@ public static class EngineServiceExtensions
         services.AddScoped<AuditLog>();
         services.AddScoped<AllowAllService>();
         services.AddScoped<BotService>();
+        services.AddScoped<ModelFallbackService>();
         services.AddScoped<ExtensionService>();
         services.AddScoped<ExtensionConnector>();
         services.AddScoped<GrantService>();

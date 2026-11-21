@@ -14,12 +14,14 @@
                 AutomationProperties.AutomationId="SignInEmail"
                 Label="Email"
                 Type="email"
+                Autofill="username"
                 Value="{x:Bind Model.Email, Mode=TwoWay}"
                 Disabled="{x:Bind Model.Busy, Mode=OneWay}"
                 Submitted="Submit" />
       <dv:Field AutomationProperties.AutomationId="SignInPassword"
                 Label="Password"
                 Type="password"
+                Autofill="current-password"
                 Value="{x:Bind Model.Password, Mode=TwoWay}"
                 Disabled="{x:Bind Model.Busy, Mode=OneWay}"
                 Submitted="Submit" />

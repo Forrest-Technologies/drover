@@ -29,6 +29,7 @@ global using System.Threading.Tasks;
 global using AngleSharp.Dom;
 global using AngleSharp.Html.Parser;
 global using Cronos;
+global using Drover.Contracts;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;
 global using Drover.Contracts.Files;

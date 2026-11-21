@@ -77,7 +77,7 @@ internal sealed class AndroidPushMessages(DroverApi api, AndroidPushRegistration
 
         if (await registration.BelongsTo(user, token))
         {
-            AndroidNotifications.ShowReplyResult(bot, thread, intent.GetBooleanExtra("main", true), body);
+            AndroidNotifications.ShowReplyResult(bot, thread, intent.GetBooleanExtra("main", true), body, user, token, space);
         }
     }
 

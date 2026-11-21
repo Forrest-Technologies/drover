@@ -78,11 +78,11 @@ public sealed class ToolConnectionService(
 {
     #region Private Fields
 
-    public const int MaxNameLength = 200;
+    public const int MaxNameLength = FieldLimits.ToolServerName;
 
     public const int MaxUrlLength = 2048;
 
-    public const int MaxHeaderNameLength = 100;
+    public const int MaxHeaderNameLength = FieldLimits.HeaderName;
 
     public const int MaxHeaderValueLength = 4096;
 

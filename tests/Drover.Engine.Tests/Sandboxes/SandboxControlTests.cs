@@ -267,18 +267,54 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task Screens_asked_for_at_the_same_time_share_one_screenshot()
+    public async Task Screens_asked_for_while_one_is_being_taken_share_it()
     {
-        var provider = DesktopProvider(TimeSpan.FromMilliseconds(300));
+        const int Requests = 5;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = DesktopProvider(async cancellationToken => await release.Task.WaitAsync(cancellationToken));
         await using var world = await ControlWorld(provider, desktop: true);
         var control = Control(world);
-        await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
-        provider.Commands.Clear();
+        var joined = 0;
+        var allJoined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        control.ScreenRequested = () =>
+        {
+            if (Interlocked.Increment(ref joined) == Requests)
+            {
+                allJoined.TrySetResult();
+            }
+        };
 
-        var shots = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)));
+        // All five go through the public entry point, which builds the key and the caller itself. The provider holds
+        // the one screenshot until every request has joined it, so none can arrive after it is done and start another.
+        var requests = Enumerable.Range(0, Requests)
+            .Select(_ => control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token))
+            .ToArray();
+        try
+        {
+            await allJoined.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
 
-        shots.Should().OnlyContain(shot => shot.Value != null && shot.Value.Png.SequenceEqual(png));
-        provider.Commands.Count(command => command.Program == "scrot").Should().Be(1);
+        var shots = await Task.WhenAll(requests);
+
+        shots.Should().OnlyContain(shot => shot.Refusal == SandboxControlRefusal.None && shot.Value!.Png.SequenceEqual(png));
+        provider.Commands.Count(command => command.Program == "scrot").Should().Be(1, "five requests that met share one screenshot");
+    }
+
+    [Fact]
+    public async Task A_screen_asked_for_after_the_shared_one_is_done_takes_a_new_one()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+
+        provider.Commands.Count(command => command.Program == "scrot").Should().Be(2, "nothing is kept to share once a screenshot is done");
     }
 
     [Fact]
@@ -642,26 +678,30 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     /// <summary>
     /// A provider whose sandbox behaves like a desktop: the display check passes, scrot writes a PNG to the path it is
-    /// given after <paramref name="delay"/>, rm removes it, and xdotool does what it is told.
+    /// given once <paramref name="shooting"/> lets it, rm removes it, and xdotool does what it is told.
     /// </summary>
-    private static FakeSandboxProvider DesktopProvider(TimeSpan? delay = null)
+    private static FakeSandboxProvider DesktopProvider(Func<CancellationToken, Task>? shooting = null)
     {
         var provider = new FakeSandboxProvider();
-        provider.Behaviour = (command, token, cancellationToken) => Desktop(provider.WithToken(token), command, delay ?? TimeSpan.Zero, cancellationToken);
+        provider.Behaviour = (command, token, cancellationToken) => Desktop(provider.WithToken(token), command, shooting, cancellationToken);
         return provider;
     }
 
     private static async IAsyncEnumerable<CommandOutput> Desktop(
         FakeSandboxProvider.FakeSandbox sandbox,
         CommandRequest command,
-        TimeSpan delay,
+        Func<CancellationToken, Task>? shooting,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.Yield();
 
         if (command.Program == "scrot")
         {
-            await Task.Delay(delay, cancellationToken);
+            if (shooting is not null)
+            {
+                await shooting(cancellationToken);
+            }
+
             sandbox.Files[command.Arguments[^1]] = png;
         }
         else if (command.Program == "rm")

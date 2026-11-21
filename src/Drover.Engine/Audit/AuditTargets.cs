@@ -15,5 +15,7 @@ public static class AuditTargets
 
     public const string AllowAllWindow = "allow_all_window";
 
+    public const string Space = "space";
+
     #endregion
 }

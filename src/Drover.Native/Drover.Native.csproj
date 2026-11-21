@@ -64,6 +64,16 @@
     <Compile Remove="Controls/TimelineFocusCheck.cs" />
   </ItemGroup>
 
+  <!-- The field input check runs only in a build made for CI, never in a shipping app. -->
+  <PropertyGroup Condition="'$(DroverFieldCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_FIELD_CHECK</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DroverFieldCheck)' != 'true'">
+    <Compile Remove="Controls/FieldInputCheck.cs" />
+    <Compile Remove="Platform/NativeStop.cs" />
+  </ItemGroup>
+
   <!-- The operating system's credential store on a desktop (Keychain, Secret Service, or a file only the Windows
        user can decrypt), through Microsoft's maintained wrapper of the three. Used only by
        Platforms/Desktop/SystemSecrets.cs. -->
@@ -121,6 +131,7 @@
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/NoEval.js" />
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Files.js" />
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Accessibility.js" />
+    <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Fields.js" />
     <Compile Include="../Shared/Transport/AntiforgeryHandler.cs" Link="Transport/AntiforgeryHandler.cs" />
   </ItemGroup>
 

@@ -1,7 +1,7 @@
 @* The form that adds a tool server. Secrets typed here are sent once and never shown again. *@
 <form class="dv-connect dv-facet" @onsubmit="() => OnAdd.InvokeAsync(draft)" aria-labelledby="@headingId">
     <h2 class="dv-connect-title" id="@headingId">Add a tool server</h2>
-    <Field Label="Name" @bind-Value="draft.Name" autocomplete="off" maxlength="200" Disabled="Busy" Hint="What you call it, such as Calendar." />
+    <Field Label="Name" @bind-Value="draft.Name" autocomplete="off" maxlength="@FieldLimits.ToolServerName" Disabled="Busy" Hint="What you call it, such as Calendar." />
     <Field Label="Address" @bind-Value="draft.Url" Type="url" autocomplete="off" spellcheck="false" Disabled="Busy"
            Placeholder="https://" Hint="The address of the server's MCP endpoint." />
 

@@ -70,6 +70,12 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
 
     public bool Exporting { get; private set; }
 
+    /// <summary>
+    /// Said to assistive technology while a file is being saved or shared. The pressed button stays enabled, so
+    /// keyboard and screen reader focus stay on it, and a second press does nothing.
+    /// </summary>
+    public string? ExportingWords => Exporting ? "Working" : null;
+
     /// <summary>How saving or sharing ended, as a sentence.</summary>
     public string? ExportStatus { get; private set; }
 
@@ -121,7 +127,8 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
         {
             logger.LogWarning(exception, "A conversation file could not be handed to the device");
             ExportFailed = true;
-            ExportStatus = save ? $"Could not save {File.Name}." : $"Could not share {File.Name}.";
+            var failure = save ? $"Could not save {File.Name}." : $"Could not share {File.Name}.";
+            ExportStatus = ReasonFor(exception) is { } reason ? $"{failure} {reason}" : failure;
         }
         finally
         {
@@ -129,6 +136,14 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
             Changed();
         }
     }
+
+    /// <summary>What a person can do about a failed export, where it is known: the platform's own sentence, or the server's.</summary>
+    private static string? ReasonFor(Exception exception) => exception switch
+    {
+        FileDeliveryException delivery => delivery.Reason,
+        _ when Failures.IsReportable(exception) => Failures.Sentence(exception),
+        _ => null,
+    };
 
     // The button stays focusable while it reads, so focus is not lost; a second press meanwhile does nothing.
     public async Task ShowAll()

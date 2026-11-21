@@ -1,17 +1,25 @@
 namespace Drover.Native.Droid;
 
-/// <summary>An address editor whose text, selection, and composing region are owned by Android.</summary>
-internal sealed class AndroidAddressEditor : UserControl
+/// <summary>
+/// A one-line editor whose text, selection, and composing region are owned by Android. Addresses use it so input
+/// methods compose them as Android does; a user name or password uses it so the system's autofill service sees a
+/// real field with its hint, which a field drawn by the app cannot give it.
+/// </summary>
+internal sealed class AndroidTextEditor : UserControl
 {
     #region Constructors
 
-    public AndroidAddressEditor()
+    public AndroidTextEditor(Android.Text.InputTypes inputType, string? autofillHint = null)
     {
         var editor = new Android.Widget.EditText(Uno.UI.ContextHelper.Current ?? AndroidApplication.Context);
         editor.SetSingleLine();
-        editor.InputType = Android.Text.InputTypes.ClassText
-            | Android.Text.InputTypes.TextVariationUri
-            | Android.Text.InputTypes.TextFlagNoSuggestions;
+        editor.InputType = inputType;
+        if (autofillHint is not null && OperatingSystem.IsAndroidVersionAtLeast(26))
+        {
+            editor.SetAutofillHints(autofillHint);
+            editor.ImportantForAutofill = Android.Views.ImportantForAutofill.Yes;
+        }
+
         editor.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
         editor.SetBackgroundColor(Android.Graphics.Color.Transparent);
         editor.SetTextSize(Android.Util.ComplexUnitType.Sp, (float)Tokens.Number("DvText14"));
@@ -65,9 +73,10 @@ internal sealed class AndroidAddressEditor : UserControl
 
     #region Public Methods
 
-    public void Describe(string label, bool enabled, Color color)
+    public void Describe(string label, bool enabled, Color color, int maxLength)
     {
         Editor.ContentDescription = label;
+        Editor.SetFilters(maxLength > 0 ? [new Android.Text.InputFilterLengthFilter(maxLength)] : []);
         Editor.Enabled = enabled;
         IsEnabled = enabled;
         Editor.SetTextColor(new Android.Graphics.Color(color.R, color.G, color.B, color.A));
