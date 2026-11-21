@@ -34,6 +34,7 @@ global using Drover.Contracts.Tools;
 global using Drover.Native.Checks;
 global using Drover.Native.Platform;
 global using Drover.Native.UITests;
+global using Drover.Presentation.Code;
 global using Drover.Presentation.Diagnostics;
 global using Drover.Presentation.Drawing;
 global using Drover.Presentation.Platform;

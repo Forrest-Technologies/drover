@@ -37,6 +37,7 @@ global using Drover.Native.Platform;
 global using Drover.Native.Session;
 global using Drover.Native.Shell;
 global using Drover.Native.Theme;
+global using Drover.Presentation.Code;
 global using Drover.Presentation.Diagnostics;
 global using Drover.Presentation.Drawing;
 global using Drover.Presentation.Platform;
