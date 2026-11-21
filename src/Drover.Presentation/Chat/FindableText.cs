@@ -16,22 +16,25 @@ public sealed class FindableText
 {
     #region Private Fields
 
-    private readonly Dictionary<(string Key, int Signature), IReadOnlyList<FindSegment>> cache = [];
+    private readonly Dictionary<string, (int Signature, IReadOnlyList<FindSegment> Segments)> cache = [];
 
     #endregion
 
     #region Public Methods
 
+    public int Count => cache.Count;
+
     public IReadOnlyList<FindSegment> Of(ChatMessage message)
     {
-        var key = (message.Key, Signature(message));
+        var signature = Signature(message);
 
-        if (!cache.TryGetValue(key, out var segments))
+        if (cache.TryGetValue(message.Key, out var stored) && stored.Signature == signature)
         {
-            segments = Segments(message);
-            cache[key] = segments;
+            return stored.Segments;
         }
 
+        var segments = Segments(message);
+        cache[message.Key] = (signature, segments);
         return segments;
     }
 

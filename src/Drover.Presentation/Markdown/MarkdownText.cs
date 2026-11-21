@@ -195,21 +195,24 @@ public static class MarkdownText
 
         List<MarkdownSpan> spans = [];
 
-        foreach (var row in rows)
+        foreach (var (row, rowIndex) in rows.Select((row, index) => (row, index)))
         {
+            if (rowIndex > 0)
+            {
+                spans.Add(new("\n", new()));
+            }
+
             var cells = row.Children.OfType<ElementNode>().Where(cell => cell.Name is "th" or "td").ToList();
 
-            foreach (var cell in cells)
+            foreach (var (cell, cellIndex) in cells.Select((cell, index) => (cell, index)))
             {
-                if (spans.Count > 0)
+                if (cellIndex > 0)
                 {
                     spans.Add(new("\t", new()));
                 }
 
                 spans.AddRange(Spans(cell.Children, new()));
             }
-
-            spans.Add(new("\n", new()));
         }
 
         return spans;

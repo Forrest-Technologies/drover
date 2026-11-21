@@ -130,13 +130,20 @@ public sealed class FindableTextTests
     }
 
     [Fact]
-    public void The_instance_cache_is_bounded_and_can_be_cleared()
+    public void The_cache_keeps_one_entry_per_message_and_can_be_cleared()
     {
         var findable = new FindableText();
 
-        findable.Of(new ChatMessage("m", true, "one")).Should().NotBeEmpty();
+        foreach (var length in Enumerable.Range(1, 20))
+        {
+            findable.Of(new ChatMessage("m", true, new string('a', length)));
+            findable.Of(new ChatMessage("other", true, "fixed"));
+            findable.Count.Should().Be(2, "each streamed state replaces the earlier entry for its message");
+        }
+
+        findable.Of(new ChatMessage("m", true, "latest")).Single().Text.Should().Be("latest");
         findable.Clear();
-        findable.Of(new ChatMessage("m", true, "two")).Should().ContainSingle().Which.Text.Should().Be("two");
+        findable.Count.Should().Be(0);
     }
 
     #endregion

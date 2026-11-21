@@ -58,6 +58,14 @@ public sealed class TextFinder
         while (index < all.Count)
         {
             var text = all[index].Text;
+
+            if (offset >= text.Length)
+            {
+                index++;
+                offset = 0;
+                continue;
+            }
+
             var end = Math.Min(text.Length, offset + (budget - CharactersExamined));
 
             if (end <= offset)
@@ -97,7 +105,10 @@ public sealed class TextFinder
 
             if (end < text.Length)
             {
-                return new(matches, false, new(index - 1, end));
+                // A query that began just before the cut can finish after it. Resume early enough to see it;
+                // matches wholly before the cut were already reported and are not revisited.
+                var resume = Math.Max(0, end - (query.Length - 1));
+                return new(matches, false, new(index - 1, resume));
             }
 
             offset = 0;
@@ -116,7 +127,12 @@ public sealed class TextFinder
 
     private static bool IsWordCharacter(string text, int index)
     {
-        var start = char.IsLowSurrogate(text[index]) ? index - 1 : index;
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var start = char.IsLowSurrogate(text[index]) && index > 0 ? index - 1 : index;
         var status = Rune.DecodeFromUtf16(text.AsSpan(start), out var rune, out _);
 
         return status == OperationStatus.Done

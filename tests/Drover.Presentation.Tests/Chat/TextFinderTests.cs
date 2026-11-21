@@ -100,6 +100,37 @@ public sealed class TextFinderTests
     }
 
     [Fact]
+    public void Slices_find_a_sparse_match_that_straddles_the_cut_and_skip_empty_segments()
+    {
+        var text = $"{new string('x', 98)}words{new string('x', 40)}";
+        FindSegment[] segments =
+        [
+            new("empty", new FindPart("Said"), string.Empty),
+            new("m", new FindPart("Markdown"), text),
+        ];
+        var finder = new TextFinder();
+        var all = finder.Find("words", segments).Matches;
+        List<FindMatch> sliced = [];
+        FindCursor? cursor = null;
+
+        while (true)
+        {
+            var result = finder.Find("words", segments, default, budget: 100, start: cursor);
+            sliced.AddRange(result.Matches);
+
+            if (result.Finished)
+            {
+                break;
+            }
+
+            cursor = result.Next;
+        }
+
+        all.Should().ContainSingle(match => match.Start == 98);
+        sliced.Should().Equal(all);
+    }
+
+    [Fact]
     public void A_small_budget_stops_the_search_early_and_says_so()
     {
         var text = string.Concat(Enumerable.Repeat("words ", 1000));

@@ -57,7 +57,22 @@ public sealed class MarkdownTextTests
 
         var block = MarkdownText.Blocks(MarkdownDocument.Parse(text)).Should().ContainSingle().Subject;
 
-        block.Text.Should().Be("A\tB\n\t1\t\n");
+        block.Text.Should().Be("A\tB\n1\t");
+    }
+
+    [Fact]
+    public void Table_rows_join_cells_and_rows_consistently()
+    {
+        var text = """
+            | A | B |
+            | --- | --- |
+            | 1 |  |
+            | 3 | 4 |
+            """;
+
+        var block = MarkdownText.Blocks(MarkdownDocument.Parse(text)).Should().ContainSingle().Subject;
+
+        block.Text.Should().Be("A\tB\n1\t\n3\t4");
     }
 
     [Fact]
