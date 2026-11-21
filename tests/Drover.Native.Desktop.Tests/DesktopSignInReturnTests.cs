@@ -142,7 +142,7 @@ public sealed class DesktopSignInReturnTests
     }
 
     private static string NothingArrived(Exception failure) =>
-        failure is OperationCanceledException or IOException or SocketException ? string.Empty : throw failure;
+        failure is OperationCanceledException or IOException ? string.Empty : throw failure;
 
     /// <summary>
     /// A connection past the limit is refused without its request being read, so closing it can send a reset instead
@@ -154,13 +154,10 @@ public sealed class DesktopSignInReturnTests
         {
             return await Visit(listener, path);
         }
-        catch (IOException failure) when (failure.InnerException is SocketException)
+        catch (IOException failure) when
+            (failure.InnerException is SocketException { SocketErrorCode: SocketError.ConnectionReset })
         {
             return NothingArrived(failure);
-        }
-        catch (SocketException refusal)
-        {
-            return NothingArrived(refusal);
         }
     }
 
