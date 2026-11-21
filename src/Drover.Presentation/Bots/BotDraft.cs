@@ -6,11 +6,36 @@ namespace Drover.Ui.Bots;
 /// </summary>
 public sealed class BotDraft
 {
+    #region Private Fields
+
+    private string handle = string.Empty;
+
+    #endregion
+
     #region Properties
 
     public string Name { get; set; } = string.Empty;
 
-    public string Handle { get; set; } = string.Empty;
+    /// <summary>
+    /// The bot's handle. Setting it is a choice: it is how a person types one, so the handle stops following the name.
+    /// The editor sets the handle a name makes through <see cref="Rename"/>, which is not a choice.
+    /// </summary>
+    public string Handle
+    {
+        get => handle;
+        set
+        {
+            handle = value;
+            HandleChosen = true;
+        }
+    }
+
+    /// <summary>
+    /// True when a person set the handle, here or in an earlier session (the server stores it), so a rename never changes
+    /// it, whatever it is spelled like. False for a handle the name made, and for a bot from before this was stored,
+    /// where the spelling is all there is to go on.
+    /// </summary>
+    public bool HandleChosen { get; set; }
 
     public BotAvatarBody Avatar { get; set; } = new(null, null);
 
@@ -88,6 +113,7 @@ public sealed class BotDraft
     {
         Name = bot.Name,
         Handle = bot.Handle,
+        HandleChosen = bot.HandleChosen,
         Avatar = bot.Avatar,
         DescriptionForBots = bot.DescriptionForBots,
         Instructions = bot.Instructions,
@@ -119,23 +145,19 @@ public sealed class BotDraft
     };
 
     /// <summary>
-    /// Sets the name. While the handle is still the one made from the old name, it follows the new one, so a bot
-    /// that is renamed before anyone has chosen its handle is not left answering to the old name.
+    /// Sets the name. While the handle is still one the old name made, with or without the number the server adds to
+    /// keep it unique, it follows the new name, so a bot that is renamed before anyone has chosen its handle is not
+    /// left answering to the old name. A handle a person typed never follows. The server keeps a followed handle unique.
     /// </summary>
     public void Rename(string name)
     {
-        if (Handle == Slug(Name) && Slug(name) is { Length: > 0 } follows)
+        if (!HandleChosen && BotHandles.Follows(Handle, Name) && BotHandles.Slug(name).Length > 0)
         {
-            Handle = follows;
+            handle = BotHandles.Stem(name);
         }
 
         Name = name;
     }
-
-    /// <summary>A name as a handle: lower-case letters and digits, with a hyphen for each run of anything else.</summary>
-    public static string Slug(string name) =>
-        string.Join('-', new string([.. name.Trim().ToLowerInvariant().Select(letter => char.IsAsciiLetterOrDigit(letter) ? letter : ' ')])
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>What a number field holds that is not a number, as a sentence, or null when every one reads.</summary>
     public string? FindProblem()
@@ -169,6 +191,11 @@ public sealed class BotDraft
         return null;
     }
 
+    /// <summary>
+    /// The request that saves this draft. It says whether the handle is the one the name makes (it was not chosen) or one
+    /// a person set, so every editor that builds its save here, the native one and the web one, gives the server the same
+    /// intent: it numbers a taken handle that follows the name, and records a chosen one so a rename never rewrites it.
+    /// </summary>
     public UpdateBotRequest ToRequest() =>
         new(
             Name,
@@ -184,7 +211,8 @@ public sealed class BotDraft
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
-            new RunLimitsBody(ReadWhole(MaxSteps), ReadWhole(MaxTokens), ReadWhole(MaxDelegations)));
+            new RunLimitsBody(ReadWhole(MaxSteps), ReadWhole(MaxTokens), ReadWhole(MaxDelegations)),
+            HandleFollowsName: !HandleChosen);
 
     /// <summary>
     /// Clears the model settings the chosen model does not have, so a setting made for another model is not sent

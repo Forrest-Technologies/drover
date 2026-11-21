@@ -39,6 +39,7 @@ public static class DataServiceExtensions
         services.AddScoped<ToolConnectionRepository>();
         services.AddScoped<BotScheduleRepository>();
         services.AddScoped<BotRuleRepository>();
+        services.AddScoped<SandboxSecretRepository>();
         services.AddScoped<ExtensionRepository>();
         services.AddScoped<SandboxRepository>();
         services.AddScoped<AuditRepository>();

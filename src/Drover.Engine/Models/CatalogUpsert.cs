@@ -65,7 +65,9 @@ public static class CatalogUpsert
     private static void Refresh(ModelCatalogEntry entry, ModelInfo model, DateTimeOffset now)
     {
         entry.DisplayName = Truncate(model.DisplayName, MaxModelIdLength);
-        entry.Capabilities = model.Capabilities;
+        entry.Capabilities = entry.Capabilities.VisionSetByOperator
+            ? model.Capabilities with { Vision = true, VisionSetByOperator = true }
+            : model.Capabilities;
         entry.Pricing = model.Pricing;
         entry.PrivacyMode = model.Privacy is PrivacyMode.Unknown ? null : model.Privacy.ToString().ToLowerInvariant();
         entry.Traits = [.. model.Traits];

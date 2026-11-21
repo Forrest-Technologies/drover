@@ -88,7 +88,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var attempt = async () =>
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{target.Port}/")
-                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
+                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, AutoLoadRemoteImages: false));
             using var response = await http.SendAsync(request, Token);
             return await response.Content.ReadAsStringAsync(Token);
         };

@@ -21,6 +21,12 @@ public sealed class RunGovernor(
     public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
         files is null ? new Dictionary<Guid, FileForModel>() : await files.Open(fileIds, cancellationToken);
 
+    public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenProjectFiles(
+        Guid projectId,
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken) =>
+        files is null ? new Dictionary<Guid, FileForModel>() : await files.OpenProject(projectId, fileIds, cancellationToken);
+
     public async Task<ToolGateDecision> Decide(ToolCallRequest toolCall, CancellationToken cancellationToken)
     {
         // The model call that asked for this tool is stored by now, so its message can be announced before the tool starts.
@@ -110,13 +116,6 @@ public sealed class RunGovernor(
         }
 
         var callId = children.CallOf(child);
-
-        // What a tainted child hands back carries the untrusted text it read. This run is tainted with it before
-        // anything else, so its own consequential tools ask from its next model call on, whatever the child came to.
-        if (report.Tainted)
-        {
-            await session.Taint();
-        }
 
         await StopWithChild(child, report, callId);
         var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
@@ -276,7 +275,7 @@ public sealed class RunGovernor(
             return ToolGateDecision.Refuse($"The tool {toolCall.ToolName} changed after this call was approved, so the approval no longer covers it. Ask again.");
         }
 
-        // The grant as it stands now, and then the run's own state: a tainted run asks before it changes anything.
+        // The grant as it stands now. What the run read changes nothing: allow runs, ask asks, and no grant refuses.
         var granting = (effect is { } granted ? session.EffectNow(tool, granted) : effect) switch
         {
             GrantEffect.Allow => ToolGateDecision.Run,
@@ -514,9 +513,9 @@ public sealed class RunGovernor(
 
     /// <summary>
     /// A delegation cut off by a restart or a wait is asked again, and asking again must not undo what was decided: once
-    /// its child run has begun it goes on as the same child, even when its grant is ask or this run has since been
-    /// tainted. A grant that no longer allows the call still refuses it; only asking is not repeated. (A call a person
-    /// approved never reaches this: its approval is handed over again and it comes back through the gate.)
+    /// its child run has begun it goes on as the same child, even when its grant is ask. A grant that no longer allows
+    /// the call still refuses it; only asking is not repeated. (A call a person approved never reaches this: its
+    /// approval is handed over again and it comes back through the gate.)
     /// </summary>
     private async Task<bool> ResumesWithoutAsking(ToolCallRequest toolCall, CancellationToken cancellationToken)
     {

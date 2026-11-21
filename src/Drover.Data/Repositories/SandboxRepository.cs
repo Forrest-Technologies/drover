@@ -50,7 +50,7 @@ public sealed class SandboxRepository(DroverDbContext db)
 
     /// <summary>
     /// Makes a copy into a sandbox and a narrowing of who may see one take turns, until this transaction ends.
-    /// A copy holds it while it reads the file's audience again and marks the sandbox. A narrowing holds it from
+    /// A copy holds it while it reads the file's audience again and checks that the sandbox row still exists. A narrowing holds it from
     /// the retirement through the audience change. Spaces never wait on each other.
     /// </summary>
     public Task LockCopies(CancellationToken cancellationToken) =>
@@ -59,7 +59,7 @@ public sealed class SandboxRepository(DroverDbContext db)
             cancellationToken);
 
     /// <summary>
-    /// Takes every live sandbox of the space out of use, due from <paramref name="retireAfter"/>, tainted or not.
+    /// Takes every live sandbox of the space out of use, due from <paramref name="retireAfter"/>.
     /// Holds <see cref="LockCopies"/> first. The next use destroys each one and makes a new one, so a private write
     /// does not outlive a narrowing of who may see it. How many were retired.
     /// </summary>

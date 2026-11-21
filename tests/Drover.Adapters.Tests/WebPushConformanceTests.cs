@@ -6,6 +6,26 @@ namespace Drover.Adapters.Tests;
 /// </summary>
 public sealed class WebPushConformanceTests : PushChannelConformance
 {
+    #region Urgency
+
+    // A phone in deep idle is woken only by an urgent push; anything less waits for its next maintenance window. Each
+    // wake-up is one the person sees, so each is urgent.
+    [Theory]
+    [InlineData(PushKinds.RunFinished)]
+    [InlineData(PushKinds.RunFailed)]
+    [InlineData(PushKinds.ApprovalWaiting)]
+    [InlineData(PushKinds.DeviceTest)]
+    public async Task Every_wake_up_is_sent_as_urgent_so_a_phone_in_deep_idle_wakes_for_it(string kind)
+    {
+        var rig = Rig(PushServiceAnswer.Accepted);
+
+        await rig.Channel.Send(rig.Subscription, new PushWakeUp(kind, Guid.CreateVersion7()), TestContext.Current.CancellationToken);
+
+        rig.Received().Should().ContainSingle().Which.Headers.Should().Contain("Urgency", "high");
+    }
+
+    #endregion
+
     #region Rig
 
     protected override PushRig Rig(PushServiceAnswer answer)
@@ -62,13 +82,15 @@ public sealed class TestDevice
 
     private readonly byte[] authSecret = RandomNumberGenerator.GetBytes(16);
 
+    private readonly Guid userId = Guid.CreateVersion7();
+
     #endregion
 
     #region Properties
 
     public PushSubscription Subscription => new()
     {
-        UserId = Guid.CreateVersion7(),
+        UserId = userId,
         Endpoint = "https://push.example/send/device-1",
         PublicKey = Base64Url.EncodeToString(PublicKey),
         AuthSecret = Base64Url.EncodeToString(authSecret),

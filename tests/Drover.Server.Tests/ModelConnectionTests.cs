@@ -84,7 +84,7 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
         (await client.Post($"{Path(alice.SpaceId)}/{summary.Id}/test")).EnsureSuccessStatusCode();
 
         summary.HasKey.Should().BeFalse();
-        Scripted.KeysSeen.Should().ContainSingle().Which.Should().BeNull();
+        Scripted.KeysSeen.Should().Equal([null, null], "the test and catalog listing each receive no key");
     }
 
     [Theory]
@@ -308,6 +308,72 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
     #endregion
 
     #region Model Catalog
+
+    [Fact]
+    public async Task A_passing_test_stocks_the_catalog_without_a_refresh()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var summary = await CreateScripted(client, alice.SpaceId);
+        var listings = 0;
+        Scripted.OnList = _ =>
+        {
+            listings++;
+            return Task.FromResult<IReadOnlyList<ModelInfo>>([Model("alpha", 1m), Model("beta", 2m)]);
+        };
+
+        var result = (await (await client.Post($"{Path(alice.SpaceId)}/{summary.Id}/test")).Content.ReadFromJsonAsync<ConnectionTestResponse>(Token))!;
+        var stored = (await (await client.Get($"{Path(alice.SpaceId)}/{summary.Id}/models")).Content.ReadFromJsonAsync<List<ModelCatalogResponse>>(Token))!;
+
+        result.Succeeded.Should().BeTrue();
+        listings.Should().Be(1, "the test itself listed the models; no refresh was pressed");
+        stored.Select(model => model.Model).Should().BeEquivalentTo(["alpha", "beta"]);
+        stored.Should().OnlyContain(model => model.State == "available");
+    }
+
+    [Fact]
+    public async Task Replacing_the_key_while_the_test_lists_models_does_not_store_the_old_keys_catalog()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var summary = await CreateScripted(client, alice.SpaceId);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Scripted.OnList = async _ =>
+        {
+            entered.SetResult();
+            await release.Task.WaitAsync(Token);
+            return [Model("old-key-model", 1m)];
+        };
+
+        var testing = client.Post($"{Path(alice.SpaceId)}/{summary.Id}/test");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), Token);
+        var other = await SignIn(alice);
+        (await other.Put($"{Path(alice.SpaceId)}/{summary.Id}/key", new UpdateModelKeyRequest(NewKey()))).EnsureSuccessStatusCode();
+        release.SetResult();
+        (await testing).EnsureSuccessStatusCode();
+        var stored = (await (await client.Get($"{Path(alice.SpaceId)}/{summary.Id}/models")).Content.ReadFromJsonAsync<List<ModelCatalogResponse>>(Token))!;
+
+        stored.Should().BeEmpty("the listing used the replaced key");
+        var current = (await (await client.Get(Path(alice.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!.Single();
+        current.Status.Should().Be("pending");
+    }
+
+    [Fact]
+    public async Task A_listing_the_provider_cannot_answer_leaves_the_catalog_empty_and_the_test_passing()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var summary = await CreateScripted(client, alice.SpaceId);
+        Scripted.OnList = _ => throw ModelProviderException.FromStatus(401);
+
+        var result = (await (await client.Post($"{Path(alice.SpaceId)}/{summary.Id}/test")).Content.ReadFromJsonAsync<ConnectionTestResponse>(Token))!;
+        var stored = (await (await client.Get($"{Path(alice.SpaceId)}/{summary.Id}/models")).Content.ReadFromJsonAsync<List<ModelCatalogResponse>>(Token))!;
+
+        result.Succeeded.Should().BeTrue("the listing failed, the test did not");
+        result.Connection.Status.Should().Be("ready");
+        stored.Should().BeEmpty();
+    }
 
     [Fact]
     public async Task Refreshing_upserts_the_catalog_and_marks_a_model_that_disappears_as_missing()

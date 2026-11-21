@@ -46,6 +46,7 @@ public static class RunServiceExtensions
             .AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHostedService<RunWorker>();
         services.AddHostedService<ScheduleLoop>();
+        services.AddHostedService<UploadSweeper>();
         return services;
     }
 

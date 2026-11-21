@@ -67,6 +67,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ScheduleFiring>();
         services.AddSingleton<ScheduleRunner>();
         services.AddScoped<RuleService>();
+        services.AddScoped<SandboxSecretService>();
         services.AddScoped<ThreadService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<ConversationModels>();
@@ -78,6 +79,7 @@ public static class EngineServiceExtensions
         services.AddScoped<UsageService>();
         services.AddScoped<ApprovalService>();
         services.AddScoped<FileAbilityReader>();
+        services.AddSingleton<UploadCleanup>();
         services.AddScoped<FileService>();
         return services;
     }

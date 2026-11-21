@@ -14,7 +14,7 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
 
-    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "FinishToolSignInRequest"];
+    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest"];
 
     #endregion
 
@@ -50,6 +50,9 @@ public sealed class ContractsCarryNoSecretsTests
         new Drover.Contracts.Push.PushDeviceRequest("https://push.example.test/a-device", "a-device-key", "a-device-secret")
             .ToString().Should().NotContain("a-device");
         new Drover.Contracts.Tools.FinishToolSignInRequest("a-ticket-value").ToString().Should().NotContain("a-ticket-value");
+        new Drover.Contracts.Sandboxes.CreateSandboxSecretRequest("DEPLOY_TOKEN", null, "a-sandbox-secret-value", "brokered", ["api.example.test"], false, false, "space", null, null)
+            .ToString().Should().NotContain("a-sandbox-secret-value");
+        new Drover.Contracts.Sandboxes.RotateSandboxSecretRequest("a-sandbox-secret-value").ToString().Should().NotContain("a-sandbox-secret-value");
         inboundCredentialForms.Should().OnlyContain(name => name.EndsWith("Request", StringComparison.Ordinal));
         sample.ToString().Should().NotContain("a-password-value");
         setup.ToString().Should().NotContain("a-password-value").And.NotContain("CODE");

@@ -15,6 +15,13 @@ public sealed class Bot : ISpaceOwned
 
     public required string Handle { get; set; }
 
+    /// <summary>
+    /// True when a person set the handle themselves, so it never follows the name when the bot is renamed, whatever it
+    /// is spelled like. False for a handle the name made, with or without the number added to keep it unique. A bot
+    /// that was there before this was recorded holds false and is judged by the spelling of its handle.
+    /// </summary>
+    public bool HandleChosen { get; set; }
+
     public BotAvatar Avatar { get; set; } = new();
 
     /// <summary>What other bots read to decide whether to delegate to this one.</summary>

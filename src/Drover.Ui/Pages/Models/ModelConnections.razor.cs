@@ -158,7 +158,7 @@ public sealed partial class ModelConnections(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnections));
-            addProblem = Failures.Sentence(exception);
+            addProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -212,7 +212,7 @@ public sealed partial class ModelConnections(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnections));
-            problems[connection.Id] = Failures.Sentence(exception);
+            problems[connection.Id] = Failures.Sentence(exception, "Check that the server is running.");
             notice = null;
         }
         finally

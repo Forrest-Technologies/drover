@@ -174,7 +174,7 @@ public sealed partial class ExtensionEditor(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionEditor));
-            (notice, noticeIsProblem) = (Failures.Sentence(exception), true);
+            (notice, noticeIsProblem) = (Failures.Sentence(exception, "Check that the server is running."), true);
             return null;
         }
         finally

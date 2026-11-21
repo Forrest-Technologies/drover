@@ -24,7 +24,7 @@ public sealed class DocumentFileTests(PostgresServer postgres)
 
         var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
         run.Status.Should().Be(RunStatus.Completed);
-        run.Tainted.Should().BeTrue("a document's text is the person's input from outside Drover, never instructions");
+        run.Tainted.Should().BeFalse("a person's own document is not recorded as an untrusted read");
         var text = TextsOf(world.Model.Requests[0]).Should().ContainSingle(found => found.Contains("invoice.pdf", StringComparison.Ordinal)).Which;
         text.Should().StartWith("[The person attached invoice.pdf, a PDF document of 2 pages. Its text follows.]")
             .And.Contain("[Page 1]\nInvoice 4471").And.Contain("[Page 2]\nTotal due 1,250.00").And.EndWith("[End of invoice.pdf.]");

@@ -214,15 +214,17 @@ public sealed partial class DroverApi
     /// The events of a run, from after <paramref name="afterSeq"/> to its end, each once and in order. The stream
     /// reconnects by itself with the last number it saw, so a dropped connection or a restarted server loses
     /// nothing and repeats nothing. It ends when the run does. Feed each event to <see cref="RunReducer.Apply(RunView, RunEventResponse)"/>.
-    /// <paramref name="dropped"/> hears why a connection was lost, so a screen can say it is reconnecting.
+    /// <paramref name="dropped"/> hears why a connection was lost, so a screen can say it is reconnecting, and
+    /// <paramref name="connected"/> hears each time the stream is through, so it can stop saying so.
     /// </summary>
     public IAsyncEnumerable<RunEventResponse> WatchRun(
         Guid spaceId,
         Guid runId,
         long afterSeq = 0,
         Action<Exception>? dropped = null,
+        Action? connected = null,
         CancellationToken cancellationToken = default) =>
-        new RunEventReader(http, $"{Space(spaceId)}/runs/{runId}", runId, dropped).Read(afterSeq, cancellationToken);
+        new RunEventReader(http, $"{Space(spaceId)}/runs/{runId}", runId, presence, dropped, connected).Read(afterSeq, cancellationToken);
 
     /// <summary>
     /// Signals for the signed-in person in one space: a thread changed, a run finished, an approval is waiting.
@@ -230,7 +232,7 @@ public sealed partial class DroverApi
     /// until cancelled.
     /// </summary>
     public IAsyncEnumerable<UserSignal> WatchSignals(Guid spaceId, Action<Exception>? dropped = null, CancellationToken cancellationToken = default) =>
-        new SignalReader(http, $"{Space(spaceId)}/stream", dropped).Read(cancellationToken);
+        new SignalReader(http, $"{Space(spaceId)}/stream", presence, dropped).Read(cancellationToken);
 
     #endregion
 }

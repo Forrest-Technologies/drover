@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "claim_due_schedules", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
 
     #endregion
 
@@ -369,6 +369,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("clear_project_threads", "SELECT sys.clear_project_threads(@project)", 0, [("as_space", world.SpaceA), ("as_user", world.UserA1), ("project", Guid.CreateVersion7())]),
             ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
+            ("expired_uploads", "SELECT * FROM sys.expired_uploads(@limit)", 0, [("limit", 10)]),
+            ("claim_pending_upload_deletions", "SELECT * FROM sys.claim_pending_upload_deletions(@limit)", 0, [("limit", 10)]),
             ("claim_due_schedules", "SELECT * FROM sys.claim_due_schedules(@now, @until, @limit)", 0, [("now", DateTime.UtcNow), ("until", DateTime.UtcNow.AddMinutes(5)), ("limit", 10)]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
@@ -459,7 +461,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             """);
 
         tables.Select(row => (string)row[0]!).Should().BeEquivalentTo(
-            ["sys.audit INSERT", "public.oauth_flows DELETE", "public.sandboxes DELETE", "public.tool_connection_credentials DELETE", "public.secrets DELETE"],
+            ["sys.audit INSERT", "public.oauth_flows DELETE", "public.sandboxes DELETE", "public.tool_connection_credentials DELETE", "public.secrets DELETE",
+                "public.pending_upload_deletions INSERT"],
             "no table-wide SELECT or UPDATE anywhere");
         columns.Select(row => (string)row[0]!).Should().BeEquivalentTo(
         [
@@ -471,6 +474,9 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("spaces", "SELECT", "id kind name slug"),
             .. Columns("oauth_flows", "SELECT", "state_hash space_id audience_user_id tool_connection_id expires_at"),
             .. Columns("sandboxes", "SELECT", "id space_id state retire_after expires_at"),
+            .. Columns("files", "SELECT", "id space_id audience_user_id thread_id project_id message_id created_by_user_id created_by_bot_id created_at"),
+            .. Columns("pending_upload_deletions", "SELECT", "id space_id audience_user_id cleanup_claim_until created_at"),
+            .. Columns("pending_upload_deletions", "UPDATE", "cleanup_claim_until"),
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),

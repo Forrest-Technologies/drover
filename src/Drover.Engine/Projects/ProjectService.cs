@@ -13,10 +13,16 @@ public sealed record ProjectChange(Project? Project, string? Problem = null)
 /// <summary>
 /// Projects of the current space: reading them, changing their name and shared instructions, and removing them while
 /// leaving every conversation intact. Each change is checked here and recorded in the audit log without writing
-/// instruction text. Runs in the caller's tenant scope.
+/// instruction text. Listing, reading, and editing run in the caller's tenant scope; removal opens its own scope so
+/// project files are deleted from the file store after commit.
 /// </summary>
 public sealed class ProjectService(
+    TenantScope scope,
+    TenantContext tenant,
     ProjectRepository projects,
+    FileRepository files,
+    IFileStore store,
+    SandboxSecretService sandboxSecrets,
     AuditLog audit,
     TimeProvider time,
     ILogger<ProjectService> logger)
@@ -90,19 +96,45 @@ public sealed class ProjectService(
     }
 
     /// <summary>
-    /// Removes the project and detaches every conversation in it in the same transaction so conversations stay intact.
+    /// Removes the project, detaches every conversation in the same transaction so conversations stay intact, removes
+    /// its shared project files and releases their quota once, and deletes their stored bytes after commit.
     /// </summary>
     public async Task<bool> Remove(Guid id, AuditActor actor, CancellationToken cancellationToken)
     {
-        if (await projects.GetProjectForUpdate(id, cancellationToken) is not { } project)
+        var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("Projects are always handled inside a space.");
+        var now = time.GetUtcNow();
+        var claimUntil = now.Add(ProjectFileCleanup.ClaimWindow);
+        List<StoredDeletion> deletions;
+
+        await using (var work = await scope.Begin(cancellationToken))
         {
-            return false;
+            if (await projects.GetProjectForUpdate(id, cancellationToken) is not { } project)
+            {
+                var pending = await files.ClaimPendingForProject(id, now, claimUntil, cancellationToken);
+
+                if (pending.Count == 0)
+                {
+                    return false;
+                }
+
+                deletions = [.. pending.Select(row => new StoredDeletion(row.Id))];
+                await work.Commit(cancellationToken);
+            }
+            else
+            {
+                var projectFiles = await files.GetProjectFilesForUpdate(project.Id, cancellationToken);
+                await files.StageProjectFileDeletion(projectFiles, now, claimUntil, cancellationToken);
+                deletions = [.. projectFiles.Select(file => new StoredDeletion(file.Id))];
+                await projects.ClearThreadsForProject(project.Id, cancellationToken);
+                await sandboxSecrets.RemoveForProject(project.Id, actor, cancellationToken);
+                projects.Remove(project);
+                audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
+                await work.Commit(cancellationToken);
+            }
         }
 
-        await projects.ClearThreadsForProject(project.Id, cancellationToken);
-        projects.Remove(project);
-        audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
-        logger.LogInformation("Project {ProjectId} removed", project.Id);
+        await ProjectFileCleanup.Finish(scope, files, store, spaceId, deletions, logger, cancellationToken);
+        logger.LogInformation("Project {ProjectId} removed", id);
         return true;
     }
 

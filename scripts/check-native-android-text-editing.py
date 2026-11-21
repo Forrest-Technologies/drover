@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the development APK on a fresh Android emulator with the test keyboard installed."""
 
+import os
 import re
 import shlex
 import struct
@@ -191,7 +192,35 @@ def check_safe_area():
         shell("wm", "density", "reset")
 
 
+def check_unreachable_open():
+    """A cold deep link while the server refuses the connection shows the unreachable gate and stays up."""
+    shell("am", "force-stop", PACKAGE)
+    report = f"/storage/emulated/0/Android/data/{PACKAGE}/files/unreachable-open.txt"
+    shell("rm", "-f", report)
+    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+    shell("am", "start", "-W", "-n", activity, "--ez", "drover.unreachable_open", "true")
+    for _ in range(100):
+        listing = subprocess.run(["adb", "shell", "cat", report], text=True, capture_output=True)
+        text = listing.stdout
+        if "Unreachable open check passed" in text:
+            print(text.strip())
+            return
+        if "Unreachable open check failed" in text:
+            raise AssertionError(text.strip())
+        time.sleep(1)
+    log = subprocess.run(
+        ["adb", "logcat", "-d", "-e", "Unreachable open check"],
+        text=True,
+        capture_output=True,
+    ).stdout
+    raise AssertionError(log.strip() or "The unreachable open check did not report a result.")
+
+
 def main():
+    if os.environ.get("DROVER_UNREACHABLE_OPEN_ONLY") == "1":
+        check_unreachable_open()
+        return
+
     previous = shell("settings", "get", "secure", "default_input_method")
     show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
     shell("ime", "enable", IME)

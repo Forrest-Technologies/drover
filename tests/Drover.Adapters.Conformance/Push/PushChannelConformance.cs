@@ -66,7 +66,7 @@ public abstract class PushChannelConformance
     }
 
     [Fact]
-    public async Task The_payload_is_the_kind_and_the_thread_and_nothing_else()
+    public async Task The_payload_is_the_kind_the_thread_and_the_subscribing_person_and_nothing_else()
     {
         var rig = Rig(PushServiceAnswer.Accepted);
 
@@ -74,9 +74,10 @@ public abstract class PushChannelConformance
 
         var received = rig.Received().Should().ContainSingle().Subject;
         using var payload = JsonDocument.Parse(received.Payload);
-        payload.RootElement.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(["kind", "thread"]);
+        payload.RootElement.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(["kind", "thread", "user"]);
         payload.RootElement.GetProperty("kind").GetString().Should().Be(wakeUp.Kind);
         payload.RootElement.GetProperty("thread").GetGuid().Should().Be(wakeUp.ThreadId);
+        payload.RootElement.GetProperty("user").GetGuid().Should().Be(rig.Subscription.UserId, "the worker asks about the wake only as the person it was sent for");
     }
 
     [Fact]

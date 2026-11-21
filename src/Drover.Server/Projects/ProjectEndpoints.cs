@@ -16,7 +16,7 @@ public static class ProjectEndpoints
         projects.MapGet("/{projectId:guid}/threads", ListThreads).WithName("ListProjectThreads");
         projects.MapPost("/", CreateProject).RequireSpaceRole(MembershipRole.Admin).WithName("CreateProject");
         projects.MapPut("/{projectId:guid}", UpdateProject).RequireSpaceRole(MembershipRole.Admin).WithName("UpdateProject");
-        projects.MapDelete("/{projectId:guid}", RemoveProject).RequireSpaceRole(MembershipRole.Admin).WithName("RemoveProject");
+        space.MapDelete("/projects/{projectId:guid}", RemoveProject).RequireSpaceRole(MembershipRole.Admin).WithName("RemoveProject");
         return space;
     }
 

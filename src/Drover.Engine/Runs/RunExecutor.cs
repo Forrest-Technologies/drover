@@ -260,10 +260,14 @@ public sealed partial class RunExecutor(
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
-        var carriesFiles = thread is not null
-            && await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken);
+        Project? project = null;
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
+        if (thread?.ProjectId is { } projectId)
+        {
+            project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
+        }
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project);
     }
 
     /// <summary>
@@ -421,7 +425,6 @@ public sealed partial class RunExecutor(
             loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
-            loaded.Policy.TaintedRunEscalation,
             parent);
     }
 
@@ -511,7 +514,6 @@ public sealed partial class RunExecutor(
             deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
-            session.Taint,
             loggers.CreateLogger<RunFiles>());
     }
 
@@ -547,9 +549,6 @@ public sealed partial class RunExecutor(
             return refusal.Status;
         }
 
-        await TaintFromNotes(session, loaded);
-        await TaintFromFiles(session, loaded);
-        await TaintFromSandbox(session, loaded, stopping);
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
         var provider = providers.First(candidate => candidate.Kind == connection.Kind);
@@ -606,9 +605,7 @@ public sealed partial class RunExecutor(
     }
 
     /// <summary>
-    /// Runs the agent until it ends or waits. When the run becomes tainted part way, the agent is stopped before its
-    /// next model call and built again, this time with its consequential tools asking, and goes on from the stored
-    /// conversation. The answers a waiting run came back with are handed over once, to the first agent.
+    /// Runs the agent until it ends or waits. The answers a waiting run came back with are handed over to the agent.
     /// </summary>
     private async Task<RunOutcome> DriveToAStop(
         RunSession session,
@@ -618,24 +615,8 @@ public sealed partial class RunExecutor(
         RunRules rules,
         CancellationToken cancellationToken)
     {
-        var answers = loaded.Answers;
-
-        while (true)
-        {
-            session.MarkBuilt();
-            session.RulesAtBuild = await rules.Load(cancellationToken);
-
-            try
-            {
-                return await Drive(session, BuildExecution(session, loaded, model) with { Responses = answers }, governor, cancellationToken);
-            }
-            catch (Exception rebuild) when (Find<AgentRebuildRequiredException>(rebuild) is not null && !cancellationToken.IsCancellationRequested)
-            {
-                logger.LogInformation("Run {RunId} read from an untrusted source; its agent is built again so its tools ask", session.RunId);
-                await session.Writer.Write(null, session.CloseOpenWork());
-                answers = [];
-            }
-        }
+        session.RulesAtBuild = await rules.Load(cancellationToken);
+        return await Drive(session, BuildExecution(session, loaded, model) with { Responses = loaded.Answers }, governor, cancellationToken);
     }
 
     private async Task<RunOutcome> Drive(RunSession session, RunExecution execution, RunGovernor governor, CancellationToken cancellationToken)
@@ -738,6 +719,9 @@ public sealed partial class RunExecutor(
         Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
             ? memory with { CanList = offered.Contains("memory.list") }
             : null,
+        Project = loaded.Project is null
+            ? null
+            : new ProjectBrief(loaded.Project.Id, loaded.Project.Name, loaded.Project.Instructions),
     };
 
     /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
@@ -749,59 +733,6 @@ public sealed partial class RunExecutor(
             .Where(tool => tool.Builtin is not null && MemoryTools.IsMemoryTool(tool.Tool.Name))
             .Select(tool => tool.Tool.Name),
     ];
-
-    /// <summary>
-    /// A run given a note that a tainted run wrote may be given that run's untrusted text, so it is tainted before its
-    /// agent is built: its consequential tools ask from the first call, as they would in the run that read the text.
-    /// </summary>
-    private static async Task TaintFromNotes(RunSession session, LoadedRun loaded)
-    {
-        if (loaded.Memory is { Tainted: true } && OfferedMemoryTools(session, loaded).Count > 0)
-        {
-            await session.Taint();
-        }
-    }
-
-    /// <summary>
-    /// A file a person attached is text from outside Drover, a document or a picture of anything, so a run whose
-    /// conversation carries one is tainted before its agent is built, as a run given a tool's result would be once it
-    /// had read it: its consequential tools ask from the first call. Every later run of the conversation is given
-    /// the file again, so it is tainted the same way.
-    /// </summary>
-    private static async Task TaintFromFiles(RunSession session, LoadedRun loaded)
-    {
-        if (loaded.CarriesFiles)
-        {
-            await session.Taint();
-        }
-    }
-
-    /// <summary>
-    /// A command starts a login shell, which runs persisted state from the sandbox before this run could be tainted
-    /// by reading it. When a sandbox this bot can run a command in is already tainted, the run is tainted before its
-    /// agent is built, so an allow grant asks and the provider is not called until a person approves.
-    /// </summary>
-    private async Task TaintFromSandbox(RunSession session, LoadedRun loaded, CancellationToken stopping)
-    {
-        if (session.Tainted || sandboxBrokers.FirstOrDefault() is not { } broker || loaded.Bot is not { } bot)
-        {
-            return;
-        }
-
-        var mayRun = loaded.Granted.Any(granted =>
-            granted.Tool.Name == "sandbox.run"
-            && session.FindTool(granted.Tool.Id) is { Effect: GrantEffect.Allow or GrantEffect.Ask });
-
-        if (!mayRun)
-        {
-            return;
-        }
-
-        if (await broker.ACommandWouldUseATaintedSandbox(session.Tenant, bot.Id, stopping))
-        {
-            await session.Taint();
-        }
-    }
 
     private static ToolDefinition ToDefinition(RunSession session, LoadedRun loaded, RunTool tool) => new()
     {
@@ -1245,7 +1176,7 @@ public sealed partial class RunExecutor(
         bool ModelSeesImages,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
-        bool CarriesFiles);
+        Project? Project);
 
     #endregion
 }

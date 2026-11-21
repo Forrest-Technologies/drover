@@ -542,7 +542,7 @@ public sealed partial class SandboxScreen(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "An input to the sandbox was refused");
-            screenProblem = Failures.Sentence(exception);
+            screenProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
 
         sending = false;

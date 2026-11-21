@@ -34,6 +34,10 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<BotRule> BotRules => Set<BotRule>();
 
+    public DbSet<SandboxSecret> SandboxSecrets => Set<SandboxSecret>();
+
+    public DbSet<SandboxSecretBot> SandboxSecretBots => Set<SandboxSecretBot>();
+
     public DbSet<ToolGrant> ToolGrants => Set<ToolGrant>();
 
     public DbSet<ExtensionInstall> ExtensionInstalls => Set<ExtensionInstall>();
@@ -75,6 +79,12 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
     public DbSet<Sandbox> Sandboxes => Set<Sandbox>();
 
     public DbSet<StoredFile> Files => Set<StoredFile>();
+
+    public DbSet<FileByteReservation> FileByteReservations => Set<FileByteReservation>();
+
+    public DbSet<PendingFileDeletion> PendingFileDeletions => Set<PendingFileDeletion>();
+
+    public DbSet<PendingUploadDeletion> PendingUploadDeletions => Set<PendingUploadDeletion>();
 
     public DbSet<Secret> Secrets => Set<Secret>();
 

@@ -412,7 +412,7 @@ public sealed class RoutinesSectionViewModel(BotEditorViewModel editor, DroverAp
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RoutinesSectionViewModel));
-            return Failures.Sentence(exception);
+            return Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

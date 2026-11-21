@@ -150,7 +150,7 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "The rest of a conversation file could not be read");
-            Problem = $"Drover could not load the rest of {File.Name}. {Failures.Sentence(exception)}";
+            Problem = $"Drover could not load the rest of {File.Name}. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {

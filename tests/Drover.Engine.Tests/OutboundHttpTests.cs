@@ -10,9 +10,9 @@ public sealed class OutboundHttpTests
 
     private static readonly IPAddress otherLoopback = IPAddress.Parse("127.0.0.2");
 
-    private static readonly EffectivePolicy everythingAllowed = new(true, true, false);
+    private static readonly EffectivePolicy everythingAllowed = new(true, false);
 
-    private static readonly EffectivePolicy privateForbidden = new(false, true, false);
+    private static readonly EffectivePolicy privateForbidden = new(false, false);
 
     #endregion
 
