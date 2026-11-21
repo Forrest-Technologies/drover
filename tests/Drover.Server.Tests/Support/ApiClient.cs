@@ -42,6 +42,10 @@ public sealed class ApiClient(HttpClient http)
 
     public Task<HttpResponseMessage> Get(string path) => Send(HttpMethod.Get, path, body: null, token: false);
 
+    /// <summary>A GET that carries one more request header, as a service worker does.</summary>
+    public Task<HttpResponseMessage> Get(string path, string header, string value) =>
+        Send(HttpMethod.Get, path, body: null, token: false, (header, value));
+
     /// <summary>Opens a response without reading its body, for a stream. The caller disposes it to disconnect.</summary>
     public async Task<HttpResponseMessage> Open(string path, long? lastEventId = null)
     {
@@ -112,9 +116,14 @@ public sealed class ApiClient(HttpClient http)
 
     #region Private Methods
 
-    private async Task<HttpResponseMessage> Send(HttpMethod method, string path, object? body, bool token)
+    private async Task<HttpResponseMessage> Send(HttpMethod method, string path, object? body, bool token, (string Name, string Value)? header = null)
     {
         var request = new HttpRequestMessage(method, path);
+
+        if (header is var (headerName, headerValue))
+        {
+            request.Headers.Add(headerName, headerValue);
+        }
 
         request.Content = body switch
         {

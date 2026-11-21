@@ -140,6 +140,151 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         unknownKind.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task A_browser_left_subscribed_by_one_person_is_told_nothing_to_show_the_next_person()
+    {
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var asAlice = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var device = Device("https://push.example/left-subscribed");
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
+
+        var asSubscriber = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var asAnotherPerson = await asMember.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var body = await asAnotherPerson.Content.ReadAsStringAsync(Token);
+
+        asSubscriber.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await asSubscriber.Content.ReadFromJsonAsync<PushWakeText>(Token))!.Body.Should().Contain("Atlas");
+        asAnotherPerson.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the signed-in person holds no subscription for that address");
+        body.Should().BeEmpty("nothing of alice's bot is said to the next person");
+    }
+
+    [Fact]
+    public async Task A_wake_sent_for_one_person_is_never_described_to_another_even_on_the_others_own_subscription()
+    {
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var asAlice = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        await ShareWithTheSpace(alice.SpaceId, alice.UserId, thread.Id);
+        var aliceDevice = Device("https://push.example/alices-browser");
+        var memberDevice = Device("https://push.example/members-browser-after-the-switch");
+        (await asAlice.Put("/api/push/device", aliceDevice)).EnsureSuccessStatusCode();
+        (await asMember.Put("/api/push/device", memberDevice)).EnsureSuccessStatusCode();
+        var forAlice = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
+
+        // The member's browser holds the member's own subscription, and the thread is shared with them, but the wake
+        // was sent for alice: it was queued before the browser changed hands.
+        var queued = await asMember.Get(forAlice, PushEndpoints.PushEndpointHeader, memberDevice.Endpoint);
+        var forTheSubscriber = await asAlice.Get(forAlice, PushEndpoints.PushEndpointHeader, aliceDevice.Endpoint);
+        var forTheMember = await asMember.Get($"/api/push/wake?kind=run.finished&thread={thread.Id}&user={member.UserId}", PushEndpoints.PushEndpointHeader, memberDevice.Endpoint);
+
+        queued.StatusCode.Should().Be(HttpStatusCode.Conflict, "the wake was sent for someone else");
+        (await queued.Content.ReadAsStringAsync(Token)).Should().BeEmpty();
+        forTheSubscriber.StatusCode.Should().Be(HttpStatusCode.OK);
+        forTheMember.StatusCode.Should().Be(HttpStatusCode.OK, "a wake sent for the member is described to the member");
+    }
+
+    [Fact]
+    public async Task When_the_last_persons_subscription_is_still_installed_the_next_person_gets_a_403_before_any_recipient_check()
+    {
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var asAlice = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var aliceDevice = Device("https://push.example/alices-still-installed");
+        (await asAlice.Put("/api/push/device", aliceDevice)).EnsureSuccessStatusCode();
+
+        // The member signed in on alice's browser and never turned notifications on, so holds no subscription for its
+        // address. A new wake for alice names alice, which is not the member: the missing subscription is what is
+        // reported, so the worker ends alice's subscription, not a recipient mismatch that would keep it.
+        var forAlice = await asMember.Get($"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}", PushEndpoints.PushEndpointHeader, aliceDevice.Endpoint);
+
+        forAlice.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await forAlice.Content.ReadAsStringAsync(Token)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_browsers_wake_that_names_nobody_is_not_described_even_to_the_person_who_holds_the_subscription()
+    {
+        var alice = await SeedPerson("alice");
+        var asAlice = await SignIn(alice);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var device = Device("https://push.example/queued-before-the-upgrade");
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+
+        var legacy = await asAlice.Get($"/api/push/wake?kind=run.finished&thread={thread.Id}", PushEndpoints.PushEndpointHeader, device.Endpoint);
+
+        legacy.StatusCode.Should().Be(HttpStatusCode.Conflict, "nothing says a wake that names nobody was for the person signed in");
+        (await legacy.Content.ReadAsStringAsync(Token)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_person_who_turned_the_same_browser_on_is_answered_and_the_first_person_still_is()
+    {
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var asAlice = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var device = Device("https://push.example/shared-by-two");
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+        (await asMember.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}";
+
+        var forAlice = await asAlice.Get($"{wake}&user={alice.UserId}", PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var forMember = await asMember.Get($"{wake}&user={member.UserId}", PushEndpoints.PushEndpointHeader, device.Endpoint);
+
+        forAlice.StatusCode.Should().Be(HttpStatusCode.OK);
+        forMember.StatusCode.Should().Be(HttpStatusCode.NotFound, "the member holds the subscription, but alice's main thread is hers alone");
+    }
+
+    [Fact]
+    public async Task A_subscription_that_was_turned_off_or_is_not_the_persons_gets_no_wake_text()
+    {
+        var alice = await SeedPerson("alice");
+        var asAlice = await SignIn(alice);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var device = Device("https://push.example/turned-off");
+        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+        (await asAlice.Post("/api/push/device/off", new PushDeviceQuery(device.Endpoint))).EnsureSuccessStatusCode();
+
+        var afterOff = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var neverSubscribed = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, "https://push.example/never-subscribed");
+        var tooLong = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, $"https://push.example/{new string('a', Drover.Engine.Push.PushService.MaxEndpointLength)}");
+        var noAddress = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, " ");
+
+        afterOff.StatusCode.Should().Be(HttpStatusCode.Forbidden, "turning a device off ends its wake text");
+        neverSubscribed.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        tooLong.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        noAddress.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_wake_without_a_subscription_address_is_answered_as_before_for_the_app_and_the_desktop()
+    {
+        var alice = await SeedPerson("alice");
+        var asAlice = await SignIn(alice);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+
+        var text = await GetFor<PushWakeText>(asAlice, $"/api/push/wake?kind=run.finished&thread={thread.Id}");
+
+        text.BotId.Should().Be(bot.Id);
+    }
+
     #endregion
 
     #region Bots
@@ -191,6 +336,18 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         }
 
         #endregion
+    }
+
+    /// <summary>Shares the thread with every member of the space, as its owner would.</summary>
+    private async Task ShareWithTheSpace(Guid spaceId, Guid ownerId, Guid threadId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, ownerId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        await db.Threads.Where(found => found.Id == threadId)
+            .ExecuteUpdateAsync(set => set.SetProperty(found => found.AudienceUserId, Audience.Everyone), Token);
+        await work.Commit(Token);
     }
 
     private static PushDeviceRequest Device(string endpoint)
