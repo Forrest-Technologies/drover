@@ -143,7 +143,9 @@ public sealed class ReplyFooterTests
             RunPrincipalUserId = theirs,
         };
 
-        var shown = new[] { asked, answered }.ToChatMessages(reader: new UsageReader(mine, IsSpaceAdmin: false));
+        MessageView[] conversation = [asked, answered];
+
+        var shown = conversation.ToChatMessages(reader: new UsageReader(mine, IsSpaceAdmin: false));
 
         var reply = shown.Single(message => !message.FromPerson);
         reply.FinishesReply.Should().BeTrue();
@@ -157,7 +159,9 @@ public sealed class ReplyFooterTests
     {
         var answered = new MessageView(Guid.CreateVersion7(), "assistant", [new PartView("text", Text: "Done.")], false, null) { RunId = Guid.CreateVersion7() };
 
-        var reply = new[] { answered }.ToChatMessages().Single();
+        MessageView[] conversation = [answered];
+
+        var reply = conversation.ToChatMessages().Single();
 
         reply.FinishesReply.Should().BeTrue();
         ChatRows.OffersCopy(reply).Should().BeTrue();
