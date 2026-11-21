@@ -24,7 +24,7 @@ public sealed record SandboxCommandLimits
 }
 
 /// <summary>
-/// The lock that keeps a command and a tainted write from using one sandbox at once. A caller first takes a turn in
+/// The lock that keeps a command and a write from using one sandbox at once. A caller first takes a turn in
 /// this process, which costs no database session and is bounded, and only then opens the one session that holds the
 /// advisory lock, so the sessions are never more than <see cref="SandboxCommandLimits.MaxHeld"/> and none is spent on
 /// a waiter. The advisory lock itself still keeps other server processes out. No tenant transaction stays open while

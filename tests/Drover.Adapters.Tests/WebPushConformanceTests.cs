@@ -82,13 +82,15 @@ public sealed class TestDevice
 
     private readonly byte[] authSecret = RandomNumberGenerator.GetBytes(16);
 
+    private readonly Guid userId = Guid.CreateVersion7();
+
     #endregion
 
     #region Properties
 
     public PushSubscription Subscription => new()
     {
-        UserId = Guid.CreateVersion7(),
+        UserId = userId,
         Endpoint = "https://push.example/send/device-1",
         PublicKey = Base64Url.EncodeToString(PublicKey),
         AuthSecret = Base64Url.EncodeToString(authSecret),

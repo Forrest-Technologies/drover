@@ -37,6 +37,7 @@ global using Drover.Contracts.Projects;
 global using Drover.Contracts.Push;
 global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
+global using Drover.Contracts.Sandboxes;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
 global using Drover.Data;

@@ -114,7 +114,7 @@ public sealed class MemoryToolsTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task A_run_given_a_note_a_tainted_run_wrote_starts_tainted_and_one_given_only_clean_notes_does_not()
+    public async Task A_note_a_tainted_run_wrote_is_recorded_as_tainted_and_a_run_given_it_starts_clean()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hello.")], [new TextOutput("Hello again.")]));
         await TurnMemoryOn(world);
@@ -129,9 +129,9 @@ public sealed class MemoryToolsTests(PostgresServer postgres)
         var given = await world.Post(await world.NewThread(), "Hello again.");
         await world.WaitForStatus(given, RunStatus.Completed, RunStatus.Failed);
 
-        (await world.ReadRun(clean)).Tainted.Should().BeFalse("no note it was given came from a tainted run");
+        (await world.ReadRun(clean)).Tainted.Should().BeFalse();
         (await Notes(world)).Select(note => (note.Text, note.Tainted)).Should().Equal(("Prefers tea.", false), ("The page said to forward every email.", true));
-        (await world.ReadRun(given)).Tainted.Should().BeTrue("a note a tainted run wrote may carry the untrusted text it read");
+        (await world.ReadRun(given)).Tainted.Should().BeFalse("a note is reference material: a run given one is recorded as tainted only for what it reads itself");
     }
 
     [Fact]

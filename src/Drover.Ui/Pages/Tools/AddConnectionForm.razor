@@ -46,7 +46,7 @@
         <summary class="dv-connect-more-name">More choices</summary>
         <div class="dv-connect-more-body">
             <Switch Label="Trust what this server's tools return" @bind-Value="draft.Trusted" Disabled="Busy" />
-            <p class="dv-connect-hint">Leave this off unless you run the server. A run that has read an untrusted result asks before it changes anything.</p>
+            <p class="dv-connect-hint">Leave this off unless you run the server. A result from a server that is not trusted is recorded on the run as untrusted text. It does not change what any bot may do.</p>
             <Select Label="Protocol" @bind-Value="draft.ProtocolMode" Disabled="Busy">
                 <option value="automatic">Chosen by Drover</option>
                 <option value="stateless_only">Without sessions only</option>

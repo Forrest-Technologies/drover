@@ -128,6 +128,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxSchedulesPerSpace = 100;
 
+    public const int SelfHostedMaxSandboxSecretsPerSpace = 100;
+
+    public const int HostedMaxSandboxSecretsPerSpace = 50;
+
     public const int SelfHostedMaxFileBytes = 25 * 1024 * 1024;
 
     public const int HostedMaxFileBytes = 10 * 1024 * 1024;
@@ -249,6 +253,9 @@ public sealed record DeploymentPolicy
     /// <summary>The most schedules a space may hold, across all of its bots. Each is unattended work on the operator's server.</summary>
     public int MaxSchedulesPerSpace { get; init; } = SelfHostedMaxSchedulesPerSpace;
 
+    /// <summary>The most sandbox secrets a space may hold. Each is a credential the operator's server keeps and hands out.</summary>
+    public int MaxSandboxSecretsPerSpace { get; init; } = SelfHostedMaxSandboxSecretsPerSpace;
+
     /// <summary>The most bytes of one file a person attaches to a message. A larger one is refused, not cut.</summary>
     public int MaxFileBytes { get; init; } = SelfHostedMaxFileBytes;
 
@@ -345,9 +352,6 @@ public sealed record DeploymentPolicy
     public bool RequireSetupCode { get; init; } = true;
 
     public QuotaMode SpaceQuotas { get; init; } = QuotaMode.Unlimited;
-
-    /// <summary>A space may turn tainted-run escalation off. It is on unless a space does.</summary>
-    public bool SpaceMayDisableTaintedRunEscalation { get; init; } = true;
 
     /// <summary>A space may turn on loading remote images in bot output. It is off unless a space does.</summary>
     public bool SpaceMayAutoLoadRemoteImages { get; init; } = true;
@@ -534,6 +538,11 @@ public sealed record DeploymentPolicy
             HostedMaxSchedulesPerSpace,
             Enforcement.Now("ScheduleService, when a schedule is added")),
         PolicyRule.Limit(
+            nameof(MaxSandboxSecretsPerSpace),
+            policy => policy.MaxSandboxSecretsPerSpace,
+            HostedMaxSandboxSecretsPerSpace,
+            Enforcement.Now("SandboxSecretService, when a secret is added")),
+        PolicyRule.Limit(
             nameof(MaxFileBytes),
             policy => policy.MaxFileBytes,
             HostedMaxFileBytes,
@@ -611,10 +620,6 @@ public sealed record DeploymentPolicy
             nameof(SpaceQuotas),
             policy => policy.SpaceQuotas,
             Enforcement.Later("Quotas, after Phase 0")),
-        PolicyRule.Permission(
-            nameof(SpaceMayDisableTaintedRunEscalation),
-            policy => policy.SpaceMayDisableTaintedRunEscalation,
-            Enforcement.Later("Phase 1: tainted-run escalation (06-mcp.md)")),
         PolicyRule.Permission(
             nameof(SpaceMayAutoLoadRemoteImages),
             policy => policy.SpaceMayAutoLoadRemoteImages,

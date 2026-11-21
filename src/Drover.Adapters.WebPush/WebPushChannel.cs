@@ -3,7 +3,9 @@ namespace Drover.Adapters.WebPush;
 /// <summary>
 /// <see cref="IPushChannel"/> over Web Push: the wake-up, encrypted to the device, posted to its push service and
 /// signed with the server's VAPID key. Serves browsers, the installed web app on every platform, and UnifiedPush.
-/// The payload is the kind and the thread, and no header names either.
+/// The payload is the kind, the thread, and the person the device was subscribed by, and no header names any of them.
+/// The payload is encrypted to the device, so only its service worker reads the person: it asks the server about the
+/// wake only as that person, so a wake that was queued for one person is never described to the next one.
 /// </summary>
 public sealed class WebPushChannel(HttpClient http, WebPushKeys keys, ILogger<WebPushChannel> logger) : IPushChannel
 {
@@ -32,7 +34,7 @@ public sealed class WebPushChannel(HttpClient http, WebPushKeys keys, ILogger<We
         {
             await client.RequestPushMessageDeliveryAsync(
                 ToServiceSubscription(subscription),
-                ToMessage(wakeUp),
+                ToMessage(subscription, wakeUp),
                 authentication,
                 VapidAuthenticationScheme.Vapid,
                 cancellationToken);
@@ -97,8 +99,8 @@ public sealed class WebPushChannel(HttpClient http, WebPushKeys keys, ILogger<We
 
     // Every wake-up is one the person sees at once, so each is sent as urgent. A phone in deep idle holds anything less
     // until its next maintenance window, which can be hours away.
-    private static PushMessage ToMessage(PushWakeUp wakeUp) =>
-        new(JsonSerializer.Serialize(new { kind = wakeUp.Kind, thread = wakeUp.ThreadId }))
+    private static PushMessage ToMessage(DeviceSubscription subscription, PushWakeUp wakeUp) =>
+        new(JsonSerializer.Serialize(new { kind = wakeUp.Kind, thread = wakeUp.ThreadId, user = subscription.UserId }))
         {
             Urgency = PushMessageUrgency.High,
         };

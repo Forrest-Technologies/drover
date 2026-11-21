@@ -10,8 +10,7 @@ namespace Drover.Engine.Files;
 /// document is too when the bot has a sandbox it may use, but only from a conversation everyone who can reach the
 /// sandbox can see, checked when the rows are read (<see cref="FileAbilityReader.AudienceCoversSandbox"/>) and again
 /// when the copy is written. Shared project files never copy into a sandbox and reach the model directly as text,
-/// read documents, or pictures. Nothing here holds a transaction while it reads a file or copies one. A file is text
-/// from outside Drover, so a run given one, its content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
+/// read documents, or pictures. Nothing here holds a transaction while it reads a file or copies one.
 /// </summary>
 public sealed class RunFiles(
     RunTenant tenant,
@@ -21,7 +20,6 @@ public sealed class RunFiles(
     int maxDocumentPages,
     IFileStore store,
     SandboxBroker? sandboxes,
-    Func<Task> taint,
     ILogger logger)
 {
     #region Private Fields
@@ -129,8 +127,6 @@ public sealed class RunFiles(
 
         foreach (var file in rows)
         {
-            await taint();
-
             if (projectPictures.TryGetValue(file.Id, out var cached))
             {
                 if (!TryMeasureImages(cached.File, out var cachedImages, out var cachedBytes, out var cachedDecoded))
@@ -509,11 +505,6 @@ public sealed class RunFiles(
 
         var kind = FileInspector.KindOf(file.ContentType);
         var use = FileUses.For(kind, can);
-
-        if (use is not FileUse.None)
-        {
-            await taint();
-        }
 
         var result = use switch
         {
