@@ -452,7 +452,9 @@ try {
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 const editorLoaded = name === 'bot-editor'
-                    ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
+                    ? page.waitForResponse(response => response.ok()
+                        && response.request().method() === 'GET'
+                        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
                     : null;
                 const target = address;
                 if (name === 'account' || name === 'sign-in' || name === 'project-member') {
@@ -537,7 +539,10 @@ try {
                     await page.mouse.wheel(0, 3000);
                     await page.waitForTimeout(200);
                     const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-                    const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
+                    const [saved] = await Promise.all([
+                        page.waitForEvent('download', item => item.suggestedFilename() === 'extension.json'),
+                        exportControl.dispatchEvent('click'),
+                    ]);
                     assert.equal(saved.suggestedFilename(), 'extension.json');
                     const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
                     assert.equal(file.version, 1);
@@ -571,12 +576,14 @@ try {
                     const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
                     const download = page.getByRole('link', { name: 'Download sample-preview.md' });
                     const previewPath = `/files/${sampleFile.id}/native-preview`;
-                    const requested = page.waitForRequest(request => new URL(request.url()).pathname.endsWith(previewPath));
+                    const requested = page.waitForRequest(request => request.method() === 'GET'
+                        && new URL(request.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
                     await preview.press('Enter');
                     await requested;
                     await closePreview.waitFor({ state: 'attached' });
                     await page.screenshot({ path: path.join(pictures, `preview-loading-${width}-${theme}.png`) });
-                    const loaded = page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith(previewPath));
+                    const loaded = page.waitForResponse(reply => reply.request().method() === 'GET'
+                        && new URL(reply.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
                     completePreview();
                     await (await loaded).finished();
                     await page.waitForTimeout(500);
@@ -585,9 +592,11 @@ try {
                     await closePreview.press('Space');
                     for (const state of ['pdf', 'diagram', 'limit', 'error', 'malformed', 'unsupported']) {
                         const event = state === 'error' ? 'requestfailed' : 'requestfinished';
-                        const finished = page.waitForEvent(event, request => new URL(request.url()).pathname.endsWith(previewPath));
+                        const finished = page.waitForEvent(event, request => request.method() === 'GET'
+                            && new URL(request.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
                         await preview.press('Enter');
                         await finished;
+                        await closePreview.waitFor({ state: 'attached', timeout: 10000 });
                         await download.waitFor({ state: 'attached' });
                         await page.waitForTimeout(500);
                         if (state === 'pdf') {
@@ -596,6 +605,7 @@ try {
                         }
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
                         await closePreview.press('Space');
+                        await preview.waitFor({ state: 'attached', timeout: 10000 });
                     }
                     await checkWorkspacePanels(page, width, theme);
                     if (width === 1280) {
@@ -608,15 +618,17 @@ try {
                         await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
                     }
                     const panelPreview = page.getByRole('button', { name: 'Preview sample-panel.png', exact: true });
+                    const closePanel = page.getByRole('button', { name: 'Close preview of sample-panel.png' });
                     const panelPath = `/files/${panelFile.id}/native-preview`;
                     for (const state of ['picture', 'picture-error']) {
-                        const finished = page.waitForEvent('requestfinished',
-                            request => new URL(request.url()).pathname.endsWith(panelPath));
+                        const finished = page.waitForEvent('requestfinished', request => request.method() === 'GET'
+                            && new URL(request.url()).pathname === `/api/spaces/${spaceId}${panelPath}`);
                         await panelPreview.press('Enter');
                         await finished;
-                        await page.waitForTimeout(500);
+                        await closePanel.waitFor({ state: 'attached', timeout: 10000 });
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
-                        await page.getByRole('button', { name: 'Close preview of sample-panel.png' }).press('Space');
+                        await closePanel.press('Space');
+                        await panelPreview.waitFor({ state: 'attached', timeout: 10000 });
                     }
                 }
                 if (name === 'bot-editor') {
@@ -1007,7 +1019,13 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
     const previewButton = page.getByRole('button', { name: 'Preview report.html', exact: true });
     await previewButton.waitFor({ state: 'attached', timeout: 5000 });
+    const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
+    const navigated = page.waitForEvent('framenavigated', {
+        predicate: candidate => candidate.url() === frameUrl,
+        timeout: 5000,
+    });
     await previewButton.dispatchEvent('click');
+    const frame = await navigated;
 
     const iframe = page.locator('iframe[title="Preview of report.html"]');
     await iframe.waitFor({ state: 'attached', timeout: 5000 });
@@ -1026,13 +1044,6 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
         src: `${previewOrigin}/preview/file?grant=sample-grant`,
     });
 
-    await page.waitForFunction(() => document.querySelector('iframe[title="Preview of report.html"]') !== null);
-    const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
-    const frame = page.frames().find(candidate => candidate.url() === frameUrl)
-        ?? await page.waitForEvent('framenavigated', {
-            predicate: candidate => candidate.url() === frameUrl,
-            timeout: 5000,
-        });
     assert(frame, 'Expected the sandboxed preview iframe to navigate to the second origin.');
     await frame.locator('#preview-heading').waitFor({ state: 'attached', timeout: 5000 });
     assert.equal(await frame.locator('#preview-heading').innerText(), 'Quarterly report');
@@ -1068,7 +1079,8 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     });
     assert.equal(getBeaconCount(), 0, 'The sandboxed HTML preview must make zero external network requests.');
 
-    const revoked = page.waitForResponse(response => new URL(response.url()).pathname.endsWith(`/files/${htmlFileId}/preview/revoke`));
+    const revoked = page.waitForResponse(response => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/files/${htmlFileId}/preview/revoke`);
     await page.getByRole('button', { name: 'Close', exact: true }).dispatchEvent('click');
     await iframe.waitFor({ state: 'detached', timeout: 5000 });
     await revoked;
