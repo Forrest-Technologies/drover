@@ -1075,6 +1075,16 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
 }
 
+// A search request that carried these words, and its answer. The words are the app's own state: a query that never
+// reached the view model cannot produce this request, so the check fails without hiding which step was lost.
+function searchResponseFor(page, words) {
+    return page.waitForResponse(response =>
+        new URL(response.url()).pathname.endsWith('/threads/search')
+        && response.request().method() === 'POST'
+        && (response.request().postData() ?? '').includes(words),
+    { timeout: 15000 });
+}
+
 // Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
 // scrolls its message into the viewport rather than remaining stuck at the conversation foot.
 async function checkConversationSearch(page, width) {
@@ -1097,29 +1107,22 @@ async function checkConversationSearch(page, width) {
         }, null, { timeout: 10000 });
     }
 
+    // The hybrid renderer rebuilds the browser input behind the accessibility tree when the field redraws, so the
+    // DOM node's value is not the search box's state and can be empty even after a successful fill. Wait for the
+    // search itself and for the heading the app builds from the words it actually searched for.
+    const zebraRequest = searchResponseFor(page, 'zebra');
     await searchBox.focus();
     await searchBox.fill('zebra');
-    await page.waitForFunction(() => {
-        const el = [...document.querySelectorAll('input, textarea')].find(node =>
-            node.getAttribute('aria-label') === 'Search conversations');
-        return el && el.value === 'zebra';
-    }, null, { timeout: 5000 });
     await page.keyboard.press('Enter');
+    await zebraRequest;
     const nothing = page.getByRole('heading', { name: 'Nothing matches “zebra”', exact: true });
     await nothing.waitFor({ state: 'attached', timeout: 10000 });
     await page.getByRole('button', { name: 'Clear the search', exact: true }).last().dispatchEvent('click');
     await nothing.waitFor({ state: 'detached', timeout: 10000 });
 
+    const searchResponse = searchResponseFor(page, 'lighthouse');
     await searchBox.focus();
     await searchBox.fill('lighthouse');
-    await page.waitForFunction(() => {
-        const el = [...document.querySelectorAll('input, textarea')].find(node =>
-            node.getAttribute('aria-label') === 'Search conversations');
-        return el && el.value === 'lighthouse';
-    }, null, { timeout: 5000 });
-    const searchResponse = page.waitForResponse(response =>
-        new URL(response.url()).pathname.endsWith('/threads/search') && response.request().method() === 'POST',
-    { timeout: 10000 });
     await page.keyboard.press('Enter');
     await searchResponse;
     await page.locator('[aria-label="2 messages found."]')
