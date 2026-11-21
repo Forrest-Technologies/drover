@@ -20,7 +20,7 @@ public sealed class BotRuleRepository(DroverDbContext db)
 
     /// <summary>
     /// Every rule the bot follows: those of the bots above it first, the furthest first, then its own, each bot's in
-    /// its order. A bot that was removed still binds the bots beneath it.
+    /// its order. A removed bot still binds the bots left beneath it; bots moved up carry its rules as their own.
     /// </summary>
     public async Task<List<InheritedRule>> ListRulesAlongPath(Guid botId, CancellationToken cancellationToken)
     {
