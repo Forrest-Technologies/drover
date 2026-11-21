@@ -117,7 +117,7 @@ so each shows the same controls.
   address, the account, and the certificate's SHA-256 hash, and exits with 0 only when the app reports that every
   check passed. The app's connect step gives the server 30 s and tries a refused connection again after 0.5, 1 and 2
   s, logging each attempt; a server that never answers still fails with the screen's own problem text, and a failed
-  iOS run prints the app's log. The app trusts
+  iOS run prints the app's log. A step waits up to 60 s for its screen and returns as soon as it is there, because a hosted runner shared with the simulator has taken 17 s to sign in. The app trusts
   that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
   port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
   through the device log under the tag `DroverUiCheck`.

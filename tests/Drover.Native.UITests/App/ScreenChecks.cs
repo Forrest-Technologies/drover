@@ -19,7 +19,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private const string Message = "Hello from the screen checks.";
 
-    private static readonly TimeSpan patience = TimeSpan.FromSeconds(30);
+    // How long a step waits for the screen it expects. The test server shares a small hosted runner with the
+    // simulator, and signing in hashes a password on a thread pool that the same machine's load can starve, so a step
+    // that talks to the server has taken 17 s in a passing run. A passing step returns the moment its screen is
+    // there; this is only how long a real failure is given before it is reported.
+    private static readonly TimeSpan patience = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan startPatience = TimeSpan.FromSeconds(120);
 
