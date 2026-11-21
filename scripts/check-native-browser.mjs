@@ -74,6 +74,12 @@ const messages = [{
     id: '0196f1a0-0000-7000-8000-000000000006', threadId: thread.id, position: 1, role: 'assistant',
     parts: [{ kind: 'text', text: 'Sample reply from the conversation history.' }], createdAt: thread.lastActivityAt,
 }];
+// A run the sample bot holds in progress once a message is sent, so the composer shows Stop. Its events never end.
+const heldRun = {
+    id: '0196f1a0-0000-7000-8000-000000000009', threadId: thread.id, botId, rootRunId: '0196f1a0-0000-7000-8000-000000000009',
+    status: 'running', statusReason: null, error: null, attempt: 1, lastEventSeq: 0,
+    usage: { input: 0, output: 0, cached: 0, cost: 0 }, startedAt: '2026-11-18T00:00:01Z', finishedAt: null,
+};
 const sampleFile = {
     id: '0196f1a0-0000-7000-8000-000000000007', name: 'sample-preview.md',
     contentType: 'text/markdown', kind: 'text', size: 120,
@@ -268,6 +274,26 @@ try {
                 else if (address.endsWith(`/files/${panelFile.id}/native-preview`)) {
                     body = { image: ++panelPreviewRequests === 1 ? samplePng : 'iVBORw0KGgo=' };
                 }
+                else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
+                    const sent = JSON.parse(route.request().postData() ?? '{}');
+                    body = {
+                        message: {
+                            id: '0196f1a0-0000-7000-8000-00000000000a', threadId: thread.id, position: 2, role: 'user',
+                            parts: [{ kind: 'text', text: sent.text ?? '' }], createdAt: '2026-11-18T00:00:01Z',
+                        },
+                        run: heldRun,
+                    };
+                }
+                else if (address.endsWith(`/runs/${heldRun.id}`)) { body = heldRun; }
+                else if (address.endsWith(`/runs/${heldRun.id}/events`)) {
+                    // The run has started and is not finished: one event, and the stream then closes without an end for it.
+                    const started = {
+                        seq: 1, runId: heldRun.id, type: 'run.started', createdAt: heldRun.startedAt,
+                        data: JSON.stringify({ status: 'running', reason: null, error: null, attempt: 1, usage: null }),
+                    };
+                    await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
+                    return;
+                }
                 else if (address.endsWith('/messages')) { body = messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
                 else if (address.endsWith(`/files/${htmlFileId}/preview`) && route.request().method() === 'POST') {
@@ -354,6 +380,10 @@ try {
                 }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+                if (name === 'conversation' && !reference) {
+                    await checkComposerBounds(page);
+                    await checkStopBounds(page, width);
+                }
                 if (name === 'conversation' && !reference) {
                     const preview = page.getByRole('button', { name: 'Preview sample-preview.md', exact: true });
                     const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
@@ -447,6 +477,173 @@ try {
 }
 
 // Browser Back and closing the tab both ask before unsaved edits are dropped, and neither asks once there are none.
+// The accessible box of each composer button must stand where the button is drawn. The semantic tree and the canvas are
+// separate, so the check asks the canvas where the button is drawn: focusing a button draws its focus ring, and the
+// pixels that change between another, far away control being focused and the button being focused are the ring, found
+// in a picture much larger than the box so that it is seen whole whatever the box says. Every edge of the ring must sit
+// where the same edge of the box does, within 2 px (the ring of a button with an icon stands 4 px outside it). The runtime
+// moves a box only when the control's own offset or size changes, so a box whose ancestor moved is stale. Opening and
+// closing the options row, growing the field, and a run starting are the moves that find it.
+async function composerRingCheck(page) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    // The ring of an icon button stands this far outside its box.
+    const composerRingOutset = { 'More options': 4 };
+    const margin = 48;
+    const reader = await page.context().newPage();
+    await reader.setContent('<canvas id="c"></canvas>');
+    // Three pictures of the same place: with the field focused, with the button focused, and with a control far away
+    // focused. Focus inside the composer draws things that are not the ring (the frame's edge, the field's underline), and
+    // they are exactly what differs between the first and the third. The pixels that differ between the first and the
+    // second, and are not among those, are the ring, whatever color it is on whatever the button is filled with. The
+    // box around them is where the button's ring is drawn.
+    const ringBetween = async (inField, onButton, elsewhere) => reader.evaluate(async ([one, two, three]) => {
+        const load = async base64 => {
+            const image = new Image();
+            await new Promise(resolve => { image.onload = resolve; image.src = `data:image/png;base64,${base64}`; });
+            const canvas = document.getElementById('c');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            return context.getImageData(0, 0, image.width, image.height);
+        };
+        const differs = (p, q, i) => Math.abs(p.data[i] - q.data[i]) + Math.abs(p.data[i + 1] - q.data[i + 1]) + Math.abs(p.data[i + 2] - q.data[i + 2]) > 60;
+        const [a, b, c] = [await load(one), await load(two), await load(three)];
+        let [left, top, right, bottom, count] = [Infinity, Infinity, -1, -1, 0];
+        for (let y = 0; y < a.height; y++) {
+            for (let x = 0; x < a.width; x++) {
+                const i = (y * a.width + x) * 4;
+                if (differs(a, b, i) && !differs(a, c, i)) {
+                    left = Math.min(left, x);
+                    top = Math.min(top, y);
+                    right = Math.max(right, x);
+                    bottom = Math.max(bottom, y);
+                    count++;
+                }
+            }
+        }
+        return { left, top, right, bottom, count };
+    }, [inField.toString('base64'), onButton.toString('base64'), elsewhere.toString('base64')]);
+    // A control far from the picture, to leave the focus on for the third picture.
+    const farAway = async clip => {
+        const controls = page.locator('button, a[href]');
+        const total = await controls.count();
+        for (let index = 0; index < total; index++) {
+            const box = await controls.nth(index).boundingBox({ timeout: 500 }).catch(() => null);
+            if (box && (box.x + box.width < clip.x - 24 || box.x > clip.x + clip.width + 24
+                || box.y + box.height < clip.y - 24 || box.y > clip.y + clip.height + 24)) {
+                return controls.nth(index);
+            }
+        }
+        throw new Error('The page has no control far from the composer to leave the focus on.');
+    };
+    const misses = async label => {
+        const button = page.getByRole('button', { name: label, exact: true });
+        const box = await button.count() === 1 ? await button.boundingBox({ timeout: 1000 }) : null;
+        if (!box) {
+            return [`${label} has no accessible box`];
+        }
+        const viewport = page.viewportSize();
+        const x0 = Math.max(0, Math.floor(box.x) - margin);
+        const y0 = Math.max(0, Math.floor(box.y) - margin);
+        const clip = {
+            x: x0,
+            y: y0,
+            width: Math.min(viewport.width, Math.ceil(box.x + box.width) + margin) - x0,
+            height: Math.min(viewport.height, Math.ceil(box.y + box.height) + margin) - y0,
+        };
+        await page.mouse.move(1, 1);
+        await field.focus();
+        await page.waitForTimeout(200);
+        const inField = await page.screenshot({ clip });
+        await button.focus();
+        await page.waitForTimeout(200);
+        const onButton = await page.screenshot({ clip });
+        await (await farAway(clip)).focus();
+        await page.waitForTimeout(200);
+        const elsewhere = await page.screenshot({ clip });
+        const { left, top, right, bottom, count } = await ringBetween(inField, onButton, elsewhere);
+        const outset = composerRingOutset[label] ?? 0;
+        const expected = {
+            left: Math.floor(box.x) - outset,
+            top: Math.floor(box.y) - outset,
+            right: Math.ceil(box.x + box.width) - 1 + outset,
+            bottom: Math.ceil(box.y + box.height) - 1 + outset,
+        };
+        const drawn = { left: clip.x + left, top: clip.y + top, right: clip.x + right, bottom: clip.y + bottom };
+        const off = ['left', 'top', 'right', 'bottom'].filter(edge => count === 0 || Math.abs(drawn[edge] - expected[edge]) > 2);
+        return off.length === 0 ? [] : [
+            `${label}: ${count === 0 ? 'no focus ring is drawn' : `its focus ring is drawn from ${drawn.left},${drawn.top} to ${drawn.right},${drawn.bottom}`}, `
+            + `but its accessible box says ${expected.left},${expected.top} to ${expected.right},${expected.bottom} (box ${JSON.stringify(box)}); off at: ${off.join(', ')}`,
+        ];
+    };
+    const settled = async (state, names) => {
+        let found = [];
+        const until = Date.now() + 3000;
+        do {
+            await page.waitForTimeout(250);
+            found = [];
+            for (const label of names) {
+                found.push(...await misses(label));
+            }
+        } while (found.length > 0 && Date.now() < until);
+        assert.equal(found.length, 0, `${state}: the accessible boxes are not where the buttons are drawn.\n${found.join('\n')}`);
+    };
+    return { settled, close: () => reader.close() };
+}
+
+async function checkComposerBounds(page) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const buttons = ['More options', 'Attach', 'Send'];
+    const { settled, close } = await composerRingCheck(page);
+    const more = page.getByRole('button', { name: 'More options', exact: true });
+
+    try {
+        await more.dispatchEvent('click');
+        await settled('options open', buttons.filter(label => label !== 'Send'));
+        await field.focus();
+        await page.keyboard.type('one');
+        await page.keyboard.press('Shift+Enter');
+        await page.keyboard.type('two');
+        await page.keyboard.press('Shift+Enter');
+        await page.keyboard.type('three');
+        await settled('options open and the field three lines tall', buttons);
+        await more.dispatchEvent('click');
+        await settled('options closed and the field three lines tall', ['More options', 'Send']);
+        await more.dispatchEvent('click');
+        await settled('options open again', buttons);
+        await more.dispatchEvent('click');
+        await field.focus();
+        await page.keyboard.press('ControlOrMeta+A');
+        await page.keyboard.press('Delete');
+        await page.waitForTimeout(250);
+    } finally {
+        await close();
+    }
+}
+
+// While a run is in progress Stop stands where Send was, and the options button beside the field is still there. The
+// sample bot holds a run once a message is sent, so this sends one, looks at both, and leaves the run unfinished. It runs
+// before the file panels are opened, which cover the composer on a phone.
+async function checkStopBounds(page, width) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const { settled, close } = await composerRingCheck(page);
+    try {
+        await field.focus();
+        await page.keyboard.type('hold this run');
+        // Send enables once the draft has reached the conversation, a frame after the keystrokes.
+        await page.waitForFunction(() => {
+            const send = document.querySelector('[aria-label="Send"]');
+            return send && !send.disabled && send.getAttribute('aria-disabled') !== 'true';
+        }, null, { timeout: 10000 });
+        await page.getByRole('button', { name: 'Send', exact: true }).dispatchEvent('click');
+        await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });
+        await settled(`a run in progress at ${width} px`, ['Stop', 'More options']);
+    } finally {
+        await close();
+    }
+}
+
 async function checkLeavingWithEdits(page, address) {
     const instructions = page.getByRole('textbox', { name: 'Instructions', exact: true });
     const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
