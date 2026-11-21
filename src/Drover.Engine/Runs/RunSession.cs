@@ -23,12 +23,6 @@ public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, Bu
 }
 
 /// <summary>
-/// The run has just read text from an untrusted source and its agent was built before that. The agent must be built
-/// again, with its consequential tools asking, before the model is called once more.
-/// </summary>
-public sealed class AgentRebuildRequiredException() : Exception("The run became tainted; its agent is built again before the next model call.");
-
-/// <summary>
 /// The state of one execution of one run, shared by its governor, its model client, and the executor: which step it
 /// is on, which tool calls are in flight, and the one writer of its events. It lives from claim to finish; nothing
 /// in it is needed to continue after a restart, because everything that matters is in the database.
@@ -46,7 +40,6 @@ public sealed class RunSession(
     RunCeilings limits,
     int stepsSoFar,
     IReadOnlyList<Guid> alreadyDelivered,
-    bool escalateWhenTainted = true,
     RunSession? parent = null) : IAsyncDisposable
 {
     #region Private Fields
@@ -155,11 +148,11 @@ public sealed class RunSession(
 
     public RunOptions Options => options;
 
-    /// <summary>The run has received a result from an untrusted source. It stays so until it ends.</summary>
+    /// <summary>
+    /// The run itself has received a result from an untrusted source. It is a record and nothing more: no tool asks
+    /// or is refused because of it. It stays so until the run ends, and a note the run writes carries it.
+    /// </summary>
     public bool Tainted { get; private set; } = run.Tainted;
-
-    /// <summary>Whether the agent now running was built with the run already tainted.</summary>
-    public bool BuiltTainted { get; private set; } = run.Tainted;
 
     #endregion
 
@@ -380,33 +373,16 @@ public sealed class RunSession(
 
     #endregion
 
-    #region Taint
+    #region Grants And Taint
 
     /// <summary>
-    /// What the bot may do with the tool right now. "Allow" on a built-in tool that always asks behaves as "ask", and
-    /// so, in a tainted run, does "allow" on a tool that can change something: text from an untrusted source must not
-    /// lead to an unattended action.
+    /// What the bot may do with the tool right now: the grant, except that "allow" on a built-in tool that always asks
+    /// behaves as "ask", so it never runs on allow alone. What the run read changes nothing here: "allow" runs.
     /// </summary>
     public GrantEffect EffectNow(RunTool tool, GrantEffect granted) =>
-        AsTheToolAllows(tool, granted) is GrantEffect.Allow && Tainted && escalateWhenTainted && tool.Tool.Sensitivity is not ToolSensitivity.Read
-            ? GrantEffect.Ask
-            : AsTheToolAllows(tool, granted);
-
-    /// <summary>The grant as the tool itself lets it count: a built-in tool that always asks never runs on allow alone.</summary>
-    private static GrantEffect AsTheToolAllows(RunTool tool, GrantEffect granted) =>
         granted is GrantEffect.Allow && tool.Builtin is { AlwaysAsks: true } ? GrantEffect.Ask : granted;
 
-    /// <summary>
-    /// True when the run became tainted after its agent was built and the agent holds a tool that must now ask. The
-    /// framework can only stop for approval on tools marked for it when the agent is built.
-    /// </summary>
-    public bool NeedsRebuild =>
-        Tainted && !BuiltTainted && escalateWhenTainted
-        && tools.Any(tool => tool.Effect is GrantEffect.Allow && tool.Tool.Sensitivity is not ToolSensitivity.Read);
-
-    public void MarkBuilt() => BuiltTainted = Tainted;
-
-    /// <summary>Marks the run tainted, on the row as well, so a later execution starts tainted.</summary>
+    /// <summary>Records that the run read untrusted text, on the row as well, so a later execution of the run still shows it.</summary>
     public async Task Taint()
     {
         if (Tainted)
@@ -473,7 +449,7 @@ public sealed class RunSession(
                 tool?.Tool.Name ?? modelName,
                 tool?.Tool.Title ?? tool?.Tool.Name ?? modelName,
                 redactor.Redact(arguments).GetRawText(),
-                (tool is null ? GrantEffect.Deny : AsTheToolAllows(tool, tool.Effect)).ToString().ToLowerInvariant()));
+                (tool is null ? GrantEffect.Deny : EffectNow(tool, tool.Effect)).ToString().ToLowerInvariant()));
     }
 
     public async Task StartTool(string callId)

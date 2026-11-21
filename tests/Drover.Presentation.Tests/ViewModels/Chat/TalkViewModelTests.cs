@@ -62,6 +62,18 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #region Not Ready
 
     [Fact]
+    public async Task An_unreachable_conversation_keeps_the_server_check_as_its_next_step()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+
+        await Go("/");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Drover could not reach its server. Check that the server is running."));
+        MainPane.Problem.Should().Be("Drover could not reach its server. Check that the server is running.");
+    }
+
+
+    [Fact]
     public async Task With_no_model_the_workspace_says_so_and_links_to_connecting_one()
     {
         Server.Answer("GET", $"{Space}/model-connections", Array.Empty<ModelConnectionSummary>());
@@ -311,6 +323,30 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #endregion
 
     #region Reading
+
+    [Fact]
+    public async Task A_dropped_run_stream_says_it_is_reconnecting_and_stops_saying_so_once_through_even_with_nothing_new()
+    {
+        Main(Thread(runId));
+        var first = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await first.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await first.Send(Event(2, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_approval", null, 1, null)));
+        await Until(() => MainPane.Waiting.Should().BeTrue());
+
+        // The run waits on the person, so the stream that comes back has nothing to send.
+        Server.Stream($"{Space}/runs/{runId}/events");
+        var dropped = false;
+        MainPane.PropertyChanged += (_, _) => dropped |= MainPane.Notice == "The connection dropped. Reconnecting.";
+        await first.End();
+
+        await Until(() =>
+        {
+            dropped.Should().BeTrue("the screen says the connection dropped while it is away");
+            Server.Addresses.Count(address => address.StartsWith($"GET {Space}/runs/{runId}/events", StringComparison.Ordinal)).Should().Be(2);
+            MainPane.Notice.Should().BeNull("the stream is through again");
+        });
+    }
 
     [Fact]
     public async Task The_start_page_lists_the_crew_as_a_tree_and_opens_the_leads_main_conversation()

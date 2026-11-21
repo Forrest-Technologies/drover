@@ -73,6 +73,8 @@ jobs:
       - name: Install PostgreSQL on macOS
         if: runner.os == 'macOS'
         run: brew install postgresql@17
+      - name: Check PostgreSQL binary discovery
+        run: python3 scripts/check-dev-postgres.py
       - name: Start, test, and stop PostgreSQL
         shell: bash
         run: |

@@ -311,7 +311,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -383,7 +383,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "The model of thread {ThreadId} could not be chosen", shown.Id);
-            toasts.Show(Failures.Sentence(exception), ToastKind.Error);
+            toasts.Show(Failures.Sentence(exception, "Check that the server is running."), ToastKind.Error);
             Composer.ShowModels(await LoadModels(shown.Id));
         }
     }
@@ -465,7 +465,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"Your message was not sent. {Failures.Sentence(exception)}";
+            problem = $"Your message was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -507,7 +507,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"The reply was not stopped. {Failures.Sentence(exception)}";
+            problem = $"The reply was not stopped. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -542,7 +542,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            return $"Your answer was not sent. {Failures.Sentence(exception)}";
+            return $"Your answer was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -575,7 +575,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception)}");
+            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception, "Check that the server is running.")}");
         }
     }
 
@@ -589,7 +589,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception), ToastKind.Error);
+            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception, "Check that the server is running."), ToastKind.Error);
         }
     }
 
@@ -625,7 +625,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"It was not tried again. {Failures.Sentence(exception)}";
+            problem = $"It was not tried again. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -671,7 +671,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"{notDone} {Failures.Sentence(exception)}";
+            problem = $"{notDone} {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -700,7 +700,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"The other version was not shown. {Failures.Sentence(exception)}";
+            problem = $"The other version was not shown. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -746,7 +746,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"The files were not attached. {Failures.Sentence(exception)}";
+            problem = $"The files were not attached. {Failures.Sentence(exception, "Check that the server is running.")}";
             return;
         }
 
@@ -893,7 +893,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         var tree = RunView.Start(rootRunId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 tree = RunReducer.Apply(tree, change);
                 (run, reconnecting) = (tree.Find(runId) ?? run, null);
@@ -947,7 +947,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         var view = RunView.Start(runId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
@@ -995,6 +995,17 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             Show();
         });
     }
+
+    // The reader calls this each time it is through again. A run that is waiting on the person, or quiet, sends nothing
+    // after a reconnect, so the notice goes now instead of with the next event.
+    private void ConnectionRestored() => ui.Post(() =>
+    {
+        if (reconnecting is not null)
+        {
+            reconnecting = null;
+            Show();
+        }
+    });
 
     #endregion
 

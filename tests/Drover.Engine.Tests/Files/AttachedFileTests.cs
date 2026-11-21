@@ -31,6 +31,41 @@ public sealed class AttachedFileTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_picture_reaches_a_compatible_endpoints_model_as_the_picture_once_an_admin_marks_it_and_a_refresh_keeps_the_mark()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("A cat.")]));
+        var scriptedKind = await SetConnectionKind(world, ModelConnectionKinds.Compatible);
+        var threadId = await world.NewThread();
+
+        var before = await world.Upload(threadId, "cat.png", TestPng.Make(64, 48));
+        before.Problem.Should().Be(FileProblem.Refused, "the endpoint lists the model and says nothing of pictures");
+
+        var change = await world.Transact(async services =>
+        {
+            var connectionId = (await services.GetRequiredService<ModelConnectionRepository>().ListConnections(RunWorld.Token)).Single().Id;
+            return await services.GetRequiredService<ModelConnectionService>().SetVision(connectionId, "scripted", true, RunWorld.Token);
+        });
+        change!.Problem.Should().BeNull();
+        await SetConnectionKind(world, scriptedKind);
+        await world.Read(async db =>
+        {
+            var model = await db.ModelCatalog.SingleAsync(entry => entry.Model == "scripted", RunWorld.Token);
+            CatalogUpsert.Apply(model.ModelConnectionId, [model], [new ModelInfo("scripted", "Scripted", new ModelCapabilities(), [])], DateTimeOffset.UtcNow);
+            return true;
+        });
+        var png = TestPng.Make(64, 48);
+        var upload = await world.Upload(threadId, "cat.png", png);
+        upload.File.Should().NotBeNull(upload.Detail);
+        world.StartHost();
+        var runId = await PostWith(world, threadId, "What is this?", upload.File!.Id);
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        var seen = world.Model.ImagesSeen[0].Should().ContainSingle().Which;
+        seen.MediaType.Should().Be("image/png");
+        seen.Data.ToArray().Should().Equal(png);
+    }
+
+    [Fact]
     public async Task A_text_file_reaches_the_model_as_its_text()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Read it.")]));
@@ -202,10 +237,10 @@ public sealed class AttachedFileTests(PostgresServer postgres)
 
     #endregion
 
-    #region Taint
+    #region Allow Means Allow
 
     [Fact]
-    public async Task A_run_given_a_file_is_tainted_from_its_first_call_so_an_allowed_write_tool_asks()
+    public async Task A_run_given_a_file_runs_an_allowed_write_tool_without_asking()
     {
         var tools = new TestTools().Add("test.write", ToolSensitivity.Write, """{"written":true}""");
         var script = new ScriptedModel([new ToolCallOutput("c1", "test_write")], [new TextOutput("Done.")]);
@@ -216,15 +251,15 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         world.StartHost();
 
         var runId = await PostWith(world, threadId, "Do what the file says", upload.File!.Id);
-        var waiting = await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+        var run = await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
 
-        waiting.Status.Should().Be(RunStatus.Waiting, "the write tool was allowed, and after a file's text it asks");
-        waiting.Tainted.Should().BeTrue();
-        tools.Count("test.write").Should().Be(0);
+        run.Status.Should().Be(RunStatus.Completed, "the write tool was allowed, and what a file says does not change that");
+        run.Tainted.Should().BeFalse("a file is not recorded as an untrusted read");
+        tools.Count("test.write").Should().Be(1);
     }
 
     [Fact]
-    public async Task A_file_sent_on_a_message_that_steers_a_working_run_taints_it_before_its_next_tool()
+    public async Task A_file_sent_on_a_message_that_steers_a_working_run_does_not_make_its_next_tool_ask()
     {
         var tools = new TestTools()
             .AddGated("test.lookup", ToolSensitivity.Read, """{"answer":42}""")
@@ -246,33 +281,29 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var run = await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
 
         steer.Run!.Id.Should().Be(runId, "the file went with a message that steered the working run");
-        run.Status.Should().Be(RunStatus.Waiting, "the write tool was allowed, and after the file's text it asks");
-        run.Tainted.Should().BeTrue();
-        tools.Count("test.write").Should().Be(0);
+        run.Status.Should().Be(RunStatus.Completed, "the write tool was allowed, and a file does not change that");
+        tools.Count("test.write").Should().Be(1);
     }
 
     [Fact]
-    public async Task Every_later_run_of_a_conversation_that_carries_a_file_is_tainted_and_another_conversation_is_not()
+    public async Task A_conversation_that_carries_a_file_does_not_taint_its_runs()
     {
-        var script = new ScriptedModel([new TextOutput("One.")], [new TextOutput("Two.")], [new TextOutput("Three.")]);
+        var script = new ScriptedModel([new TextOutput("One.")], [new TextOutput("Two.")]);
         await using var world = await RunWorld.Create(postgres, script);
         var threadId = await world.NewThread();
-        var otherThread = await world.NewThread();
         var upload = await world.Upload(threadId, "notes.txt", "hello"u8.ToArray());
         world.StartHost();
 
         var first = await PostWith(world, threadId, "Read it", upload.File!.Id);
         await world.WaitForStatus(first, RunStatus.Completed, RunStatus.Failed);
         var later = await world.Post(threadId, "And now without a file");
-        var elsewhere = await world.Post(otherThread, "A clean conversation");
 
-        (await world.WaitForStatus(first, RunStatus.Completed)).Tainted.Should().BeTrue();
-        (await world.WaitForStatus(later, RunStatus.Completed, RunStatus.Failed)).Tainted.Should().BeTrue("the file is given to every run of its conversation");
-        (await world.WaitForStatus(elsewhere, RunStatus.Completed, RunStatus.Failed)).Tainted.Should().BeFalse();
+        (await world.WaitForStatus(first, RunStatus.Completed)).Tainted.Should().BeFalse();
+        (await world.WaitForStatus(later, RunStatus.Completed, RunStatus.Failed)).Tainted.Should().BeFalse();
     }
 
     [Fact]
-    public async Task A_sandbox_given_a_file_taints_a_run_in_another_conversation_that_reads_it_even_with_its_network_off()
+    public async Task A_command_in_a_sandbox_that_holds_an_attached_file_runs_on_an_allow_grant_without_asking()
     {
         var sandbox = new FakeSandboxProvider();
         var script = new ScriptedModel(
@@ -287,16 +318,13 @@ public sealed class AttachedFileTests(PostgresServer postgres)
 
         var first = await PostWith(world, threadId, "Keep the report", upload.File!.Id);
         (await world.WaitForStatus(first, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        var clean = await world.Post(await world.NewThread(), "What is in your sandbox?");
-        var waiting = await world.WaitForStatus(clean, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
-        waiting.Status.Should().Be(RunStatus.Waiting, "a command in a sandbox that holds an attached file asks before the shell starts");
-        var pending = (await world.ReadToolCalls(clean)).Single(call => call.Status == ToolCallStatus.PendingApproval);
-        await world.Decide(pending.Id, approved: true);
-        var run = await world.WaitForStatus(clean, RunStatus.Completed, RunStatus.Failed);
+        var other = await world.Post(await world.NewThread(), "What is in your sandbox?");
+        var run = await world.WaitForStatus(other, RunStatus.Completed, RunStatus.Waiting, RunStatus.Failed);
 
-        run.Status.Should().Be(RunStatus.Completed);
-        run.Tainted.Should().BeTrue("the sandbox holds a file a person attached, and its network being off does not make that text trusted");
-        (await world.Read(db => db.Sandboxes.SingleAsync(RunWorld.Token))).Tainted.Should().BeTrue();
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        run.Tainted.Should().BeFalse("with the network off, nothing the run read came from outside");
+        (await world.ReadToolCalls(other)).Should().NotContain(call => call.Status == ToolCallStatus.PendingApproval);
+        sandbox.Commands.Should().ContainSingle(command => command.Arguments.Contains("cat attachments/*/*"));
     }
 
     #endregion
@@ -530,7 +558,6 @@ public sealed class AttachedFileTests(PostgresServer postgres)
 
         (await world.WaitForStatus(await world.Post(await world.NewThread(), "Write the plan down"), RunStatus.Completed, RunStatus.Failed))
             .Status.Should().Be(RunStatus.Completed);
-        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeFalse();
         var member = await world.AddMember(MembershipRole.Admin);
         var after = await control.Run(world.SpaceId, member, world.BotId, "find .", RunWorld.Token);
 
@@ -650,6 +677,16 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         yield return new CommandStdout(Encoding.UTF8.GetBytes(text));
         yield return new CommandExited(0, null);
     }
+
+    /// <summary>Changes the kind of the world's connection and returns the kind it had. The run needs the scripted one back.</summary>
+    private static Task<string> SetConnectionKind(RunWorld world, string kind) =>
+        world.Read(async db =>
+        {
+            var connection = await db.ModelConnections.SingleAsync(RunWorld.Token);
+            var previous = connection.Kind;
+            connection.Kind = kind;
+            return previous;
+        });
 
     private static Task<bool> SetVision(RunWorld world, bool vision) =>
         world.Read(async db =>

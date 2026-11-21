@@ -736,6 +736,39 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Files.PendingUploadDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<DateTimeOffset?>("CleanupClaimUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cleanup_claim_until");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pending_upload_deletions");
+
+                    b.HasIndex("CleanupClaimUntil", "Id")
+                        .HasDatabaseName("ix_pending_upload_deletions_cleanup_claim_until_id");
+
+                    b.ToTable("pending_upload_deletions", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Domain.Files.StoredFile", b =>
                 {
                     b.Property<Guid>("Id")

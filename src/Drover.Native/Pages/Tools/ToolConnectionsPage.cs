@@ -41,7 +41,7 @@ public sealed class ToolConnectionsPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         await model.Open(route.QueryValue("sign-in"), Guid.TryParse(route.QueryValue("connection"), out var id) ? id : null, route.QueryValue("ticket"));
         Refresh();
@@ -172,7 +172,7 @@ public sealed class ToolConnectionsPage : Screen
         {
             Title = "More choices",
             Body = PageParts.Column(Toggle("Trust what this server's tools return", draft.Trusted, value => draft.Trusted = value),
-                Styles.Text("Leave this off unless you run the server. A run that has read an untrusted result asks before it changes anything.", "DvTextSecondary"),
+                Styles.Text("Leave this off unless you run the server. A result from a server that is not trusted is recorded on the run as untrusted text. It does not change what any bot may do.", "DvTextSecondary"),
                 Choice("Protocol", draft.ProtocolMode, [new("automatic", "Chosen by Drover"), new("stateless_only", "Without sessions only"), new("session_only", "With sessions only")], value => draft.ProtocolMode = value)),
         });
         fields.Children.Add(new StatusNote { Text = model.AddProblem, Kind = NoteKind.Danger });

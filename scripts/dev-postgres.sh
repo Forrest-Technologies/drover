@@ -20,15 +20,25 @@ find_bin() {
   fi
   local candidate
   if command -v brew >/dev/null 2>&1; then
-    candidate="$(brew --prefix postgresql@17 2>/dev/null || true)"
-    if [ -x "$candidate/bin/pg_ctl" ]; then
-      echo "$candidate/bin"
-      return
-    fi
+    # Versioned formulae are keg-only. Discover installed versions 16 or later,
+    # newest first, and require all three server tools from the same keg.
+    local formula
+    while IFS= read -r formula; do
+      if [ "${formula#postgresql@}" -lt 16 ]; then
+        continue
+      fi
+      candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
+      if [ -n "$candidate" ] && [ -x "$candidate/bin/pg_ctl" ] &&
+          [ -x "$candidate/bin/initdb" ] && [ -x "$candidate/bin/postgres" ]; then
+        echo "$candidate/bin"
+        return
+      fi
+    done < <(brew list --formula 2>/dev/null |
+      grep -E '^postgresql@[0-9]+$' | sort -t@ -k2 -n -r || true)
   fi
   candidate="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)"
   if [ -z "$candidate" ]; then
-    echo "PostgreSQL server binaries were not found. Install PostgreSQL 16 or later, or use Docker." >&2
+    echo "PostgreSQL server binaries were not found. Install PostgreSQL 16 or later with pg_ctl, initdb and postgres available (versioned Homebrew kegs are detected automatically), or use Docker." >&2
     exit 1
   fi
   echo "$candidate"

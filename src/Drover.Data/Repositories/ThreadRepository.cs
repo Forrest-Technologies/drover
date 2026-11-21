@@ -37,6 +37,26 @@ public sealed class ThreadRepository(DroverDbContext db)
         (await db.Threads.FromSql($"SELECT * FROM threads WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken))
             .SingleOrDefault();
 
+    /// <summary>
+    /// Locks a thread against message posting without blocking an upload's foreign-key check. A locked thread is
+    /// skipped so one busy conversation cannot hold a cleanup pass.
+    /// </summary>
+    public async Task<ChatThread?> GetThreadForUploadCleanup(Guid id, CancellationToken cancellationToken) =>
+        (await db.Threads
+            .FromSql($"SELECT * FROM threads WHERE id = {id} FOR NO KEY UPDATE SKIP LOCKED")
+            .ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
+    /// <summary>
+    /// Locks a thread against message posting while a person removes an unsent file. The weaker lock stays
+    /// compatible with a concurrent upload's foreign-key check.
+    /// </summary>
+    public async Task<ChatThread?> GetThreadForFileChange(Guid id, CancellationToken cancellationToken) =>
+        (await db.Threads
+            .FromSql($"SELECT * FROM threads WHERE id = {id} FOR NO KEY UPDATE")
+            .ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
     /// <summary>The person's main thread with the bot, or null when they have none yet.</summary>
     public Task<ChatThread?> FindMainThread(Guid botId, Guid ownerUserId, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking()

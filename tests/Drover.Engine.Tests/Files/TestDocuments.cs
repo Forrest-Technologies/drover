@@ -32,6 +32,57 @@ public static class TestDocuments
         return builder.Build();
     }
 
+    /// <summary>A scanned PDF with one page that carries no convertible picture.</summary>
+    public static byte[] ScannedPdfWithBlankPage(int blankPage, params byte[][] jpegs)
+    {
+        using var builder = new PdfWriter.PdfDocumentBuilder();
+        var source = 0;
+
+        for (var pageNumber = 1; pageNumber <= jpegs.Length + 1; pageNumber++)
+        {
+            var page = builder.AddPage(PdfContent.PageSize.A4);
+
+            if (pageNumber != blankPage)
+            {
+                page.AddJpeg(jpegs[source++], new PdfCore.PdfRectangle(0, 0, 595, 842));
+            }
+        }
+
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// A scanned PDF whose image dictionary advertises different dimensions than the embedded JPEG header. The
+    /// replacements keep their byte lengths so the generated cross-reference offsets remain valid.
+    /// </summary>
+    public static byte[] ScannedPdfWithDeclaredImageSize(
+        int actualWidth,
+        int actualHeight,
+        int declaredWidth,
+        int declaredHeight,
+        bool zeroHeaderHeight = false)
+    {
+        var jpeg = Jpeg(actualWidth, actualHeight, 1);
+        var pdf = ScannedPdf(jpeg);
+        ReplaceAscii(pdf, $"/Width {actualWidth}", $"/Width {declaredWidth}");
+        ReplaceAscii(pdf, $"/Height {actualHeight}", $"/Height {declaredHeight}");
+
+        if (zeroHeaderHeight)
+        {
+            var imageAt = pdf.AsSpan().IndexOf(jpeg);
+
+            if (imageAt < 0)
+            {
+                throw new InvalidOperationException("The generated PDF did not retain the JPEG bytes.");
+            }
+
+            pdf[imageAt + 7] = 0;
+            pdf[imageAt + 8] = 0;
+        }
+
+        return pdf;
+    }
+
     /// <summary>
     /// The smallest JPEG a reader takes the size of: the start, one frame header, the end. It has no picture data, so
     /// the byte after the size tells two apart.
@@ -393,6 +444,26 @@ public static class TestDocuments
     #endregion
 
     #region Private Methods
+
+    private static void ReplaceAscii(byte[] bytes, string oldValue, string newValue)
+    {
+        var oldBytes = Encoding.ASCII.GetBytes(oldValue);
+        var newBytes = Encoding.ASCII.GetBytes(newValue);
+
+        if (oldBytes.Length != newBytes.Length)
+        {
+            throw new ArgumentException("PDF fixture replacements must keep the same byte length.", nameof(newValue));
+        }
+
+        var index = bytes.AsSpan().IndexOf(oldBytes);
+
+        if (index < 0)
+        {
+            throw new InvalidOperationException($"The generated PDF did not contain {oldValue}.");
+        }
+
+        newBytes.CopyTo(bytes, index);
+    }
 
     private static int Paeth(int left, int up, int upLeft)
     {
