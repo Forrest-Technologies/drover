@@ -5,6 +5,7 @@ public enum PostProblem
     None,
     NotFound,
     Invalid,
+    ReadOnly,
 }
 
 /// <summary>What posting a message came to: the stored message and its run, or why nothing was stored.</summary>
@@ -26,6 +27,7 @@ public enum RetryOutcome
     Forbidden,
     NotRetryable,
     BotUnavailable,
+    ReadOnly,
 }
 
 public sealed record RunRetry(RetryOutcome Outcome, Run? Run = null);
@@ -62,6 +64,8 @@ public sealed partial class RunService(
     private const int TitleLength = 80;
 
     private const string CancelledBeforeApproval = "The run was cancelled before this call was approved.";
+
+    public const string HandoffIsReadOnly = "This is a bot's work on a task another bot handed over, so it is read-only. To change the work, send your message in the conversation where the task was given.";
 
     #endregion
 
@@ -112,6 +116,11 @@ public sealed partial class RunService(
             if (thread is null)
             {
                 return new MessagePost(null, null, PostProblem.NotFound);
+            }
+
+            if (IsHandoff(thread))
+            {
+                return new MessagePost(null, null, PostProblem.ReadOnly);
             }
 
             var bot = await bots.FindBot(thread.BotId, cancellationToken);
@@ -257,6 +266,11 @@ public sealed partial class RunService(
                 return new RunRetry(RetryOutcome.NotFound);
             }
 
+            if (IsHandoff(thread) || failed.ParentRunId is not null)
+            {
+                return new RunRetry(RetryOutcome.ReadOnly);
+            }
+
             if (failed.PrincipalUserId != userId)
             {
                 return new RunRetry(RetryOutcome.Forbidden);
@@ -291,6 +305,9 @@ public sealed partial class RunService(
     #endregion
 
     #region Private Methods
+
+    /// <summary>A conversation a bot works in for another bot takes no messages from people.</summary>
+    private static bool IsHandoff(ChatThread thread) => thread.Origin is ThreadOrigin.Delegation;
 
     /// <summary>
     /// A child run that waits for a person holds its whole tree. When it is cancelled, the approvals it and the runs
