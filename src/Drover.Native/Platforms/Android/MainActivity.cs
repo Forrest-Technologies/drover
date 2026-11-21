@@ -99,9 +99,16 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
             UnreachableOpenCheck.Arm();
         }
 #endif
+#if DROVER_FIELD_CHECK
+        if (Intent?.GetBooleanExtra("drover.field_input", false) == true)
+        {
+            FieldInputCheck.Arm();
+        }
+#endif
 
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
         base.OnCreate(bundle);
+        AndroidFileDelivery.RecoverFromInterruption();
 
         // The launch intent is acted on once: not when Android rebuilds the activity, and not when the app is opened
         // again from the recent apps.

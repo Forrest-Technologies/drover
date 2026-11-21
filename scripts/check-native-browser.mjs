@@ -466,6 +466,9 @@ try {
                     await page.getByText("Sample bot's most expensive runs in the last 30 days", { exact: true })
                         .waitFor({ state: 'attached' });
                 }
+                if (name === 'sign-in' || name === 'account') {
+                    await checkFieldHints(page, name);
+                }
                 process.stdout.write(`${name} ${width} ${theme}: passed\n`);
                 if (heldRoute) {
                     await heldRoute.fulfill({ status: 503, json: { title: 'Sample server is unavailable.', status: 503 } });
@@ -736,6 +739,30 @@ async function checkLeavingNewBot(page, titleBefore, createdBots) {
     // Leaving by a step back goes to the screen that was open before the draft.
     await page.waitForFunction(title => document.title === title, titleBefore, { timeout: 15000 });
     assert.equal(createdBots(), 0, 'Leaving an unsaved new bot creates no bot.');
+}
+
+// A password manager knows the sign-in and account fields by their autocomplete names, and a field the server limits
+// stops taking letters at that limit without an error.
+async function checkFieldHints(page, name) {
+    const hints = name === 'sign-in'
+        ? [['Email', 'username'], ['Password', 'current-password']]
+        : [['Email', 'username'], ['Password', 'new-password']];
+    for (const [label, autofill] of hints) {
+        const field = page.getByLabel(label, { exact: true });
+        await field.waitFor({ state: 'attached' });
+        assert.equal(await field.getAttribute('autocomplete'), autofill, `${name}: ${label} is not named ${autofill}`);
+    }
+    if (name === 'account') {
+        // FieldLimits.DisplayName in src/Drover.Contracts/FieldLimits.cs.
+        const limit = 200;
+        const field = page.getByLabel('Your name', { exact: true });
+        const words = await page.evaluate(() => document.body.innerText);
+        await field.focus();
+        await page.keyboard.type('n'.repeat(limit + 5));
+        await page.waitForFunction(limit => document.activeElement?.value?.length === limit, limit, { timeout: 5000 });
+        await page.waitForTimeout(300);
+        assert.equal(await page.evaluate(() => document.body.innerText), words, 'Typing past the limit changed what the page says.');
+    }
 }
 
 async function checkWorkspacePanels(page, width, theme) {

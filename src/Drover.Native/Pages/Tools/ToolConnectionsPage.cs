@@ -134,6 +134,8 @@ public sealed class ToolConnectionsPage : Screen
             Disabled = model.AddingBusy,
         };
         kind.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => { draft.AuthKind = kind.Value ?? "none"; Refresh(); });
+        var name = Field("Name", draft.Name, value => draft.Name = value, hint: "What you call it, such as Calendar.");
+        name.MaxLength = FieldLimits.ToolServerName;
         var address = Field("Address", draft.Url, value => draft.Url = value, "url", "The address of the server's MCP endpoint.");
         address.Placeholder = "https://";
 
@@ -141,7 +143,7 @@ public sealed class ToolConnectionsPage : Screen
         var kindName = Styles.Text(kind.Label, "DvTextLabel");
         AutomationProperties.SetAccessibilityView(kindName, AccessibilityView.Raw);
         var fields = PageParts.Column(PageParts.CardTitle("Add a tool server"),
-            Field("Name", draft.Name, value => draft.Name = value, hint: "What you call it, such as Calendar."),
+            name,
             address, new StackPanel { Spacing = Tokens.Number("DvSpace2"), Children = { kindName, kind } });
         if (draft.AuthKind is "header")
         {

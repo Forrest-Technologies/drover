@@ -18,6 +18,7 @@ global using System.Xml.Linq;
 global using AwesomeAssertions;
 global using Drover.Client;
 global using Drover.Client.Runs;
+global using Drover.Contracts;
 global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;

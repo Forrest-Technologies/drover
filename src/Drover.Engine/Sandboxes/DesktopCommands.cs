@@ -68,7 +68,7 @@ public static class DesktopCommands
 
     public const int ScreenHeight = 768;
 
-    public const int MaxTypedCharacters = 2000;
+    public const int MaxTypedCharacters = FieldLimits.TypedText;
 
     public const int MaxKeysAtOnce = 5;
 

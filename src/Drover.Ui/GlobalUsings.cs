@@ -17,6 +17,7 @@ global using System.Threading.Tasks;
 global using AngleSharp.Dom;
 global using Drover.Client;
 global using Drover.Client.Runs;
+global using Drover.Contracts;
 global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;

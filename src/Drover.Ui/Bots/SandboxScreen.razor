@@ -86,7 +86,7 @@
         <form @ref="typeForm" class="dv-sandbox-type" @onsubmit="TypeText">
             <Field Label="@(passwordMode ? "Password" : "Text to type")" Type="@(passwordMode ? "password" : "text")"
                    @bind-Value="typed" autocomplete="@(passwordMode ? "new-password" : "off")" autocapitalize="off"
-                   spellcheck="false" maxlength="2000" enterkeyhint="send" />
+                   spellcheck="false" maxlength="@FieldLimits.TypedText" enterkeyhint="send" />
             <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">@TypeAction</Button>
         </form>
         <p class="dv-sandbox-hint">@(passwordMode

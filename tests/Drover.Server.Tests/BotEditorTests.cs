@@ -68,6 +68,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var second = await CreateConnection(client, alice.SpaceId, "Second");
         var fileId = await SeedFile(alice.SpaceId, alice.UserId);
         await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "seeing", new ModelCapabilities { Vision = true });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "backup-model", new ModelCapabilities());
         var untouched = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
         var edit = new UpdateBotRequest(
             "Atlas",
@@ -77,7 +78,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             "Answer in one paragraph.",
             second.Id,
             "other-model",
-            new ModelSettingsBody(0.4, 900, "high", "automatic", true),
+            new ModelSettingsBody(0.4, 900, "high", "automatic", true, [new ModelFallbackBody(second.Id, "backup-model")], UseSpaceFallbacks: false),
             new MemorySettingsBody(true, "summarization", 60_000, 12, 300, 4000),
             "named",
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
@@ -890,6 +891,128 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         Fact(granted, "effect").Should().Be(("allow", "ask"));
         entries.Should().OnlyContain(entry => !entry.Data.GetRawText().Contains(key, StringComparison.Ordinal), "no secret is written to the audit log");
         Logs.AllText().Should().NotContain(key);
+    }
+
+    #endregion
+
+    #region Model Fallbacks
+
+    [Fact]
+    public async Task Space_fallbacks_are_admin_written_member_read_and_describe_the_effective_chain()
+    {
+        var alice = await SeedPerson("fallback-owner");
+        var member = await SeedMember(alice.SpaceId, "fallback-member", MembershipRole.Member);
+        var outsider = await SeedPerson("fallback-outsider");
+        var asOwner = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var asOutsider = await SignIn(outsider);
+        var bot = await CreateBot(asOwner, alice.SpaceId);
+        var definition = await GetFor<BotDetail>(asOwner, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
+        await SeedCatalogEntry(
+            alice.SpaceId,
+            alice.UserId,
+            definition.ModelConnectionId,
+            "backup",
+            new ModelCapabilities { ToolCalling = false, ContextTokens = 32_000, StructuredOutput = true });
+        await SeedCatalogEntry(
+            alice.SpaceId,
+            alice.UserId,
+            definition.ModelConnectionId,
+            "bot-backup",
+            new ModelCapabilities { ContextTokens = 64_000, StructuredOutput = true });
+        var body = new SpaceModelFallbacks([new ModelFallbackBody(definition.ModelConnectionId, "backup")]);
+        var root = $"{Space(alice.SpaceId)}/model-fallbacks";
+
+        var saved = await PutFor<SpaceModelFallbacks>(asOwner, root, body);
+        var read = await GetFor<SpaceModelFallbacks>(asMember, root);
+        var chain = await GetFor<BotModelChain>(asMember, $"{Space(alice.SpaceId)}/bots/{bot.Id}/model-chain");
+
+        saved.Fallbacks.Should().Equal(body.Fallbacks);
+        read.Should().BeEquivalentTo(saved);
+        chain.Models.Select(model => model.Model).Should().Equal(definition.Model, "backup");
+        chain.Models[1].Capabilities.ContextTokens.Should().Be(32_000);
+        chain.Models[1].Mismatches.Should().OnlyContain(sentence => sentence.EndsWith('.'));
+        var audit = (await InSpace(
+            alice.SpaceId,
+            alice.UserId,
+            services => services.GetRequiredService<AuditRepository>().ListEntriesAbout(alice.SpaceId, Token)))
+            .Single(entry => entry.Action == "space.updated");
+        audit.TargetKind.Should().Be(AuditTargets.Space);
+        audit.Data.GetProperty("changes").TryGetProperty("model_fallbacks", out _).Should().BeTrue();
+
+        var botFallbacks = new[] { new ModelFallbackBody(definition.ModelConnectionId, "bot-backup") };
+        var updated = await PutFor<BotDetail>(
+            asOwner,
+            $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition",
+            Nothing() with
+            {
+                ModelSettings = definition.ModelSettings with
+                {
+                    Fallbacks = botFallbacks,
+                    UseSpaceFallbacks = false,
+                },
+            });
+        var botChain = await GetFor<BotModelChain>(asMember, $"{Space(alice.SpaceId)}/bots/{bot.Id}/model-chain");
+        updated.ModelSettings.Fallbacks.Should().Equal(botFallbacks);
+        updated.ModelSettings.UseSpaceFallbacks.Should().BeFalse();
+        botChain.Models.Select(model => model.Model).Should().Equal(definition.Model, "bot-backup");
+
+        (await asMember.Put(root, body)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await asOutsider.Get(root)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_chain_skips_a_stored_fallback_whose_connection_no_longer_exists()
+    {
+        var alice = await SeedPerson("fallback-removed-connection");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var connectionId = await InSpace(alice.SpaceId, alice.UserId, services =>
+        {
+            var connection = new ModelConnection
+            {
+                SpaceId = alice.SpaceId,
+                Name = "Disposable fallback",
+                Kind = "scripted",
+                Status = ConnectionStatus.Ready,
+            };
+            services.GetRequiredService<ModelConnectionRepository>().Add(connection);
+            return Task.FromResult(connection.Id);
+        });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, connectionId, "temporary", new ModelCapabilities());
+        await PutFor<SpaceModelFallbacks>(
+            client,
+            $"{Space(alice.SpaceId)}/model-fallbacks",
+            new SpaceModelFallbacks([new ModelFallbackBody(connectionId, "temporary")]));
+
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var repository = services.GetRequiredService<ModelConnectionRepository>();
+            var database = services.GetRequiredService<DroverDbContext>();
+            database.ModelCatalog.RemoveRange(await repository.ListCatalog(connectionId, Token));
+            database.ModelConnections.Remove((await repository.GetConnection(connectionId, Token))!);
+            return true;
+        });
+
+        var chain = await GetFor<BotModelChain>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/model-chain");
+
+        chain.Models.Should().ContainSingle(model => model.ConnectionId != connectionId);
+    }
+
+    [Fact]
+    public async Task An_unknown_space_fallback_is_refused_in_a_sentence()
+    {
+        var alice = await SeedPerson("fallback-validation");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var definition = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
+        var body = new SpaceModelFallbacks([new ModelFallbackBody(definition.ModelConnectionId, "not-in-catalog")]);
+
+        var response = await client.Put($"{Space(alice.SpaceId)}/model-fallbacks", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonDocument>(Token))!.RootElement
+            .GetProperty("title").GetString().Should().EndWith(".");
     }
 
     #endregion

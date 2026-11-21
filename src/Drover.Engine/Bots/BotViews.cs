@@ -24,7 +24,9 @@ public static class BotViews
                 bot.ModelSettings.MaxOutputTokens,
                 bot.ModelSettings.ReasoningEffort,
                 Words.Of(bot.ModelSettings.WebSearch),
-                bot.ModelSettings.StructuredOutput),
+                bot.ModelSettings.StructuredOutput,
+                [.. bot.ModelSettings.Fallbacks.Select(fallback => new ModelFallbackBody(fallback.ConnectionId, fallback.Model))],
+                bot.ModelSettings.UseSpaceFallbacks),
             new MemorySettingsBody(
                 bot.MemorySettings.Enabled,
                 Words.Of(bot.MemorySettings.Compaction),
@@ -154,6 +156,8 @@ public static class BotViews
                 ReasoningEffort = string.IsNullOrWhiteSpace(body.ReasoningEffort) ? null : body.ReasoningEffort.Trim(),
                 WebSearch = webSearch,
                 StructuredOutput = body.StructuredOutput,
+                Fallbacks = [.. (body.Fallbacks ?? []).Select(fallback => new ModelFallback(fallback.ConnectionId, fallback.Model))],
+                UseSpaceFallbacks = body.UseSpaceFallbacks,
             }
             : null;
 

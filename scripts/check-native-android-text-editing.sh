@@ -26,4 +26,4 @@ mkdir "$scratch/classes"
   --out "$scratch/keyboard.apk" "$scratch/aligned.apk"
 adb install "$scratch/keyboard.apk"
 installed=true
-python3 scripts/check-native-android-text-editing.py
+python3 scripts/check-native-android-text-editing.py "$@"

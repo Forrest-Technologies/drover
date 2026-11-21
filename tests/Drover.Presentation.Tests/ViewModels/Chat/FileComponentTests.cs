@@ -73,6 +73,44 @@ public sealed class FileComponentTests : IDisposable
     }
 
     [Fact]
+    public async Task A_failed_export_says_why_where_the_platform_or_the_server_says_so_and_nothing_else()
+    {
+        var report = new SharedFile(Guid.NewGuid(), "report.txt", "text/plain", 100, "/files/1", true, start);
+        var delivery = new SampleDelivery { Failure = new FileDeliveryException("This device has no file picker.") };
+        var card = new FileCardViewModel(NullLogger<FileCardViewModel>.Instance, delivery) { File = report };
+
+        await card.Export(save: true);
+        card.ExportStatus.Should().Be("Could not save report.txt. This device has no file picker.");
+
+        delivery.Failure = new HttpRequestException("Sample: nothing answered.");
+        await card.Export(save: false);
+        card.ExportStatus.Should().Be($"Could not share report.txt. {Failures.Unreachable}");
+
+        delivery.Failure = new IOException("Sample: /private/path/in/a/system/error");
+        await card.Export(save: true);
+        card.ExportStatus.Should().Be("Could not save report.txt.", "a system error can name a path, so it is not shown");
+    }
+
+    [Fact]
+    public async Task A_press_while_a_file_is_being_exported_does_nothing_and_says_it_is_working()
+    {
+        var report = new SharedFile(Guid.NewGuid(), "report.txt", "text/plain", 100, "/files/1", true, start);
+        var release = new TaskCompletionSource();
+        var delivery = new SampleDelivery { Hold = release.Task };
+        var card = new FileCardViewModel(NullLogger<FileCardViewModel>.Instance, delivery) { File = report };
+
+        var first = card.Export(save: true);
+        card.Exporting.Should().BeTrue();
+        card.ExportingWords.Should().Be("Working");
+        await card.Export(save: true);
+        release.SetResult();
+        await first;
+
+        delivery.SaveCalls.Should().Be(1, "the second press started nothing");
+        card.ExportingWords.Should().BeNull();
+    }
+
+    [Fact]
     public void A_file_a_bot_shared_shows_its_caption_and_what_it_is()
     {
         var report = new SharedFile(Guid.NewGuid(), "report.pdf", "application/pdf", 3_400_000, "/api/files/report", true, start, Caption: "The weekly numbers");
@@ -439,20 +477,38 @@ public sealed class FileComponentTests : IDisposable
 
         public bool Fails { get; init; }
 
+        /// <summary>What a save or share throws, when it is set.</summary>
+        public Exception? Failure { get; set; }
+
+        /// <summary>A save or share waits for this before it ends, when it is set.</summary>
+        public Task? Hold { get; init; }
+
+        public int SaveCalls { get; private set; }
+
         #endregion
 
         #region Interface Implementations
 
-        public Task<bool> Save(SharedFile file, CancellationToken cancellationToken = default)
+        public async Task<bool> Save(SharedFile file, CancellationToken cancellationToken = default)
         {
-            Saved = Fails ? throw new IOException("Sample: the device refused the file.") : file;
-            return Task.FromResult(true);
+            SaveCalls++;
+            if (Hold is not null)
+            {
+                await Hold;
+            }
+
+            Saved = Failure is not null ? throw Failure : Fails ? throw new IOException("Sample: the device refused the file.") : file;
+            return true;
         }
 
-        public Task Share(SharedFile file, CancellationToken cancellationToken = default)
+        public async Task Share(SharedFile file, CancellationToken cancellationToken = default)
         {
-            Shared = Fails ? throw new IOException("Sample: the device refused the file.") : file;
-            return Task.CompletedTask;
+            if (Hold is not null)
+            {
+                await Hold;
+            }
+
+            Shared = Failure is not null ? throw Failure : Fails ? throw new IOException("Sample: the device refused the file.") : file;
         }
 
         #endregion
