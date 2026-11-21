@@ -181,6 +181,8 @@ Upsert rules:
 
 Names shown to the model are `{connection-slug}__{tool-name}`. Two servers cannot shadow each other, and a server cannot impersonate a built-in.
 
+When two tools of one connection clean or cut to the same name, the one first seen keeps the plain name and each other one takes a suffix: six lower-case hex characters of the SHA-256 of that tool's own name, with the front of the name cut so the whole stays within 64 characters. If two such suffixes still clash, those tools take ten hex characters instead. Names are worked out at run load from every tool of the connection, in any state, so they stay the same from run to run and a tool that goes away and comes back keeps its name.
+
 For `per_user` connections, the catalog is the union of tools seen across users' sign-ins. If a server hides a tool from one user, calling it fails with the server's own error.
 
 ### When a server is down
