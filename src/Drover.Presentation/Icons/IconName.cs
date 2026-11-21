@@ -35,4 +35,5 @@ public enum IconName
     Speaker,
     Stop,
     Warning,
+    Wrap,
 }

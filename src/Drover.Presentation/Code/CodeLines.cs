@@ -111,6 +111,46 @@ public static partial class CodeLines
     /// <summary>The words of the button that lays out all of a capped block: "Show all 1,200 lines".</summary>
     public static string ShowAll(int lines) => $"Show all {lines.ToString("N0", CultureInfo.InvariantCulture)} lines";
 
+    /// <summary>The words of the button that lays out all of a capped table: "Show all 1,200 rows".</summary>
+    public static string ShowAllRows(int rows) => $"Show all {rows.ToString("N0", CultureInfo.InvariantCulture)} rows";
+
+    /// <summary>
+    /// The text with each tab turned into the spaces that reach the next tab stop, <see cref="TabWidth"/> columns
+    /// apart, so columns line up as a terminal shows them. Only what is drawn is changed; a copy keeps the tabs.
+    /// </summary>
+    public static string ExpandTabs(string text)
+    {
+        if (!text.Contains('\t'))
+        {
+            return text;
+        }
+
+        var expanded = new StringBuilder(text.Length);
+        var column = 0;
+
+        foreach (var character in text)
+        {
+            switch (character)
+            {
+                case '\t':
+                    var spaces = TabWidth - (column % TabWidth);
+                    expanded.Append(' ', spaces);
+                    column += spaces;
+                    break;
+                case '\n':
+                    expanded.Append(character);
+                    column = 0;
+                    break;
+                default:
+                    expanded.Append(character);
+                    column++;
+                    break;
+            }
+        }
+
+        return expanded.ToString();
+    }
+
     #endregion
 
     #region Private Methods
@@ -148,6 +188,9 @@ public static partial class CodeLines
 
     /// <summary>The most characters laid out before "Show all" is asked for: 64 KiB.</summary>
     public const int MaxCharacters = 65_536;
+
+    /// <summary>The columns between tab stops.</summary>
+    public const int TabWidth = 4;
 
     #endregion
 }

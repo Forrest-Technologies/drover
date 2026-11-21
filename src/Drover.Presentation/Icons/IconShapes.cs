@@ -71,6 +71,8 @@ public static class IconShapes
             """<path d="M8 5h11v11l-3 3H5V8z"/>""",
         [IconName.Warning] =
             """<path d="M12 3 22 20H2z"/><path d="M12 10v4"/><path d="M12 17h.01"/>""",
+        [IconName.Wrap] =
+            """<path d="M4 6h16"/><path d="M4 12h13l3 3-3 3h-4"/><path d="m15 15-3 3 3 3"/><path d="M4 18h4"/>""",
     };
 
     #endregion

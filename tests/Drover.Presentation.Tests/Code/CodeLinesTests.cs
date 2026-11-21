@@ -116,6 +116,16 @@ public sealed class CodeLinesTests
         capped.Shown.Should().HaveLength(CodeLines.MaxCharacters).And.EndWith(face);
     }
 
+    [Fact]
+    public void A_capped_table_offers_all_its_rows_in_words() => CodeLines.ShowAllRows(1_200).Should().Be("Show all 1,200 rows");
+
+    [Theory]
+    [InlineData("a\tb", "a   b")]
+    [InlineData("abcd\tb", "abcd    b")]
+    [InlineData("\tx\n12\ty", "    x\n12  y")]
+    [InlineData("no tabs", "no tabs")]
+    public void Tabs_are_drawn_as_spaces_to_the_next_stop_of_four(string text, string drawn) => CodeLines.ExpandTabs(text).Should().Be(drawn);
+
     [Theory]
     [InlineData("", 0)]
     [InlineData("a", 1)]
