@@ -1075,14 +1075,23 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
 }
 
-// A search request that carried these words, and its answer. The words are the app's own state: a query that never
-// reached the view model cannot produce this request, so the check fails without hiding which step was lost.
+// The exact search request, registered before the typing that triggers it. The hybrid text field updates its value
+// from real key events, so a request carrying the words is the proof that the query reached the app.
 function searchResponseFor(page, words) {
     return page.waitForResponse(response =>
-        new URL(response.url()).pathname.endsWith('/threads/search')
-        && response.request().method() === 'POST'
-        && (response.request().postData() ?? '').includes(words),
+        response.request().method() === 'POST'
+        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/threads/search`
+        && (response.request().postDataJSON()?.query ?? null) === words,
     { timeout: 15000 });
+}
+
+async function typeSearch(page, box, words) {
+    const response = searchResponseFor(page, words);
+    await box.focus();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type(words);
+    await page.keyboard.press('Enter');
+    return await response;
 }
 
 // Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
@@ -1107,24 +1116,14 @@ async function checkConversationSearch(page, width) {
         }, null, { timeout: 10000 });
     }
 
-    // The hybrid renderer rebuilds the browser input behind the accessibility tree when the field redraws, so the
-    // DOM node's value is not the search box's state and can be empty even after a successful fill. Wait for the
-    // search itself and for the heading the app builds from the words it actually searched for.
-    const zebraRequest = searchResponseFor(page, 'zebra');
-    await searchBox.focus();
-    await searchBox.fill('zebra');
-    await page.keyboard.press('Enter');
-    await zebraRequest;
+    // The exact request and the heading the app builds from the words it searched for prove the query landed.
+    await typeSearch(page, searchBox, 'zebra');
     const nothing = page.getByRole('heading', { name: 'Nothing matches “zebra”', exact: true });
     await nothing.waitFor({ state: 'attached', timeout: 10000 });
     await page.getByRole('button', { name: 'Clear the search', exact: true }).last().dispatchEvent('click');
     await nothing.waitFor({ state: 'detached', timeout: 10000 });
 
-    const searchResponse = searchResponseFor(page, 'lighthouse');
-    await searchBox.focus();
-    await searchBox.fill('lighthouse');
-    await page.keyboard.press('Enter');
-    await searchResponse;
+    await typeSearch(page, searchBox, 'lighthouse');
     await page.locator('[aria-label="2 messages found."]')
         .or(page.getByText('2 messages found.', { exact: true }))
         .waitFor({ state: 'attached', timeout: 10000 });
