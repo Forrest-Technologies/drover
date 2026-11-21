@@ -471,6 +471,26 @@ public sealed class E2BWireTests
     }
 
     [Fact]
+    public async Task An_upload_can_wait_almost_a_minute_for_its_answer()
+    {
+        var time = new FakeTimeProvider();
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new UploadHandler(Drain, async cancellation =>
+        {
+            await answer.Task.WaitAsync(cancellation);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = UploadClient(handler, time);
+        var write = client.WriteFile(E2BRig.Handle(), "/home/user/probe/data.bin", new MemoryStream([1, 2, 3]), CancellationToken.None);
+        await handler.BodyRead.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        time.Advance(TimeSpan.FromSeconds(59));
+
+        answer.TrySetResult();
+        await write;
+    }
+
+    [Fact]
     public async Task An_upload_ends_at_its_ceiling()
     {
         var time = new FakeTimeProvider();
@@ -499,6 +519,10 @@ public sealed class E2BWireTests
 
         await FluentActions.Awaiting(() => write).Should().ThrowAsync<OperationCanceledException>();
     }
+
+    #endregion
+
+    #region Helpers
 
     private static EnvdClient UploadClient(HttpMessageHandler handler, TimeProvider time, ILogger? logger = null) =>
         new(new FixtureHttpClientFactory(handler), new E2BOptions { Domain = E2BRig.Domain }, time, logger ?? NullLogger.Instance);
@@ -739,9 +763,6 @@ public sealed class E2BWireTests
         #endregion
     }
 
-    #endregion
-
-    #region Helpers
 
     private static MemoryStream Frames(params (byte Flags, string Json)[] frames)
     {

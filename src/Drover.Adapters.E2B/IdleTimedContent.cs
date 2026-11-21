@@ -72,6 +72,8 @@ internal sealed class IdleTimedContent : HttpContent
             idle.CancelAfter(idleTimeout);
         }
 
+        // The body is done, so inactivity no longer applies. Only the answer limit and the ceiling remain.
+        idle.Dispose();
         answer.CancelAfter(answerTimeout);
     }
 
