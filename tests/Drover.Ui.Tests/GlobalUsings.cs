@@ -31,6 +31,7 @@ global using Drover.Contracts.Runs;
 global using Drover.Contracts.Status;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
+global using Drover.Tests.Common;
 global using Drover.Ui;
 global using Drover.Ui.Bots;
 global using Drover.Ui.Chat;

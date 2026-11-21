@@ -83,8 +83,6 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
     /// <summary>The shell the worker stores at install, as Drover's index.html is, and serves when a page cannot load.</summary>
     private string Shell => $"<!DOCTYPE html><title>Worker test shell</title><script src=\"{Home}register.js\"></script>";
 
-    private static readonly string[] browserPaths = ["/opt/pw-browsers/chromium", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
-
     private readonly List<IResponse> responses = [];
 
     private WebApplication? other;
@@ -318,7 +316,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         });
 
         playwright = await Playwright.CreateAsync();
-        browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = BrowserPath() });
+        browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = TestBrowser.Path() });
         var context = await browser.NewContextAsync(new() { Permissions = ["notifications"] });
         page = await context.NewPageAsync();
         page.Response += (_, response) => responses.Add(response);
@@ -455,11 +453,6 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         return app;
     }
 
-    private static string BrowserPath() =>
-        Environment.GetEnvironmentVariable("DROVER_TEST_CHROMIUM") is { Length: > 0 } chosen
-            ? chosen
-            : browserPaths.FirstOrDefault(File.Exists)
-                ?? throw new InvalidOperationException($"No Chromium found. Set DROVER_TEST_CHROMIUM to one, or install Chrome or Chromium at one of: {string.Join(", ", browserPaths)}.");
 
     #endregion
 }

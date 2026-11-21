@@ -82,7 +82,7 @@ dotnet test --solution Drover.slnx
 dotnet run --project src/Drover.Server
 ```
 
-The service worker tests in `Drover.Ui.Tests` drive a real browser: install Chrome or Chromium, or set `DROVER_TEST_CHROMIUM` to one.
+The browser tests in `Drover.Ui.Tests` drive a real browser. They look first at `DROVER_TEST_CHROMIUM` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when set, then at the usual Chrome, Chromium and Edge paths for this system, then at the newest Chromium in Playwright's download folder. If none is there the failure lists everything tried and the three ways to fix it. To install the Playwright browser, run `pwsh tests/Drover.Ui.Tests/bin/Debug/net11.0/playwright.ps1 install chromium`.
 
 </details>
 

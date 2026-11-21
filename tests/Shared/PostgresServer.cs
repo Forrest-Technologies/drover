@@ -11,10 +11,6 @@ public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
-    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
-
-    private string appPassword = null!;
-
     private readonly string privilegedPassword = NewPassword();
 
     private readonly string privilegedRole = $"drover_test_superuser_{Guid.NewGuid():N}";
@@ -24,9 +20,27 @@ public sealed class PostgresServer : IAsyncLifetime
     // Roles belong to the server, so two bootstraps at once race on them. Databases are made one at a time.
     private readonly SemaphoreSlim creating = new(1, 1);
 
+    private readonly PostgresLocator locator;
+
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
+
+    private string appPassword = null!;
+
     private PostgreSqlContainer? container;
 
     private NpgsqlConnectionStringBuilder server = null!; // set first thing in InitializeAsync
+
+    #endregion
+
+    #region Constructors
+
+    public PostgresServer() =>
+        locator = PostgresLocator.Shared(async cancellationToken =>
+            {
+                container = new PostgreSqlBuilder("postgres:16-alpine").Build();
+                await container.StartAsync(cancellationToken);
+                return container.GetConnectionString();
+            });
 
     #endregion
 
@@ -44,7 +58,7 @@ public sealed class PostgresServer : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        server = [with(await FindServer())];
+        server = [with(await locator.Find(TestContext.Current.CancellationToken))];
         ownerPassword = TestRolePasswords.For(server, "drover_owner");
         appPassword = TestRolePasswords.For(server, "drover_app");
 
@@ -103,20 +117,6 @@ public sealed class PostgresServer : IAsyncLifetime
     #endregion
 
     #region Private Methods
-
-    private async Task<string> FindServer()
-    {
-        var named = Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES");
-
-        if (!string.IsNullOrWhiteSpace(named))
-        {
-            return named;
-        }
-
-        container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-        await container.StartAsync();
-        return container.GetConnectionString();
-    }
 
     // Not ClearAllPools: other tests in this assembly are using their own pools at the same time.
     private Task Drop(string name) => ExecuteOnServer($"DROP DATABASE IF EXISTS {name} WITH (FORCE)");

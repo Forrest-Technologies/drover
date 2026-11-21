@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
   </ItemGroup>
 
 </Project>
