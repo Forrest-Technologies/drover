@@ -22,15 +22,38 @@ def shell(*args):
     return subprocess.check_output(["adb", "shell", *args], text=True).strip()
 
 
-def wait_for_boot(timeout=90):
-    """Wait until the device answers a shell command after adbd restarts as root."""
+def wait_for_boot(timeout=90, as_root=False):
+    """Wait for adbd to answer, and for the root shell when a root restart was asked for."""
     deadline = time.monotonic() + timeout
+    started = time.monotonic()
 
     while True:
-        state = subprocess.run(["adb", "get-state"], text=True, capture_output=True)
-        booted = subprocess.run(["adb", "shell", "getprop", "sys.boot_completed"], text=True, capture_output=True)
-        if (state.returncode == 0 and state.stdout.strip() == "device"
-                and booted.returncode == 0 and booted.stdout.strip() == "1"):
+        ready = False
+
+        try:
+            state = subprocess.run(
+                ["adb", "get-state"], text=True, capture_output=True, timeout=10,
+            )
+            booted = subprocess.run(
+                ["adb", "shell", "getprop", "sys.boot_completed"],
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            ready = (state.returncode == 0 and state.stdout.strip() == "device"
+                     and booted.returncode == 0 and booted.stdout.strip() == "1")
+
+            if ready and as_root:
+                identity = subprocess.run(
+                    ["adb", "shell", "id"], text=True, capture_output=True, timeout=10,
+                )
+                ready = identity.returncode == 0 and "uid=0(root)" in identity.stdout
+        except subprocess.TimeoutExpired:
+            ready = False
+
+        if ready:
+            if as_root:
+                print(f"Android adbd root restart waited {time.monotonic() - started:.1f}s.")
             return
         if time.monotonic() >= deadline:
             raise AssertionError("The Android device did not come back online after adb root.")
@@ -39,14 +62,21 @@ def wait_for_boot(timeout=90):
 
 def capture(*args):
     """Capture a screen once, and once more if the device dropped offline mid-capture."""
+    detail = "no screen bytes"
+
     for attempt in range(2):
-        result = subprocess.run(["adb", "exec-out", *args], capture_output=True)
-        offline = b"device offline" in result.stderr or b"device not found" in result.stderr
-        if result.returncode == 0 and result.stdout and not offline:
-            return result.stdout
-        if attempt == 0 and offline:
+        try:
+            result = subprocess.run(["adb", "exec-out", *args], capture_output=True, timeout=10)
+            detail = result.stderr.decode("utf-8", "replace").strip() or detail
+            offline = b"device offline" in result.stderr or b"device not found" in result.stderr
+            if result.returncode == 0 and result.stdout and not offline:
+                return result.stdout
+        except subprocess.TimeoutExpired as error:
+            detail = str(error)
+
+        if attempt == 0:
             wait_for_boot()
-    detail = result.stderr.decode("utf-8", "replace").strip()
+
     raise AssertionError(f"Could not capture {' '.join(args)} from Android: {detail}")
 
 
@@ -204,7 +234,7 @@ def check_safe_area():
         identity = subprocess.run(["adb", "shell", "id"], text=True, capture_output=True)
         if identity.returncode != 0 or "uid=0(root)" not in identity.stdout:
             subprocess.run(["adb", "root"], check=True)
-            wait_for_boot()
+            wait_for_boot(as_root=True)
         shell("am", "force-stop", PACKAGE)
         data = f"/data/user/0/{PACKAGE}"
         preferences = f"{data}/shared_prefs"
@@ -219,15 +249,39 @@ def check_safe_area():
         if abs(light_top - normal_top) > 2:
             raise AssertionError("Changing the theme moved the server address relative to the safe area.")
     finally:
-        # A device that went offline must not hide the assertion that found it.
-        try:
-            wait_for_boot()
-            shell("wm", "size", "reset")
-            shell("wm", "density", "reset")
-        except Exception as error:
-            if sys.exc_info()[0] is None:
-                raise
-            print(f"Could not reset the Android display after the check: {error}")
+        # Decide while still in the finally whether a check failure is in flight.
+        reset_display(sys.exc_info()[0] is not None)
+
+
+def reset_display(failed, boot=wait_for_boot, run=shell):
+    """Reset the test display; only tolerate a failure when another check already failed."""
+    try:
+        boot()
+        run("wm", "size", "reset")
+        run("wm", "density", "reset")
+    except Exception as error:
+        if not failed:
+            raise
+        print(f"Could not reset the Android display after the check: {error}")
+
+
+def check_cleanup_errors():
+    """No emulator is needed: prove a cleanup failure is raised only when the check itself passed."""
+    def failing(*args):
+        raise RuntimeError("simulated offline device")
+
+    raised = False
+
+    try:
+        reset_display(False, boot=lambda: None, run=failing)
+    except RuntimeError:
+        raised = True
+
+    if not raised:
+        raise AssertionError("A cleanup failure must fail the job when the check passed.")
+
+    reset_display(True, boot=lambda: None, run=failing)
+    print("Android cleanup error handling passed with and without a failure in flight.")
 
 
 def check_unreachable_open():
@@ -289,6 +343,9 @@ def main():
         return
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "--all"
+    if mode == "--self-test-cleanup":
+        check_cleanup_errors()
+        return
     if mode in ("--all", "--editing"):
         previous = shell("settings", "get", "secure", "default_input_method")
         show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
