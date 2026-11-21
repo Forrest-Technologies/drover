@@ -724,6 +724,10 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         failure.Which.Message.Should().NotContain("account suspended");
     }
 
+    #endregion
+
+    #region Helpers
+
     private static async IAsyncEnumerable<CommandOutput> FailWith(SandboxProviderException failure)
     {
         await Task.Yield();
@@ -738,9 +742,6 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         yield return new CommandExited(0, null);
     }
 
-    #endregion
-
-    #region Helpers
 
     private async Task<RunWorld> SandboxWorld(FakeSandboxProvider provider, ScriptedModel? script = null, DeploymentPolicy? policy = null) =>
         await RunWorld.Create(

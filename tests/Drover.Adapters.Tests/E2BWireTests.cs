@@ -474,6 +474,10 @@ public sealed class E2BWireTests
         log.Lines.Should().ContainSingle().Which.Should().Contain("does not read").And.NotContain("UPPER");
     }
 
+    #endregion
+
+    #region Helpers
+
     private static string Record(string state) =>
         new JsonObject
         {
@@ -552,9 +556,6 @@ public sealed class E2BWireTests
         #endregion
     }
 
-    #endregion
-
-    #region Helpers
 
     private static MemoryStream Frames(params (byte Flags, string Json)[] frames)
     {
