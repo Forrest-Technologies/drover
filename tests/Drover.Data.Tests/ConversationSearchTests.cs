@@ -205,37 +205,7 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
         var start = DateTimeOffset.UtcNow.AddHours(-2);
 
-        Guid threadId;
-        Message oldMatch;
-        Message recentMatch;
-        Message windowEdge;
-        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
-        {
-            var thread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
-            threadId = thread.Id;
-            session.Db.Threads.Add(thread);
-
-            oldMatch = CoreRows.NewMessage(thread, 1, "Ancient nautilus fossil.");
-            oldMatch.CreatedAt = start;
-            session.Db.Messages.Add(oldMatch);
-
-            var position = 2;
-            List<Message> bulk = [];
-            for (var index = 1; index < MessageRepository.SearchCandidateLimit; index++)
-            {
-                var filler = CoreRows.NewMessage(thread, position++, "Routine log entry.");
-                filler.CreatedAt = start.AddSeconds(index);
-                bulk.Add(filler);
-            }
-
-            windowEdge = bulk[0];
-            recentMatch = CoreRows.NewMessage(thread, position, "Fresh nautilus sighting.");
-            recentMatch.CreatedAt = start.AddSeconds(MessageRepository.SearchCandidateLimit);
-            bulk.Add(recentMatch);
-
-            session.Db.Messages.AddRange(bulk);
-            await session.Commit();
-        }
+        var (oldMatch, recentMatch, windowEdge) = await SeedCandidateWindow(provider, world.SpaceA, world.UserA1, bot, start);
 
         var newest = await SearchWindow(provider, world.SpaceA, world.UserA1, "nautilus", null);
 
@@ -370,6 +340,40 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
         return await new MessageRepository(session.Db).SearchMessages(words, 30, before, mineOnly, Token, candidateLimit);
+    }
+
+    private static async Task<(Message OldMatch, Message RecentMatch, Message WindowEdge)> SeedCandidateWindow(
+        IServiceProvider provider,
+        Guid spaceId,
+        Guid userId,
+        Bot bot,
+        DateTimeOffset start)
+    {
+        await using var session = await TenantSession.Open(provider, spaceId, userId);
+        var thread = CoreRows.NewThread(bot, userId, userId);
+        session.Db.Threads.Add(thread);
+
+        var oldMatch = CoreRows.NewMessage(thread, 1, "Ancient nautilus fossil.");
+        oldMatch.CreatedAt = start;
+        session.Db.Messages.Add(oldMatch);
+
+        var position = 2;
+        List<Message> bulk = [];
+        for (var index = 1; index < MessageRepository.SearchCandidateLimit; index++)
+        {
+            var filler = CoreRows.NewMessage(thread, position++, "Routine log entry.");
+            filler.CreatedAt = start.AddSeconds(index);
+            bulk.Add(filler);
+        }
+
+        var windowEdge = bulk[0];
+        var recentMatch = CoreRows.NewMessage(thread, position, "Fresh nautilus sighting.");
+        recentMatch.CreatedAt = start.AddSeconds(MessageRepository.SearchCandidateLimit);
+        bulk.Add(recentMatch);
+
+        session.Db.Messages.AddRange(bulk);
+        await session.Commit();
+        return (oldMatch, recentMatch, windowEdge);
     }
 
     private static async Task<Bot> SaveBot(IServiceProvider provider, Guid spaceId, Guid userId)
