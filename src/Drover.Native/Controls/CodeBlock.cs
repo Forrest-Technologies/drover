@@ -201,8 +201,9 @@ public sealed class CodeBlock : Grid
         label.Text = read.Label;
         AutomationProperties.SetName(body, read.Label);
 
-        // A table too wide to lay out as a grid at once is drawn as capped text until all of it is asked for.
-        var shown = !all && read is { Kind: CodeKind.Table, Table: { } wide } && CodeLines.TableLayoutOf(wide) is TableLayout.Text
+        // A table with too many columns, cells, or characters for a grid is drawn as text, capped until all of it is
+        // asked for. All of it is held to the same bounds, so asking for it never builds a grid past them.
+        var shown = read is { Kind: CodeKind.Table, Table: { } wide } && CodeLines.TableLayoutOf(wide, all) is TableLayout.Text
             ? read with { Kind = CodeKind.Plain, Family = CodeFamily.None }
             : read;
 

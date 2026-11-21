@@ -112,25 +112,34 @@ public static partial class CodeLines
     public static string ShowAll(int lines) => $"Show all {lines.ToString("N0", CultureInfo.InvariantCulture)} lines";
 
     /// <summary>
-    /// How much of a table is laid out before "Show all" is asked for. The same cap holds as for text: 400 rows, and
-    /// 64 KiB of cells in those rows. A table whose first rows hold more than that is laid out as capped text instead,
-    /// so a few very wide rows cost no more than a long text does.
+    /// How much of a table is laid out as a grid. Each cell is a control, so a grid is bounded by what it holds and by
+    /// how many cells it has: at most <see cref="MaxColumns"/> columns, <see cref="MaxCells"/> cells, and
+    /// <see cref="MaxCharacters"/> characters of cells, in the first <see cref="MaxLines"/> rows or, with
+    /// <paramref name="all"/>, in every row. A table past any of these is laid out as text instead, which costs no
+    /// more than its characters, so a table of many empty cells cannot build a huge grid.
     /// </summary>
-    public static TableLayout TableLayoutOf(CodeTable table)
+    public static TableLayout TableLayoutOf(CodeTable table, bool all = false)
     {
+        if (table.ColumnCount > MaxColumns)
+        {
+            return TableLayout.Text;
+        }
+
+        var cells = table.Header?.Count ?? 0;
         var characters = table.Header?.Sum(cell => cell.Length) ?? 0;
 
-        foreach (var row in table.Rows.Take(MaxLines))
+        foreach (var row in all ? table.Rows : table.Rows.Take(MaxLines))
         {
+            cells += row.Count;
             characters += row.Sum(cell => cell.Length);
 
-            if (characters > MaxCharacters)
+            if (cells > MaxCells || characters > MaxCharacters)
             {
                 return TableLayout.Text;
             }
         }
 
-        return table.Rows.Count > MaxLines ? TableLayout.FirstRows : TableLayout.Whole;
+        return !all && table.Rows.Count > MaxLines ? TableLayout.FirstRows : TableLayout.Whole;
     }
 
     /// <summary>The words of the button that lays out all of a capped table: "Show all 1,200 rows".</summary>
@@ -214,6 +223,12 @@ public static partial class CodeLines
     /// <summary>The columns between tab stops.</summary>
     public const int TabWidth = 4;
 
+    /// <summary>The most columns a table is laid out with as a grid.</summary>
+    public const int MaxColumns = 64;
+
+    /// <summary>The most cells, the header's among them, a table is laid out with as a grid.</summary>
+    public const int MaxCells = 8_192;
+
     #endregion
 }
 
@@ -226,7 +241,7 @@ public enum TableLayout
     /// <summary>The first <see cref="CodeLines.MaxLines"/> rows, with a button for the rest.</summary>
     FirstRows,
 
-    /// <summary>Its text, capped as any text is: its cells are too wide to lay out as a grid at once.</summary>
+    /// <summary>Its text, capped as any text is: it holds too many columns, cells, or characters to lay out as a grid.</summary>
     Text,
 }
 
