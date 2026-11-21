@@ -4,7 +4,8 @@ namespace Drover.Native.Chat;
 /// Text a machine wrote, in a box that scrolls: what a tool printed, a command with its output, a file's first lines.
 /// It is bounded, so long text scrolls inside it and never pushes the conversation away, and it is one tab stop with
 /// a name, so it scrolls by keyboard too. Error output is tagged with the name of its stream, and also colored. Shown
-/// from its end, it keeps the newest line in view while output arrives.
+/// from its end, it keeps the newest line in view while output arrives. Where <see cref="CopyLabel"/> is set, the copy
+/// icon stands in its top corner, beside the text and never over it, and copies all of the output as it was printed.
 /// </summary>
 internal sealed class OutputBox : Grid
 {
@@ -15,6 +16,8 @@ internal sealed class OutputBox : Grid
     private readonly TextBlock words = Styles.Text(null, "DvTextMono");
 
     private readonly ScrollViewer scroll;
+
+    private readonly CopyButton copy = new() { VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed };
 
     private string? prompt;
 
@@ -44,7 +47,15 @@ internal sealed class OutputBox : Grid
             FocusVisualSecondaryThickness = new(0),
             FocusVisualMargin = new(Tokens.Number("DvFocusWidth")),
         };
-        box.Child = scroll;
+        copy.Text = () => OutputWords.CopyText(pieces);
+        copy.Margin = new(0, Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1"), 0);
+        var inside = new Grid();
+        inside.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        inside.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        SetColumn(copy, 1);
+        inside.Children.Add(scroll);
+        inside.Children.Add(copy);
+        box.Child = inside;
         box.BorderThickness = new(Tokens.Number("DvBorder"));
         Children.Add(box);
         this.WhenShownOrRethemed(Paint);
@@ -60,6 +71,9 @@ internal sealed class OutputBox : Grid
         get => AutomationProperties.GetName(scroll);
         set => AutomationProperties.SetName(scroll, value);
     }
+
+    /// <summary>The copy icon's name, "Copy output", or nothing for a box that offers no copy, such as a file's first lines.</summary>
+    public string? CopyLabel { get; set; }
 
     /// <summary>The surface, as a token name: the card color inside a card, the app background on a panel.</summary>
     public string Fill { get; set; } = "DvBg2";
@@ -81,6 +95,8 @@ internal sealed class OutputBox : Grid
     public void Show(string? promptMark, string? commandLine, IReadOnlyList<ToolOutputPiece> output)
     {
         (prompt, lead, pieces) = (promptMark, commandLine, output);
+        copy.Label = CopyLabel ?? OutputWords.CopyOutput;
+        copy.Visibility = CopyLabel is not null && pieces.Any(piece => piece.Text.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
         Paint();
 
         if (FollowsEnd)
