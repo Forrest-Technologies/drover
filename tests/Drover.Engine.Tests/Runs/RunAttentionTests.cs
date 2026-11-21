@@ -243,7 +243,7 @@ public sealed class RunAttentionTests(PostgresServer postgres)
         root.LastFailure.Should().BeNull();
         childsThread.Failed.Should().BeFalse("the parent dealt with it");
         childsThread.LastFailure.Should().BeNull();
-        retry.Outcome.Should().Be(RetryOutcome.NotRetryable, "work handed to a bot is tried again by its parent, not by the person");
+        retry.Outcome.Should().Be(RetryOutcome.ReadOnly, "a person does not try a bot's work again; the parent, not the person, recovers from its failure");
     }
 
     #endregion
