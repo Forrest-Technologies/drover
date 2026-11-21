@@ -34,7 +34,10 @@ public static class BotEndpoints
     {
         var access = context.GetSpaceAccess();
         var change = await bots.Create(
-            new NewBot(request.Name ?? string.Empty, string.Empty, request.Instructions ?? string.Empty, request.ModelConnectionId, request.Model, request.ParentBotId),
+            new NewBot(request.Name ?? string.Empty, string.Empty, request.Instructions ?? string.Empty, request.ModelConnectionId, request.Model, request.ParentBotId)
+            {
+                RequestId = request.RequestId,
+            },
             AuditActor.Person(access.UserId),
             context.RequestAborted);
 

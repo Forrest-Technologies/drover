@@ -47,19 +47,18 @@ public sealed class BotListViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task New_bot_makes_one_on_the_connection_and_opens_its_editor()
+    public async Task New_bot_opens_an_unsaved_draft_and_stores_nothing()
     {
         Space(bots: [Marshal]);
-        Server.Answer("POST", $"{space}/bots", Marshal with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000007"), Name = "New bot" }, HttpStatusCode.Created);
         var list = Make<BotListViewModel>();
         await list.Open();
         list.ShowsNewBot.Should().BeTrue();
-        list.NewBotLabel.Should().Be("New bot");
+        BotListViewModel.NewBotLabel.Should().Be("New bot");
 
-        await list.CreateCommand.ExecuteAsync(null);
+        list.CreateCommand.Execute(null);
 
-        Navigator.Current.Should().Be("/bots/0196f1a0-0000-7000-8000-000000000007");
-        Server.Sent("POST", $"{space}/bots").Should().ContainSingle().Which.Should().Contain("\"name\":\"New bot\"").And.Contain("\"model\":\"sample-default\"");
+        Navigator.Current.Should().Be("/bots/new");
+        Server.Requests.Should().NotContain(request => request.Method == "POST", "nothing is stored until the person saves");
     }
 
     [Fact]
@@ -68,7 +67,6 @@ public sealed class BotListViewModelTests : ViewModelTest
         var helperId = Guid.Parse("0196f1a0-0000-7000-8000-000000000008");
         var helper = Marshal with { Id = helperId, Name = "Sample helper", Handle = "sample-helper", Status = "active", ParentBotId = botId, MadeByBotId = botId };
         Space(bots: [Marshal, helper]);
-        Server.Answer("POST", $"{space}/bots", Marshal with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000007"), Name = "New bot" }, HttpStatusCode.Created);
         var list = Make<BotListViewModel>();
         await list.Open();
 
@@ -78,12 +76,13 @@ public sealed class BotListViewModelTests : ViewModelTest
         beneath.Bot.Name.Should().Be("Sample helper");
         list.Facts(beneath.Bot).Should().Be("@sample-helper · sample-default · made by Marshal");
         list.ShowsAddUnder.Should().BeTrue();
-        new[] { top.Bot, beneath.Bot }.Select(BotListViewModel.AddUnderLabel).Should().Equal("New bot under Marshal", "New bot under Sample helper");
+        BotSummary[] rows = [top.Bot, beneath.Bot];
+        rows.Select(BotListViewModel.AddUnderLabel).Should().Equal("New bot under Marshal", "New bot under Sample helper");
 
-        await list.CreateCommand.ExecuteAsync(helperId);
+        list.CreateCommand.Execute(helperId);
 
-        Navigator.Current.Should().Be("/bots/0196f1a0-0000-7000-8000-000000000007");
-        Server.Sent("POST", $"{space}/bots").Should().ContainSingle().Which.Should().Contain($"\"parentBotId\":\"{helperId}\"");
+        Navigator.Current.Should().Be($"/bots/new?parent={helperId}", "the draft keeps its parent");
+        Server.Requests.Should().NotContain(request => request.Method == "POST");
     }
 
     [Fact]
@@ -96,7 +95,7 @@ public sealed class BotListViewModelTests : ViewModelTest
 
         list.State.Should().Be(BotListState.NoBot);
         BotListViewModel.NoBotTitle.Should().Be("No bot yet");
-        list.MakeBotLabel.Should().Be("Make a bot");
+        BotListViewModel.MakeBotLabel.Should().Be("Make a bot");
         list.ShowsNewBot.Should().BeFalse("the empty state holds the one action");
     }
 
@@ -119,8 +118,8 @@ public sealed class BotListViewModelTests : ViewModelTest
     public async Task A_member_sees_the_bots_and_is_told_who_changes_them()
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
-        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[Marshal]);
         var list = Make<BotListViewModel>();
 
         await list.Open();
@@ -136,7 +135,7 @@ public sealed class BotListViewModelTests : ViewModelTest
     public async Task A_member_in_a_space_with_no_bot_is_told_who_makes_one()
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         Server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
         var list = Make<BotListViewModel>();
 
@@ -165,8 +164,8 @@ public sealed class BotListViewModelTests : ViewModelTest
     public async Task The_list_says_it_is_loading_until_the_server_answers()
     {
         SignedIn();
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
-        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[Marshal]);
         var held = Server.Hold("GET", $"{space}/bots");
         var list = Make<BotListViewModel>();
 
@@ -179,25 +178,6 @@ public sealed class BotListViewModelTests : ViewModelTest
         list.State.Should().Be(BotListState.Listed);
     }
 
-    [Fact]
-    public async Task Making_a_bot_says_so_and_a_refusal_is_said_in_the_servers_words()
-    {
-        Space(bots: [Marshal]);
-        Server.Refuse("POST", $"{space}/bots", HttpStatusCode.Conflict, "This space holds at most 1 bot.");
-        var held = Server.Hold("POST", $"{space}/bots");
-        var list = Make<BotListViewModel>();
-        await list.Open();
-
-        var creating = list.Create(null);
-        list.NewBotLabel.Should().Be("Making a bot");
-        held.SetResult();
-        await creating;
-
-        list.Problem.Should().Be("This space holds at most 1 bot.");
-        list.Creating.Should().BeFalse();
-        Navigator.Current.Should().Be(Addresses.Home, "the list stays where it is");
-    }
-
     #endregion
 
     #region Helpers
@@ -205,7 +185,7 @@ public sealed class BotListViewModelTests : ViewModelTest
     private void Space(BotSummary[] bots)
     {
         SignedIn();
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         Server.Answer("GET", $"{space}/bots", bots);
     }
 

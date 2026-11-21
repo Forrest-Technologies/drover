@@ -47,8 +47,8 @@ public sealed class CrewRow : StackPanel
 
         if (list.ShowsAddUnder)
         {
-            var add = new IconButton { Icon = IconName.Plus, Label = BotListViewModel.AddUnderLabel(bot), IsEnabled = !list.Creating, VerticalAlignment = VerticalAlignment.Center };
-            add.Click += (_, _) => _ = list.Create(bot.Id);
+            var add = new IconButton { Icon = IconName.Plus, Label = BotListViewModel.AddUnderLabel(bot), VerticalAlignment = VerticalAlignment.Center };
+            add.Click += (_, _) => list.Create(bot.Id);
             Grid.SetColumn(add, 3);
             line.Children.Add(add);
         }
