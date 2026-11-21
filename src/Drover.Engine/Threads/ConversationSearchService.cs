@@ -1,0 +1,100 @@
+namespace Drover.Engine.Threads;
+
+/// <summary>
+/// Finds the messages of the conversations a person may read that contain the words they typed: their own, and the ones
+/// shared with everyone in the space. It runs in a tenant scope opened after validation and concurrency checks, so
+/// row-level security keeps every search to the caller's space and to the threads whose audience includes them, in
+/// every mode. Mine only narrows it further, to the threads the caller owns; it never widens it.
+/// </summary>
+public sealed class ConversationSearchService(MessageRepository messages)
+{
+    #region Public Methods
+
+    /// <summary>Why the words cannot be searched for, as a sentence, or null when they can.</summary>
+    public static string? Refusal(string? words) => words?.Trim() switch
+    {
+        null or "" => "Say what to look for.",
+        { Length: > MaxLength } => $"Search for at most {MaxLength} characters.",
+        _ => null,
+    };
+
+    /// <summary>
+    /// The messages that match, best first, among the newest messages the caller may read, or the next ones before
+    /// <paramref name="before"/>. Words that match nothing, such as only very common words, find nothing. The result
+    /// says where the search stopped, so a person can search further back.
+    /// </summary>
+    public async Task<MessageSearchResult> Search(string words, SearchCursor? before, bool mineOnly, CancellationToken cancellationToken)
+    {
+        var found = await messages.SearchMessages(
+            words.Trim(),
+            MaxHits,
+            before is null ? null : new(before.SentAt.ToUniversalTime(), before.MessageId),
+            mineOnly,
+            cancellationToken);
+        return new(
+            [.. found.Matches.Select(ToHit)],
+            MessageRepository.SearchCandidateLimit,
+            found.Older is { } older ? new(older.SentAt, older.Id) : null);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static MessageSearchHit ToHit(MessageMatch match)
+    {
+        var (snippet, matches) = Unmark(match.Snippet);
+        return new(
+            match.MessageId,
+            match.ThreadId,
+            match.BotId,
+            match.BotName,
+            match.ThreadTitle,
+            match.InMainConversation,
+            match.FromBot,
+            match.CreatedAt,
+            snippet,
+            matches);
+    }
+
+    // The database marks each matched word; the marks become stretches of the plain text they are taken out of.
+    private static (string Snippet, List<SnippetMatch> Matches) Unmark(string marked)
+    {
+        var text = new StringBuilder(marked.Length);
+        List<SnippetMatch> matches = [];
+        var start = (int?)null;
+
+        foreach (var character in marked)
+        {
+            switch (character)
+            {
+                case MessageRepository.MatchStart:
+                    start = text.Length;
+                    break;
+                case MessageRepository.MatchEnd when start is { } from:
+                    matches.Add(new(from, text.Length - from));
+                    start = null;
+                    break;
+                case MessageRepository.MatchEnd:
+                    break;
+                default:
+                    text.Append(character);
+                    break;
+            }
+        }
+
+        return (text.ToString(), matches);
+    }
+
+    #endregion
+
+    #region Limits
+
+    /// <summary>The most messages one search returns, best match first.</summary>
+    public const int MaxHits = 30;
+
+    /// <summary>The longest search, in characters.</summary>
+    public const int MaxLength = 200;
+
+    #endregion
+}

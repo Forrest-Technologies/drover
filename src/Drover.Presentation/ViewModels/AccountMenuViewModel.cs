@@ -29,6 +29,8 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     private readonly IPushRegistration? push;
 
+    private readonly IDesktopUpdates updates;
+
     private readonly ILogger<AccountMenuViewModel> logger;
 
     [ObservableProperty]
@@ -37,6 +39,9 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool notificationsOpen;
+
+    [ObservableProperty]
+    private bool updatesOpen;
 
     [ObservableProperty]
     private bool aboutOpen;
@@ -54,6 +59,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         Navigator navigator,
         DroverApi api,
         ILogger<AccountMenuViewModel> logger,
+        IDesktopUpdates? updates = null,
         IPushRegistration? push = null)
 #pragma warning restore IDE0290
     {
@@ -64,8 +70,11 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         this.api = api;
         this.logger = logger;
         this.push = push;
+        this.updates = updates ?? new UnsupportedDesktopUpdates();
         session.Changed += SessionChanged;
         theme.PropertyChanged += ThemeChanged;
+        this.updates.Changed += UpdatesChanged;
+        _ = this.updates.Start();
     }
 
     #endregion
@@ -85,6 +94,41 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     /// <summary>The status screen is for the people who run the space.</summary>
     public bool ShowsStatus => session.Space?.Role is "owner" or "admin";
 
+    public bool ShowsUpdates => updates.State.Supported;
+
+    public bool UpdateChecksEnabled => updates.State.ChecksEnabled;
+
+    public string UpdatesLabel => updates.State is { Phase: DesktopUpdatePhase.Available, Version: { } version }
+        ? $"Update {version} ready"
+        : "Updates";
+
+    public string UpdatesTitle => updates.State is { Phase: DesktopUpdatePhase.Available, Version: { } version }
+        ? $"Drover {version} is ready"
+        : "Desktop updates";
+
+    public string UpdatesDetail => updates.State switch
+    {
+        { ChecksEnabled: false } => "This installation does not check for updates.",
+        { Phase: DesktopUpdatePhase.Checking } => "Checking the signed release feed.",
+        { Phase: DesktopUpdatePhase.Available } => "The package signature will be checked before installation.",
+        { Phase: DesktopUpdatePhase.Downloading } => "Downloading and checking the package.",
+        { Phase: DesktopUpdatePhase.Installing } => "The installer is opening. Drover will restart when it finishes.",
+        { Phase: DesktopUpdatePhase.Manual, VerifiedPackage: { } package } =>
+            $"The package signature is valid. Install the checked file at {package}. Drover does not open a privileged installer on this system.",
+        { Phase: DesktopUpdatePhase.Failed, Problem: { } problem } => problem,
+        _ => "Drover checks the signed release feed when it starts.",
+    };
+
+    public bool CanCheckUpdates => updates.State is
+    {
+        ChecksEnabled: true, Phase: not DesktopUpdatePhase.Checking
+        and not DesktopUpdatePhase.Downloading and not DesktopUpdatePhase.Installing
+    };
+
+    public bool CanInstallUpdate => updates.State.Phase is DesktopUpdatePhase.Available;
+
+    public string InstallLabel => OperatingSystem.IsLinux() ? "Download" : "Download and restart";
+
     #endregion
 
     #region Public Methods
@@ -93,6 +137,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     {
         session.Changed -= SessionChanged;
         theme.PropertyChanged -= ThemeChanged;
+        updates.Changed -= UpdatesChanged;
     }
 
     [RelayCommand]
@@ -107,6 +152,21 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     /// <summary>What the app is, and the diagnostic log to attach to a bug report.</summary>
     [RelayCommand]
     public void OpenAbout() => AboutOpen = true;
+
+    [RelayCommand]
+    public void OpenUpdates() => UpdatesOpen = true;
+
+    public void SetUpdateChecks(bool enabled) => updates.SetChecks(enabled);
+
+    public async Task CheckUpdates()
+    {
+        await updates.Check();
+    }
+
+    public async Task InstallUpdate()
+    {
+        await updates.Install();
+    }
 
     [RelayCommand]
     public async Task SignOut()
@@ -137,6 +197,17 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     private void ThemeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change) =>
         OnPropertyChanged(nameof(Themes));
+
+    private void UpdatesChanged()
+    {
+        OnPropertyChanged(nameof(ShowsUpdates));
+        OnPropertyChanged(nameof(UpdateChecksEnabled));
+        OnPropertyChanged(nameof(UpdatesLabel));
+        OnPropertyChanged(nameof(UpdatesTitle));
+        OnPropertyChanged(nameof(UpdatesDetail));
+        OnPropertyChanged(nameof(CanCheckUpdates));
+        OnPropertyChanged(nameof(CanInstallUpdate));
+    }
 
     /// <summary>
     /// A device signed out of stops being woken for its person: the next person on this device must never be shown

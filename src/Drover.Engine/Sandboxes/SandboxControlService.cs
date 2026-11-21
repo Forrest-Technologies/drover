@@ -27,8 +27,9 @@ public sealed record SandboxControlResult<T>(T? Value, SandboxControlRefusal Ref
 /// A person acting on a bot's own sandbox from the sandbox screen: its state, the power controls (pause, resume,
 /// rebuild, turn off), the screen, the mouse and keyboard, and a terminal. Only a person who may change the bot (an
 /// owner or admin of its space) may do any of it. Every provider call goes through <see cref="SandboxBroker"/>, so
-/// every limit that binds the bot binds the person, and no tenant transaction is open across one. Each action is
-/// written to the audit log by kind only: never the text typed, the command, or a picture.
+/// every limit that binds the bot binds the person, and no tenant transaction is open across one. Every attempt that
+/// reaches the broker writes one audit row with how it ended, in its own transaction that the request cannot cancel:
+/// never the text typed, the command, or a picture.
 /// </summary>
 public sealed class SandboxControlService(
     IEnumerable<SandboxBroker> brokers,
@@ -62,6 +63,12 @@ public sealed class SandboxControlService(
     /// A test uses it to know every request has met before it lets the provider answer. Not used outside tests.
     /// </summary>
     internal Action? ScreenRequested { get; set; }
+
+    /// <summary>
+    /// Runs after the broker's work and before the audit row, so a test can end the request at that point. Not used
+    /// outside tests.
+    /// </summary>
+    internal Action? WorkCompleted { get; set; }
 
     #endregion
 
@@ -196,8 +203,9 @@ public sealed class SandboxControlService(
     }
 
     /// <summary>
-    /// The person's check in one short transaction, the work through the broker with none open, then the audit row in
-    /// another. A refusal from the broker or the provider comes back as its own plain words.
+    /// The person's check in one short transaction, the work through the broker with none open, then one audit row in
+    /// another for every attempt that reached the broker. The row says how the attempt ended. A refusal from the broker
+    /// or the provider comes back as its own plain words; cancellation and failure still reach the caller.
     /// </summary>
     private async Task<SandboxControlResult<T>> Control<T>(
         Guid spaceId,
@@ -229,21 +237,62 @@ public sealed class SandboxControlService(
         catch (BuiltinToolException refused)
         {
             logger.LogInformation("A person's action on the sandbox of bot {BotId} was refused", botId);
+            await Record<T>(tenant, userId, botId, audit, auditWhen, value: default!, "refused", rethrowing: false);
             return new(default, SandboxControlRefusal.Refused, refused.Message);
         }
+        catch (OperationCanceledException)
+        {
+            await Record<T>(tenant, userId, botId, audit, auditWhen, value: default!, "cancelled", rethrowing: true);
+            throw;
+        }
+        catch (Exception)
+        {
+            await Record<T>(tenant, userId, botId, audit, auditWhen, value: default!, "failed", rethrowing: true);
+            throw;
+        }
 
-        if (audit is not null && (auditWhen?.Invoke(value) ?? true))
+        WorkCompleted?.Invoke();
+        await Record(tenant, userId, botId, audit, auditWhen, value, "done", rethrowing: false);
+        return new(value);
+    }
+
+    /// <summary>
+    /// One row for the attempt, in its own transaction with no request token: a client that disconnects cannot cancel
+    /// the record of what its command did. Only the done outcome honours <paramref name="auditWhen"/>. A failure to
+    /// write the row while another exception is already travelling is logged, not thrown in its place.
+    /// </summary>
+    private async Task Record<T>(
+        RunTenant tenant,
+        Guid userId,
+        Guid botId,
+        Audit? audit,
+        Func<T, bool>? auditWhen,
+        T value,
+        string outcome,
+        bool rethrowing)
+    {
+        if (audit is null || (outcome is "done" && !(auditWhen?.Invoke(value) ?? true)))
+        {
+            return;
+        }
+
+        var about = audit.About?.DeepClone().AsObject() ?? [];
+        about["outcome"] = outcome;
+
+        try
         {
             await tenant.Transact(
                 services =>
                 {
-                    services.GetRequiredService<AuditLog>().Record(userId, audit.Action, AuditTargets.Bot, botId, null, null, audit.About);
+                    services.GetRequiredService<AuditLog>().Record(userId, audit.Action, AuditTargets.Bot, botId, null, null, about);
                     return Task.CompletedTask;
                 },
-                cancellationToken);
+                CancellationToken.None);
         }
-
-        return new(value);
+        catch (Exception exception) when (rethrowing)
+        {
+            logger.LogError("Could not audit a sandbox action on bot {BotId}; the failure was {Failure}", botId, exception.GetType().Name);
+        }
     }
 
     private async Task<SandboxScreenshot> SharedScreenshot(

@@ -99,8 +99,40 @@ const exchangedFiles = [
 const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
 const sampleImageAddress = 'https://preview-image.example.test/sample.png';
 messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
+const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
+const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
+const searchMessages = Array.from({ length: 25 }, (_, index) => ({
+    id: `0196f1a0-0000-7000-8000-${String(index + 101).padStart(12, '0')}`,
+    threadId: thread.id,
+    position: index + 1,
+    role: index % 2 === 0 ? 'assistant' : 'user',
+    parts: [{
+        kind: 'text',
+        text: index === 0
+            ? 'The lighthouse keeper visits on Tuesdays.'
+            : index === 24
+                ? 'The lighthouse lamp was polished today.'
+                : `Routine conversation filler message number ${index + 1} with enough words to fill vertical viewport space.`,
+    }],
+    createdAt: thread.lastActivityAt,
+}));
 const usage = {
     botId, botName: bot.name, model: bot.model, own: { cost: 1.23, inputTokens: 120, outputTokens: 45 }, children: [],
+};
+const projectId = '0196f1a0-0000-7000-8000-000000000010';
+const projectFileId = '0196f1a0-0000-7000-8000-0000000000f2';
+const projectOutsideThreadId = '0196f1a0-0000-7000-8000-000000000007';
+const projectSummary = {
+    id: projectId, name: 'Weekly', instructions: 'Ship the note.',
+    createdAt: thread.lastActivityAt, updatedAt: thread.lastActivityAt,
+};
+const projectFile = {
+    file: { id: projectFileId, name: 'brief.txt', contentType: 'text/plain', kind: 'text', size: 128 },
+    projectId, uploadedAt: thread.lastActivityAt,
+};
+const projectOutsideThread = {
+    id: projectOutsideThreadId, botId, title: 'Quarterly planning',
+    isShared: false, lastActivityAt: thread.lastActivityAt, activeRunId: null, isMain: false, attention: null, projectId: null,
 };
 const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
@@ -109,6 +141,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Meet your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot', 'Edit Sample bot'],
+    ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
     ['share-empty', '/share', 'Share to Drover'],
@@ -124,6 +157,16 @@ const screens = [
     ['extension-editor-loading', `/extensions/edit?bot=${botId}`, 'Make an extension'],
     ['extension-editor-failed', `/extensions/edit?bot=${botId}`, 'Make an extension'],
     ['extension-editor', '/extensions/edit', 'Make an extension'],
+];
+const nativeProjectScreens = [
+    ['projects-empty', '/projects', 'Projects', 'Projects'],
+    ['projects-failed', '/projects', 'Projects', 'Projects'],
+    ['projects', '/projects', 'Projects', 'Projects'],
+    ['project-loading', `/projects/${projectId}`, 'Project', 'Project'],
+    ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
+    ['project-missing', `/projects/${projectId}`, 'Project', 'This project is not here'],
+    ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
+    ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
 const errors = [];
 try {
@@ -171,10 +214,21 @@ try {
                     || (message.location().url === `${origin}/api/setup` && message.text().includes('404 (Not Found)'))
                 )) {
                     return;
+                } else if ((current === 'projects-failed' || current === 'project-loading' || current === 'project-failed')
+                    && (message.location().url === `${origin}/api/spaces/${spaceId}/projects`
+                        || message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`)
+                    && message.text().includes('503 (Service Unavailable)')) {
+                    return;
+                } else if (current === 'project-missing'
+                    && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
+                    && message.text().includes('404 (Not Found)')) {
+                    return;
                 } else { errors.push(`${message.location().url}: ${message.text()}`); }
             });
             let current;
             let heldRoute;
+            let botCreates = 0;
+            let projectMoved = false;
             let previewFrameRequests = [];
             let revokedPreviewGrants = [];
             let externalBeaconRequests = 0;
@@ -205,8 +259,13 @@ try {
             await page.route('**/api/**', async route => {
                 const address = new URL(route.request().url()).pathname;
                 let body;
+                const method = route.request().method();
                 if (address === '/api/session' && current === 'sign-in') { await route.fulfill({ status: 401 }); return; }
-                if (address === '/api/session') { body = person; }
+                if (address === '/api/session') {
+                    body = current === 'project-member'
+                        ? { ...person, spaces: [{ ...person.spaces[0], role: 'member' }] }
+                        : person;
+                }
                 else if (address === '/api/antiforgery') {
                     await route.fulfill({ status: 204, headers: { 'Set-Cookie': 'XSRF-TOKEN=sample; Path=/; SameSite=Strict' } });
                     return;
@@ -215,6 +274,11 @@ try {
                 else if (address === '/api/setup') { body = { requiresCode: true }; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
+                else if (address.endsWith('/bots') && route.request().method() === 'POST') {
+                    botCreates++;
+                    await route.fulfill({ status: 201, json: bot });
+                    return;
+                }
                 else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
                 else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
@@ -227,6 +291,38 @@ try {
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
                     body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
+                }
+                else if (address === `/api/spaces/${spaceId}/threads/search` && route.request().method() === 'POST') {
+                    const { query } = route.request().postDataJSON() ?? {};
+                    const hits = query === 'lighthouse'
+                        ? [
+                            {
+                                messageId: searchTopMessageId,
+                                threadId: thread.id,
+                                botId,
+                                botName: bot.name,
+                                threadTitle: null,
+                                inMainConversation: true,
+                                fromBot: true,
+                                sentAt: thread.lastActivityAt,
+                                snippet: 'The lighthouse keeper visits on Tuesdays.',
+                                matches: [{ start: 4, length: 10 }],
+                            },
+                            {
+                                messageId: searchBottomMessageId,
+                                threadId: thread.id,
+                                botId,
+                                botName: bot.name,
+                                threadTitle: null,
+                                inMainConversation: true,
+                                fromBot: false,
+                                sentAt: thread.lastActivityAt,
+                                snippet: 'The lighthouse lamp was polished today.',
+                                matches: [{ start: 4, length: 10 }],
+                            },
+                        ]
+                        : [];
+                    body = { hits, window: 2000, older: null };
                 }
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
@@ -289,7 +385,7 @@ try {
                     await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
                     return;
                 }
-                else if (address.endsWith('/messages')) { body = messages; }
+                else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
                 else if (address.endsWith(`/files/${htmlFileId}/preview`) && route.request().method() === 'POST') {
                     body = { address: `${previewOrigin}/preview/file?grant=sample-grant`, problem: null, grant: 'sample-grant' };
@@ -299,6 +395,7 @@ try {
                     await route.fulfill({ status: 204 });
                     return;
                 }
+                else if (address.endsWith('/files/rules')) { body = { maxFileBytes: 26214400 }; }
                 else if (address.endsWith(`/bots/${botId}/tools`)
                     || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
@@ -308,6 +405,38 @@ try {
                 else if (address.endsWith(`/usage/bots/${botId}/runs`)) { body = { botId, currency: 'usd', runs: [] }; }
                 else if (address.endsWith('/tool-connections')) { body = current === 'tools-empty' || current === 'tools-add' ? [] : [{ id: connectionId, name: 'Sample tools', slug: 'sample-tools', url: 'https://tools.example.test/mcp', authKind: 'header', trust: 'untrusted', protocolMode: 'automatic', status: 'ready', negotiatedProtocol: null, lastListedAt: null, lastError: null, signInScope: 'space', signIn: null }]; }
                 else if (address.endsWith(`/tool-connections/${connectionId}/tools`)) { body = current === 'tools-review' ? [{ id: botId, connectionId, name: 'sample', modelName: 'sample__sample', title: 'Sample tool', description: 'Sample changed description', sensitivity: 'read', state: 'available', lastSeenAt: '2026-11-18T00:00:00Z', needsReview: true, definitionHash: 'sample-current', reviewed: { title: 'Sample tool', description: 'Sample original description', inputSchema: '{}' } }] : []; }
+                else if (address === `/api/spaces/${spaceId}/threads` && method === 'GET') {
+                    body = projectMoved ? [{ ...projectOutsideThread, projectId }] : [projectOutsideThread];
+                }
+                else if (address === `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project` && method === 'PUT') {
+                    projectMoved = true;
+                    body = { ...projectOutsideThread, projectId };
+                }
+                else if (address === `/api/spaces/${spaceId}/projects` && method === 'GET') {
+                    if (current === 'projects-failed') {
+                        await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                        return;
+                    }
+                    body = current === 'projects-empty' ? [] : [projectSummary];
+                }
+                else if (address === `/api/spaces/${spaceId}/projects/${projectId}` && method === 'GET') {
+                    if (current === 'project-loading') { heldRoute = route; return; }
+                    if (current === 'project-failed') {
+                        await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                        return;
+                    }
+                    if (current === 'project-missing') {
+                        await route.fulfill({ status: 404, json: { title: 'Project not found.', status: 404 } });
+                        return;
+                    }
+                    body = projectSummary;
+                }
+                else if (address === `/api/spaces/${spaceId}/projects/${projectId}/threads` && method === 'GET') {
+                    body = projectMoved ? [{ ...projectOutsideThread, projectId }] : [];
+                }
+                else if (address === `/api/spaces/${spaceId}/projects/${projectId}/files` && method === 'GET') {
+                    body = [projectFile];
+                }
                 else if (address.endsWith('/extensions')) { body = []; }
                 else if (address.endsWith(`/extensions/from-bot/${botId}`)) {
                     if (current === 'extension-editor-loading') { heldRoute = route; return; }
@@ -317,20 +446,23 @@ try {
                 else { await route.fulfill({ status: 404, body: '' }); return; }
                 await route.fulfill({ json: body });
             });
-            for (const [name, address, title, heading = title] of screens) {
+            const activeScreens = [...screens, ...nativeProjectScreens];
+            for (const [name, address, title, heading = title] of activeScreens) {
                 current = name;
+                const titleBefore = await page.title();
+                if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
                     : null;
                 const target = address;
-                if (name === 'account' || name === 'sign-in') {
+                if (name === 'account' || name === 'sign-in' || name === 'project-member') {
                     await page.goto(`${origin}${target}`);
                     await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
                 } else {
                     // Exercise the browser-history integration while keeping the already-started runtime.
                     await page.evaluate(target => { history.pushState(null, '', target); dispatchEvent(new PopStateEvent('popstate')); }, target);
                 }
-                await page.waitForFunction(title => document.title.startsWith(title), title, { timeout: 15000 }).catch(async error => {
+                await page.waitForFunction(title => document.title === title || (document.title.startsWith(title) && /^[\s·\-\u2014|]/.test(document.title.slice(title.length))), title, { timeout: 15000 }).catch(async error => {
                     throw new Error(`${name} at ${width}px in ${theme} expected title "${title}" but found "${await page.title()}" at ${page.url()}.\n${errors.join('\n')}`, { cause: error });
                 });
                 await page.waitForTimeout(600);
@@ -371,8 +503,65 @@ try {
                     await page.getByRole('heading', { name: 'Drover could not open this bot as an extension', exact: true })
                         .waitFor({ state: 'attached', timeout: 5000 });
                 }
+                if (name === 'projects-empty') {
+                    await page.getByRole('heading', { name: 'No project yet', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'projects-failed') {
+                    await page.getByRole('heading', { name: 'Drover could not load the projects', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'projects') {
+                    await page.getByRole('link', { name: 'Weekly', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('textbox', { name: 'Project name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project-loading') {
+                    await page.getByLabel('Loading the project.', { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project-failed') {
+                    await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project-missing') {
+                    await page.getByRole('link', { name: 'Back to projects', exact: true }).first().waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project' || name === 'project-member') {
+                    await page.getByRole('textbox', { name: 'Name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Download brief.txt', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Start with Sample bot', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+                if (name === 'extension-editor') {
+                    // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
+                    await page.mouse.move(width / 2, 500);
+                    await page.mouse.wheel(0, 3000);
+                    await page.waitForTimeout(200);
+                    const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
+                    const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
+                    assert.equal(saved.suggestedFilename(), 'extension.json');
+                    const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
+                    assert.equal(file.version, 1);
+                }
+                if (name === 'projects' && width === 360) {
+                    await checkPhoneNavLayout(page, width);
+                }
+                if (name === 'projects') {
+                    await checkProjectListKeyboard(page);
+                }
+                if (name === 'project') {
+                    const cpu = await context.newCDPSession(page);
+                    await cpu.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+                    try {
+                        await checkProjectDraftsAndKeyboard(page);
+                    } finally {
+                        await cpu.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+                        await cpu.detach();
+                    }
+                }
+                if (name === 'project-member') {
+                    await page.getByText("Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.", { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByRole('button', { name: 'Save project', exact: true }).isDisabled(), true);
+                }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
                     await checkStopBounds(page, width);
@@ -433,6 +622,9 @@ try {
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
                 }
+                if (name === 'bot-new') {
+                    await checkLeavingNewBot(page, titleBefore, () => botCreates);
+                }
                 if (name === 'usage') {
                     await page.getByRole('link', { name: 'Sample bot', exact: true }).dispatchEvent('click');
                     await page.waitForURL(url => url.searchParams.get('bot') === botId);
@@ -448,16 +640,9 @@ try {
                     heldRoute = null;
                 }
             }
-            // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
-            await page.mouse.move(width / 2, 500);
-            await page.mouse.wheel(0, 3000);
-            await page.waitForTimeout(200);
-            const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-            const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
-            assert.equal(saved.suggestedFilename(), 'extension.json');
-            const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
-            assert.equal(file.version, 1);
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
+            current = 'conversation-search';
+            await checkConversationSearch(page, width);
             await context.close();
         }
     }
@@ -699,6 +884,21 @@ async function checkLeavingWithEdits(page, address) {
     assert.equal(prompts, 0, 'With nothing unsaved, reloading asks nothing.');
 }
 
+// A new bot opens as a draft: nothing is stored until it is saved, so leaving it asks first and creates no bot.
+async function checkLeavingNewBot(page, titleBefore, createdBots) {
+    const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
+    await page.getByRole('button', { name: 'Make bot', exact: true }).waitFor({ state: 'attached', timeout: 15000 });
+    assert.equal(createdBots(), 0, 'Opening a new bot stores nothing.');
+
+    await page.goBack();
+    await leavePrompt.waitFor({ state: 'attached', timeout: 15000 });
+    assert.equal(createdBots(), 0, 'Being asked about leaving stores nothing.');
+    await page.getByRole('button', { name: 'Leave', exact: true }).dispatchEvent('click');
+    // Leaving by a step back goes to the screen that was open before the draft.
+    await page.waitForFunction(title => document.title === title, titleBefore, { timeout: 15000 });
+    assert.equal(createdBots(), 0, 'Leaving an unsaved new bot creates no bot.');
+}
+
 // A password manager knows the sign-in and account fields by their autocomplete names, and a field the server limits
 // stops taking letters at that limit without an error.
 async function checkFieldHints(page, name) {
@@ -827,7 +1027,12 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     });
 
     await page.waitForFunction(() => document.querySelector('iframe[title="Preview of report.html"]') !== null);
-    const frame = page.frames().find(candidate => candidate.url() === `${previewOrigin}/preview/file?grant=sample-grant`);
+    const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
+    const frame = page.frames().find(candidate => candidate.url() === frameUrl)
+        ?? await page.waitForEvent('framenavigated', {
+            predicate: candidate => candidate.url() === frameUrl,
+            timeout: 5000,
+        });
     assert(frame, 'Expected the sandboxed preview iframe to navigate to the second origin.');
     await frame.locator('#preview-heading').waitFor({ state: 'attached', timeout: 5000 });
     assert.equal(await frame.locator('#preview-heading').innerText(), 'Quarterly report');
@@ -870,6 +1075,85 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
 }
 
+// Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
+// scrolls its message into the viewport rather than remaining stuck at the conversation foot.
+async function checkConversationSearch(page, width) {
+    const target = width === 360 ? '/' : `/talk/${botId}`;
+    await page.evaluate(url => { history.pushState(null, '', url); dispatchEvent(new PopStateEvent('popstate')); }, target);
+
+    const searchBox = page.getByRole('textbox', { name: 'Search conversations', exact: true });
+    await searchBox.waitFor({ state: 'attached', timeout: 15000 });
+
+    const topMessage = page.getByText('The lighthouse keeper visits on Tuesdays.', { exact: true }).first();
+    if (width === 1280) {
+        await page.getByText('The lighthouse lamp was polished today.', { exact: true }).first().waitFor({ state: 'attached', timeout: 15000 });
+        await topMessage.waitFor({ state: 'attached', timeout: 15000 });
+        await page.waitForFunction(() => {
+            const group = [...document.querySelectorAll('[role="group"]')].find(node =>
+                node.textContent?.includes('The lighthouse keeper visits on Tuesdays.'));
+            if (!group) { return false; }
+            const box = group.getBoundingClientRect();
+            return box.bottom <= 120;
+        }, null, { timeout: 10000 });
+    }
+
+    await searchBox.focus();
+    await searchBox.fill('zebra');
+    await page.waitForFunction(() => {
+        const el = [...document.querySelectorAll('input, textarea')].find(node =>
+            node.getAttribute('aria-label') === 'Search conversations');
+        return el && el.value === 'zebra';
+    }, null, { timeout: 5000 });
+    await page.keyboard.press('Enter');
+    const nothing = page.getByRole('heading', { name: 'Nothing matches “zebra”', exact: true });
+    await nothing.waitFor({ state: 'attached', timeout: 10000 });
+    await page.getByRole('button', { name: 'Clear the search', exact: true }).last().dispatchEvent('click');
+    await nothing.waitFor({ state: 'detached', timeout: 10000 });
+
+    await searchBox.focus();
+    await searchBox.fill('lighthouse');
+    await page.waitForFunction(() => {
+        const el = [...document.querySelectorAll('input, textarea')].find(node =>
+            node.getAttribute('aria-label') === 'Search conversations');
+        return el && el.value === 'lighthouse';
+    }, null, { timeout: 5000 });
+    const searchResponse = page.waitForResponse(response =>
+        new URL(response.url()).pathname.endsWith('/threads/search') && response.request().method() === 'POST',
+    { timeout: 10000 });
+    await page.keyboard.press('Enter');
+    await searchResponse;
+    await page.locator('[aria-label="2 messages found."]')
+        .or(page.getByText('2 messages found.', { exact: true }))
+        .waitFor({ state: 'attached', timeout: 10000 });
+
+    const firstHit = page.getByRole('link', { name: /The lighthouse keeper visits on Tuesdays\./ });
+    const secondHit = page.getByRole('link', { name: /The lighthouse lamp was polished today\./ });
+    await firstHit.waitFor({ state: 'attached', timeout: 10000 });
+    await secondHit.waitFor({ state: 'attached', timeout: 10000 });
+
+    await firstHit.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForFunction(() =>
+        (document.activeElement?.getAttribute('aria-label') ?? '').includes('The lighthouse lamp was polished today.'),
+    null, { timeout: 5000 });
+    await page.keyboard.press('ArrowUp');
+    await page.waitForFunction(() =>
+        (document.activeElement?.getAttribute('aria-label') ?? '').includes('The lighthouse keeper visits on Tuesdays.'),
+    null, { timeout: 5000 });
+
+    await firstHit.dispatchEvent('click');
+    await page.waitForURL(url => url.pathname.endsWith(`/talk/${botId}`) && url.hash === `#message-${searchTopMessageId}`, { timeout: 15000 });
+    await topMessage.waitFor({ state: 'attached', timeout: 15000 });
+    await page.waitForFunction(() => {
+        const group = [...document.querySelectorAll('[role="group"]')].find(node =>
+            node.textContent?.includes('The lighthouse keeper visits on Tuesdays.'));
+        if (!group) { return false; }
+        const box = group.getBoundingClientRect();
+        return box.height > 0 && box.top >= 80 && box.bottom <= 900;
+    }, null, { timeout: 10000 });
+    process.stdout.write(`conversation-search ${width}: passed\n`);
+}
+
 /**
  * Captures each scene against a running server. A scene is
  * { name, path, title?, signedOut?, height?, hold?, fail?, steps?, nativeWait?, settle? }, where
@@ -881,6 +1165,130 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
  * recorded per picture in captures.json beside the pictures, not treated as failures: a live server answers some
  * requests with 401 or 404 on purpose.
  */
+async function checkPhoneNavLayout(page, width) {
+    const nav = page.getByRole('navigation', { name: 'Drover', exact: true });
+    await nav.waitFor({ state: 'visible', timeout: 5000 });
+    const items = [
+        nav.getByRole('link', { name: 'Chats', exact: true }),
+        nav.getByRole('link', { name: 'Projects', exact: true }),
+        nav.getByRole('link', { name: 'Bots', exact: true }),
+        nav.getByRole('link', { name: 'Tools', exact: true }),
+        nav.getByRole('button', { name: 'Account for Sample person', exact: true }),
+    ];
+    const boxes = [];
+    for (const item of items) {
+        await item.waitFor({ state: 'visible', timeout: 5000 });
+        const box = await item.boundingBox();
+        assert(box && box.width > 0 && box.height >= 44, `PhoneNav item ${item} has invalid bounds: ${JSON.stringify(box)}`);
+        assert(box.x >= 0 && box.x + box.width <= width + 1, `PhoneNav item overflows ${width}px viewport: ${JSON.stringify(box)}`);
+        boxes.push(box);
+    }
+    const rowY = boxes[0].y;
+    for (let index = 0; index < boxes.length; index++) {
+        assert(Math.abs(boxes[index].y - rowY) <= 2, `PhoneNav item ${index} wrapped to another row.`);
+        if (index > 0) {
+            assert(boxes[index - 1].x + boxes[index - 1].width <= boxes[index].x + 1, `PhoneNav items ${index - 1} and ${index} overlap.`);
+        }
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    assert.equal(overflow, false, `Horizontal overflow detected in PhoneNav at ${width}px.`);
+}
+
+async function checkProjectListKeyboard(page) {
+    const field = page.getByRole('textbox', { name: 'Project name', exact: true });
+    await field.focus();
+    await page.keyboard.type('Draft');
+    await page.waitForTimeout(150);
+    assert.equal(await field.inputValue(), 'Draft');
+    await page.keyboard.press('Tab');
+    const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
+    assert.equal(activeName, 'New project', `Expected Tab from Project name to land on New project, got ${activeName}`);
+}
+
+async function checkProjectDraftsAndKeyboard(page) {
+    const nameField = page.getByRole('textbox', { name: 'Name', exact: true });
+    const instructionsField = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    await nameField.focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('Weekly draft');
+    await instructionsField.focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('Keep the typed draft.');
+    await page.waitForTimeout(200);
+
+    assert.equal(await nameField.inputValue(), 'Weekly draft',
+        'Project name did not take the typed draft before refreshing.');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Project instructions did not take the typed draft before refreshing.');
+
+    await page.getByRole('button', { name: 'Move Quarterly planning into this project', exact: true }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Move Quarterly planning out of this project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+
+    assert.equal(await nameField.inputValue(), 'Weekly draft', 'Project name draft was lost after refreshing project details.');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.', 'Project instructions draft was lost after refreshing project details.');
+
+    await instructionsField.focus();
+    await page.keyboard.press('Home');
+    for (let index = 0; index < 5; index++) {
+        await page.keyboard.press('ArrowRight');
+    }
+    for (let index = 0; index < 3; index++) {
+        await page.keyboard.press('Shift+ArrowRight');
+    }
+    await page.keyboard.type('this');
+    assert.equal(await instructionsField.inputValue(), 'Keep this typed draft.',
+        'Forward selection in the middle of project instructions must replace only the selected word.');
+
+    await page.keyboard.press('Home');
+    for (let index = 0; index < 9; index++) {
+        await page.keyboard.press('ArrowRight');
+    }
+    for (let index = 0; index < 4; index++) {
+        await page.keyboard.press('Shift+ArrowLeft');
+    }
+    await page.keyboard.type('the');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Backward selection in the middle of project instructions must keep the remaining draft intact.');
+
+    await selectNativeTextRange(instructionsField, 5, 8, 'forward');
+    await page.keyboard.type('this');
+    assert.equal(await instructionsField.inputValue(), 'Keep this typed draft.',
+        'Native forward selection must reach the editor before real keyboard input replaces the selected word.');
+    await selectNativeTextRange(instructionsField, 5, 9, 'backward');
+    await page.keyboard.type('the');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Native backward selection must preserve the rest of the draft.');
+
+    await selectNativeTextRange(instructionsField, 5, 5, 'none');
+    await page.keyboard.type('point ');
+    assert.equal(await instructionsField.inputValue(), 'Keep point the typed draft.',
+        'A native collapsed caret must reach the editor before real keyboard input inserts text.');
+    await selectNativeTextRange(instructionsField, 5, 11, 'forward');
+    await page.keyboard.press('Backspace');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Removing text inserted at a native caret must preserve the remaining draft.');
+
+    await instructionsField.focus();
+    await page.keyboard.press('Tab');
+    const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
+    assert.equal(activeName, 'Save project', `Expected Tab from Instructions to reach Save project, got ${activeName}`);
+}
+
+async function selectNativeTextRange(field, start, end, direction) {
+    await field.evaluate((element, range) => new Promise((resolve, reject) => {
+        const selected = () => {
+            clearTimeout(deadline);
+            resolve();
+        };
+        const deadline = setTimeout(() => {
+            element.removeEventListener('select', selected);
+            reject(new Error('The native text selection event did not arrive.'));
+        }, 5000);
+        element.addEventListener('select', selected, { once: true });
+        element.setSelectionRange(range.start, range.end, range.direction);
+    }), { start, end, direction });
+}
+
 async function captureLive(origin, folder) {
     const scenes = JSON.parse(await fs.readFile(process.env.DROVER_LIVE_SCENES, 'utf8'));
     const only = process.env.DROVER_LIVE_ONLY?.split(',');

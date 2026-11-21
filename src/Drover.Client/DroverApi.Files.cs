@@ -8,16 +8,28 @@ public sealed partial class DroverApi
 {
     #region Files
 
-    /// <summary>Opens a conversation file as a stream; the caller disposes the response.</summary>
+    /// <summary>The server's file size limit for uploads in the space.</summary>
+    public Task<FileRules> GetFileRules(Guid spaceId, CancellationToken cancellationToken = default) =>
+        Get<FileRules>($"{Space(spaceId)}/files/rules", cancellationToken);
+
+    /// <summary>Opens a conversation or shared project file as a stream; the caller disposes the response.</summary>
     public async Task<HttpResponseMessage> OpenConversationFile(string address, CancellationToken cancellationToken = default)
     {
-        if (!TryConversationFile(address, out var spaceId, out var fileId))
+        string path;
+        if (TryConversationFile(address, out var spaceId, out var fileId))
         {
-            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+            path = FileAddress(spaceId, fileId, download: true);
+        }
+        else if (TryProjectFile(address, out spaceId, out var projectId, out fileId))
+        {
+            path = ProjectFileAddress(spaceId, projectId, fileId, download: true);
+        }
+        else
+        {
+            throw new ArgumentException("A conversation or project file must be on the Drover server.", nameof(address));
         }
 
-        var response = await http.GetAsync(FileAddress(spaceId, fileId, download: true),
-            HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var response = await http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         try
         {
             await response.ThrowIfRefused(cancellationToken);
@@ -235,6 +247,20 @@ public sealed partial class DroverApi
             && origin.IsBaseOf(file)
             && file.AbsolutePath.Split('/') is ["", "api", "spaces", var space, "files", var id]
             && Guid.TryParse(space, out spaceId)
+            && Guid.TryParse(id, out fileId);
+    }
+
+    private bool TryProjectFile(string address, out Guid spaceId, out Guid projectId, out Guid fileId)
+    {
+        spaceId = default;
+        projectId = default;
+        fileId = default;
+        return http.BaseAddress is { } origin
+            && Uri.TryCreate(origin, address, out var file)
+            && origin.IsBaseOf(file)
+            && file.AbsolutePath.Split('/') is ["", "api", "spaces", var space, "projects", var project, "files", var id]
+            && Guid.TryParse(space, out spaceId)
+            && Guid.TryParse(project, out projectId)
             && Guid.TryParse(id, out fileId);
     }
 

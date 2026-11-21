@@ -4,7 +4,9 @@ namespace Drover.Ui.Chat;
 /// One tool call as the conversation shows it. <see cref="Label"/> names what the bot did in plain words for the
 /// call's phase ("Running a command", "Ran a command", "Run a command"), and <see cref="Request"/> is what it asks
 /// to do, to follow "asks to". <see cref="Summary"/> is the arguments on one line: the command, the path, the point.
-/// Arguments and result are JSON text as stored, already redacted. <see cref="ShowsAllArguments"/> is true when the
+/// Arguments are JSON text as stored, already redacted. <see cref="Result"/> is the result decoded for reading
+/// (<see cref="ToolResults"/>): text as text, a command's output in <see cref="Output"/>, other values as JSON.
+/// <see cref="ShowsAllArguments"/> is true when the
 /// summary says everything the arguments hold.
 /// </summary>
 public sealed record ToolCard(
@@ -24,6 +26,12 @@ public sealed record ToolCard(
     /// for, its instructions. Empty for a call that has no such wording; then the arguments are shown as written.
     /// </summary>
     public IReadOnlyList<ToolFact> Facts { get; init; } = [];
+
+    /// <summary>The language <see cref="Result"/> is written in, when it is known: <c>json</c>, or a file's extension.</summary>
+    public string? ResultLanguage { get; init; }
+
+    /// <summary>The length of the result as stored or as the call's events carried it, before it was decoded.</summary>
+    public int ResultLength { get; init; }
 
     public string? CommandError { get; init; }
 

@@ -6,7 +6,6 @@ workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 docs = Path("docs/desktop-installers.md").read_text(encoding="utf-8")
 tag_gate = "if: github.event_name == 'push' && github.ref_type == 'tag'"
 
-
 def jobs(text):
     lines = text.splitlines()
     start = next(index for index, line in enumerate(lines) if line == "jobs:")
@@ -28,7 +27,7 @@ def jobs(text):
 
 parsed = jobs(workflow)
 
-for name in ("linux-finalize", "windows-finalize", "macos-finalize", "publish"):
+for name in ("linux-finalize", "windows-finalize", "macos-finalize", "update-feed", "publish"):
     if tag_gate not in parsed[name]:
         raise SystemExit(f"{name} must require a pushed tag.")
 
@@ -122,3 +121,18 @@ for needle in (
 ):
     if needle not in docs:
         raise SystemExit(f"Desktop installer docs must keep this release check: {needle}")
+
+feed = parsed["update-feed"]
+if "environment: release" not in feed or "secrets.UPDATE_SIGNING_PRIVATE_KEY" not in feed:
+    raise SystemExit("The private update key must remain inside the protected release environment.")
+if workflow.count("secrets.UPDATE_SIGNING_PRIVATE_KEY") != 2:
+    raise SystemExit("Only the protected update feed steps may receive the private update key.")
+if "secrets.UPDATE_SIGNING_PRIVATE_KEY" in workflow[: workflow.index("  update-feed:\n")]:
+    raise SystemExit("Pull request and unsigned package jobs must not receive the private update key.")
+if "SecurityMode.Strict" in workflow:
+    raise SystemExit("Runtime signature policy belongs in compiled code, not workflow text.")
+for platform in ("linux", "windows", "macos"):
+    if f'--output-file-name "$prefix-{platform}"' not in feed:
+        raise SystemExit(f"The signed update feed must include {platform}.")
+if workflow.count("DroverReleaseVersion") != 3:
+    raise SystemExit("Every packaged desktop build must carry the release channel version.")

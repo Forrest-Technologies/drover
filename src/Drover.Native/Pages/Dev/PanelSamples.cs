@@ -71,6 +71,46 @@ internal static class PanelSamples
         ];
     }
 
+    /// <summary>The search above the crew in each of its states, as wide as the crew's column.</summary>
+    public static IEnumerable<UIElement> Searches()
+    {
+        ConversationSearch Search(string words, MessageSearchResult? result, bool held = false)
+        {
+            var server = new SampleServer();
+            var (api, session) = server.Connect();
+            if (held)
+            {
+                server.Hold("POST", $"{space}/threads/search");
+            }
+            else if (result is not null)
+            {
+                server.Answer("POST", $"{space}/threads/search", result);
+            }
+
+            var search = new ConversationSearch(new(api, session, Log.For<ConversationSearchViewModel>())) { Width = Tokens.Number("DvListWidth") };
+            _ = search.SearchFor(words);
+            return search;
+        }
+
+        var bot = Bot(0x901, "Sample bot");
+        List<MessageSearchHit> found =
+        [
+            new(Id(0x902), Id(0x903), bot.Id, bot.Name, null, true, false, sampleStart, "A sample message that asks about the lighthouse paint.", [new(37, 10)]),
+            new(Id(0x904), Id(0x905), bot.Id, bot.Name, "Sample side chat", false, true, sampleStart, "A sample reply: the lighthouse is painted white.", [new(20, 10)]),
+        ];
+
+        return
+        [
+            Search(string.Empty, null),
+            Search("lighthouse", new(found, 2000, null)),
+            Search("lighthouse", new(found, 2000, new(sampleStart, Id(0x906)))),
+            Search("lighthouse", null, held: true),
+            Search("sample words", new([], 2000, null)),
+            Search("sample words", new([], 2000, new(sampleStart, Id(0x907)))),
+            Search("sample words", null),
+        ];
+    }
+
     public static IEnumerable<UIElement> Screens()
     {
         var server = new SampleServer();

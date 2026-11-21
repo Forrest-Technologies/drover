@@ -12,6 +12,34 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
 
     #endregion
 
+    #region Host Configuration
+
+    /// <summary>
+    /// Every hosted loop uses a real timer, whatever the test clock says, and each one queries the database on its
+    /// own schedule. None of them is needed to answer an account request, so this class starts a server without
+    /// them: the recorder then sees only the requests it is comparing.
+    /// </summary>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        List<ServiceDescriptor> loops = [.. services.Where(service => service.ServiceType == typeof(IHostedService))];
+
+        foreach (var loop in loops)
+        {
+            services.Remove(loop);
+        }
+    }
+
+    [Fact]
+    public void The_server_under_test_has_no_background_loops()
+    {
+        // The one service left is the test server itself, which does not poll the database.
+        var hosted = Services.GetServices<IHostedService>().Select(service => service.GetType().Name);
+
+        hosted.Should().Equal("GenericWebHostService");
+    }
+
+    #endregion
+
     #region Sign-Out
 
     [Fact]
@@ -484,7 +512,7 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     {
         var before = Logs.Entries.Count;
         (await request()).StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        return
+        List<string> commands =
         [
             .. Logs.Entries.Skip(before)
                 .Where(entry => entry.Category == "Microsoft.EntityFrameworkCore.Database.Command"
@@ -492,6 +520,20 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
                 .Select(entry => entry.Text[(entry.Text.IndexOf('\n', StringComparison.Ordinal) + 1)..])
                 .Where(sql => sql.Contains("user", StringComparison.Ordinal)),
         ];
+
+        // This host has no background loops. Guard against the ones a normal server runs on its own schedule; the
+        // request paths call find_user_for_sign_in, so a guard on the whole sys schema would reject a real call.
+        string[] backgroundCalls =
+        [
+            "claim_runs",
+            "claim_due_schedules",
+            "claim_pending_upload_deletions",
+            "expired_uploads",
+            "sandboxes_to_sweep",
+            "tool_sign_ins_running_out",
+        ];
+        commands.Should().NotContain(sql => backgroundCalls.Any(call => sql.Contains(call, StringComparison.Ordinal)));
+        return commands;
     }
 
     private async Task<string> PasswordHashOf(Guid userId)

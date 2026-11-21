@@ -184,7 +184,7 @@ One page, sectioned, with progressive disclosure. Never a wall of settings.
 - A closed section's summary sits inside the button that opens it, so it is read out with the section's name.
 - A model the catalog knows cannot call tools replaces the Tools controls with the reason and where to change it.
 - In Tools, built-in tools come first, then one group for each tool connection, also one that has listed nothing. A tool whose definition changed says the bot asks before each use until the change is accepted, shows what was last reviewed beside what it says now, and offers to accept it for every bot. A tool its server no longer lists says so.
-- New bot makes a bot at once on the connection that last answered and opens it in the editor; there is no separate creation form.
+- New bot opens the editor on a bot that is not made yet, at `/bots/new` (or `/bots/new?parent=` for New bot under a bot, so the draft keeps its parent), on the connection that last answered, with the name "New bot" and a handle that follows the name. Nothing is stored until the person saves: leaving asks first, with the unsaved-changes prompt, and creates no bot. Only the sections that need no stored bot are shown (Model, Memory, Team, Limits); the others appear once it is made. Saving makes the bot once with the name, model and parent chosen, then sets the rest of the draft on it, and opens it. The handle is the one the server made from the name, numbered if taken, unless the person chose one. There is no separate creation form.
 
 ### 3a. Tool connections
 

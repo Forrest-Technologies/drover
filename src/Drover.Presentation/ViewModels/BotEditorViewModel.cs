@@ -46,6 +46,21 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     private string? leavingFor;
 
+    // The bot an unsaved new bot goes beneath, or null for the top of the crew.
+    private Guid? newParentId;
+
+    // The bot an unsaved new bot became, so saving the same draft again does not make a second.
+    private Guid? madeBotId;
+
+    // Set when both steps are done and the editor is going to the bot, so a second Save on the same draft does nothing.
+    private bool madeAndOpened;
+
+    // The id the new bot will have, chosen once for this draft and sent with every create of it. If the answer to a
+    // create is lost, sending it again with the same id returns the bot the server made and never a second one,
+    // whatever was edited in the draft in between. A create the server refused made nothing, so the next try chooses a
+    // new id.
+    private Guid? createRequestId;
+
     private bool leaveConfirmed;
 
     #endregion
@@ -117,6 +132,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public bool EditingHandle { get; private set; }
 
+    /// <summary>True while the editor holds a bot that is not made yet. Nothing is stored until it is saved.</summary>
+    public bool IsNew { get; private set; }
+
+    /// <summary>True once a bot that was a draft has been made, while the rest of its settings are not saved yet.</summary>
+    public bool IsMade => madeBotId is not null;
+
     /// <summary>Whether the dialog that asks about removing the bot is open.</summary>
     public bool Removing { get; private set; }
 
@@ -142,9 +163,20 @@ public sealed partial class BotEditorViewModel : ObservableObject
         _ => BotEditorState.Shown,
     };
 
-    public string Title => Saved is null ? "Bot · Drover" : $"{Saved.Name} · Drover";
+    public string Title => (Saved, IsNew) switch
+    {
+        (null, _) => "Bot · Drover",
+        (_, true) => "New bot · Drover",
+        _ => $"{Saved.Name} · Drover",
+    };
 
     public static string Back => "Bots";
+
+    public const string NewBotName = "New bot";
+
+    public const string MadeButNotSet = "The bot was made, but its settings are not saved yet.";
+
+    public static string NoModelCause => "A bot needs a model to think with, and this space has none yet. Connect a model first.";
 
     public static string LoadFailedTitle => "Drover could not load this bot";
 
@@ -202,7 +234,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string LeaveLabel => "Leave";
 
-    public string Heading => $"Edit {Saved?.Name}";
+    public string Heading => IsNew ? "New bot" : $"Edit {Saved?.Name}";
 
     public static string HandleHint => "Lower-case letters, digits, and hyphens. Other bots and people address it by this.";
 
@@ -222,10 +254,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
     public int Hue => BotIdentity.Hue(Saved!.Id);
 
     // A number field holding something that is not a number counts as a change, so it is said and not dropped.
-    public bool Dirty => Draft is not null && baseline is not null && (Draft.DiffersFrom(baseline) || Draft.FindProblem() is not null);
+    // A bot that is not made yet is always something to save: leaving it drops it.
+    public bool Dirty => Draft is not null && baseline is not null && (IsNew || Draft.DiffersFrom(baseline) || Draft.FindProblem() is not null);
 
     public string SaveWords => (Dirty, JustSaved) switch
     {
+        (true, _) when IsMade => "Made, but its settings are not saved yet",
+        (true, _) when IsNew => "Not made until you save",
         (true, _) => "Changes not saved yet",
         (false, true) => "Saved",
         _ => "Nothing to save",
@@ -236,7 +271,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public bool CanSave => Dirty && !Saving;
 
-    public string SaveLabel => Saving ? "Saving" : "Save changes";
+    public string SaveLabel => (Saving, IsNew, IsMade) switch
+    {
+        (true, true, false) => "Making",
+        (true, _, _) => "Saving",
+        (false, true, false) => "Make bot",
+        _ => "Save changes",
+    };
 
     public string? ConnectionName => Connections.FirstOrDefault(connection => connection.Id == Draft!.ModelConnectionId)?.Name;
 
@@ -270,7 +311,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string LeaveTitle => "Leave without saving";
 
-    public string LeaveCause => $"The changes to {Saved?.Name} are not saved yet. Leaving drops them.";
+    public string LeaveCause => (IsNew, IsMade) switch
+    {
+        (true, true) => $"{ShownName} was made, but its settings are not saved yet. Leaving drops them and keeps the bot as it was made.",
+        (true, false) => $"{(Draft is null ? "This bot" : ShownName)} is not made yet. Leaving drops it.",
+        _ => $"The changes to {Saved?.Name} are not saved yet. Leaving drops them.",
+    };
 
     public string SpaceRole => session.Space?.Role ?? string.Empty;
 
@@ -317,6 +363,34 @@ public sealed partial class BotEditorViewModel : ObservableObject
             navigator.HoldsWork = null;
         }
     }
+
+    /// <summary>
+    /// Runs when the screen is shown for a bot that is not made yet, beneath <paramref name="parentBotId"/> when there
+    /// is one. Nothing is sent to be stored: the draft starts from the connection that last answered, and saving makes
+    /// the bot once.
+    /// </summary>
+    public async Task OpenUnmade(Guid? parentBotId)
+    {
+        navigator.Leaving = ConfirmLeaving;
+        navigator.HoldsWork = HoldsWork;
+
+        if (IsNew && newParentId == parentBotId && Draft is not null)
+        {
+            return;
+        }
+
+        if (await session.Load() is null)
+        {
+            return;
+        }
+
+        (IsNew, newParentId, madeBotId, madeAndOpened, createRequestId, BotId, shownBotId, leaveConfirmed) =
+            (true, parentBotId, null, false, null, Guid.Empty, null, false);
+        await LoadNew();
+    }
+
+    /// <summary>Whether a section is on the screen. A bot that is not made yet has none that needs the bot to exist.</summary>
+    public bool ShowsSection(string section) => !IsNew || section is ModelSection or MemorySection or TeamSection or LimitsSection;
 
     public bool IsOpen(string section) => open.Contains(section);
 
@@ -376,6 +450,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
     [RelayCommand]
     public async Task Load()
     {
+        if (IsNew)
+        {
+            await LoadNew();
+            return;
+        }
+
         (Saved, Draft, baseline, Models, Tools, Schedules, Rules, Readers) = (null, null, null, null, null, null, null, null);
         (LoadProblem, SaveProblem, ActionProblem, NotPermitted, Missing, JustSaved, EditingHandle) = (null, null, null, false, false, false, false);
         foreach (var section in open.ToList())
@@ -428,6 +508,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
     {
         if (!Dirty || Saving)
         {
+            return;
+        }
+
+        if (IsNew)
+        {
+            await MakeBot();
             return;
         }
 
@@ -649,6 +735,155 @@ public sealed partial class BotEditorViewModel : ObservableObject
             return null;
         }
     }
+
+    // The draft of a bot that is not made yet: the connection that last answered, its model, and a name and handle
+    // the person changes. Everything is read; nothing is stored.
+    private async Task LoadNew()
+    {
+        (Saved, Draft, baseline, Models, Tools, Schedules, Rules, Readers) = (null, null, null, null, null, null, null, null);
+        (LoadProblem, SaveProblem, ActionProblem, NotPermitted, Missing, JustSaved, EditingHandle) = (null, null, null, false, false, false, false);
+        Notify();
+
+        try
+        {
+            if (SpaceRole is not ("owner" or "admin"))
+            {
+                NotPermitted = true;
+                Notify();
+                return;
+            }
+
+            Connections = await api.ListModelConnections(SpaceId);
+            var bots = await api.ListBots(SpaceId);
+            OtherBots = bots;
+
+            if (newParentId is { } parent && bots.All(other => other.Id != parent))
+            {
+                Missing = true;
+                Notify();
+                return;
+            }
+
+            if (Connections.Count == 0)
+            {
+                LoadProblem = NoModelCause;
+                Notify();
+                return;
+            }
+
+            var connection = Connections
+                .OrderByDescending(candidate => candidate.Status is "connected")
+                .ThenByDescending(candidate => candidate.LastCheckedAt)
+                .First();
+            Models = await api.ListModels(SpaceId, connection.Id);
+            var model = connection.DefaultModel
+                ?? bots.FirstOrDefault(bot => bot.ModelConnectionId == connection.Id)?.Model
+                ?? Models.FirstOrDefault(entry => entry.State is "available")?.Model
+                ?? string.Empty;
+            Saved = NewBotDetail(connection.Id, model) with { ParentBotId = newParentId };
+            Draft = BotDraft.From(Saved);
+            baseline = BotDraft.From(Saved);
+            Draft.KeepWhatModelSupports(Models.FirstOrDefault(entry => entry.Model == model)?.Capabilities);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditorViewModel));
+            LoadProblem = Failures.Sentence(exception);
+        }
+
+        Notify();
+    }
+
+    // Makes the bot once, with the name, model and parent chosen, then sets the rest of the draft on it, in two steps.
+    // The first step is never repeated: once the bot is made its id is kept, so a second Save does not make another.
+    // If the second step is refused, for example because a handle that was chosen is taken by then, the draft stays on
+    // screen with the reason, and the next Save sets it on the bot that was made, so nothing typed is lost.
+    private async Task MakeBot()
+    {
+        if (madeAndOpened)
+        {
+            return;
+        }
+
+        if (Draft!.FindProblem() is { } unreadable)
+        {
+            SaveProblem = unreadable;
+            Notify();
+            return;
+        }
+
+        Saving = true;
+        SaveProblem = null;
+        Notify();
+        await Try(
+            async () =>
+            {
+                if (madeBotId is null)
+                {
+                    var made = await MakeOnce();
+                    madeBotId = made.Id;
+
+                    // The server made the handle from the name, numbered if taken. That is not a choice of the person's.
+                    if (!Draft.HandleChosen)
+                    {
+                        Draft.Handle = made.Handle;
+                        Draft.HandleChosen = false;
+                    }
+                }
+
+                var id = madeBotId.Value;
+                await api.UpdateBotDefinition(SpaceId, id, Draft.ToRequest());
+                leaveConfirmed = true;
+                madeAndOpened = true;
+                toasts.Show($"{Draft.Name} was made.", ToastKind.Success);
+                navigator.NavigateTo(Addresses.Bot(id));
+            },
+            problem => SaveProblem = madeBotId is null ? problem : $"{MadeButNotSet} {problem}");
+        Saving = false;
+        Notify();
+    }
+
+    // Sends the create. It carries the request id chosen for this draft, so a create whose answer was lost and is sent
+    // again returns the bot that was made. A bot is never found by what it is called or says: another person's bot of the
+    // same name is not this one.
+    private async Task<BotSummary> MakeOnce()
+    {
+        createRequestId ??= Guid.CreateVersion7();
+
+        try
+        {
+            return await api.CreateBot(SpaceId, new(Draft!.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId, createRequestId));
+        }
+        catch (DroverApiException refused) when (refused.StatusCode < HttpStatusCode.InternalServerError)
+        {
+            // The server answered that it did not make the bot, so the request id is not spoken for: the next try chooses another.
+            logger.LogInformation(refused, "The server refused to make a bot on the {Screen} screen", nameof(BotEditorViewModel));
+            createRequestId = null;
+            throw;
+        }
+    }
+
+    private static BotDetail NewBotDetail(Guid connectionId, string model) => new(
+        Guid.Empty,
+        NewBotName,
+        BotHandles.Stem(NewBotName),
+        new BotAvatarBody(null, null),
+        string.Empty,
+        string.Empty,
+        connectionId,
+        model,
+        new ModelSettingsBody(null, null, null, "off", false),
+        new MemorySettingsBody(false, "none", null, null),
+        "none",
+        new SandboxSettingsBody("off", [], null),
+        [],
+        "active",
+        null,
+        0,
+        new BuildLimitsBody(null, null),
+        new RunLimitsBody(null, null, null),
+        null,
+        null);
 
     private void Show(BotDetail bot)
     {

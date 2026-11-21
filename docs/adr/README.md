@@ -31,3 +31,4 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0015](0015-one-native-client.md) | One native client for web, Android, and desktop | Proposed in its pull request; supersedes 0008, and 0003 where they conflict, once merged |
 | [0016](0016-projects-group-conversations-and-share-context.md) | Projects group conversations and share instructions and files | Accepted |
 | [0017](0017-preview-untrusted-files-by-type.md) | Preview untrusted files by type | Accepted |
+| [0018](0018-chat-channel-trust-boundaries.md) | Trust boundaries for chat channels | Accepted |

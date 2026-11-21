@@ -18,6 +18,10 @@ public sealed partial class DroverApi
 
     #region Threads And Messages
 
+    /// <summary>The caller's own unarchived threads across bots in the space, newest activity first.</summary>
+    public Task<List<ThreadSummary>> ListOwnedThreads(Guid spaceId, CancellationToken cancellationToken = default) =>
+        Get<List<ThreadSummary>>($"{Space(spaceId)}/threads", cancellationToken);
+
     /// <summary>The caller's threads with one bot, newest activity first.</summary>
     public Task<List<ThreadSummary>> ListThreads(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<List<ThreadSummary>>($"{Space(spaceId)}/bots/{botId}/threads", cancellationToken);
@@ -69,6 +73,15 @@ public sealed partial class DroverApi
     /// </summary>
     public Task<ConversationModelChoice> ChooseConversationModel(Guid spaceId, Guid threadId, string? model, CancellationToken cancellationToken = default) =>
         Send<ConversationModelChoice>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/model", new ChooseModelRequest(model), cancellationToken);
+
+    /// <summary>
+    /// The messages of the conversations the caller may read whose words match <paramref name="words"/>, best match
+    /// first: their own and the ones shared with the space, or only their own with <paramref name="mineOnly"/>. Only the
+    /// newest of those messages are searched: the answer carries the cursor that searches older ones, which goes in
+    /// <paramref name="before"/>. Blank words, or more than the server allows, are refused.
+    /// </summary>
+    public Task<MessageSearchResult> SearchMessages(Guid spaceId, string words, SearchCursor? before = null, bool mineOnly = false, CancellationToken cancellationToken = default) =>
+        Post<MessageSearchResult>($"{Space(spaceId)}/threads/search", new SearchMessagesRequest(words, before, mineOnly), cancellationToken);
 
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);

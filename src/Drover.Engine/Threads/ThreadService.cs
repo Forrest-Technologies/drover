@@ -73,6 +73,17 @@ public sealed class ThreadService(
 
     #region Public Methods
 
+    /// <summary>The caller's own unarchived conversations across bots in the space, newest activity first.</summary>
+    public async Task<List<ThreadView>> ListOwnedThreads(Guid userId, CancellationToken cancellationToken)
+    {
+        var found = await threads.ListOwnedThreads(userId, ListLimit, cancellationToken);
+        var active = await runs.ListActiveRunIds([.. found.Select(thread => thread.Id)], cancellationToken);
+        return await WithAttention(
+            [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))],
+            userId,
+            cancellationToken);
+    }
+
     /// <summary>
     /// The caller's threads with one bot, newest activity first, each with what it has for them. Null when the bot
     /// does not exist here.

@@ -336,6 +336,8 @@ jobs:
       - name: Check formatting of the native client and its shared sources
         # The analyzers run in the builds above; this checks the layout of the files only, without a restore.
         run: dotnet format whitespace --folder --verify-no-changes --include src/Drover.Native src/Shared tests/Drover.Native.UITests/App
+      - name: Check browser text selection routing
+        run: node --test scripts/check-native-text-selection.mjs
       - name: Publish browser, warnings are errors
         run: dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -warnaserror -o artifacts/native
       - name: Check native dependency licenses

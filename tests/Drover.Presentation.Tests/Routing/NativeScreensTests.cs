@@ -44,12 +44,12 @@ public sealed partial class NativeScreensTests
         string[] written =
         [
             Addresses.Home, Addresses.SignIn, Addresses.Setup, Addresses.Share, Addresses.SetupModel, Addresses.SetupBot,
-            Addresses.Bots, Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
+            Addresses.Bots, Addresses.Projects, Addresses.Project(bot), Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
             Addresses.ExtensionFromBot(bot), Addresses.Status, Addresses.Usage, Addresses.Conversation(other),
             Addresses.Talk(bot), Addresses.Summary(bot), Addresses.Memory(bot), Addresses.Screen(bot), Addresses.Activity(bot),
             Addresses.Activity(bot, other), Addresses.Files(bot), Addresses.Moment(bot, other, Guid.NewGuid(), false),
             Addresses.SideChats(bot), Addresses.NewSideChat(bot), Addresses.SideChat(bot, other), Addresses.Work(bot, other, other),
-            Addresses.Bot(bot), Addresses.BotMemory(bot), Addresses.BotSandbox(bot), Addresses.BotTerminal(bot),
+            Addresses.Bot(bot), Addresses.NewBot(), Addresses.NewBot(bot), Addresses.BotMemory(bot), Addresses.BotSandbox(bot), Addresses.BotTerminal(bot),
             Addresses.UsageFor("7d"), Addresses.UsageFor("7d", bot), Addresses.ToolSignIn("done", "sample"),
             Addresses.ToolSignIn("failed", null), Addresses.ToolSignInReturn("sample ticket"),
         ];

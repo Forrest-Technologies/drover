@@ -43,6 +43,8 @@ public static class IconShapes
             """<path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/><path d="M12 11v6"/><path d="M12 7.5h.01"/>""",
         [IconName.Microphone] =
             """<path d="M10 3h4l1 1v8l-1 1h-4l-1-1V4z"/><path d="M6 11v2l3 3h6l3-3v-2"/><path d="M12 16v5"/><path d="M8 21h8"/>""",
+        [IconName.Model] =
+            """<path d="M9 7h8v10H7V9z"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>""",
         [IconName.More] =
             """<path d="M4.5 11.5h1v1h-1z"/><path d="M11.5 11.5h1v1h-1z"/><path d="M18.5 11.5h1v1h-1z"/>""",
         [IconName.Pause] =
@@ -51,6 +53,10 @@ public static class IconShapes
             """<path d="m7 4 12 8-12 8z"/>""",
         [IconName.Plus] =
             """<path d="M5 12h14"/><path d="M12 5v14"/>""",
+        [IconName.Project] =
+            """<path d="M3 7l3-3h4l2 2h9v11l-3 3H3z"/>""",
+        [IconName.Regenerate] =
+            """<path d="M20 13v2l-4 4H8l-4-4V9l4-4h8l3 3"/><path d="M19 3v5h-5"/>""",
         [IconName.Remove] =
             """<path d="M4 6h16"/><path d="m6 6 1 15h10l1-15"/><path d="M9 6V3h6v3"/><path d="M10 11v6"/><path d="M14 11v6"/>""",
         [IconName.Search] =
