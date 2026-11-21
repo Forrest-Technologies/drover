@@ -4,16 +4,20 @@ namespace Drover.Tests.Common;
 /// One real PostgreSQL for a test assembly. It uses the server named by <c>DROVER_TEST_POSTGRES</c> (a superuser
 /// connection string, see scripts/dev-postgres.sh) and starts a container when that is not set. It migrates one
 /// template database, and each test class copies that template into a database of its own. Role passwords are
-/// generated for the run. Roles belong to the server, not the database, so two test assemblies run against one
-/// named server at the same time would reset each other's passwords: run them one after the other there.
+/// derived from the server (see <see cref="TestRolePasswords"/>), so assemblies launched together against one
+/// server agree on them and need no lease or queue.
 /// </summary>
 public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
-    private readonly string ownerPassword = NewPassword();
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
 
-    private readonly string appPassword = NewPassword();
+    private string appPassword = null!;
+
+    private readonly string privilegedPassword = NewPassword();
+
+    private readonly string privilegedRole = $"drover_test_superuser_{Guid.NewGuid():N}";
 
     private readonly string templateName = $"drover_template_{Guid.NewGuid():N}";
 
@@ -41,6 +45,10 @@ public sealed class PostgresServer : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         server = [with(await FindServer())];
+        ownerPassword = TestRolePasswords.For(server, "drover_owner");
+        appPassword = TestRolePasswords.For(server, "drover_app");
+
+        await CreatePrivilegedRole();
         await ExecuteOnServer($"CREATE DATABASE {templateName}");
         await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);
@@ -51,6 +59,7 @@ public sealed class PostgresServer : IAsyncLifetime
     {
         NpgsqlConnection.ClearAllPools();
         await ExecuteOnServer($"DROP DATABASE IF EXISTS {templateName} WITH (FORCE)");
+        await DropPrivilegedRole();
 
         if (container is not null)
         {
@@ -82,7 +91,13 @@ public sealed class PostgresServer : IAsyncLifetime
 
         var app = ForRole("drover_app", appPassword, name);
         app.Timeout = 10;
-        return new TestDatabase(ForDatabase(name).ConnectionString, app.ConnectionString, () => Drop(name));
+        var privileged = ForRole(privilegedRole, privilegedPassword, name);
+        privileged.Timeout = 10;
+        return new TestDatabase(
+            ForDatabase(name).ConnectionString,
+            app.ConnectionString,
+            privileged.ConnectionString,
+            () => Drop(name));
     }
 
     #endregion
@@ -105,6 +120,23 @@ public sealed class PostgresServer : IAsyncLifetime
 
     // Not ClearAllPools: other tests in this assembly are using their own pools at the same time.
     private Task Drop(string name) => ExecuteOnServer($"DROP DATABASE IF EXISTS {name} WITH (FORCE)");
+
+    private async Task CreatePrivilegedRole()
+    {
+        await using var connection = new NpgsqlConnection(server.ConnectionString);
+        await connection.OpenAsync();
+        // PostgreSQL does not accept a bind parameter in CREATE ROLE. The password is hex generated above, so it
+        // cannot hold a quote; there is nothing to inject in it.
+        var role = $"\"{privilegedRole}\"";
+        await using var command = new NpgsqlCommand($"CREATE ROLE {role} LOGIN SUPERUSER PASSWORD '{privilegedPassword}'", connection);
+        _ = await command.ExecuteNonQueryAsync();
+    }
+
+    private Task DropPrivilegedRole()
+    {
+        var role = $"\"{privilegedRole}\"";
+        return ExecuteOnServer($"DROP ROLE IF EXISTS {role}");
+    }
 
     private async Task ExecuteOnServer(string sql)
     {
@@ -130,7 +162,11 @@ public sealed class PostgresServer : IAsyncLifetime
 }
 
 /// <summary>A database made for one test class. Disposing it drops it.</summary>
-public sealed class TestDatabase(string adminConnectionString, string appConnectionString, Func<Task> drop)
+public sealed class TestDatabase(
+    string adminConnectionString,
+    string appConnectionString,
+    string privilegedConnectionString,
+    Func<Task> drop)
     : IAsyncDisposable
 {
     #region Properties
@@ -139,6 +175,9 @@ public sealed class TestDatabase(string adminConnectionString, string appConnect
 
     /// <summary>The connection string of <c>drover_app</c>, the role every request and job uses.</summary>
     public string AppConnectionString { get; } = appConnectionString;
+
+    /// <summary>A generated, password-authenticated superuser used only by role-policy tests.</summary>
+    public string PrivilegedConnectionString { get; } = privilegedConnectionString;
 
     #endregion
 
