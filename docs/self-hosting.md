@@ -75,6 +75,40 @@ provided overlay discards access logs for the preview name because its query car
 Without the trusted-address setting Drover still works, but every person shares the proxy's address for the sign-in
 limit. Never set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
 
+## Sandboxes
+
+A sandbox is an isolated computer in which a bot can run code, keep files and drive a screen. Sandboxes are off until you give the server a provider; bots without one work as before.
+
+### Docker
+
+Docker sandboxes need no account and no steps. Their setup is written by [#657](https://github.com/Forrest-Technologies/drover/issues/657), with the hardening and provider settings from [#658](https://github.com/Forrest-Technologies/drover/issues/658) and [#659](https://github.com/Forrest-Technologies/drover/issues/659).
+
+### E2B
+
+E2B runs each sandbox as a remote machine at the provider. You need an account there, and the provider bills you for the time sandboxes run; a sandbox with a screen is a much larger machine than one without ([sandboxes](architecture/07-sandbox.md)).
+
+1. Create an API key at the provider.
+2. Put `E2B_API_KEY=e2b_...` in `.env` beside `compose.yaml` and run `docker compose up -d`. The key is held in memory only; `.env` is not tracked by git.
+
+If you need more than that one line, these settings go beside it on the `drover` service:
+
+| Setting | What it does |
+| --- | --- |
+| `Drover__Sandbox__E2B__ApiKeyFile` | Use a file holding the key instead of the value above. Never set both; the server stops at start if you do. |
+| `Drover__Sandbox__E2B__Domain` | The provider's domain. Default `e2b.app`. |
+| `Drover__Sandbox__E2B__Template` | The machine a sandbox starts from. Default `base`. |
+| `Drover__Sandbox__E2B__DesktopTemplate` | The machine a sandbox with a screen starts from. Default `desktop`. |
+
+The server stops at start, naming the setting, when a key does not start with `e2b_`, when both key settings are set, or when the key file is not readable. No key means no sandboxes, which is not an error.
+
+### Other providers
+
+Daytona ([#660](https://github.com/Forrest-Technologies/drover/issues/660)) and Novita ([#141](https://github.com/Forrest-Technologies/drover/issues/141)) each add their own subsection when they land.
+
+### After it is on
+
+Turn Sandbox on in the bot's editor, then grant the sandbox tools the bot may use. The bot's sandbox page is at `/bots/{botId}/sandbox`. Self-hosted limits are `MaxSandboxCommandSeconds` (3600), `MaxSandboxFileBytes` (50 MB) and `MaxSandboxIdleMinutes` (60); what they bound is in [deployment policies](architecture/16-deployment-policies.md). To turn sandboxes off again, remove the line from `compose.yaml` and run `docker compose up -d`; sandboxes that already exist are kept until their idle time runs out and the sweep clears them.
+
 ## Before you expose it
 
 - Finish setup before making Drover available over the internet. Read the one-time code from `docker compose logs drover`.
