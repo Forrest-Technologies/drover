@@ -39,13 +39,9 @@ internal static class UpdateInstall
     {
         progress(live() with { Version = version, Phase = DesktopUpdatePhase.Downloading, Problem = null });
         var path = await download();
-        byte[]? package;
 
         // The package is read through a bounded buffer, not allocated whole before any limit applies.
-        await using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
-        {
-            package = await UpdatePackageTrust.ReadPackage(file, packageLimit);
-        }
+        var package = await UpdatePackageTrust.ReadPackageFile(path, packageLimit);
 
         if (package is null)
         {

@@ -229,16 +229,20 @@ internal static class UpdatePackageTrust
     /// <summary>
     /// Reads the whole package, at most <paramref name="limit"/> bytes, and nothing when it is more: a stream that says
     /// it is longer than the limit is refused without a byte read, and one that grows past what it said stops at the
-    /// next byte. Returns null for a package over the limit.
+    /// next byte. The length is read once, and the same value that was checked sizes the buffer, so a stream that
+    /// reports a different length the next time cannot make the buffer larger than the limit. Returns null for a
+    /// package over the limit.
     /// </summary>
     public static async Task<byte[]?> ReadPackage(Stream stream, long limit)
     {
-        if (stream.Length > limit)
+        var length = stream.Length;
+
+        if (length > limit)
         {
             return null;
         }
 
-        var package = new byte[stream.Length];
+        var package = new byte[length];
         var read = 0;
 
         while (read < package.Length)
@@ -255,6 +259,13 @@ internal static class UpdatePackageTrust
 
         // A file that grew since its length was read is not the file that was measured.
         return stream.ReadByte() >= 0 ? null : package;
+    }
+
+    /// <summary>The package at <paramref name="path"/> through <see cref="ReadPackage"/>, or null when it is over the limit.</summary>
+    public static async Task<byte[]?> ReadPackageFile(string path, long limit)
+    {
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        return await ReadPackage(file, limit);
     }
 
     public static DownloadDecision Decide(

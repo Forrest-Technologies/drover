@@ -468,6 +468,37 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
+    public async Task A_stream_whose_reported_length_changes_between_reads_is_sized_by_the_length_that_was_checked()
+    {
+        // The first length is within the limit and every later one is far over it. A buffer sized by a second read of
+        // the length would be as large as the later one, before any growth check could run.
+        await using var changing = new ChangingLengthStream(new byte[4096], first: 1024, later: 1L << 40);
+
+        var refused = await UpdatePackageTrust.ReadPackage(changing, 1024);
+
+        refused.Should().BeNull("the content is longer than the length that was checked");
+        changing.LengthReads.Should().Be(1, "the length is read once and the checked value is the one used");
+        changing.BytesRead.Should().BeLessThanOrEqualTo(1025);
+    }
+
+    [Fact]
+    public async Task A_package_file_over_the_limit_is_refused_and_one_at_the_limit_is_read()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drover-package-{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(path, new byte[64], TestContext.Current.CancellationToken);
+
+        try
+        {
+            (await UpdatePackageTrust.ReadPackageFile(path, 63)).Should().BeNull();
+            (await UpdatePackageTrust.ReadPackageFile(path, 64))!.Length.Should().Be(64);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task A_package_at_the_limit_is_read_whole()
     {
         var bytes = Enumerable.Range(0, 1024).Select(index => (byte)index).ToArray();
@@ -944,6 +975,82 @@ file sealed class CountingStream(byte[] content, long declared) : Stream
     public override bool CanWrite => false;
 
     public override long Length => declared;
+
+    public override long Position
+    {
+        get => position;
+        set => throw new NotSupportedException();
+    }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        var read = Math.Min(count, content.Length - position);
+        Array.Copy(content, position, buffer, offset, read);
+        position += read;
+        BytesRead += read;
+        return read;
+    }
+
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        var read = Math.Min(buffer.Length, content.Length - position);
+        content.AsMemory(position, read).CopyTo(buffer);
+        position += read;
+        BytesRead += read;
+        return ValueTask.FromResult(read);
+    }
+
+    public override int ReadByte()
+    {
+        if (position >= content.Length)
+        {
+            return -1;
+        }
+
+        BytesRead++;
+        return content[position++];
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    #endregion
+}
+
+
+/// <summary>A stream whose reported length is one value the first time it is asked and another after that.</summary>
+file sealed class ChangingLengthStream(byte[] content, long first, long later) : Stream
+{
+    #region Private Fields
+
+    private int position;
+
+    #endregion
+
+    #region Properties
+
+    public int LengthReads { get; private set; }
+
+    public int BytesRead { get; private set; }
+
+    public override bool CanRead => true;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => false;
+
+    public override long Length => ++LengthReads == 1 ? first : later;
 
     public override long Position
     {
