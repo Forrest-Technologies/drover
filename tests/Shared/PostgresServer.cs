@@ -11,6 +11,10 @@ public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
+    // A loaded runner can starve the harness's first connection. Retry it within this bound; on a healthy server
+    // the first attempt succeeds and costs nothing extra.
+    private static readonly TimeSpan connectionPatience = TimeSpan.FromSeconds(60);
+
     private readonly string ownerPassword = NewPassword();
 
     private readonly string appPassword = NewPassword();
@@ -41,7 +45,7 @@ public sealed class PostgresServer : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         server = [with(await FindServer())];
-        await ExecuteOnServer($"CREATE DATABASE {templateName}");
+        await ExecuteOnServer($"CREATE DATABASE {templateName}", retryConnection: true);
         await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);
         NpgsqlConnection.ClearAllPools();
@@ -106,10 +110,31 @@ public sealed class PostgresServer : IAsyncLifetime
     // Not ClearAllPools: other tests in this assembly are using their own pools at the same time.
     private Task Drop(string name) => ExecuteOnServer($"DROP DATABASE IF EXISTS {name} WITH (FORCE)");
 
-    private async Task ExecuteOnServer(string sql)
+    private async Task ExecuteOnServer(string sql, bool retryConnection = false)
     {
         await using var connection = new NpgsqlConnection(server.ConnectionString);
-        await connection.OpenAsync();
+        var deadline = retryConnection ? Environment.TickCount64 + (long)connectionPatience.TotalMilliseconds : 0;
+        var delay = TimeSpan.FromMilliseconds(500);
+
+        while (true)
+        {
+            try
+            {
+                await connection.OpenAsync();
+                break;
+            }
+            catch (Exception exception) when (retryConnection && (exception is NpgsqlException or TimeoutException))
+            {
+                if (Environment.TickCount64 >= deadline)
+                {
+                    throw;
+                }
+
+                await Task.Delay(delay);
+                delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, 2000));
+            }
+        }
+
         await new NpgsqlCommand(sql, connection).ExecuteNonQueryAsync();
     }
 

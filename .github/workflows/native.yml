@@ -199,6 +199,19 @@ jobs:
             -o "-p 5432 -c listen_addresses=127.0.0.1" \
             -l "$RUNNER_TEMP/postgres.log" \
             -w start
+          # A starved runner can leave the server slow to accept connections. Probe with a bound; a ready server
+          # answers the first time, so this adds nothing to the happy path.
+          for ((attempt = 1; attempt <= 60; attempt++)); do
+            if "$bin/pg_isready" -h 127.0.0.1 -p 5432 -t 1 -q; then
+              break
+            fi
+            if ((attempt == 60)); then
+              echo "PostgreSQL did not accept connections after 60 probes"
+              tail -n 50 "$RUNNER_TEMP/postgres.log"
+              exit 1
+            fi
+            sleep 1
+          done
           echo "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres;Password=$password" >> "$GITHUB_ENV"
       - name: Open the app and pass the shared screen checks after a restart
         run: |

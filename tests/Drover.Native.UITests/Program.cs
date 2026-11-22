@@ -38,6 +38,11 @@ internal static class Program
             {
                 return await Prove(Path.GetFullPath(artifacts), folder, logger) ? 0 : 1;
             }
+            catch (Exception exception) when (exception is NpgsqlException or TimeoutException)
+            {
+                logger.LogError("PostgreSQL did not accept a connection: {Message}", exception.Message);
+                return 1;
+            }
             finally
             {
                 Directory.Delete(folder, recursive: true);
@@ -60,6 +65,11 @@ internal static class Program
             }
 
             return lines.Contains(Passed) ? 0 : 1;
+        }
+        catch (Exception exception) when (exception is NpgsqlException or TimeoutException)
+        {
+            logger.LogError("PostgreSQL did not accept a connection: {Message}", exception.Message);
+            return 1;
         }
         finally
         {
