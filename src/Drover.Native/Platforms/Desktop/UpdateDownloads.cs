@@ -1,0 +1,279 @@
+namespace Drover.Native.Platform;
+
+/// <summary>
+/// Reads update metadata through a byte limit and a deadline. Nothing an update endpoint sends is trusted until its
+/// signature is checked, so every read stops at a fixed size and a fixed time before that check can run.
+/// </summary>
+internal static class UpdateReads
+{
+    #region Public Methods
+
+    /// <summary>The most a signed feed or its detached signature may be, in bytes.</summary>
+    public const long FeedLimit = 1024 * 1024;
+
+    /// <summary>The most the preview release list may be, in bytes.</summary>
+    public const long ReleaseListLimit = 8 * 1024 * 1024;
+
+    public const string TooLargeProblem = "The release information is larger than Drover accepts.";
+
+    public const string TooSlowProblem = "The release information took too long to arrive.";
+
+    /// <summary>The longest a feed, signature, or release list read may take, from request to last byte.</summary>
+    public static readonly TimeSpan ReadDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// The body at <paramref name="address"/>, at most <paramref name="limit"/> bytes, within
+    /// <paramref name="deadline"/>. A declared length over the limit is refused before the body is read, and a body
+    /// that runs past the limit is refused at the first chunk that crosses it.
+    /// </summary>
+    public static async Task<byte[]> Read(HttpClient client, string address, long limit, TimeSpan deadline)
+    {
+        using var timeout = new CancellationTokenSource(deadline);
+
+        try
+        {
+            using var response = await client.GetAsync(
+                address,
+                HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+            response.EnsureSuccessStatusCode();
+
+            if (response.Content.Headers.ContentLength > limit)
+            {
+                throw new InvalidDataException(TooLargeProblem);
+            }
+
+            await using var body = await response.Content.ReadAsStreamAsync(timeout.Token);
+            return await ReadAtMost(body, limit, timeout.Token) ?? throw new InvalidDataException(TooLargeProblem);
+        }
+        catch (OperationCanceledException exception) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(TooSlowProblem, exception);
+        }
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static async Task<byte[]?> ReadAtMost(Stream body, long limit, CancellationToken cancellation)
+    {
+        using var kept = new MemoryStream();
+        var chunk = new byte[81920];
+
+        while (true)
+        {
+            var count = await body.ReadAsync(chunk, cancellation);
+
+            if (count == 0)
+            {
+                return kept.ToArray();
+            }
+
+            if (kept.Length + count > limit)
+            {
+                return null;
+            }
+
+            await kept.WriteAsync(chunk.AsMemory(0, count), cancellation);
+        }
+    }
+
+    #endregion
+}
+
+
+/// <summary>Downloads the signed feed and its detached signature through a bounded read.</summary>
+internal sealed class BoundedFeedDownloader(HttpClient client, long limit, TimeSpan deadline)
+    : NetSparkleUpdater.Interfaces.IAppCastDataDownloader
+{
+    #region Properties
+
+    public long Limit => limit;
+
+    #endregion
+
+    #region Interface Implementations
+
+    /// <summary>The update library calls only the asynchronous read, so a blocking read is never offered.</summary>
+    public string DownloadAndGetAppCastData(string url) =>
+        throw new NotSupportedException("Drover reads the update feed only asynchronously.");
+
+    public async Task<string> DownloadAndGetAppCastDataAsync(string url)
+    {
+        var body = await UpdateReads.Read(client, url, limit, deadline);
+
+        // Decoded as the library's own downloader decodes it, so the signature is checked over the same text.
+        using var reader = new StreamReader(new MemoryStream(body), GetAppCastEncoding());
+        return await reader.ReadToEndAsync();
+    }
+
+    public Encoding GetAppCastEncoding() => Encoding.UTF8;
+
+    #endregion
+}
+
+
+/// <summary>
+/// Downloads an update package for the update library, never writing more than <paramref name="limit"/> bytes. A
+/// declared length over the limit is refused before the file is created. A body that runs past the limit, a failure,
+/// or a cancellation stops the download and removes the partial file before the library is told, so the library
+/// never checks the signature of a file over the limit.
+/// </summary>
+internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
+    : NetSparkleUpdater.Interfaces.IUpdateDownloader, IDisposable
+{
+    #region Private Fields
+
+    private CancellationTokenSource cancel = new();
+
+    #endregion
+
+    #region Properties
+
+    public long Limit => limit;
+
+    public bool IsDownloading { get; private set; }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public event DownloadFromPathToPathEvent? DownloadStarted;
+
+    public event DownloadProgressEvent? DownloadProgressChanged;
+
+    public event global::System.ComponentModel.AsyncCompletedEventHandler? DownloadFileCompleted;
+
+    public async Task DownloadFile(Uri? uri, string downloadFilePath)
+    {
+        // The token is taken first, so a cancel that arrives once the download is reported as running reaches it.
+        var cancellation = cancel.Token;
+        IsDownloading = true;
+        var outcome = await Attempt(uri, downloadFilePath, cancellation);
+        IsDownloading = false;
+        var error = outcome.Error;
+
+        if (outcome.Cancelled || error is not null)
+        {
+            var notRemoved = Remove(downloadFilePath);
+            error ??= notRemoved;
+        }
+
+        DownloadFileCompleted?.Invoke(
+            this,
+            new global::System.ComponentModel.AsyncCompletedEventArgs(error, outcome.Cancelled, null));
+    }
+
+    public void CancelDownload()
+    {
+        // The token of the download in progress stays valid after it is cancelled, so the old source is not disposed
+        // while that download may still be reading it.
+        var running = Interlocked.Exchange(ref cancel, new());
+        running.Cancel();
+    }
+
+    /// <summary>The file name comes from the download address. The server is never asked for one.</summary>
+    public Task<string?> RetrieveDestinationFileNameAsync(AppCastItem item) => Task.FromResult<string?>(null);
+
+    public void Dispose()
+    {
+        cancel.Cancel();
+        cancel.Dispose();
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>Runs one download and reports how it ended. It never throws; the library hears through its event.</summary>
+    private async Task<DownloadOutcome> Attempt(Uri? uri, string path, CancellationToken cancellation)
+    {
+        try
+        {
+            var address = uri ?? throw new InvalidDataException("The update has no download address.");
+            DownloadStarted?.Invoke(this, address.ToString(), path);
+            await Save(address, path, cancellation);
+            return new(null, Cancelled: false);
+        }
+        catch (OperationCanceledException exception) when (cancellation.IsCancellationRequested)
+        {
+            return new(exception, Cancelled: true);
+        }
+        catch (Exception exception)
+        {
+            return new(exception, Cancelled: false);
+        }
+    }
+
+    private async Task Save(Uri address, string path, CancellationToken cancellation)
+    {
+        using var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, cancellation);
+        response.EnsureSuccessStatusCode();
+        var declared = response.Content.Headers.ContentLength;
+
+        if (declared > limit)
+        {
+            throw new InvalidDataException(UpdatePackageTrust.TooLargeProblem);
+        }
+
+        await using var body = await response.Content.ReadAsStreamAsync(cancellation);
+        await using var file = new FileStream(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            81920,
+            useAsync: true);
+        var chunk = new byte[81920];
+        var written = 0L;
+
+        while (true)
+        {
+            var count = await body.ReadAsync(chunk, cancellation);
+
+            if (count == 0)
+            {
+                return;
+            }
+
+            if (written + count > limit)
+            {
+                throw new InvalidDataException(UpdatePackageTrust.TooLargeProblem);
+            }
+
+            await file.WriteAsync(chunk.AsMemory(0, count), cancellation);
+            written += count;
+            ReportProgress(written, declared ?? 0);
+        }
+    }
+
+    private void ReportProgress(long written, long declared)
+    {
+        var total = declared > 0 ? declared : written;
+        var percent = total > 0 ? (int)Math.Min(100, written * 100 / total) : 0;
+        DownloadProgressChanged?.Invoke(
+            this,
+            new NetSparkleUpdater.Events.ItemDownloadProgressEventArgs(percent, this, written, total));
+    }
+
+    /// <summary>Removes a partial download. A file that cannot be removed is reported, never left silently.</summary>
+    private static Exception? Remove(string path)
+    {
+        try
+        {
+            File.Delete(path);
+            return null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return exception;
+        }
+    }
+
+    #endregion
+}
+
+
+/// <summary>How one package download ended.</summary>
+internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled);

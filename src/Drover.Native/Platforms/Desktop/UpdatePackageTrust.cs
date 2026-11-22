@@ -130,31 +130,52 @@ internal static class UpdatePackageTrust
         return new Ed25519Checker(SecurityMode.Strict, key, null, true, 25 * 1024 * 1024);
     }
 
+    /// <summary>
+    /// The updater for one check. Every entry from another release channel is removed before the library chooses an
+    /// update, so it never reaches the version record or the installer. The feed, its signature, and the package are
+    /// read through <paramref name="client"/> with fixed byte limits.
+    /// </summary>
     public static SparkleUpdater CreateUpdater(
         string feed,
         string? publicKey,
         string referenceAssembly,
         string downloadDirectory,
-        string installedVersion)
+        string installedVersion,
+        HttpClient client)
     {
         var built = new SparkleUpdater(feed, CreateVerifier(publicKey), referenceAssembly)
         {
+            AppCastDataDownloader = new BoundedFeedDownloader(client, UpdateReads.FeedLimit, UpdateReads.ReadDeadline),
+            UpdateDownloader = new BoundedPackageDownloader(client, PackageLimit),
             CheckServerFileName = false,
             RelaunchAfterUpdate = true,
             ShouldKillParentProcessWhenStartingInstaller = true,
             UserInteractionMode = UserInteractionMode.DownloadNoInstall,
             TmpDownloadFilePath = PrepareDownloadDirectory(downloadDirectory),
         };
-        if (DesktopUpdateChannel.FromVersion(installedVersion) is "preview")
-        {
-            built.AppCastHelper.AppCastFilter = new ChannelAppCastFilter
-            {
-                ChannelSearchNames = ["preview"],
-                KeepItemsWithNoChannelInfo = false,
-            };
-        }
-
+        var channel = DesktopUpdateChannel.FromVersion(installedVersion);
+        built.AppCastHelper.AppCastFilter = new ReleaseChannelFilter(channel);
         return built;
+    }
+
+    /// <summary>
+    /// The newest update a check found that belongs to <paramref name="channel"/>, or null. The filter has already
+    /// removed every other channel; this holds the version record to the same rule if it ever did not.
+    /// </summary>
+    public static AppCastItem? Offer(UpdateInfo result, string channel) => result.Status is UpdateStatus.UpdateAvailable
+        ? result.Updates.FirstOrDefault(item => ReleaseChannelFilter.IsOnChannel(item, channel))
+        : null;
+
+    /// <summary>
+    /// Removes a file already at <paramref name="path"/> that is over <paramref name="limit"/>, so the library does not
+    /// read it to check its signature before it downloads again.
+    /// </summary>
+    public static void RemoveOversizedDownload(string? path, long limit)
+    {
+        if (path is not null && File.Exists(path) && new FileInfo(path).Length > limit)
+        {
+            File.Delete(path);
+        }
     }
 
     public static string DownloadDirectory() => global::System.IO.Path.Combine(
@@ -301,6 +322,9 @@ internal static class UpdatePackageTrust
         void Failed(AppCastItem item, string? path, Exception exception) => downloaded.TrySetException(exception);
         void Corrupt(AppCastItem item, string path) => downloaded.TrySetException(new InvalidDataException(SignatureProblem));
 
+        var packageLimit = (updater.UpdateDownloader as BoundedPackageDownloader)?.Limit ?? PackageLimit;
+        RemoveOversizedDownload(await updater.GetDownloadPathForAppCastItem(item), packageLimit);
+
         updater.DownloadFinished += Finished;
         updater.DownloadHadError += Failed;
         updater.DownloadedFileIsCorrupt += Corrupt;
@@ -309,6 +333,12 @@ internal static class UpdatePackageTrust
         {
             await updater.InitAndBeginDownload(item);
             return await downloaded.Task.WaitAsync(limit);
+        }
+        catch (TimeoutException)
+        {
+            // The download is stopped, and its partial file removed, rather than left running past the limit.
+            updater.CancelFileDownload();
+            throw;
         }
         finally
         {
@@ -396,6 +426,40 @@ internal static class UpdatePackageTrust
 
     #endregion
 }
+
+/// <summary>
+/// Keeps only entries for one release channel that are newer than the installed version, newest first. An entry is on
+/// a channel when the channel its version names matches and any channel the entry declares matches too, so a preview
+/// entry is refused by a stable install whichever of the two marks it, and a stable entry by a preview install.
+/// </summary>
+internal sealed class ReleaseChannelFilter(string channel) : NetSparkleUpdater.Interfaces.IAppCastFilter
+{
+    #region Properties
+
+    public string Channel => channel;
+
+    #endregion
+
+    #region Public Methods
+
+    public static bool IsOnChannel(AppCastItem item, string channel) =>
+        !string.IsNullOrWhiteSpace(item.Version)
+        && DesktopUpdateChannel.FromVersion(item.Version) == channel
+        && (string.IsNullOrWhiteSpace(item.Channel)
+            || string.Equals(item.Channel.Trim(), channel, StringComparison.OrdinalIgnoreCase));
+
+    #endregion
+
+    #region Interface Implementations
+
+    public IEnumerable<AppCastItem> GetFilteredAppCastItems(SemVerLike installed, IEnumerable<AppCastItem> items) =>
+        items
+            .Where(item => IsOnChannel(item, channel) && SemVerLike.Parse(item.Version).CompareTo(installed) > 0)
+            .OrderByDescending(item => item.SemVerLikeVersion);
+
+    #endregion
+}
+
 
 /// <summary>Whether the downloaded package may be handed to an installer.</summary>
 internal readonly record struct DownloadDecision(DesktopUpdateState State, bool StartInstaller);

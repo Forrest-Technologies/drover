@@ -3,6 +3,12 @@ namespace Drover.Presentation.Tests.ViewModels;
 /// <summary>The signed desktop update channel and its account menu controls.</summary>
 public sealed class DesktopUpdateTests
 {
+    #region Private Fields
+
+    private static readonly ServiceProvider clients = new ServiceCollection().AddHttpClient().BuildServiceProvider();
+
+    #endregion
+
     #region Public Methods
 
     [Fact]
@@ -199,12 +205,14 @@ public sealed class DesktopUpdateTests
         feed.Add("package.bin", tampered);
 
         var directory = Path.Combine(Path.GetTempPath(), $"drover-download-{Guid.NewGuid():N}");
+        using var client = Client();
         using var updater = UpdatePackageTrust.CreateUpdater(
             $"{feed.Address}appcast.xml",
             publicKey,
             typeof(UpdatePackageTrust).Assembly.Location,
             directory,
-            "1.0.0");
+            "1.0.0",
+            client);
         updater.RelaunchAfterUpdate.Should().BeTrue();
         updater.TmpDownloadFilePath.Should().Be(directory);
 
@@ -245,14 +253,16 @@ public sealed class DesktopUpdateTests
         feed.Add("preview.bin", package);
 
         var directory = Path.Combine(Path.GetTempPath(), $"drover-preview-{Guid.NewGuid():N}");
+        using var client = Client();
         using var updater = UpdatePackageTrust.CreateUpdater(
             $"{feed.Address}appcast.xml",
             publicKey,
             typeof(UpdatePackageTrust).Assembly.Location,
             directory,
-            "1.0.0-preview.1");
-        var filter = updater.AppCastHelper.AppCastFilter.Should().BeOfType<ChannelAppCastFilter>().Subject;
-        filter.ChannelSearchNames.Should().Contain("preview");
+            "1.0.0-preview.1",
+            client);
+        var filter = updater.AppCastHelper.AppCastFilter.Should().BeOfType<ReleaseChannelFilter>().Subject;
+        filter.Channel.Should().Be("preview");
 
         var result = await updater.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
         result.Status.Should().Be(UpdateStatus.UpdateAvailable);
@@ -694,12 +704,14 @@ public sealed class DesktopUpdateTests
         var (publicKey, privateKey) = Key(nameof(The_library_installer_refuses_a_changed_package_before_anything_starts));
         var original = Encoding.UTF8.GetBytes("sample desktop package");
         var directory = Path.Combine(Path.GetTempPath(), $"drover-installer-{Guid.NewGuid():N}");
+        using var client = Client();
         using var updater = UpdatePackageTrust.CreateUpdater(
             "https://github.com/Forrest-Technologies/drover/releases/latest/download/appcast-linux.xml",
             publicKey,
             typeof(UpdatePackageTrust).Assembly.Location,
             directory,
-            "1.0.0");
+            "1.0.0",
+            client);
         var item = new AppCastItem { Version = "2.0.0", DownloadSignature = Sign(original, privateKey) };
         var changed = original.ToArray();
         changed[^1] ^= 1;
@@ -712,6 +724,226 @@ public sealed class DesktopUpdateTests
         failure.Should().Be(InstallUpdateFailureReason.InvalidSignature);
         closed.Should().BeFalse();
         Directory.Delete(directory, true);
+    }
+
+    [Fact]
+    public async Task A_stable_build_refuses_preview_entries_and_they_do_not_move_its_version_record()
+    {
+        var (publicKey, privateKey) = Key(nameof(A_stable_build_refuses_preview_entries_and_they_do_not_move_its_version_record));
+        var package = Encoding.UTF8.GetBytes("stable desktop package");
+        var signature = Sign(package, privateKey);
+        await using var feed = await FeedHost.Open();
+        var os = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        var preview = AppCast("3.0.0-preview.1", "preview", $"{feed.Address}preview.bin", signature, os, package.Length);
+        var tagged = AppCast("2.5.0", "preview", $"{feed.Address}tagged.bin", signature, os, package.Length);
+        var stable = AppCast("2.0.0", null, $"{feed.Address}stable.bin", signature, os, package.Length);
+        feed.AddFeed("preview-only.xml", SignedFeed(Wrap($"{preview}{tagged}"), privateKey));
+        feed.AddFeed("mixed.xml", SignedFeed(Wrap($"{preview}{tagged}{stable}"), privateKey));
+        var settings = new MemorySettings();
+        var record = UpdatePackageTrust.FeedSettingName("stable");
+        settings.Values[record] = "1.5.0";
+        var directory = Path.Combine(Path.GetTempPath(), $"drover-channel-{Guid.NewGuid():N}");
+        using var client = Client();
+
+        try
+        {
+            using var previewOnly = StableUpdater($"{feed.Address}preview-only.xml", publicKey, directory, client);
+            previewOnly.AppCastHelper.AppCastFilter.Should().BeOfType<ReleaseChannelFilter>().Which.Channel.Should().Be("stable");
+            var refused = await previewOnly.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
+
+            refused.Updates.Should().BeEmpty("a preview entry signed by the same key is still on another channel");
+            var none = UpdatePackageTrust.Offer(refused, "stable");
+            none.Should().BeNull();
+            UpdatePackageTrust.AcceptFeed(settings, "stable", none?.Version).Accepted.Should().BeTrue();
+            settings.Values[record].Should().Be("1.5.0", "a refused preview entry never reaches the record");
+
+            using var mixed = StableUpdater($"{feed.Address}mixed.xml", publicKey, directory, client);
+            var offered = await mixed.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
+
+            var item = UpdatePackageTrust.Offer(offered, "stable");
+            item!.Version.Should().Be("2.0.0", "the newer preview entries do not hide the stable release");
+            offered.Updates.Should().ContainSingle();
+            UpdatePackageTrust.AcceptFeed(settings, "stable", item.Version).Accepted.Should().BeTrue();
+            settings.Values[record].Should().Be("2.0.0");
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Each_install_keeps_only_entries_from_its_own_release_channel()
+    {
+        var stable = new AppCastItem { Version = "2.0.0" };
+        var preview = new AppCastItem { Version = "2.1.0-preview.1", Channel = "preview" };
+        var tagged = new AppCastItem { Version = "2.2.0", Channel = "Preview" };
+        var unmarked = new AppCastItem { Version = "2.3.0-preview.2" };
+        var older = new AppCastItem { Version = "0.9.0" };
+        var mislabeled = new AppCastItem { Version = "2.4.0-preview.3", Channel = "stable" };
+        AppCastItem[] items = [stable, preview, tagged, unmarked, older, mislabeled];
+
+        new ReleaseChannelFilter("stable").GetFilteredAppCastItems(SemVerLike.Parse("1.0.0"), items)
+            .Should().Equal(stable);
+        new ReleaseChannelFilter("preview").GetFilteredAppCastItems(SemVerLike.Parse("1.0.0-preview.1"), items)
+            .Should().Equal(unmarked, preview);
+
+        UpdatePackageTrust.Offer(new UpdateInfo(UpdateStatus.UpdateAvailable, [preview, tagged, stable]), "stable")
+            .Should().BeSameAs(stable, "an entry from another channel is never offered, even if the filter let it through");
+        UpdatePackageTrust.Offer(new UpdateInfo(UpdateStatus.UpdateAvailable, [preview, tagged]), "stable").Should().BeNull();
+        UpdatePackageTrust.Offer(new UpdateInfo(UpdateStatus.UpdateNotAvailable, [stable]), "stable").Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("appcast", false)]
+    [InlineData("appcast", true)]
+    [InlineData("signature", false)]
+    [InlineData("signature", true)]
+    public async Task An_oversized_feed_or_feed_signature_is_refused(string oversized, bool streamed)
+    {
+        var (publicKey, privateKey) = Key($"{nameof(An_oversized_feed_or_feed_signature_is_refused)}{oversized}{streamed}");
+        var package = Encoding.UTF8.GetBytes("sample desktop package");
+        await using var feed = await FeedHost.Open();
+        var os = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        var item = AppCast("2.0.0", null, $"{feed.Address}package.bin", Sign(package, privateKey), os, package.Length);
+        var padding = oversized is "appcast" ? $"<!-- {new string('x', (int)UpdateReads.FeedLimit)} -->" : string.Empty;
+        var appcast = Encoding.UTF8.GetBytes(Wrap($"{item}{padding}"));
+
+        // Whitespace in a signature is ignored when it is decoded, so the padded signature is still valid: only its
+        // size can refuse it.
+        var signature = Sign(appcast, privateKey);
+        var signatureFile = oversized is "signature"
+            ? $"{signature}{new string(' ', (int)UpdateReads.FeedLimit)}"
+            : signature;
+        feed.Add("appcast.xml", appcast, streamed);
+        feed.Add("appcast.xml.signature", Encoding.UTF8.GetBytes(signatureFile), streamed);
+        var directory = Path.Combine(Path.GetTempPath(), $"drover-feed-limit-{Guid.NewGuid():N}");
+        using var client = Client();
+
+        try
+        {
+            using var updater = StableUpdater($"{feed.Address}appcast.xml", publicKey, directory, client);
+            updater.AppCastDataDownloader.Should().BeOfType<BoundedFeedDownloader>()
+                .Which.Limit.Should().Be(UpdateReads.FeedLimit);
+
+            var result = await updater.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
+
+            result.Status.Should().Be(UpdateStatus.CouldNotDetermine);
+            result.Updates.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_release_list_read_is_bounded_by_bytes_and_by_time()
+    {
+        await using var feed = await FeedHost.Open();
+        feed.Add("small.json", "[]"u8.ToArray());
+        feed.Add("declared.json", new byte[2048]);
+        feed.Add("streamed.json", new byte[2048], streamed: true);
+        feed.AddStalled("stalled.json", "[{"u8.ToArray());
+        using var client = Client();
+        var deadline = TimeSpan.FromSeconds(20);
+
+        (await UpdateReads.Read(client, $"{feed.Address}small.json", 1024, deadline)).Should().Equal("[]"u8.ToArray());
+
+        var declared = () => UpdateReads.Read(client, $"{feed.Address}declared.json", 1024, deadline);
+        await declared.Should().ThrowAsync<InvalidDataException>().WithMessage(UpdateReads.TooLargeProblem);
+        var streamed = () => UpdateReads.Read(client, $"{feed.Address}streamed.json", 1024, deadline);
+        await streamed.Should().ThrowAsync<InvalidDataException>().WithMessage(UpdateReads.TooLargeProblem);
+        var stalled = () => UpdateReads.Read(client, $"{feed.Address}stalled.json", 1024, TimeSpan.FromMilliseconds(300));
+        await stalled.Should().ThrowAsync<TimeoutException>().WithMessage(UpdateReads.TooSlowProblem);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_oversized_download_is_cancelled_and_its_file_removed_before_it_is_verified(bool streamed)
+    {
+        var (publicKey, privateKey) = Key($"{nameof(An_oversized_download_is_cancelled_and_its_file_removed_before_it_is_verified)}{streamed}");
+        var package = Enumerable.Range(0, 4096).Select(index => (byte)index).ToArray();
+        var signature = Sign(package, privateKey);
+        await using var feed = await FeedHost.Open();
+        var os = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        var item = AppCast("2.0.0", null, $"{feed.Address}package.bin", signature, os, package.Length);
+        feed.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey));
+        feed.Add("package.bin", package, streamed);
+        var directory = Path.Combine(Path.GetTempPath(), $"drover-download-limit-{Guid.NewGuid():N}");
+        using var client = Client();
+
+        try
+        {
+            using var updater = StableUpdater($"{feed.Address}appcast.xml", publicKey, directory, client);
+            updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>()
+                .Which.Limit.Should().Be(UpdatePackageTrust.PackageLimit);
+            updater.UpdateDownloader = new BoundedPackageDownloader(client, 1024);
+            var result = await updater.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
+            var offered = result.Updates.Should().ContainSingle().Subject;
+            var verifier = new CountingVerifier(updater.SignatureVerifier);
+            updater.SignatureVerifier = verifier;
+
+            var act = () => UpdatePackageTrust.Download(updater, offered, TimeSpan.FromSeconds(20));
+
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage(UpdatePackageTrust.TooLargeProblem);
+            Directory.EnumerateFiles(directory).Should().BeEmpty("the partial download is removed");
+            verifier.FileChecks.Should().Be(0, "a package over the limit is never read to check its signature");
+            updater.UpdateDownloader.IsDownloading.Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_cancelled_download_stops_and_its_partial_file_is_removed()
+    {
+        await using var feed = await FeedHost.Open();
+        feed.AddStalled("package.bin", new byte[512]);
+        var path = Path.Combine(Path.GetTempPath(), $"drover-partial-{Guid.NewGuid():N}.bin");
+        using var client = Client();
+        using var downloader = new BoundedPackageDownloader(client, 4096);
+        var progressed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        global::System.ComponentModel.AsyncCompletedEventArgs? completed = null;
+        downloader.DownloadProgressChanged += (_, _) => progressed.TrySetResult();
+        downloader.DownloadFileCompleted += (_, args) => completed = args;
+
+        var running = downloader.DownloadFile(new Uri($"{feed.Address}package.bin"), path);
+        await progressed.Task.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+        File.Exists(path).Should().BeTrue("the partial file is on disk while the download runs");
+        downloader.IsDownloading.Should().BeTrue();
+
+        downloader.CancelDownload();
+        await running;
+
+        completed.Should().NotBeNull();
+        completed!.Cancelled.Should().BeTrue();
+        File.Exists(path).Should().BeFalse();
+        downloader.IsDownloading.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_download_already_on_disk_over_the_limit_is_removed_before_it_is_checked()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"drover-existing-{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(path, new byte[64], TestContext.Current.CancellationToken);
+
+        try
+        {
+            UpdatePackageTrust.RemoveOversizedDownload(path, 64);
+            File.Exists(path).Should().BeTrue("a file at the limit is kept");
+            UpdatePackageTrust.RemoveOversizedDownload(path, 63);
+            File.Exists(path).Should().BeFalse();
+            UpdatePackageTrust.RemoveOversizedDownload(path, 63);
+            UpdatePackageTrust.RemoveOversizedDownload(null, 63);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]
@@ -743,6 +975,26 @@ public sealed class DesktopUpdateTests
     #endregion
 
     #region Private Methods
+
+    private static HttpClient Client() => clients.GetRequiredService<IHttpClientFactory>().CreateClient();
+
+    private static SparkleUpdater StableUpdater(
+        string feed,
+        string publicKey,
+        string directory,
+        HttpClient client) => UpdatePackageTrust.CreateUpdater(
+            feed,
+            publicKey,
+            typeof(UpdatePackageTrust).Assembly.Location,
+            directory,
+            "1.0.0",
+            client);
+
+    private static (byte[] Body, string Signature) SignedFeed(string appcast, byte[] privateKey)
+    {
+        var body = Encoding.UTF8.GetBytes(appcast);
+        return (body, Sign(body, privateKey));
+    }
 
     private static AccountMenuViewModel Menu(MemoryDesktopUpdates updates)
     {
@@ -810,7 +1062,7 @@ file sealed class FeedHost : IAsyncDisposable
 
     private readonly HttpListener listener = new();
 
-    private readonly Dictionary<string, byte[]> files = [];
+    private readonly Dictionary<string, FeedReply> files = [];
 
     private readonly CancellationTokenSource cancel = new();
 
@@ -840,7 +1092,18 @@ file sealed class FeedHost : IAsyncDisposable
         return Task.FromResult(host);
     }
 
-    public void Add(string name, byte[] body) => files[name] = body;
+    /// <summary>Serves <paramref name="body"/>, with its length declared, or in chunks with no length when streamed.</summary>
+    public void Add(string name, byte[] body, bool streamed = false) => files[name] = new(body, streamed, Stalls: false);
+
+    /// <summary>Serves a signed feed and its detached signature.</summary>
+    public void AddFeed(string name, (byte[] Body, string Signature) feed)
+    {
+        Add(name, feed.Body);
+        Add($"{name}.signature", Encoding.UTF8.GetBytes(feed.Signature));
+    }
+
+    /// <summary>Sends <paramref name="prefix"/> in chunks and then nothing more until the host closes.</summary>
+    public void AddStalled(string name, byte[] prefix) => files[name] = new(prefix, Streamed: true, Stalls: true);
 
     public async ValueTask DisposeAsync()
     {
@@ -863,20 +1126,51 @@ file sealed class FeedHost : IAsyncDisposable
                 break;
             }
 
-            var name = context.Request.Url?.AbsolutePath.TrimStart('/') ?? string.Empty;
-            if (files.TryGetValue(name, out var body))
+            // Each reply runs on its own, so a stalled reply does not hold up the next request.
+            _ = Respond(context);
+        }
+    }
+
+    /// <summary>Sends one reply. Returns why it stopped early, if it did.</summary>
+    private async Task<Exception?> Respond(HttpListenerContext context)
+    {
+        var name = context.Request.Url?.AbsolutePath.TrimStart('/') ?? string.Empty;
+        if (!files.TryGetValue(name, out var reply))
+        {
+            context.Response.StatusCode = 404;
+            context.Response.Close();
+            return null;
+        }
+
+        try
+        {
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/octet-stream";
+            if (reply.Streamed)
             {
-                context.Response.StatusCode = 200;
-                context.Response.ContentType = "application/octet-stream";
-                context.Response.ContentLength64 = body.Length;
-                await context.Response.OutputStream.WriteAsync(body);
+                context.Response.SendChunked = true;
             }
             else
             {
-                context.Response.StatusCode = 404;
+                context.Response.ContentLength64 = reply.Body.Length;
+            }
+
+            await context.Response.OutputStream.WriteAsync(reply.Body, cancel.Token);
+            await context.Response.OutputStream.FlushAsync(cancel.Token);
+            if (reply.Stalls)
+            {
+                await Task.Delay(Timeout.Infinite, cancel.Token);
             }
 
             context.Response.Close();
+            return null;
+        }
+        catch (Exception exception) when (exception is HttpListenerException or IOException or ObjectDisposedException
+            or OperationCanceledException)
+        {
+            // The client stopped reading or the host closed, which is what a refused or stalled reply is for.
+            context.Response.Abort();
+            return exception;
         }
     }
 
@@ -906,6 +1200,46 @@ file sealed class FeedHost : IAsyncDisposable
     #endregion
 }
 
+
+
+/// <summary>One file the test feed serves, and how it is sent.</summary>
+file sealed record FeedReply(byte[] Body, bool Streamed, bool Stalls);
+
+
+/// <summary>A signature checker that counts how often a downloaded file is read to check it.</summary>
+file sealed class CountingVerifier(NetSparkleUpdater.Interfaces.ISignatureVerifier inner)
+    : NetSparkleUpdater.Interfaces.ISignatureVerifier
+{
+    #region Properties
+
+    public int FileChecks { get; private set; }
+
+    public SecurityMode SecurityMode
+    {
+        get => inner.SecurityMode;
+        set => inner.SecurityMode = value;
+    }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public bool HasValidKeyInformation() => inner.HasValidKeyInformation();
+
+    public ValidationResult VerifySignature(string signature, byte[] dataToVerify) =>
+        inner.VerifySignature(signature, dataToVerify);
+
+    public ValidationResult VerifySignatureOfString(string signature, string data) =>
+        inner.VerifySignatureOfString(signature, data);
+
+    public ValidationResult VerifySignatureOfFile(string signature, string binaryPath)
+    {
+        FileChecks++;
+        return inner.VerifySignatureOfFile(signature, binaryPath);
+    }
+
+    #endregion
+}
 
 
 /// <summary>A package on disk with the key and signature that verify it.</summary>

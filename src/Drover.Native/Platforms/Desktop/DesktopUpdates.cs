@@ -142,11 +142,9 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
                 return;
             }
 
-            available = result.Status is UpdateStatus.UpdateAvailable ? result.Updates.FirstOrDefault() : null;
-            var verdict = UpdatePackageTrust.AcceptFeed(
-                settings,
-                DesktopUpdateChannel.FromVersion(installedVersion),
-                available?.Version);
+            var channel = DesktopUpdateChannel.FromVersion(installedVersion);
+            available = UpdatePackageTrust.Offer(result, channel);
+            var verdict = UpdatePackageTrust.AcceptFeed(settings, channel, available?.Version);
             if (verdict.NotSaved is not null)
             {
                 logger.LogWarning(verdict.NotSaved, "The newest verified update feed version could not be saved");
@@ -184,7 +182,8 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         publicKey,
         typeof(App).Assembly.Location,
         UpdatePackageTrust.DownloadDirectory(),
-        installedVersion);
+        installedVersion,
+        releases);
 
     private async Task<string> FindFeed()
     {
@@ -194,10 +193,12 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             return $"https://github.com/Forrest-Technologies/drover/releases/latest/download/{assetName}";
         }
 
-        using var response = await releases.GetAsync(PreviewReleases, HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-        await using var content = await response.Content.ReadAsStreamAsync();
-        using var document = await JsonDocument.ParseAsync(content);
+        var list = await UpdateReads.Read(
+            releases,
+            PreviewReleases,
+            UpdateReads.ReleaseListLimit,
+            UpdateReads.ReadDeadline);
+        using var document = JsonDocument.Parse(list);
 
         foreach (var release in document.RootElement.EnumerateArray())
         {

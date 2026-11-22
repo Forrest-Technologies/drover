@@ -23,7 +23,22 @@ The app and signed feed keep the full release version, including `-preview.N`. O
 uses numeric versions where required. The numeric revision keeps preview order and reserves its largest value for the
 stable package. Debian packages use `~preview.N`, which has the same order.
 
-A downloaded package is read through a bounded buffer: one over 512 MiB, or one replaced by something larger after the download, is refused before it is read, and is never handed to the installer.
+Each install considers only entries from its own release channel, before the version record or the installer sees
+them. An entry is on a channel when the channel its version names matches and any channel the entry declares matches
+too. A stable install never takes a preview entry, even one signed by the same key and served under the stable feed
+address, so a preview version never becomes the stable record or hides a later stable release.
+
+Nothing an update endpoint sends is read without a limit, because none of it is trusted until its signature is
+checked. The signed feed and its detached signature are each read up to 1 MiB, and the preview release list up to
+8 MiB. Each read must finish within 30 seconds. A declared length over the limit is refused before the body is read,
+and a body that runs past it is refused at that point.
+
+A package download stops at 512 MiB while it streams. A declared length over the limit is refused before the file is
+created. A download that runs past the limit, fails, is cancelled, or runs past its time limit is stopped and its
+partial file removed before the update library checks its signature. A file already in the download folder that is
+over the limit is removed before the library reads it. The downloaded package is then read through a bounded buffer:
+one over 512 MiB, or one replaced by something larger after the download, is refused before it is read, and is never
+handed to the installer.
 
 ## Manual run
 
