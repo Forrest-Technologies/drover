@@ -36,17 +36,23 @@ and a body that runs past it is refused at that point.
 A package download stops at 512 MiB while it streams. A declared length over the limit is refused before the file is
 created. A download that runs past the limit, fails, or is cancelled is stopped and its partial file removed before the
 update library checks its signature. A partial file that cannot be removed is reported together with the reason the
-download stopped. A download that runs past its time limit is cancelled, and the timeout is reported only once the
-download has closed and removed its file, waiting at most 10 seconds for that.
+download stopped. A download that runs past its time limit is cancelled, and the timeout is reported once the download
+has closed and removed its file, waiting at most 10 seconds for that. If it has not stopped by then, or stopping
+failed, the timeout and that failure are reported and logged together.
 
-Every file the update library checks (one already in the download folder, a fresh download, and the file again before
-the installer starts) is read by a checker that opens it once, takes its length from that open file, and reads at most
-512 MiB from it before the strict Ed25519 check runs. A link or reparse point is refused and never read. Before a
-download starts, a link, a reparse point, or a file over the limit already at the download path is removed, so the
-library never reads it; removing a link leaves the file it pointed to alone. The download folder is private to the
-user, and every check is made on the open file, so a name changed after a check cannot change what is read. The
-package is then read again through a bounded buffer: one over 512 MiB, or one replaced by something larger or by a
-link after the download, is refused before it is read, and is never handed to the installer.
+Each download has a new directory of its own inside the private update folder, readable only by the user (mode 0700
+outside Windows; inside the user's local application data on Windows). A retry, or a second check, therefore never
+shares a file with an earlier download that is still stopping. Each check removes earlier attempt directories as far
+as it can, except one whose download has not stopped yet and the one that holds a verified package still shown to the
+person. Turning update checks off or on during a download or install leaves it running and shown.
+
+The package file is created only where nothing exists yet, shared with no one. Every file the update library checks (a
+fresh download, and the file again before the installer starts) is read by a checker that opens it first and then
+checks the open file: it must be a regular file, and outside Windows its device and inode must match the entry the name
+points to, read without following a link. On Windows the open does not follow a reparse point, and the open file must
+not be one. A link, a reparse point, or a name that now points elsewhere is refused. The length comes from the same
+open file, and at most 512 MiB is read from it before the strict Ed25519 check runs. The package is then read again
+through a bounded buffer in the same way, and one that fails any of these checks is never handed to the installer.
 
 ## Manual run
 

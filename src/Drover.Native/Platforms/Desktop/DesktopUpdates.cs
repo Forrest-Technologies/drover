@@ -72,7 +72,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             return;
         }
 
-        Change(State with { ChecksEnabled = enabled, Phase = DesktopUpdatePhase.Idle, Problem = null });
+        Change(UpdatePackageTrust.AfterChecksSwitch(State, enabled));
         if (enabled)
         {
             _ = Check(reportFailure: false);
@@ -95,7 +95,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         {
             var result = await UpdateInstall.Run(
                 new SparkleInstaller(active, item),
-                () => UpdatePackageTrust.Download(active, item, downloadLimit),
+                () => UpdatePackageTrust.Download(active, item, UpdatePackageTrust.DownloadDirectory(), downloadLimit),
                 publicKey,
                 item.DownloadSignature,
                 UpdatePackageTrust.CurrentHost,
@@ -135,6 +135,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         {
             var feed = await FindFeed();
             updater?.Dispose();
+            RemoveOldAttempts();
             updater = BuildUpdater(feed);
             var result = await updater.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
             if (!State.ChecksEnabled)
@@ -174,6 +175,22 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
                 Phase = reportFailure ? DesktopUpdatePhase.Failed : DesktopUpdatePhase.Idle,
                 Problem = reportFailure ? UpdateProblem(exception) : null,
             });
+        }
+    }
+
+    /// <summary>
+    /// Removes earlier download attempts. A check never runs during a download or install, and the attempt that holds
+    /// a verified package still shown to the person is kept.
+    /// </summary>
+    private void RemoveOldAttempts()
+    {
+        var problems = UpdatePackageTrust.RemoveOldAttempts(
+            UpdatePackageTrust.DownloadDirectory(),
+            State.VerifiedPackage);
+
+        foreach (var problem in problems)
+        {
+            logger.LogDebug(problem, "An earlier update download could not be removed");
         }
     }
 

@@ -139,9 +139,10 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
     public bool IsDownloading { get; private set; }
 
     /// <summary>
-    /// Completes when the latest download has closed its file, removed it if it had to, and raised its completion.
+    /// Completes, with how it ended, when the latest download has closed its file, removed it if it had to, and raised
+    /// its completion.
     /// </summary>
-    public Task Stopped { get; private set; } = Task.CompletedTask;
+    public Task<DownloadOutcome> Stopped { get; private set; } = Task.FromResult(new DownloadOutcome(null, false));
 
     #endregion
 
@@ -157,21 +158,27 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
     {
         // The token is taken first, so a cancel that arrives once the download is reported as running reaches it.
         var cancellation = cancel.Token;
-        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource<DownloadOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
         Stopped = stopped.Task;
         IsDownloading = true;
+        var created = new global::System.Runtime.CompilerServices.StrongBox<bool>();
+        var ended = new DownloadOutcome(new InvalidOperationException("The update download did not finish."), false);
 
         try
         {
-            var outcome = await Attempt(uri, downloadFilePath, cancellation);
-            var ended = outcome.Error is null ? outcome : outcome.AfterCleanup(Remove(downloadFilePath));
+            var outcome = await Attempt(uri, downloadFilePath, created, cancellation);
+
+            // Only a file this download created is removed. Anything else at the name is left alone.
+            ended = outcome.Error is null || !created.Value
+                ? outcome
+                : outcome.AfterCleanup(Remove(downloadFilePath));
             IsDownloading = false;
             DownloadFileCompleted?.Invoke(this, ended.ToEventArgs());
         }
         finally
         {
             IsDownloading = false;
-            stopped.TrySetResult();
+            stopped.TrySetResult(ended);
         }
     }
 
@@ -197,13 +204,17 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
     #region Private Methods
 
     /// <summary>Runs one download and says how it ended. It never throws: the event carries the outcome.</summary>
-    private async Task<DownloadOutcome> Attempt(Uri? uri, string path, CancellationToken cancellation)
+    private async Task<DownloadOutcome> Attempt(
+        Uri? uri,
+        string path,
+        global::System.Runtime.CompilerServices.StrongBox<bool> created,
+        CancellationToken cancellation)
     {
         try
         {
             var address = uri ?? throw new InvalidDataException("The update has no download address.");
             DownloadStarted?.Invoke(this, address.ToString(), path);
-            await Save(address, path, cancellation);
+            await Save(address, path, created, cancellation);
             return new(null, Cancelled: false);
         }
         catch (OperationCanceledException exception) when (cancellation.IsCancellationRequested)
@@ -216,7 +227,15 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
         }
     }
 
-    private async Task Save(Uri address, string path, CancellationToken cancellation)
+    /// <summary>
+    /// Writes the body to a new file at <paramref name="path"/>. The file is created only if nothing is there, link
+    /// included, shared with no one, and checked on its handle, so the write can never reach another file.
+    /// </summary>
+    private async Task Save(
+        Uri address,
+        string path,
+        global::System.Runtime.CompilerServices.StrongBox<bool> created,
+        CancellationToken cancellation)
     {
         using var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, cancellation);
         response.EnsureSuccessStatusCode();
@@ -227,20 +246,10 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
             throw new InvalidDataException(UpdatePackageTrust.TooLargeProblem);
         }
 
-        // A link left at the destination would send the write to wherever it points.
-        if (UpdatePackageTrust.IsLinkOrReparsePoint(path))
-        {
-            throw new InvalidDataException(UpdatePackageTrust.LinkProblem);
-        }
-
         await using var body = await response.Content.ReadAsStreamAsync(cancellation);
-        await using var file = new FileStream(
-            path,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.Read,
-            81920,
-            useAsync: true);
+        var handle = PackageFiles.CreateForWrite(path);
+        created.Value = true;
+        await using var file = new FileStream(handle, FileAccess.Write, 81920, isAsync: true);
         var chunk = new byte[81920];
         var written = 0L;
 

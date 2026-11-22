@@ -222,7 +222,7 @@ public sealed class DesktopUpdateTests
         var started = false;
         var act = async () =>
         {
-            var path = await UpdatePackageTrust.Download(updater, item, TimeSpan.FromSeconds(20));
+            var path = await UpdatePackageTrust.Download(updater, item, directory, TimeSpan.FromSeconds(20));
             var package = await File.ReadAllBytesAsync(path);
             var decision = UpdatePackageTrust.Decide(publicKey, item.DownloadSignature, package, UpdateHost.Windows, path, new(true, true));
             if (decision.StartInstaller)
@@ -268,7 +268,7 @@ public sealed class DesktopUpdateTests
         result.Status.Should().Be(UpdateStatus.UpdateAvailable);
         var item = result.Updates.Should().ContainSingle().Subject;
         item.Version.Should().Be("2.0.0-preview.2");
-        var path = await UpdatePackageTrust.Download(updater, item, TimeSpan.FromSeconds(20));
+        var path = await UpdatePackageTrust.Download(updater, item, directory, TimeSpan.FromSeconds(20));
         (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).Should().Equal(package);
         updater.RelaunchAfterUpdate.Should().BeTrue();
 
@@ -1008,7 +1008,11 @@ public sealed class DesktopUpdateTests
         var verifier = new RecordingVerifier(updater.SignatureVerifier);
         updater.SignatureVerifier = verifier;
 
-        var download = () => UpdatePackageTrust.Download(updater, offered, TimeSpan.FromSeconds(20));
+        var download = () => UpdatePackageTrust.Download(
+            updater,
+            offered,
+            served.Directory,
+            TimeSpan.FromSeconds(20));
 
         if (overLimit == 0)
         {
@@ -1019,7 +1023,8 @@ public sealed class DesktopUpdateTests
         else
         {
             await download.Should().ThrowAsync<InvalidDataException>().WithMessage(UpdatePackageTrust.TooLargeProblem);
-            Directory.EnumerateFiles(served.Directory).Should().BeEmpty("the partial download is removed");
+            Directory.EnumerateFiles(served.Directory, "*", SearchOption.AllDirectories)
+                .Should().BeEmpty("the partial download is removed");
             verifier.Checks.Should().BeEmpty("a package over the limit is never read to check its signature");
             updater.UpdateDownloader.IsDownloading.Should().BeFalse();
         }
@@ -1028,20 +1033,16 @@ public sealed class DesktopUpdateTests
     [Theory]
     [InlineData("oversized")]
     [InlineData("link")]
-    public async Task A_cached_download_over_the_limit_or_a_link_is_removed_before_the_verifier_reads_anything(
-        string cached)
+    public async Task A_file_or_link_left_in_the_download_folder_is_never_read_or_reused(string left)
     {
-        if (cached is "link" && OperatingSystem.IsWindows())
+        if (left is "link" && OperatingSystem.IsWindows())
         {
             // Creating a symbolic link needs a privilege a Windows test run does not have. CI runs this on Linux.
             return;
         }
 
         await using var served = await ServedPackage(
-            string.Join(
-                '-',
-                nameof(A_cached_download_over_the_limit_or_a_link_is_removed_before_the_verifier_reads_anything),
-                cached),
+            string.Join('-', nameof(A_file_or_link_left_in_the_download_folder_is_never_read_or_reused), left),
             streamed: false);
         using var updater = StableUpdater(
             served.Feed,
@@ -1050,17 +1051,17 @@ public sealed class DesktopUpdateTests
             served.Client,
             served.Package.Length);
         var offered = await Offered(updater);
-        var cachedPath = Path.Combine(served.Directory, "package.bin");
+        var leftPath = Path.Combine(served.Directory, "package.bin");
         var outside = Path.Combine(Path.GetTempPath(), $"drover-outside-{Guid.NewGuid():N}.bin");
         var oversized = new byte[served.Package.Length + 1];
-        if (cached is "oversized")
+        if (left is "oversized")
         {
-            await File.WriteAllBytesAsync(cachedPath, oversized, TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(leftPath, oversized, TestContext.Current.CancellationToken);
         }
         else
         {
             await File.WriteAllBytesAsync(outside, oversized, TestContext.Current.CancellationToken);
-            File.CreateSymbolicLink(cachedPath, outside);
+            File.CreateSymbolicLink(leftPath, outside);
         }
 
         var verifier = new RecordingVerifier(updater.SignatureVerifier);
@@ -1068,18 +1069,16 @@ public sealed class DesktopUpdateTests
 
         try
         {
-            var path = await UpdatePackageTrust.Download(updater, offered, TimeSpan.FromSeconds(20));
+            var path = await UpdatePackageTrust.Download(updater, offered, served.Directory, TimeSpan.FromSeconds(20));
 
-            path.Should().Be(cachedPath);
+            path.Should().NotBe(leftPath, "each download has a new directory of its own");
+            Path.GetFileName(Path.GetDirectoryName(path)).Should().StartWith(UpdatePackageTrust.AttemptPrefix);
             (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).Should().Equal(served.Package);
             verifier.Checks.Should().Equal(
                 [new FileCheck(served.Package.Length, Link: false, ValidationResult.Valid)],
-                "the only file the verifier sees is the fresh download, never the cached one");
-            if (cached is "link")
-            {
-                new FileInfo(outside).Length
-                    .Should().Be(oversized.Length, "the link is removed, not what it points to");
-            }
+                "the only file the verifier sees is the fresh download, never the one left behind");
+            new FileInfo(left is "link" ? outside : leftPath).Length
+                .Should().Be(oversized.Length, "what was left, and what a link points to, is not touched");
         }
         finally
         {
@@ -1099,41 +1098,62 @@ public sealed class DesktopUpdateTests
         var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
         var completions = 0;
         downloader.DownloadFileCompleted += (_, _) => completions++;
-        var path = Path.Combine(served.Directory, "package.bin");
-        var blocked = false;
-        FileStream? holder = null;
-        updater.DownloadMadeProgress += (_, _, _) =>
-        {
-            if (!blocked)
-            {
-                blocked = true;
-                holder = BlockRemoval(served.Directory, path);
-            }
-        };
+        var blocked = BlockRemovalOnFirstProgress(updater);
 
         try
         {
-            var download = () => UpdatePackageTrust.Download(updater, offered, TimeSpan.FromSeconds(20));
+            var download = () => UpdatePackageTrust.Download(
+                updater,
+                offered,
+                served.Directory,
+                TimeSpan.FromSeconds(20));
 
             var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
             failure.Message.Should().StartWith(BoundedPackageDownloader.CleanupProblem);
             failure.InnerExceptions.Should().HaveCount(2);
             failure.InnerExceptions[0].Should().BeOfType<InvalidDataException>()
                 .Which.Message.Should().Be(UpdatePackageTrust.TooLargeProblem);
-            failure.InnerExceptions[1].Should().Match(exception =>
-                exception is IOException || exception is UnauthorizedAccessException);
-            blocked.Should().BeTrue("part of the package was written before the limit was crossed");
+            IsRemovalFailure(failure.InnerExceptions[1]).Should().BeTrue("the second cause is the removal that failed");
+            blocked.Path.Should().NotBeNull("part of the package was written before the limit was crossed");
             completions.Should().Be(1, "every download ends with exactly one completion");
-            File.Exists(path).Should().BeTrue("the file that could not be removed is reported, not hidden");
+            File.Exists(blocked.Path).Should().BeTrue("the file that could not be removed is reported, not hidden");
         }
         finally
         {
-            if (holder is not null)
-            {
-                await holder.DisposeAsync();
-            }
+            AllowRemoval(blocked.Path);
+        }
+    }
 
-            AllowRemoval(served.Directory);
+    [Fact]
+    public async Task A_timeout_and_a_partial_file_that_cannot_be_removed_are_reported_together()
+    {
+        await using var served = await ServedPackage(
+            nameof(A_timeout_and_a_partial_file_that_cannot_be_removed_are_reported_together),
+            streamed: true,
+            stalls: true);
+        using var updater = StableUpdater(served.Feed, served.PublicKey, served.Directory, served.Client);
+        var offered = await Offered(updater);
+        var blocked = BlockRemovalOnFirstProgress(updater);
+
+        try
+        {
+            var download = () => UpdatePackageTrust.Download(
+                updater,
+                offered,
+                served.Directory,
+                TimeSpan.FromSeconds(1));
+
+            var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
+            failure.Message.Should().StartWith(UpdatePackageTrust.TimeoutProblem);
+            failure.InnerExceptions[0].Should().BeOfType<TimeoutException>();
+            var causes = failure.Flatten().InnerExceptions;
+            causes.Should().Contain(exception => exception is OperationCanceledException, "the download was cancelled");
+            causes.Should().Contain(exception => IsRemovalFailure(exception), "and its file could not be removed");
+            File.Exists(blocked.Path).Should().BeTrue();
+        }
+        finally
+        {
+            AllowRemoval(blocked.Path);
         }
     }
 
@@ -1153,13 +1173,202 @@ public sealed class DesktopUpdateTests
         // A slow teardown. A timeout reported without waiting for it would arrive while the download still runs.
         downloader.DownloadFileCompleted += (_, _) => Thread.Sleep(300);
 
-        var download = () => UpdatePackageTrust.Download(updater, offered, TimeSpan.FromSeconds(1));
+        var download = () => UpdatePackageTrust.Download(
+            updater,
+            offered,
+            served.Directory,
+            TimeSpan.FromSeconds(1));
 
-        await download.Should().ThrowAsync<TimeoutException>();
+        await download.Should().ThrowExactlyAsync<TimeoutException>("a clean stop adds nothing to the timeout");
         progressed.Task.IsCompleted.Should().BeTrue("part of the package was written before the time ran out");
         downloader.Stopped.IsCompleted.Should().BeTrue("the timeout is reported after the download has stopped");
         downloader.IsDownloading.Should().BeFalse();
-        Directory.EnumerateFiles(served.Directory).Should().BeEmpty("the partial download is removed first");
+        Directory.EnumerateFiles(served.Directory, "*", SearchOption.AllDirectories)
+            .Should().BeEmpty("the partial download is removed first");
+    }
+
+    [Fact]
+    public async Task A_retry_while_an_old_attempt_is_still_stopping_never_shares_or_loses_a_file()
+    {
+        await using var stalled = await ServedPackage(
+            string.Join(
+                '-',
+                nameof(A_retry_while_an_old_attempt_is_still_stopping_never_shares_or_loses_a_file),
+                "old"),
+            streamed: true,
+            stalls: true);
+        await using var retry = await ServedPackage(
+            string.Join(
+                '-',
+                nameof(A_retry_while_an_old_attempt_is_still_stopping_never_shares_or_loses_a_file),
+                "new"),
+            streamed: false,
+            directory: stalled.Directory);
+        using var old = StableUpdater(stalled.Feed, stalled.PublicKey, stalled.Directory, stalled.Client);
+        var oldOffer = await Offered(old);
+        var oldDownloader = old.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
+        string? oldPath = null;
+        old.DownloadStarted += (_, path) => oldPath = path;
+
+        // The gate holds the old attempt's teardown: it cannot see its cancellation or remove its file until opened.
+        using var gate = new ManualResetEventSlim(false);
+        oldDownloader.DownloadProgressChanged += (_, _) => gate.Wait();
+
+        try
+        {
+            var first = () => UpdatePackageTrust.Download(
+                old,
+                oldOffer,
+                stalled.Directory,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(200));
+
+            var failure = (await first.Should().ThrowAsync<AggregateException>()).Which;
+            failure.Message.Should().StartWith(UpdatePackageTrust.TimeoutProblem);
+            failure.InnerExceptions.Should().Contain(exception =>
+                exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
+            oldDownloader.Stopped.IsCompleted.Should().BeFalse("the old attempt is still held past the deadline");
+            UpdatePackageTrust.RemoveOldAttempts(stalled.Directory, null);
+            Directory.Exists(Path.GetDirectoryName(oldPath))
+                .Should().BeTrue("a check never removes the directory of an attempt that is still stopping");
+
+            using var next = StableUpdater(retry.Feed, retry.PublicKey, stalled.Directory, retry.Client);
+            var nextOffer = await Offered(next);
+            var nextPath = await UpdatePackageTrust.Download(
+                next,
+                nextOffer,
+                stalled.Directory,
+                TimeSpan.FromSeconds(20));
+
+            gate.Set();
+            await oldDownloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+
+            Path.GetDirectoryName(nextPath).Should().NotBe(Path.GetDirectoryName(oldPath));
+            (await File.ReadAllBytesAsync(nextPath, TestContext.Current.CancellationToken))
+                .Should().Equal(retry.Package, "the old attempt's cleanup never touched the retry's file");
+            File.Exists(oldPath).Should().BeFalse("the old attempt removed only its own file");
+            await WaitUntil(() =>
+            {
+                UpdatePackageTrust.RemoveOldAttempts(stalled.Directory, nextPath);
+                return !Directory.Exists(Path.GetDirectoryName(oldPath));
+            });
+            File.Exists(nextPath).Should().BeTrue("once stopped, the old attempt is cleaned up and the kept one stays");
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [Fact]
+    public async Task Earlier_attempts_and_stray_files_are_removed_and_the_kept_package_stays()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-attempts-").FullName;
+        var outside = Directory.CreateTempSubdirectory("drover-outside-").FullName;
+
+        try
+        {
+            var kept = UpdatePackageTrust.PrepareAttemptDirectory(root);
+            var old = UpdatePackageTrust.PrepareAttemptDirectory(root);
+            old.Should().NotBe(kept);
+            if (!OperatingSystem.IsWindows())
+            {
+                var owner = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+                (File.GetUnixFileMode(old) & ~owner)
+                    .Should().Be((UnixFileMode)0, "an attempt directory is private to this user");
+                Directory.CreateSymbolicLink(Path.Combine(root, $"{UpdatePackageTrust.AttemptPrefix}link"), outside);
+            }
+
+            var keptPackage = Path.Combine(kept, "package.bin");
+            var outsideFile = Path.Combine(outside, "keep.bin");
+            await File.WriteAllBytesAsync(keptPackage, [1, 2, 3], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(Path.Combine(old, "package.bin"), [4], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "package.bin"),
+                [5],
+                TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(outsideFile, [6], TestContext.Current.CancellationToken);
+
+            var problems = UpdatePackageTrust.RemoveOldAttempts(root, keptPackage);
+
+            problems.Should().BeEmpty();
+            Directory.EnumerateFileSystemEntries(root).Should().Equal(kept);
+            File.Exists(keptPackage).Should().BeTrue("the verified package still shown to the person is kept");
+            File.Exists(outsideFile).Should().BeTrue("a link is removed, not what it points to");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+            Directory.Delete(outside, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(DesktopUpdatePhase.Downloading, DesktopUpdatePhase.Downloading)]
+    [InlineData(DesktopUpdatePhase.Installing, DesktopUpdatePhase.Installing)]
+    [InlineData(DesktopUpdatePhase.Available, DesktopUpdatePhase.Idle)]
+    [InlineData(DesktopUpdatePhase.Failed, DesktopUpdatePhase.Idle)]
+    public void Switching_checks_never_ends_a_download_or_install_in_progress(
+        DesktopUpdatePhase before,
+        DesktopUpdatePhase after)
+    {
+        var state = new DesktopUpdateState(true, true, before, "2.0.0");
+
+        var off = UpdatePackageTrust.AfterChecksSwitch(state, false);
+        var on = UpdatePackageTrust.AfterChecksSwitch(off, true);
+
+        off.ChecksEnabled.Should().BeFalse();
+        off.Phase.Should().Be(after);
+        on.ChecksEnabled.Should().BeTrue();
+        on.Phase.Should().Be(after);
+    }
+
+    [Fact]
+    public async Task A_package_handle_is_refused_when_its_name_is_a_link_or_now_names_another_file()
+    {
+        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(1, 2, 0x81A4)).Should().BeTrue();
+        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(1, 3, 0x81A4)).Should().BeFalse("another inode");
+        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(4, 2, 0x81A4)).Should().BeFalse("another device");
+        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(1, 2, 0xA1FF)).Should().BeFalse("the name is a link");
+
+        if (OperatingSystem.IsWindows())
+        {
+            // Creating a symbolic link needs a privilege a Windows test run does not have. CI runs this on Linux.
+            return;
+        }
+
+        var directory = Directory.CreateTempSubdirectory("drover-handles-").FullName;
+        var path = Path.Combine(directory, "package.bin");
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+
+        try
+        {
+            var opened = PackageFiles.OpenForRead(path, FileOptions.None);
+            opened.Should().NotBeNull("a regular file opened by its own name is accepted");
+            opened!.Dispose();
+
+            var link = Path.Combine(directory, "link.bin");
+            File.CreateSymbolicLink(link, path);
+            PackageFiles.OpenForRead(link, FileOptions.None)
+                .Should().BeNull("a handle opened through a link is refused");
+            var create = () => PackageFiles.CreateForWrite(link);
+            create.Should().Throw<IOException>("nothing is created where a link already is");
+
+            using var original = File.OpenHandle(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            PackageFiles.NamesOpenedFile(original, path).Should().BeTrue();
+            File.Move(path, Path.Combine(directory, "moved.bin"));
+            await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+            PackageFiles.NamesOpenedFile(original, path)
+                .Should().BeFalse("the name now points at another file than the one that was opened");
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
     }
 
     [Fact]
@@ -1256,7 +1465,8 @@ public sealed class DesktopUpdateTests
         string name,
         bool streamed,
         int splitAt = 0,
-        bool stalls = false)
+        bool stalls = false,
+        string? directory = null)
     {
         var (publicKey, privateKey) = Key(name);
         var package = Enumerable.Range(0, 4096).Select(index => (byte)index).ToArray();
@@ -1270,8 +1480,8 @@ public sealed class DesktopUpdateTests
             package.Length);
         feed.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey));
         feed.Add("package.bin", stalls ? package[..512] : package, streamed, splitAt, stalls);
-        var directory = Path.Combine(Path.GetTempPath(), $"drover-served-{Guid.NewGuid():N}");
-        return new(feed, Client(), $"{feed.Address}appcast.xml", publicKey, package, directory);
+        var folder = directory ?? Path.Combine(Path.GetTempPath(), $"drover-served-{Guid.NewGuid():N}");
+        return new(feed, Client(), $"{feed.Address}appcast.xml", publicKey, package, folder);
     }
 
     private static async Task<AppCastItem> Offered(SparkleUpdater updater)
@@ -1281,29 +1491,68 @@ public sealed class DesktopUpdateTests
     }
 
     /// <summary>
-    /// Makes <paramref name="path"/> impossible to remove: on Windows by holding it open without delete sharing, and
-    /// elsewhere by taking write permission off its directory.
+    /// Makes the file a download writes impossible to remove once part of it is written: on Windows by marking it read
+    /// only, and elsewhere by taking write permission off its directory. Returns the file's path once it is blocked.
     /// </summary>
-    private static FileStream? BlockRemoval(string directory, string path)
+    private static BlockedFile BlockRemovalOnFirstProgress(SparkleUpdater updater)
     {
+        var blocked = new BlockedFile();
+        string? started = null;
+        updater.DownloadStarted += (_, path) => started = path;
+        updater.DownloadMadeProgress += (_, _, _) =>
+        {
+            if (blocked.Path is not null || started is null)
+            {
+                return;
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(started, FileAttributes.ReadOnly);
+            }
+            else
+            {
+                File.SetUnixFileMode(Path.GetDirectoryName(started)!, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            }
+
+            blocked.Path = started;
+        };
+
+        return blocked;
+    }
+
+    private static void AllowRemoval(string? path)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
         if (OperatingSystem.IsWindows())
         {
-            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            File.SetAttributes(path, FileAttributes.Normal);
+            return;
         }
 
-        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-        return null;
+        File.SetUnixFileMode(
+            Path.GetDirectoryName(path)!,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
-    private static void AllowRemoval(string directory)
+    /// <summary>Checks <paramref name="condition"/> every 50 ms until it holds, for at most 10 seconds.</summary>
+    private static async Task WaitUntil(Func<bool> condition)
     {
-        if (!OperatingSystem.IsWindows())
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+
+        while (!condition())
         {
-            File.SetUnixFileMode(
-                directory,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            DateTimeOffset.UtcNow.Should().BeBefore(deadline, "it should hold soon after the download stops");
+            await Task.Delay(50, TestContext.Current.CancellationToken);
         }
     }
+
+    private static bool IsRemovalFailure(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException;
 
     private static (byte[] Body, string Signature) SignedFeed(string appcast, byte[] privateKey)
     {
@@ -1439,14 +1688,14 @@ internal sealed class FeedHost : IAsyncDisposable
     {
         while (!cancel.IsCancellationRequested)
         {
-            var context = await Next();
-            if (context is null)
+            var next = await Next();
+            if (next.Context is null)
             {
                 break;
             }
 
             // Each reply runs on its own, so a stalled reply does not hold up the next request.
-            _ = Respond(context);
+            _ = Respond(next.Context);
         }
     }
 
@@ -1501,17 +1750,17 @@ internal sealed class FeedHost : IAsyncDisposable
         }
     }
 
-    private async Task<HttpListenerContext?> Next()
+    /// <summary>The next request, or why the listener stopped when it was closed.</summary>
+    private async Task<(HttpListenerContext? Context, Exception? Stopped)> Next()
     {
         try
         {
-            return await listener.GetContextAsync();
+            return (await listener.GetContextAsync(), null);
         }
-        catch (Exception exception) when (cancel.IsCancellationRequested || !listener.IsListening)
+        catch (Exception exception) when ((cancel.IsCancellationRequested || !listener.IsListening)
+            && exception is HttpListenerException or ObjectDisposedException or OperationCanceledException)
         {
-            return exception is HttpListenerException or ObjectDisposedException or OperationCanceledException
-                ? null
-                : null;
+            return (null, exception);
         }
     }
 
@@ -1551,6 +1800,13 @@ internal sealed record ServedPackage(
             global::System.IO.Directory.Delete(Directory, true);
         }
     }
+}
+
+
+/// <summary>The file a download wrote, once it has been made impossible to remove.</summary>
+internal sealed class BlockedFile
+{
+    public string? Path { get; set; }
 }
 
 
