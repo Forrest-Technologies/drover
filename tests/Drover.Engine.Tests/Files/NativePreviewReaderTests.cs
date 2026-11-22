@@ -124,10 +124,13 @@ public sealed class NativePreviewReaderTests
     public async Task Refuses_pdf_when_the_parser_exceeds_its_per_stream_decode_budget()
     {
         var content = PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes + 1);
-        var result = await Read(ContentStreamPdf("/Filter /FlateDecode", [CompressPdfCommands(content)]));
+        var pdf = ContentStreamPdf("/Filter /FlateDecode", [CompressPdfCommands(content)]);
+        var result = await Read(pdf);
 
         result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
         result.Pages.Should().BeNull();
+        var extraction = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, new(1, 1024, 0));
+        extraction.Should().Throw<DocumentUnreadableException>();
     }
 
     [Fact]
@@ -146,24 +149,57 @@ public sealed class NativePreviewReaderTests
     [InlineData("/Filter 5 0 R", "\n", "")]
     [InlineData("/Filter /FlateDecode", "\r", "")]
     [InlineData("/Filter /FlateDecode", "\n", " % dictionary comment\n")]
-    public async Task Reads_small_flate_streams_using_the_parsers_filter_lookup(
+    public async Task Enforces_the_stream_budget_on_every_supported_filter_spelling_and_delimiter(
         string filter, string streamNewline, string afterDictionary)
     {
         var compressed = CompressPdfCommands(PdfCommands(64));
-        var result = await Read(ContentStreamPdf(filter, [compressed], streamNewline, afterDictionary));
+        var pdf = ContentStreamPdf(filter, [compressed], streamNewline, afterDictionary);
+        var result = await Read(pdf);
 
         result.Refusal.Should().BeNull();
         result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
+
+        var limited = DocumentReader.ReadPdfPreview(
+            pdf,
+            maxStreamBytes: 63,
+            cancellationToken: TestContext.Current.CancellationToken);
+        limited.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        limited.Pages.Should().BeNull();
     }
 
     [Fact]
-    public async Task Reads_literal_stream_end_text_as_data_inside_a_stream()
+    public async Task Counts_the_full_stream_containing_literal_stream_end_text()
     {
         var content = Encoding.ASCII.GetBytes("% a literal endstream in a comment\nBT /F1 12 Tf (Safe content) Tj ET\n");
-        var result = await Read(ContentStreamPdf(string.Empty, [content]));
+        var compressed = CompressPdfCommands(content, CompressionLevel.NoCompression);
+        compressed.AsSpan().IndexOf("endstream "u8).Should().BeGreaterThanOrEqualTo(0);
+        var pdf = ContentStreamPdf("/Filter /FlateDecode", [compressed]);
+        var result = await Read(pdf);
 
         result.Refusal.Should().BeNull();
         result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
+
+        var limited = DocumentReader.ReadPdfPreview(
+            pdf,
+            maxStreamBytes: content.Length - 1,
+            cancellationToken: TestContext.Current.CancellationToken);
+        limited.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        limited.Pages.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("/Filter /ASCIIHexDecode")]
+    [InlineData("/F /AHx")]
+    [InlineData("/Filter /LZWDecode")]
+    [InlineData("/Filter [/ASCII85Decode /FlateDecode]")]
+    [InlineData("/Filter [/FlateDecode /FlateDecode]")]
+    [InlineData("/F [/Fl /DCT]")]
+    public async Task Refuses_filters_and_chains_outside_the_decode_policy(string filter)
+    {
+        var result = await Read(ContentStreamPdf(filter, [CompressPdfCommands(PdfCommands(64))]));
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+        result.Pages.Should().BeNull();
     }
 
     [Fact]
@@ -326,10 +362,11 @@ public sealed class NativePreviewReaderTests
         return bytes;
     }
 
-    private static byte[] CompressPdfCommands(byte[] content)
+    private static byte[] CompressPdfCommands(
+        byte[] content, CompressionLevel compression = CompressionLevel.Fastest)
     {
         using var compressed = new MemoryStream();
-        using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        using (var zlib = new ZLibStream(compressed, compression, leaveOpen: true))
         {
             zlib.Write(content);
         }

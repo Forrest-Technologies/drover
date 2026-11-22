@@ -39,8 +39,6 @@ public static class DocumentReader
 
     private static readonly OpenXmlPackaging.OpenSettings officeSettings = new() { MaxCharactersInPart = MaxCharactersInPart };
 
-    private static readonly Pdf.ParsingOptions pdfSettings = new() { UseLenientParsing = true, SkipMissingFonts = true };
-
     #endregion
 
     #region Public Methods
@@ -68,14 +66,18 @@ public static class DocumentReader
         }
     }
 
-    public static NativeFilePreview ReadPdfPreview(byte[] content, CancellationToken cancellationToken = default)
+    public static NativeFilePreview ReadPdfPreview(byte[] content, CancellationToken cancellationToken = default) =>
+        ReadPdfPreview(content, NativeFilePreview.MaxPdfDecodedStreamBytes, cancellationToken);
+
+    internal static NativeFilePreview ReadPdfPreview(
+        byte[] content, int maxStreamBytes, CancellationToken cancellationToken = default)
     {
         if (content.Length > NativeFilePreview.MaxPdfBytes)
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        var filters = new PdfPreviewFilters(cancellationToken);
+        var filters = new PdfPreviewFilters(cancellationToken, maxStreamBytes);
         try
         {
             if (PdfPreviewGuard.ScreenStructure(content, cancellationToken) is { } preflightRefusal)
@@ -83,12 +85,7 @@ public static class DocumentReader
                 return new(Refusal: preflightRefusal);
             }
 
-            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions
-            {
-                UseLenientParsing = false,
-                SkipMissingFonts = true,
-                FilterProvider = filters,
-            });
+            using var document = OpenPdf(content, filters, lenient: false);
             cancellationToken.ThrowIfCancellationRequested();
             var total = document.NumberOfPages;
             if (total <= 0)
@@ -101,16 +98,13 @@ public static class DocumentReader
                 return new(Refusal: NativePreviewRefusal.TooLarge);
             }
 
-            document.AddPageFactory<PdfTokens.DictionaryToken>(new PdfPreviewPageDictionary());
             List<NativePdfPage> pages = [];
             var characters = 0;
 
             for (var number = 1; number <= total; number++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var dictionary = document.GetPage<PdfTokens.DictionaryToken>(number);
-                filters.ReserveRawPageContents(document.Structure, dictionary);
-                var page = document.GetPage(number);
+                var page = ReadBoundedPage(document, filters, number);
                 var images = page.GetImages().Take(NativeFilePreview.MaxPdfPageImages + 1).ToArray();
                 if (images.Length > NativeFilePreview.MaxPdfPageImages)
                 {
@@ -159,39 +153,68 @@ public static class DocumentReader
 
     #region PDF
 
+    private static Pdf.PdfDocument OpenPdf(byte[] content, PdfPreviewFilters filters, bool lenient)
+    {
+        var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions
+        {
+            UseLenientParsing = lenient,
+            SkipMissingFonts = true,
+            FilterProvider = filters,
+        });
+        document.AddPageFactory<PdfTokens.DictionaryToken>(new PdfPreviewPageDictionary());
+        return document;
+    }
+
+    private static Pdf.Content.Page ReadBoundedPage(Pdf.PdfDocument document, PdfPreviewFilters filters, int number)
+    {
+        var dictionary = document.GetPage<PdfTokens.DictionaryToken>(number);
+        filters.ReserveRawPageContents(document.Structure, dictionary);
+        return document.GetPage(number);
+    }
+
     private static DocumentContent ReadPdf(byte[] content, DocumentLimits limits)
     {
-        using var document = Pdf.PdfDocument.Open(content, pdfSettings);
+        var filters = new PdfPreviewFilters(CancellationToken.None);
+        using var document = OpenPdf(content, filters, lenient: true);
         var total = document.NumberOfPages;
         var collected = new Collected(limits.MaxCharacters);
+        List<Pdf.Content.Page> imagePages = [];
         var read = 0;
 
         while (read < Math.Min(total, limits.MaxPages) && !collected.Full)
         {
-            read++;
-            var text = PdfText.ContentOrderTextExtractor.GetText(document.GetPage(read)).Trim();
-
+            var page = ReadBoundedPage(document, filters, ++read);
+            var text = PdfText.ContentOrderTextExtractor.GetText(page).Trim();
             if (text.Length > 0)
             {
                 collected.Add($"[Page {read}]\n{text}\n\n");
+                imagePages.Clear();
+            }
+            else if (collected.IsEmpty && read <= limits.MaxPageImages)
+            {
+                imagePages.Add(page);
             }
         }
 
-        var pictures = collected.IsEmpty ? PagePictures(document, Math.Min(read, limits.MaxPageImages)) : [];
+        var pictures = PagePictures(imagePages);
+        if (filters.Refusal is not null)
+        {
+            throw new DocumentUnreadableException("it exceeds the PDF decoding limits");
+        }
+
         return new DocumentContent(collected.Text, "pages", read, total, collected.Full, pictures);
     }
 
-    /// <summary>
-    /// The picture each of the first pages carries, the largest where there are several: a scanned page is one
-    /// picture. Nothing is drawn; a page whose picture is in a form a model cannot take is left out.
-    /// </summary>
-    private static List<ToolImage> PagePictures(Pdf.PdfDocument document, int pages)
+    /// <summary>The largest supported picture on each scanned page.</summary>
+    private static List<ToolImage> PagePictures(IReadOnlyList<Pdf.Content.Page> pages)
     {
         List<ToolImage> pictures = [];
 
-        for (var number = 1; number <= pages; number++)
+        foreach (var page in pages)
         {
-            var largest = document.GetPage(number).GetImages()
+            var largest = page.GetImages()
+                .Where(image => image.WidthInSamples > 0 && image.HeightInSamples > 0
+                    && (long)image.WidthInSamples * image.HeightInSamples <= NativeFilePreview.MaxImagePixels)
                 .OrderByDescending(image => (long)image.WidthInSamples * image.HeightInSamples)
                 .Select(AsModelPicture)
                 .FirstOrDefault(picture => picture is not null);

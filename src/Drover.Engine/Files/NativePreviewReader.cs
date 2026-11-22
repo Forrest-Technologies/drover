@@ -14,7 +14,8 @@ public static class NativePreviewReader
         Guid userId = default,
         TimeSpan? pdfDeadline = null,
         Action? onPdfParse = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<byte[], TimeSpan, CancellationToken, Task<NativeFilePreview>>? pdfParser = null)
     {
         var prefix = new byte[12];
         var prefixLength = await content.ReadAtLeastAsync(prefix, prefix.Length, false, cancellationToken);
@@ -45,7 +46,7 @@ public static class NativePreviewReader
         if (pdf)
         {
             return await PdfPreviewGuard.Run(
-                bytes.ToArray(), userId, pdfDeadline, onPdfParse, timeProvider, cancellationToken);
+                bytes.ToArray(), userId, pdfDeadline, onPdfParse, timeProvider, pdfParser, cancellationToken);
         }
 
         return InspectText(bytes);

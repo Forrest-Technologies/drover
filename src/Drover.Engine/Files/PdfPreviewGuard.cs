@@ -32,6 +32,7 @@ public static partial class PdfPreviewGuard
         TimeSpan? deadline = null,
         Action? onParse = null,
         TimeProvider? timeProvider = null,
+        Func<byte[], TimeSpan, CancellationToken, Task<NativeFilePreview>>? parser = null,
         CancellationToken cancellationToken = default)
     {
         if (content.Length > NativeFilePreview.MaxPdfBytes)
@@ -62,6 +63,19 @@ public static partial class PdfPreviewGuard
         {
             ReleaseUserSlot(userId);
             return new(Refusal: NativePreviewRefusal.TooComplex);
+        }
+
+        if (parser is not null)
+        {
+            try
+            {
+                return await parser(content, effectiveDeadline, cancellationToken);
+            }
+            finally
+            {
+                ReleaseUserSlot(userId);
+                globalGate.Release();
+            }
         }
 
         using var parseCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

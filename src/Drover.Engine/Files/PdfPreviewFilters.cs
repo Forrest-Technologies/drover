@@ -1,11 +1,14 @@
 namespace Drover.Engine.Files;
 
 /// <summary>Only preview-safe filters are available to the parser. Every Flate decode shares one document budget.</summary>
-internal sealed class PdfPreviewFilters(CancellationToken cancellationToken) : PdfFilters.IFilterProvider
+internal sealed class PdfPreviewFilters(
+    CancellationToken cancellationToken,
+    int maxStreamBytes = NativeFilePreview.MaxPdfDecodedStreamBytes) : PdfFilters.IFilterProvider
 {
     #region Private Fields
 
-    private readonly PreviewFilterNames names = new(new BoundedFlate(cancellationToken));
+    private readonly PreviewFilterNames names = new(
+        new BoundedFlate(ValidateMaxStreamBytes(maxStreamBytes), cancellationToken));
 
     #endregion
 
@@ -81,6 +84,16 @@ internal sealed class PdfPreviewFilters(CancellationToken cancellationToken) : P
         return filters;
     }
 
+    private static int ValidateMaxStreamBytes(int maxStreamBytes)
+    {
+        if (maxStreamBytes is <= 0 or > NativeFilePreview.MaxPdfDecodedStreamBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxStreamBytes));
+        }
+
+        return maxStreamBytes;
+    }
+
     #endregion
 
     #region Nested Types
@@ -98,7 +111,7 @@ internal sealed class PdfPreviewFilters(CancellationToken cancellationToken) : P
     }
 
 
-    private sealed class BoundedFlate(CancellationToken cancellationToken) : PdfFilters.IFilter
+    private sealed class BoundedFlate(int maxStreamBytes, CancellationToken cancellationToken) : PdfFilters.IFilter
     {
         #region Private Fields
 
@@ -129,16 +142,46 @@ internal sealed class PdfPreviewFilters(CancellationToken cancellationToken) : P
                 Refuse(NativePreviewRefusal.TooComplex);
             }
 
-            var parameters = PdfFilters.DecodeParameterResolver.GetFilterParameters(streamDictionary, filterIndex);
-            if (parameters.TryGet(PdfTokens.NameToken.Predictor, out var predictor)
-                && predictor is not PdfTokens.NumericToken { Double: 1 })
+            var parameters = GetDirectParameters(streamDictionary, filterIndex);
+            var limit = Math.Min(
+                maxStreamBytes,
+                NativeFilePreview.MaxPdfTotalDecodedBytes - totalDecoded);
+            var decoded = Decompress(input, limit);
+            if (!PdfPreviewPredictor.TryDecode(decoded, parameters, maxStreamBytes, cancellationToken, out var result))
             {
                 Refuse(NativePreviewRefusal.TooComplex);
             }
 
-            var limit = Math.Min(
-                NativeFilePreview.MaxPdfDecodedStreamBytes,
-                NativeFilePreview.MaxPdfTotalDecodedBytes - totalDecoded);
+            return result;
+        }
+
+        public void ReserveBytes(int length)
+        {
+            if (length < 0)
+            {
+                Refuse(NativePreviewRefusal.TooComplex);
+            }
+
+            if (length > maxStreamBytes || length > NativeFilePreview.MaxPdfTotalDecodedBytes - totalDecoded)
+            {
+                Refuse(NativePreviewRefusal.TooLarge);
+            }
+
+            totalDecoded += length;
+        }
+
+        public void Refuse(NativePreviewRefusal refusal)
+        {
+            Refusal ??= refusal;
+            throw new InvalidDataException("PDF preview exceeded a decode limit.");
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        private Memory<byte> Decompress(ReadOnlyMemory<byte> input, int limit)
+        {
             using var source = new MemoryStream(input.ToArray(), writable: false);
             using var decompressor = new ZLibStream(source, CompressionMode.Decompress);
             using var result = new MemoryStream();
@@ -169,20 +212,47 @@ internal sealed class PdfPreviewFilters(CancellationToken cancellationToken) : P
             }
         }
 
-        public void ReserveBytes(int length)
+        private PdfTokens.DictionaryToken? GetDirectParameters(
+            PdfTokens.DictionaryToken streamDictionary,
+            int filterIndex)
         {
-            if (length > NativeFilePreview.MaxPdfTotalDecodedBytes - totalDecoded)
+            var parameterToken = UglyToad.PdfPig.Util.DictionaryTokenExtensions.GetObjectOrDefault(
+                streamDictionary,
+                PdfTokens.NameToken.Dp,
+                PdfTokens.NameToken.DecodeParms);
+            if (parameterToken is null or PdfTokens.NullToken)
             {
-                Refuse(NativePreviewRefusal.TooLarge);
+                return null;
             }
 
-            totalDecoded += length;
+            var filterToken = UglyToad.PdfPig.Util.DictionaryTokenExtensions.GetObjectOrDefault(
+                streamDictionary,
+                PdfTokens.NameToken.Filter,
+                PdfTokens.NameToken.F);
+            if (filterToken is PdfTokens.NameToken)
+            {
+                return parameterToken as PdfTokens.DictionaryToken
+                    ?? RefuseParameters();
+            }
+
+            if (filterToken is PdfTokens.ArrayToken && parameterToken is PdfTokens.ArrayToken parameters)
+            {
+                if (filterIndex >= parameters.Data.Count || parameters.Data[filterIndex] is PdfTokens.NullToken)
+                {
+                    return null;
+                }
+
+                return parameters.Data[filterIndex] as PdfTokens.DictionaryToken
+                    ?? RefuseParameters();
+            }
+
+            return RefuseParameters();
         }
 
-        public void Refuse(NativePreviewRefusal refusal)
+        private PdfTokens.DictionaryToken RefuseParameters()
         {
-            Refusal ??= refusal;
-            throw new InvalidDataException("PDF preview exceeded a decode limit.");
+            Refuse(NativePreviewRefusal.TooComplex);
+            throw new InvalidOperationException();
         }
 
         #endregion

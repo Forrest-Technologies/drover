@@ -118,7 +118,12 @@ public static class FileEndpoints
         await using var content = found.Content;
         context.Response.Headers.CacheControl = "no-store";
         var access = context.GetSpaceAccess();
-        return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
+        return TypedResults.Ok(await NativePreviewReader.Read(
+            content,
+            timeout.Token,
+            access.UserId,
+            timeProvider: time,
+            pdfParser: PdfPreviewWorker.Read));
     }
 
     private static async Task<Results<Ok<FilePreviewResponse>, NotFound>> MintPreview(

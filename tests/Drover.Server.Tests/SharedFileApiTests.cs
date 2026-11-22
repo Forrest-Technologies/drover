@@ -95,6 +95,26 @@ public sealed class SharedFileApiTests(PostgresServer postgres) : ServerTestBase
         (await stranger.Get($"{Space(strangerSpace)}/bots/{botId}/files")).StatusCode.Should().Be(HttpStatusCode.NotFound, "the bot is not in the stranger's space");
     }
 
+    [Fact]
+    public async Task A_pdf_preview_returns_the_pages_from_the_worker()
+    {
+        var (client, spaceId, threadId, _) = await Conversation("alice");
+        using var pdf = new PdfTest.Writer.PdfDocumentBuilder();
+        var font = pdf.AddStandard14Font(PdfTest.Fonts.Standard14Fonts.Standard14Font.Helvetica);
+        pdf.AddPage(PdfTest.Content.PageSize.A4)
+            .AddText("Preview page", 12, new PdfTest.Core.PdfPoint(50, 700), font);
+        using var content = new ByteArrayContent(pdf.Build());
+        var file = await Read<FileResponse>(await client.PostContent(
+            $"{Space(spaceId)}/threads/{threadId}/files?name=notes.pdf", content));
+
+        var response = await client.Get($"{Space(spaceId)}/files/{file.Id}/native-preview");
+
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var preview = await Read<NativeFilePreview>(response);
+        preview.Refusal.Should().BeNull();
+        preview.Pages.Should().ContainSingle().Which.Text.Should().Be("Preview page");
+    }
+
     #endregion
 
     #region Helpers

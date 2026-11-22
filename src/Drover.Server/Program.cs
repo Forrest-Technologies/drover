@@ -1,3 +1,14 @@
+if (args is [PdfPreviewWorker.Argument])
+{
+#pragma warning disable RS0030 // This fixed worker command uses only the server's redirected standard pipes.
+    Environment.ExitCode = await PdfPreviewWorker.Run(
+        Console.OpenStandardInput(),
+        Console.OpenStandardOutput(),
+        CancellationToken.None);
+#pragma warning restore RS0030
+    return;
+}
+
 var initializeDatabase = args is ["--initialize-database"];
 if (args.Contains("--initialize-database") && !initializeDatabase)
 {

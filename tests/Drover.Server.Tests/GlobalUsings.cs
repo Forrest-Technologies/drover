@@ -69,6 +69,7 @@ global using Drover.Domain.Web;
 global using Drover.Engine.Accounts;
 global using Drover.Engine.Audit;
 global using Drover.Engine.Bots;
+global using Drover.Engine.Files;
 global using Drover.Engine.Models;
 global using Drover.Engine.Policy;
 global using Drover.Engine.Rules;
@@ -77,6 +78,7 @@ global using Drover.Engine.Sandboxes;
 global using Drover.Engine.Tools;
 global using Drover.Engine.Web;
 global using Drover.Server.Accounts;
+global using Drover.Server.Files;
 global using Drover.Server.Health;
 global using Drover.Server.Policy;
 global using Drover.Server.Push;
@@ -112,5 +114,7 @@ global using Npgsql;
 global using Testcontainers.PostgreSql;
 global using Xunit;
 global using YamlDotNet.RepresentationModel;
+
+global using PdfTest = UglyToad.PdfPig;
 
 [assembly: AssemblyFixture(typeof(PostgresServer))]
