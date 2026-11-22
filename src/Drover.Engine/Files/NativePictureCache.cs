@@ -156,7 +156,10 @@ public sealed class NativePictureCache(ILogger<NativePictureCache> logger, TimeP
             }
 
             logger.LogDebug("Decoding picture preview for {FileId}", key.FileId);
-            var preview = NativeImagePreview.Resize(bytes);
+            var preview = await NativeImageDecodeGuard.Run(
+                () => NativeImagePreview.Resize(bytes),
+                logger,
+                time);
             if (preview.Refusal is { } refusal)
             {
                 logger.LogDebug("Picture preview for {FileId} refused with {Refusal}", key.FileId, refusal);

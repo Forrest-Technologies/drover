@@ -17,42 +17,52 @@ internal static class NativeImagePreview
 
     private static readonly SKSamplingOptions sampling = new(SKCubicResampler.Mitchell);
 
+    internal static DecodeLimits DefaultLimits { get; } = new(
+        MaxJpegScans: 64,
+        MaxProgressivePixels: 16_000_000,
+        Deadline: TimeSpan.FromSeconds(2));
+
     #endregion
 
     #region Public Methods
 
-    public static NativeFilePreview Resize(byte[] bytes)
+    public static NativeFilePreview Resize(byte[] bytes) =>
+        Resize(bytes, DefaultLimits, TimeProvider.System);
+
+    internal static NativeFilePreview Resize(byte[] bytes, DecodeLimits limits, TimeProvider time)
     {
         if (bytes.Length > MaxInputBytes)
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        return ResizeImage(bytes);
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private static NativeFilePreview ResizeImage(byte[] bytes)
-    {
         if (!FileInspector.TryReadImageDimensions(bytes, out var width, out var height))
         {
             return new(Refusal: NativePreviewRefusal.Malformed);
         }
 
+        return ResizeFromHeader(bytes, width, height, limits, time);
+    }
+
+    internal static NativeFilePreview ResizeFromHeader(
+        byte[] bytes, int width, int height, DecodeLimits limits, TimeProvider time)
+    {
         if (!WithinSourceBounds(width, height))
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        ArrayBufferWriter<byte>? stripped = null;
-        if (IsPng(bytes) && !TryStripPngMetadata(bytes, out stripped))
+        if (!TryStripPngMetadata(bytes, out var stripped))
         {
             return new(Refusal: NativePreviewRefusal.Malformed);
         }
 
+        if (InspectJpegLayout(bytes, width, height, limits, out var progressive) is { } jpegRefusal)
+        {
+            return new(Refusal: jpegRefusal);
+        }
+
+        var started = time.GetTimestamp();
         using var data = stripped is null
             ? SKData.CreateCopy(bytes)
             : SKData.CreateCopy(stripped.WrittenSpan);
@@ -69,12 +79,13 @@ internal static class NativeImagePreview
         }
 
         var source = codec.Info;
-        if (source.Width != width || source.Height != height || !WithinSourceBounds(source.Width, source.Height))
+        if (source.Width != width || source.Height != height
+            || !WithinSourceBounds(source.Width, source.Height))
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        var decodeSize = codec.GetScaledDimensions(ScaleFor(source.Width, source.Height));
+        var decodeSize = DecodeSize(codec, source.Width, source.Height);
         if (!WithinDecodedBounds(decodeSize.Width, decodeSize.Height))
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
@@ -85,14 +96,108 @@ internal static class NativeImagePreview
             decodeSize.Height,
             SKColorType.Bgra8888,
             SKAlphaType.Premul);
+        return Decode(
+            codec,
+            decodeInfo,
+            source.Width,
+            source.Height,
+            progressive,
+            limits.Deadline,
+            time,
+            started);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static NativeFilePreview Decode(
+        SKCodec codec,
+        SKImageInfo decodeInfo,
+        int sourceWidth,
+        int sourceHeight,
+        bool progressive,
+        TimeSpan deadline,
+        TimeProvider time,
+        long started)
+    {
         using var decoded = new SKBitmap();
-        if (!decoded.TryAllocPixels(decodeInfo)
-            || codec.GetPixels(decodeInfo, decoded.GetPixels()) is not SKCodecResult.Success)
+        if (!decoded.TryAllocPixels(decodeInfo))
+        {
+            return new(Refusal: NativePreviewRefusal.TooLarge);
+        }
+
+        if (Expired(time, started, deadline))
+        {
+            return new(Refusal: NativePreviewRefusal.TooComplex);
+        }
+
+        if (codec.StartScanlineDecode(decodeInfo) is not SKCodecResult.Success)
+        {
+            return progressive
+                ? new(Refusal: NativePreviewRefusal.TooComplex)
+                : DecodeWithoutScanlines(codec, decoded, sourceWidth, sourceHeight, deadline, time, started);
+        }
+
+        for (var line = 0; line < decodeInfo.Height; line++)
+        {
+            if (Expired(time, started, deadline))
+            {
+                return new(Refusal: NativePreviewRefusal.TooComplex);
+            }
+
+            var outputLine = codec.GetOutputScanline(codec.NextScanline);
+            if (outputLine < 0 || outputLine >= decodeInfo.Height)
+            {
+                return new(Refusal: NativePreviewRefusal.Malformed);
+            }
+
+            var destination = IntPtr.Add(decoded.GetPixels(), checked(outputLine * decoded.RowBytes));
+            if (codec.GetScanlines(destination, 1, decoded.RowBytes) != 1)
+            {
+                return new(Refusal: NativePreviewRefusal.Malformed);
+            }
+        }
+
+        return EncodeWithinDeadline(decoded, codec.EncodedOrigin, deadline, time, started);
+    }
+
+    private static NativeFilePreview DecodeWithoutScanlines(
+        SKCodec codec,
+        SKBitmap decoded,
+        int sourceWidth,
+        int sourceHeight,
+        TimeSpan deadline,
+        TimeProvider time,
+        long started)
+    {
+        if ((long)sourceWidth * sourceHeight > MaxDecodedPixels)
+        {
+            return new(Refusal: NativePreviewRefusal.TooComplex);
+        }
+
+        var result = codec.GetPixels(decoded.Info, decoded.GetPixels());
+        if (result is not SKCodecResult.Success)
         {
             return new(Refusal: NativePreviewRefusal.Malformed);
         }
 
-        return Encode(decoded, codec.EncodedOrigin);
+        return Expired(time, started, deadline)
+            ? new(Refusal: NativePreviewRefusal.TooComplex)
+            : EncodeWithinDeadline(decoded, codec.EncodedOrigin, deadline, time, started);
+    }
+
+    private static NativeFilePreview EncodeWithinDeadline(
+        SKBitmap decoded,
+        SKEncodedOrigin origin,
+        TimeSpan deadline,
+        TimeProvider time,
+        long started)
+    {
+        var preview = Encode(decoded, origin);
+        return Expired(time, started, deadline)
+            ? new(Refusal: NativePreviewRefusal.TooComplex)
+            : preview;
     }
 
     private static NativeFilePreview Encode(SKBitmap decoded, SKEncodedOrigin origin)
@@ -121,7 +226,10 @@ internal static class NativeImagePreview
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        return new(Image: encoded.ToArray());
+        var rendered = encoded.ToArray();
+        return TryStripPngMetadata(rendered, out var stripped, renderedCopy: true)
+            ? new(Image: stripped is null ? rendered : stripped.WrittenSpan.ToArray())
+            : new(Refusal: NativePreviewRefusal.Malformed);
     }
 
     private static bool WithinSourceBounds(int width, int height) =>
@@ -136,9 +244,15 @@ internal static class NativeImagePreview
     // The buffer is allocated lazily, so an ordinary PNG makes no second managed copy.
     private static bool TryStripPngMetadata(
         ReadOnlySpan<byte> bytes,
-        out ArrayBufferWriter<byte>? stripped)
+        out ArrayBufferWriter<byte>? stripped,
+        bool renderedCopy = false)
     {
         stripped = null;
+        if (!IsPng(bytes))
+        {
+            return true;
+        }
+
         var position = 8;
         while (position <= bytes.Length - 12)
         {
@@ -150,10 +264,10 @@ internal static class NativeImagePreview
 
             var type = bytes.Slice(position + 4, 4);
             var chunkLength = checked((int)length + 12);
-            var compressedMetadata = type.SequenceEqual("iCCP"u8)
-                || type.SequenceEqual("zTXt"u8)
-                || type.SequenceEqual("iTXt"u8);
-            if (compressedMetadata)
+            var remove = renderedCopy
+                ? !type.SequenceEqual("IHDR"u8) && !type.SequenceEqual("IDAT"u8) && !type.SequenceEqual("IEND"u8)
+                : type.SequenceEqual("iCCP"u8) || type.SequenceEqual("zTXt"u8) || type.SequenceEqual("iTXt"u8);
+            if (remove)
             {
                 if (stripped is null)
                 {
@@ -180,6 +294,120 @@ internal static class NativeImagePreview
         width is > 0 and <= MaxSourceDimension
         && height is > 0 and <= MaxSourceDimension
         && (long)width * height <= MaxDecodedPixels;
+
+    private static SKSizeI DecodeSize(SKCodec codec, int width, int height)
+    {
+        var scale = ScaleFor(width, height);
+        var size = codec.GetScaledDimensions(scale);
+        while (Math.Max(width, height) > MaxPreviewEdge
+            && Math.Max(size.Width, size.Height) < MaxPreviewEdge
+            && scale < 1F)
+        {
+            scale = Math.Min(1F, scale * 2F);
+            size = codec.GetScaledDimensions(scale);
+        }
+
+        return size;
+    }
+
+    private static NativePreviewRefusal? InspectJpegLayout(
+        ReadOnlySpan<byte> bytes,
+        int width,
+        int height,
+        DecodeLimits limits,
+        out bool progressive)
+    {
+        progressive = false;
+        if (!IsJpeg(bytes))
+        {
+            return null;
+        }
+
+        var position = 2;
+        var scans = 0;
+        var inScan = false;
+        while (position < bytes.Length)
+        {
+            if (bytes[position] != 0xFF)
+            {
+                if (!inScan)
+                {
+                    return NativePreviewRefusal.Malformed;
+                }
+
+                position++;
+                continue;
+            }
+
+            while (position < bytes.Length && bytes[position] == 0xFF)
+            {
+                position++;
+            }
+
+            if (position >= bytes.Length)
+            {
+                return NativePreviewRefusal.Malformed;
+            }
+
+            var marker = bytes[position++];
+            if (marker == 0x00 || marker is >= 0xD0 and <= 0xD7)
+            {
+                if (!inScan)
+                {
+                    return NativePreviewRefusal.Malformed;
+                }
+
+                continue;
+            }
+
+            inScan = false;
+            if (marker == 0xD9)
+            {
+                return null;
+            }
+
+            if (marker is 0x01 or 0xD8)
+            {
+                continue;
+            }
+
+            if (position > bytes.Length - 2)
+            {
+                return NativePreviewRefusal.Malformed;
+            }
+
+            var length = BinaryPrimitives.ReadUInt16BigEndian(bytes[position..]);
+            if (length < 2 || length > bytes.Length - position)
+            {
+                return NativePreviewRefusal.Malformed;
+            }
+
+            if (marker is 0xC2 or 0xC6 or 0xCA or 0xCE)
+            {
+                progressive = true;
+                if ((long)width * height > limits.MaxProgressivePixels)
+                {
+                    return NativePreviewRefusal.TooComplex;
+                }
+            }
+
+            if (marker == 0xDA && ++scans > limits.MaxJpegScans)
+            {
+                return NativePreviewRefusal.TooComplex;
+            }
+
+            position += length;
+            inScan = marker == 0xDA;
+        }
+
+        return NativePreviewRefusal.Malformed;
+    }
+
+    private static bool IsJpeg(ReadOnlySpan<byte> bytes) =>
+        bytes is [0xFF, 0xD8, 0xFF, ..];
+
+    private static bool Expired(TimeProvider time, long started, TimeSpan deadline) =>
+        time.GetElapsedTime(started) >= deadline;
 
     private static float ScaleFor(int width, int height) =>
         Math.Min(1F, (float)MaxPreviewEdge / Math.Max(width, height));
@@ -224,6 +452,12 @@ internal static class NativeImagePreview
             TransY = translateY,
             Persp2 = 1,
         };
+
+    #endregion
+
+    #region Nested Types
+
+    internal sealed record DecodeLimits(int MaxJpegScans, long MaxProgressivePixels, TimeSpan Deadline);
 
     #endregion
 }
