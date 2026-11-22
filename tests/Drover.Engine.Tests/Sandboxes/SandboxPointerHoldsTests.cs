@@ -432,7 +432,8 @@ public sealed class SandboxPointerHoldsTests
                 ran = true;
                 return Task.CompletedTask;
             },
-            World.Token);
+            World.Token,
+            world.Holds.PowerEpoch);
         await waiting.Task;
         finish.SetResult();
         await pausing;
@@ -443,6 +444,67 @@ public sealed class SandboxPointerHoldsTests
         world.Clock.Advance(SandboxPointerHolds.Limit * 3);
         world.Calls.Should().BeEmpty("nothing was registered, so nothing is left to let go of");
         await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+    }
+
+    [Fact]
+    public async Task A_press_is_refused_when_a_power_control_that_failed_ran_since_it_read_the_epoch()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        var failing = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: false,
+            () => throw new InvalidOperationException(),
+            World.Token);
+        await failing.Should().ThrowAsync<InvalidOperationException>();
+        var ran = false;
+
+        var press = () => world.Holds.Press(
+            world.Press(),
+            staysDown: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token,
+            before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+        ran.Should().BeFalse("a control that failed may still have paused the display");
+    }
+
+    [Fact]
+    public async Task A_press_is_refused_when_a_cancelled_power_control_ran_since_it_read_the_epoch()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        using var cancelled = new CancellationTokenSource();
+        var cancelling = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: false,
+            async () =>
+            {
+                await cancelled.CancelAsync();
+                cancelled.Token.ThrowIfCancellationRequested();
+            },
+            cancelled.Token);
+        await cancelling.Should().ThrowAsync<OperationCanceledException>();
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
+    [Fact]
+    public async Task A_press_that_read_the_epoch_after_every_control_ended_is_not_refused()
+    {
+        var world = new World();
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, world.Holds.PowerEpoch);
     }
 
     [Fact]
@@ -475,7 +537,8 @@ public sealed class SandboxPointerHoldsTests
                 pressed = true;
                 return Task.CompletedTask;
             },
-            World.Token);
+            World.Token,
+            world.Holds.PowerEpoch);
         await waiting.Task;
 
         world.Calls.Should().ContainSingle("the held button was let go of before the pause began");

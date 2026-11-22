@@ -55,6 +55,8 @@ internal sealed class SandboxPointerHolds(
 
     private bool closed;
 
+    private int powerEpoch;
+
     #endregion
 
     #region Properties
@@ -64,6 +66,14 @@ internal sealed class SandboxPointerHolds(
     /// has reached the gate. Not used outside tests.
     /// </summary>
     internal Action? PressWaiting { get; set; }
+
+    /// <summary>
+    /// Counts the power controls (pause, rebuild, turn off) that began or ended on any screen, whatever way they ended.
+    /// A press reads it before it acquires its sandbox and gives it back to <see cref="Press"/>, which refuses the
+    /// press if it changed: a control ran, or was running, while the press held a sandbox that may since have been
+    /// paused or replaced, even when the control failed or was cancelled after the provider acted.
+    /// </summary>
+    public int PowerEpoch => Volatile.Read(ref powerEpoch);
 
     /// <summary>How long a held button may go without a move from the session that pressed it.</summary>
     public static TimeSpan Limit => limit;
@@ -77,14 +87,19 @@ internal sealed class SandboxPointerHolds(
 
     /// <summary>
     /// Runs the press <paramref name="run"/> makes, with the button noted before it runs, so that a press that fails or
-    /// is cancelled halfway has its button let go of before the exception goes on. With
+    /// is cancelled halfway has its button let go of before the exception goes on. A press given the
+    /// <paramref name="epoch"/> it read before it acquired its sandbox is refused when a power control ran since. With
     /// <paramref name="staysDown"/> off (a drag, which lets go by itself) the button is forgotten once it worked.
     /// </summary>
-    public async Task Press(PointerPress press, bool staysDown, Func<Task> run, CancellationToken cancellationToken)
+    public async Task Press(
+        PointerPress press,
+        bool staysDown,
+        Func<Task> run,
+        CancellationToken cancellationToken,
+        int? epoch = null)
     {
         RefuseWhenStopping();
         var screen = Enter(press.SpaceId, press.SandboxId);
-        var epoch = ReadEpoch(screen);
 
         try
         {
@@ -283,6 +298,7 @@ internal sealed class SandboxPointerHolds(
         CancellationToken cancellationToken)
     {
         var screen = Enter(spaceId, sandboxId);
+        Interlocked.Increment(ref powerEpoch);
 
         try
         {
@@ -301,16 +317,12 @@ internal sealed class SandboxPointerHolds(
                 }
 
                 await work();
-
-                lock (sync)
-                {
-                    screen.Epoch++;
-                }
-
                 return true;
             }
             finally
             {
+                // However it ended: the provider may have acted before a failure or a cancellation.
+                Interlocked.Increment(ref powerEpoch);
                 screen.Gate.Release();
             }
         }
@@ -335,13 +347,13 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
-    private PressRecord Register(Screen screen, PointerPress press, int epoch)
+    private PressRecord Register(Screen screen, PointerPress press, int? epoch)
     {
         RefuseWhenStopping();
 
         lock (sync)
         {
-            if (screen.Epoch != epoch)
+            if (epoch is { } sampled && sampled != PowerEpoch)
             {
                 throw new BuiltinToolException(
                     "The sandbox was paused or replaced while this waited, so nothing was pressed. Try again.");
@@ -671,14 +683,6 @@ internal sealed class SandboxPointerHolds(
         if (screen.Users is 0 && screen.Presses.Count is 0)
         {
             screens.Remove((spaceId, sandboxId));
-        }
-    }
-
-    private int ReadEpoch(Screen screen)
-    {
-        lock (sync)
-        {
-            return screen.Epoch;
         }
     }
 

@@ -1303,6 +1303,105 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     [Theory]
     [InlineData("pause")]
     [InlineData("turn off")]
+    public async Task A_power_control_that_found_no_sandbox_does_nothing_if_one_went_live_before_it_acted(string power)
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        control.AfterFirstLookup = async () =>
+        {
+            control.AfterFirstLookup = null;
+            await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        };
+
+        var result = power is "pause"
+            ? await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)
+            : await control.TurnOff(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+
+        result.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        result.Problem.Should().Contain("changed while this was under way");
+        provider.Created.Should().Be(1, "the sandbox went live between the look and the act");
+        provider.Pauses.Should().BeEmpty();
+        provider.Destroys.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_press_waiting_behind_a_pause_that_failed_after_the_provider_paused_is_refused()
+    {
+        var pausing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atTheGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        using var request = new CancellationTokenSource();
+        provider.BeforePause = async (_, cancellationToken) =>
+        {
+            pausing.TrySetResult();
+            await finish.Task.WaitAsync(cancellationToken);
+            await request.CancelAsync();
+        };
+        control.Holds.PressWaiting = () => atTheGate.TrySetResult();
+
+        var pause = control.Pause(world.SpaceId, world.UserId, world.BotId, request.Token);
+        await pausing.Task.WaitAsync(RunWorld.Token);
+        var press = control.Input(
+            world.SpaceId,
+            world.UserId,
+            world.BotId,
+            new("down", X: 7, Y: 8),
+            RunWorld.Token);
+        await atTheGate.Task.WaitAsync(RunWorld.Token);
+        finish.SetResult();
+        var paused = async () => await pause;
+
+        await paused.Should().ThrowAsync<OperationCanceledException>("the request ended after the provider had paused");
+        var pressed = await press;
+
+        pressed.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        pressed.Problem.Should().Contain("paused or replaced");
+        Pointer(provider).Should().BeEmpty("nothing was sent to a display that may be paused");
+    }
+
+    [Fact]
+    public async Task A_press_that_held_a_sandbox_while_a_pause_finished_is_refused_before_it_sends_anything()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leaseHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = PointerProvider((command, token) => command.Arguments is [.., "sleep 1"]
+            ? HoldCommand(running, release, token)
+            : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        var command = control.Run(world.SpaceId, world.UserId, world.BotId, "sleep 1", RunWorld.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+        broker.LeaseHeld = () => leaseHeld.TrySetResult();
+
+        var press = control.Input(
+            world.SpaceId,
+            world.UserId,
+            world.BotId,
+            new("down", X: 7, Y: 8),
+            RunWorld.Token);
+        await leaseHeld.Task.WaitAsync(RunWorld.Token);
+        var paused = await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        release.SetResult();
+        await command;
+        var pressed = await press;
+
+        paused.Refusal.Should().Be(SandboxControlRefusal.None);
+        pressed.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        pressed.Problem.Should().Contain("paused or replaced");
+        Pointer(provider).Should().BeEmpty("the press sent nothing to the display the pause had taken");
+    }
+
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("turn off")]
     [InlineData("rebuild")]
     public async Task A_power_control_acts_only_on_the_sandbox_it_was_made_ready_for(string power)
     {

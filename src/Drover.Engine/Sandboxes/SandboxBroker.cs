@@ -90,6 +90,12 @@ public sealed class SandboxBroker(
     /// </summary>
     public Func<CancellationToken, Task>? BeforeAcquire { get; set; }
 
+    /// <summary>
+    /// Runs when a screen action has acquired its sandbox and is about to wait for the sandbox's command lock. A test
+    /// uses it to know the action holds a sandbox before it waits. Not used outside tests.
+    /// </summary>
+    internal Action? LeaseHeld { get; set; }
+
     #endregion
 
     #region Public Methods
@@ -377,6 +383,7 @@ public sealed class SandboxBroker(
         }
 
         await AuthorizeLiveWrite(caller, cancellationToken);
+        LeaseHeld?.Invoke();
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
             // With work around the command, recording the use is part of it: a press that worked and whose request is
@@ -593,13 +600,17 @@ public sealed class SandboxBroker(
     /// <summary>Pauses the bot's sandbox, keeping its files. False when it has none to pause.</summary>
     public async Task<bool> Pause(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
     {
-        if (await Locate(person, null, create: false, cancellationToken) is not { Token: { } token } target
-            || target.Row.State is SandboxState.Creating)
+        var found = await Locate(person, null, create: false, cancellationToken);
+
+        if (found is { } located)
+        {
+            RefuseWhenMoved(located, only);
+        }
+
+        if (found is not { Token: { } token } target || target.Row.State is SandboxState.Creating)
         {
             return false;
         }
-
-        RefuseWhenMoved(target, only);
 
         try
         {
@@ -979,6 +990,7 @@ public sealed class SandboxBroker(
     /// <summary>
     /// A power control that was made ready for one sandbox does not act on another: if the bot's sandbox is not the one
     /// that was meant, nothing is done. The check is on the row the control is about to act on, not a separate lookup.
+    /// An empty id means that none was found to gate, so finding one now is also a change.
     /// </summary>
     private static void RefuseWhenMoved(SandboxTarget target, Guid? only)
     {

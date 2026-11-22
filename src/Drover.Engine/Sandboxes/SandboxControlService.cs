@@ -70,6 +70,12 @@ public sealed class SandboxControlService(
     internal Action? ScreenRequested { get; set; }
 
     /// <summary>
+    /// Runs after a power control has looked for the sandbox it gates and before it acts, so a test can bring a sandbox
+    /// to life in between. Not used outside tests.
+    /// </summary>
+    internal Func<Task>? AfterFirstLookup { get; set; }
+
+    /// <summary>
     /// Runs after the broker's work and before the audit row, so a test can end the request at that point. Not used
     /// outside tests.
     /// </summary>
@@ -181,13 +187,18 @@ public sealed class SandboxControlService(
             userId,
             botId,
             new Audit("sandbox.input", new JsonObject { ["input"] = input.Kind }),
-            async (sandbox, person) => await Act(
-                sandbox,
-                person,
-                action,
-                doing,
-                Through(spaceId, botId, owner, pointer, cancellationToken),
-                cancellationToken),
+            async (sandbox, person) =>
+            {
+                // Read before the sandbox is acquired: a control that runs from here on invalidates this press.
+                var epoch = Holds.PowerEpoch;
+                return await Act(
+                    sandbox,
+                    person,
+                    action,
+                    doing,
+                    Through(spaceId, botId, owner, pointer, epoch, cancellationToken),
+                    cancellationToken);
+            },
             cancellationToken);
     }
 
@@ -404,6 +415,7 @@ public sealed class SandboxControlService(
         Guid botId,
         PointerOwner owner,
         PointerAction? pointer,
+        int epoch,
         CancellationToken cancellationToken) =>
         (sandboxId, run) => pointer switch
         {
@@ -412,12 +424,14 @@ public sealed class SandboxControlService(
                 new PointerPress(spaceId, sandboxId, botId, owner, pointer.Button),
                 staysDown: true,
                 run,
-                cancellationToken),
+                cancellationToken,
+                epoch),
             { Step: PointerStep.Drag } => Holds.Press(
                 new PointerPress(spaceId, sandboxId, botId, owner, pointer.Button),
                 staysDown: false,
                 run,
-                cancellationToken),
+                cancellationToken,
+                epoch),
             { Step: PointerStep.Move } => Holds.Move(spaceId, sandboxId, owner, run),
             _ => Holds.Lift(spaceId, sandboxId, pointer.Button, run, cancellationToken),
         };
@@ -436,9 +450,18 @@ public sealed class SandboxControlService(
         Func<Guid?, Task<bool>> work,
         CancellationToken cancellationToken)
     {
-        if (await sandbox.CurrentSandbox(person, cancellationToken) is not { } sandboxId)
+        var found = await sandbox.CurrentSandbox(person, cancellationToken);
+
+        if (AfterFirstLookup is { } afterLookup)
         {
-            return await work(null);
+            await afterLookup();
+        }
+
+        if (found is not { } sandboxId)
+        {
+            // Nothing was found to gate. A sandbox that has gone live since is a different display than the one
+            // that was looked at, so the control is told to expect none and does nothing if it finds one.
+            return await work(Guid.Empty);
         }
 
         if (buttons is ButtonsOnPower.LetGoAfter)
