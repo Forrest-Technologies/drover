@@ -258,7 +258,12 @@ public sealed class MemoryPanel : Grid
 
         foreach (var note in model.Notes)
         {
-            var frame = new Facet { Role = FacetRole.Control, Fill = Tokens.Brush(this, "DvBg2"), Padding = new(Tokens.Number("DvSpace3")) };
+            var frame = new Facet
+            {
+                Role = FacetRole.Control,
+                Fill = Tokens.Brush(this, "DvBg2"),
+                Padding = new(Tokens.Number("DvSpace3")),
+            };
             frame.Children.Add(changeable && model.Editing == note.Id ? EditForm(note) : Shown(note, changeable));
             notes.Children.Add(frame);
         }

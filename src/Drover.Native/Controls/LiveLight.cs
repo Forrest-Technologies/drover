@@ -117,7 +117,9 @@ public sealed class LiveLight : SKCanvasElement
     private void Tick()
     {
         var time = elapsed.Elapsed.TotalMilliseconds;
-        if ((State is LiveState.Passing && time >= 2 * Tokens.Number("DvDur3")) || (State is LiveState.Thinking && Motion.Fades && time >= Motion.FadeTime.TotalMilliseconds))
+        var pulseDone = State is LiveState.Passing && time >= 2 * Tokens.Number("DvDur3");
+        var fadeDone = State is LiveState.Thinking && Motion.Fades && time >= Motion.FadeTime.TotalMilliseconds;
+        if (pulseDone || fadeDone)
         {
             clock.Stop();
         }

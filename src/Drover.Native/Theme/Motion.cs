@@ -20,7 +20,9 @@ public static class Motion
     /// <summary>True when the person asked the device for less motion. Set once by the platform at startup.</summary>
     public static bool IsReduced { get; set; }
 
-    /// <summary>True when a live state loops for as long as it lasts: motion is wanted, and the theme loops its states.</summary>
+    /// <summary>
+    /// True when a live state loops for as long as it lasts: motion is wanted, and the theme loops its states.
+    /// </summary>
     public static bool Loops => !IsReduced && ThemeTokens.Current.Motion.Live is LiveStyle.Loop;
 
     /// <summary>

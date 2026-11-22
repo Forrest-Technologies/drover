@@ -64,7 +64,15 @@ internal static class SampleTheme
                 Line = 2,
             },
             Surfaces = night.Surfaces with { Texture = YardTexture.Grid, YardStrength = 0.4, YardStep = YardStep },
-            Motion = night.Motion with { Scale = 1.3, Bloom = Bloom, Breath = 3380, Travel = 1690, Live = LiveStyle.Fade, TravelLine = 3 },
+            Motion = night.Motion with
+            {
+                Scale = 1.3,
+                Bloom = Bloom,
+                Breath = 3380,
+                Travel = 1690,
+                Live = LiveStyle.Fade,
+                TravelLine = 3,
+            },
             Characters = night.Characters with { Facet = 0.12, Line = CharacterLine, Visor = VisorStyle.Outlined },
             Dark = night.Dark with { Colors = colors },
         };
