@@ -359,6 +359,43 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
+    /// Lets go of mouse buttons a person left held down on the bot's sandbox screen, with the command
+    /// <see cref="DesktopCommands.Release"/> built. Only a button a person pressed comes here, and letting go of it
+    /// must not wait on anything a new action waits on, so it makes no sandbox, starts no display, takes no command
+    /// lock, and does not count as use. False when the bot has no running sandbox with a screen the server offers, so
+    /// nothing is held. A failure of
+    /// the command itself is thrown, for the caller to try again.
+    /// </summary>
+    public async Task<bool> Release(SandboxCaller person, CommandRequest release, CancellationToken cancellationToken)
+    {
+        SandboxTarget? found;
+
+        try
+        {
+            found = await Locate(person, null, create: false, cancellationToken);
+        }
+        catch (BuiltinToolException)
+        {
+            logger.LogDebug("Bot {BotId} has no sandbox to let go of a mouse button on", person.BotId);
+            return false;
+        }
+
+        if (found is not { Token: { } token, Row.State: SandboxState.Running } target
+            || target.Row.ExpiresAt <= time.GetUtcNow()
+            || !target.Owner.SandboxSettings.Desktop
+            || !deployment.Value.Rules.AllowDesktopSandboxes)
+        {
+            return false;
+        }
+
+        var handle = new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token);
+        var idle = IdleFor(target.Owner);
+        var lease = new SandboxLease(target.Row.Id, handle, target.Owner.SandboxSettings.ToNetworkPolicy(), idle, idle, NewSandbox: false);
+        await RunOnScreen(lease, release, "let go of the mouse button", cancellationToken);
+        return true;
+    }
+
+    /// <summary>
     /// The bot's own sandbox, which must have a screen, with its display and desktop session running. Null when
     /// <paramref name="create"/> is false and the bot has no sandbox yet.
     /// </summary>

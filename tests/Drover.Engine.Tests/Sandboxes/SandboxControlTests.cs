@@ -589,6 +589,418 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     #endregion
 
+    #region Pointer
+
+    [Fact]
+    public async Task A_persons_press_move_and_release_are_the_commands_a_bot_sends()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        SandboxInputRequest[] inputs =
+        [
+            new("down", X: 100, Y: 200, Button: "right"),
+            new("move", X: 300, Y: 400),
+            new("up", X: 310, Y: 410, Button: "right"),
+            new("up"),
+        ];
+
+        foreach (var input in inputs)
+        {
+            (await control.Input(world.SpaceId, world.UserId, world.BotId, input, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+        }
+
+        Pointer(provider).Should().HaveCount(4);
+        Pointer(provider)[0].Should().Equal(DesktopCommands.MouseDown(100, 200, MouseButton.Right).Arguments);
+        Pointer(provider)[1].Should().Equal(DesktopCommands.MouseMove(300, 400).Arguments);
+        Pointer(provider)[2].Should().Equal(DesktopCommands.MouseUp(MouseButton.Right, 310, 410).Arguments);
+        Pointer(provider)[3].Should().Equal(DesktopCommands.MouseUp(MouseButton.Left, null, null).Arguments, "no button named is the left one");
+    }
+
+    [Fact]
+    public async Task A_drag_is_one_command_that_presses_moves_and_releases_and_leaves_nothing_held()
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        var result = await control.Input(world.SpaceId, world.UserId, world.BotId, new("drag", X: 10, Y: 20, X2: 600, Y2: 500), RunWorld.Token);
+        clock.Advance(SandboxPointerHolds.Limit * 2);
+        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+
+        result.Refusal.Should().Be(SandboxControlRefusal.None);
+        Pointer(provider).Should().ContainSingle().Which.Should().Equal(DesktopCommands.Drag(10, 20, 600, 500, MouseButton.Left).Arguments);
+    }
+
+    [Theory]
+    [InlineData("exit")]
+    [InlineData("provider")]
+    [InlineData("unexpected")]
+    public async Task A_press_that_fails_is_let_go_of_before_the_request_answers(string failure)
+    {
+        var provider = PointerProvider((command, _) => IsPress(command) ? Failing(failure) : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var press = () => control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+
+        if (failure is "unexpected")
+        {
+            await press.Should().ThrowAsync<InvalidOperationException>();
+        }
+        else
+        {
+            (await press()).Refusal.Should().Be(SandboxControlRefusal.Refused);
+        }
+
+        Pointer(provider).Select(arguments => arguments.Contains("mousedown")).Should().Equal(true, false);
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_press_whose_request_is_cancelled_is_let_go_of()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = PointerProvider((command, token) => IsPress(command) ? Holding(running, never, token) : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        using var caller = new CancellationTokenSource();
+
+        var press = control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6, Button: "middle"), caller.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+        await caller.CancelAsync();
+        var cancelled = async () => await press;
+
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+        Pointer(provider).Select(arguments => arguments.Contains("mousedown")).Should().Equal(true, false);
+        Pointer(provider)[1].Should().Equal("mouseup", "2");
+    }
+
+    [Theory]
+    [InlineData("exit")]
+    [InlineData("unexpected")]
+    public async Task A_drag_that_fails_lets_go_of_its_button(string failure)
+    {
+        var provider = PointerProvider((command, _) => IsDrag(command) ? Failing(failure) : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var drag = () => control.Input(world.SpaceId, world.UserId, world.BotId, new("drag", X: 5, Y: 6, X2: 50, Y2: 60), RunWorld.Token);
+
+        if (failure is "unexpected")
+        {
+            await drag.Should().ThrowAsync<InvalidOperationException>();
+        }
+        else
+        {
+            (await drag()).Refusal.Should().Be(SandboxControlRefusal.Refused);
+        }
+
+        Pointer(provider).Should().HaveCount(2);
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_drag_whose_request_is_cancelled_lets_go_of_its_button()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = PointerProvider((command, token) => IsDrag(command) ? Holding(running, never, token) : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        using var caller = new CancellationTokenSource();
+
+        var drag = control.Input(world.SpaceId, world.UserId, world.BotId, new("drag", X: 5, Y: 6, X2: 50, Y2: 60, Button: "right"), caller.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+        await caller.CancelAsync();
+        var cancelled = async () => await drag;
+
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+        Pointer(provider).Should().HaveCount(2);
+        Pointer(provider)[1].Should().Equal("mouseup", "3");
+    }
+
+    [Fact]
+    public async Task A_button_with_no_move_or_release_is_let_go_of_after_ten_seconds()
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+
+        clock.Advance(SandboxPointerHolds.Limit - TimeSpan.FromSeconds(1));
+        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        Pointer(provider).Should().ContainSingle("the button is still held within its time");
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await Eventually(() => Pointer(provider).Count is 2);
+
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_move_keeps_a_held_button_for_another_ten_seconds()
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+
+        clock.Advance(TimeSpan.FromSeconds(9));
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("move", X: 50, Y: 60), RunWorld.Token);
+        clock.Advance(TimeSpan.FromSeconds(9));
+        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        Pointer(provider).Should().HaveCount(2, "the press and the move, with nothing let go of yet");
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await Eventually(() => Pointer(provider).Count is 3);
+
+        Pointer(provider)[2].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_release_ends_the_wait_so_the_time_limit_has_nothing_to_let_go_of()
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("up"), RunWorld.Token);
+
+        clock.Advance(SandboxPointerHolds.Limit * 3);
+        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+
+        Pointer(provider).Should().HaveCount(2);
+    }
+
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("rebuild")]
+    [InlineData("turn off")]
+    public async Task A_held_button_is_let_go_of_before_the_sandbox_is_paused_rebuilt_or_turned_off(string power)
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        var letGoBeforeThePower = false;
+        provider.BeforePause = (_, _) =>
+        {
+            letGoBeforeThePower = Pointer(provider).Any(arguments => arguments.Contains("mouseup"));
+            return Task.CompletedTask;
+        };
+
+        var done = power switch
+        {
+            "pause" => await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+            "rebuild" => await control.Rebuild(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+            _ => await control.TurnOff(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+        };
+
+        done.Refusal.Should().Be(SandboxControlRefusal.None);
+        Pointer(provider).Should().HaveCount(2);
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+
+        if (power is "pause")
+        {
+            letGoBeforeThePower.Should().BeTrue("a paused sandbox keeps the button down when it comes back");
+        }
+    }
+
+    [Fact]
+    public async Task A_held_button_is_let_go_of_when_the_server_stops()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6, Button: "middle"), RunWorld.Token);
+
+        await control.DisposeAsync();
+
+        Pointer(provider).Should().HaveCount(2);
+        Pointer(provider)[1].Should().Equal("mouseup", "2");
+    }
+
+    [Fact]
+    public async Task A_release_that_fails_is_tried_again_after_the_same_time()
+    {
+        var failures = 1;
+        var provider = PointerProvider((command, _) => IsRelease(command) && Interlocked.Decrement(ref failures) >= 0 ? Failing("provider") : null);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+
+        await Eventually(() =>
+        {
+            clock.Advance(SandboxPointerHolds.Limit);
+            return Pointer(provider).Count >= 3;
+        });
+        clock.Advance(SandboxPointerHolds.Limit * 3);
+        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+
+        Pointer(provider).Should().HaveCount(3, "the second release worked, so nothing is held any more");
+    }
+
+    [Theory]
+    [InlineData("down", -1, 5, 5, 5)]
+    [InlineData("down", 1024, 5, 5, 5)]
+    [InlineData("move", 5, 768, 5, 5)]
+    [InlineData("up", 5, -1, 5, 5)]
+    [InlineData("drag", 5, 5, 1024, 5)]
+    [InlineData("drag", 5, 5, 5, -2)]
+    [InlineData("drag", 1100, 5, 5, 5)]
+    public async Task A_pointer_point_off_the_screen_is_refused_in_a_plain_sentence_before_the_sandbox_is_touched(string kind, int x, int y, int x2, int y2)
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        var result = await control.Input(world.SpaceId, world.UserId, world.BotId, new(kind, X: x, Y: y, X2: x2, Y2: y2), RunWorld.Token);
+
+        result.Refusal.Should().Be(SandboxControlRefusal.Invalid);
+        result.Problem.Should().Contain("off the screen");
+        Pointer(provider).Should().BeEmpty();
+        (await Actions(world)).Should().BeEmpty("a refusal before the sandbox is reached is not an attempt on it");
+    }
+
+    [Theory]
+    [InlineData("down", null, null, null, null, null)]
+    [InlineData("down", 5, 5, "wheel", null, null)]
+    [InlineData("move", 5, null, null, null, null)]
+    [InlineData("up", 5, null, null, null, null)]
+    [InlineData("drag", 5, 5, null, null, null)]
+    [InlineData("drag", 5, 5, null, 10, null)]
+    [InlineData("drag", 5, 5, "left", null, 10)]
+    public async Task A_wrong_pointer_request_is_refused_before_the_sandbox_is_touched(string kind, int? x, int? y, string? button, int? x2, int? y2)
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        var result = await control.Input(world.SpaceId, world.UserId, world.BotId, new(kind, X: x, Y: y, Button: button, X2: x2, Y2: y2), RunWorld.Token);
+
+        result.Refusal.Should().Be(SandboxControlRefusal.Invalid);
+        result.Problem.Should().NotBeNullOrWhiteSpace();
+        Pointer(provider).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_person_who_may_not_change_the_bot_cannot_press_and_nothing_reaches_the_sandbox()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var member = await world.AddMember(MembershipRole.Member);
+
+        var results = new[]
+        {
+            await control.Input(world.SpaceId, member, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token),
+            await control.Input(world.SpaceId, member, world.BotId, new("drag", X: 5, Y: 6, X2: 7, Y2: 8), RunWorld.Token),
+            await control.Input(world.SpaceId, Guid.CreateVersion7(), world.BotId, new("down", X: 5, Y: 6), RunWorld.Token),
+        };
+
+        results.Select(result => result.Refusal).Should().Equal(SandboxControlRefusal.NotPermitted, SandboxControlRefusal.NotPermitted, SandboxControlRefusal.NotFound);
+        Pointer(provider).Should().BeEmpty("not even a release was sent: nothing was pressed");
+    }
+
+    [Fact]
+    public async Task A_press_on_a_sandbox_whose_screen_the_server_does_not_offer_is_refused_as_a_click_is()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true, policy: DeploymentPolicy.SelfHosted with { AllowDesktopSandboxes = false });
+        await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        provider.Commands.Clear();
+
+        var click = await Control(world).Input(world.SpaceId, world.UserId, world.BotId, new("click", X: 5, Y: 6), RunWorld.Token);
+        var press = await Control(world).Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+
+        press.Refusal.Should().Be(click.Refusal).And.Be(SandboxControlRefusal.Refused);
+        press.Problem.Should().Be(click.Problem);
+        provider.Commands.Should().BeEmpty("neither the press nor a release reached a screen the server does not offer");
+    }
+
+    [Fact]
+    public async Task A_pointer_input_writes_one_audit_row_with_its_kind_and_never_a_position()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        SandboxInputRequest[] inputs =
+        [
+            new("down", X: 417, Y: 293),
+            new("move", X: 418, Y: 294),
+            new("up", X: 419, Y: 295),
+            new("drag", X: 417, Y: 293, X2: 1017, Y2: 701),
+        ];
+
+        foreach (var input in inputs)
+        {
+            await control.Input(world.SpaceId, world.UserId, world.BotId, input, RunWorld.Token);
+        }
+
+        var entries = await world.Read(db => db.AuditLog.AsNoTracking().Where(entry => entry.Action.StartsWith("sandbox.")).OrderBy(entry => entry.Id).ToListAsync(RunWorld.Token));
+
+        entries.Select(entry => entry.Data.GetProperty("input").GetString()).Should().Equal("down", "move", "up", "drag");
+        entries.Select(entry => entry.Data.GetProperty("outcome").GetString()).Should().Equal("done", "done", "done", "done");
+        entries.Should().OnlyContain(entry => entry.Action == "sandbox.input" && entry.ActorId == world.UserId && entry.TargetId == world.BotId);
+        entries.Should().OnlyContain(entry => !entry.Data.GetRawText().Contains("417") && !entry.Data.GetRawText().Contains("293") && !entry.Data.GetRawText().Contains("701"));
+    }
+
+    [Fact]
+    public async Task A_press_that_fails_and_is_let_go_of_still_writes_only_the_one_row_for_the_attempt()
+    {
+        var provider = PointerProvider((command, _) => IsPress(command) ? Failing("exit") : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+
+        (await Actions(world)).Should().Equal("sandbox.input");
+        (await Outcomes(world)).Should().Equal("refused");
+    }
+
+    [Fact]
+    public async Task A_pointer_input_is_logged_without_its_position_and_without_the_command()
+    {
+        var provider = PointerProvider((command, _) => IsPress(command) ? Failing("exit") : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 1003, Y: 703), RunWorld.Token);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 1999, Y: 1777), RunWorld.Token);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("drag", X: 1003, Y: 703, X2: 1004, Y2: 704), RunWorld.Token);
+
+        var log = world.Hosts[^1].Log.Tail();
+        log.Should().NotContain("xdotool").And.NotContain("mousedown").And.NotContain("off the screen");
+        System.Text.RegularExpressions.Regex.IsMatch(log, "(?<![0-9a-fA-F-])(1003|703|1999|1777|1004|704)(?![0-9a-fA-F-])").Should().BeFalse();
+    }
+
+    #endregion
+
     #region Terminal
 
     [Fact]
@@ -895,7 +1307,8 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         SandboxPolicy sandbox = SandboxPolicy.Private,
         bool desktop = false,
         NetworkAccess network = NetworkAccess.Off,
-        DeploymentPolicy? policy = null)
+        DeploymentPolicy? policy = null,
+        TimeProvider? clock = null)
     {
         var world = await RunWorld.Create(
             postgres,
@@ -904,6 +1317,11 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             {
                 services.AddSingleton<ISandboxProvider>(provider);
                 services.AddSandboxTools();
+
+                if (clock is not null)
+                {
+                    services.AddSingleton(clock);
+                }
 
                 if (policy is not null)
                 {
@@ -956,6 +1374,62 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     private static Task<List<string>> Actions(RunWorld world) =>
         world.Read(db => db.AuditLog.AsNoTracking().Where(entry => entry.Action.StartsWith("sandbox.")).OrderBy(entry => entry.Id).Select(entry => entry.Action).ToListAsync(RunWorld.Token));
+
+    /// <summary>The desktop already made, and its commands so far forgotten, so a test reads only what it sent.</summary>
+    private static async Task StartDesktop(RunWorld world, SandboxControlService control, FakeSandboxProvider provider)
+    {
+        await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        provider.Commands.Clear();
+    }
+
+    /// <summary>The arguments of every pointer command so far: those of xdotool that press, move, let go, or drag.</summary>
+    private static List<string[]> Pointer(FakeSandboxProvider provider) =>
+        [.. provider.Commands.Where(command => command.Program == "xdotool" && command.Arguments.Intersect(["mousedown", "mouseup", "mousemove"]).Any()).Select(command => command.Arguments.ToArray())];
+
+    private static bool IsPress(CommandRequest command) => command.Program == "xdotool" && command.Arguments.Contains("mousedown") && !command.Arguments.Contains("mouseup");
+
+    private static bool IsDrag(CommandRequest command) => command.Program == "xdotool" && command.Arguments.Contains("mousedown") && command.Arguments.Contains("mouseup");
+
+    private static bool IsRelease(CommandRequest command) => command.Program == "xdotool" && command.Arguments.Contains("mouseup") && !command.Arguments.Contains("mousedown");
+
+    /// <summary>A desktop whose commands are answered by <paramref name="pointer"/> when it has an answer, and by a working desktop when not.</summary>
+    private static FakeSandboxProvider PointerProvider(Func<CommandRequest, CancellationToken, IAsyncEnumerable<CommandOutput>?> pointer)
+    {
+        var provider = new FakeSandboxProvider();
+        provider.Behaviour = (command, token, cancellationToken) => pointer(command, cancellationToken) ?? Desktop(provider.WithToken(token), command, null, cancellationToken);
+        return provider;
+    }
+
+    private static IAsyncEnumerable<CommandOutput> Failing(string failure) => failure switch
+    {
+        "provider" => FailAfterStarting(),
+        "unexpected" => FailUnexpectedly(),
+        _ => ExitWith(1),
+    };
+
+    private static async IAsyncEnumerable<CommandOutput> ExitWith(int exitCode)
+    {
+        await Task.Yield();
+        yield return new CommandStarted(1);
+        yield return new CommandExited(exitCode, null);
+    }
+
+    /// <summary>A command that runs until the provider cancels it.</summary>
+    private static IAsyncEnumerable<CommandOutput> Holding(TaskCompletionSource running, TaskCompletionSource never, CancellationToken cancellationToken) =>
+        HoldCommand(running, never, cancellationToken);
+
+    /// <summary>Waits, for up to ten seconds, until what a background release does has happened.</summary>
+    private static async Task Eventually(Func<bool> done)
+    {
+        var until = DateTimeOffset.UtcNow.AddSeconds(10);
+
+        while (!done() && DateTimeOffset.UtcNow < until)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), RunWorld.Token);
+        }
+
+        done().Should().BeTrue("the work should have happened within ten seconds");
+    }
 
     /// <summary>
     /// A provider whose sandbox behaves like a desktop: the display check passes, scrot writes a PNG to the path it is

@@ -36,7 +36,7 @@ public sealed class SandboxControlService(
     RunScopes scopes,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
-    ILogger<SandboxControlService> logger)
+    ILogger<SandboxControlService> logger) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -48,6 +48,9 @@ public sealed class SandboxControlService(
     private static readonly TimeSpan commandLimit = TimeSpan.FromMinutes(5);
 
     private readonly SandboxBroker? broker = brokers.SingleOrDefault();
+
+    /// <summary>The mouse buttons people hold down, which are always let go of: see <see cref="SandboxPointerHolds"/>.</summary>
+    private readonly SandboxPointerHolds holds = new(time, logger);
 
     /// <summary>The screenshot being taken of each bot's sandbox, so requests that meet share one provider call.</summary>
     private readonly ConcurrentDictionary<(Guid SpaceId, Guid BotId, bool Wake), Lazy<Task<SandboxScreenshot>>> screens = new();
@@ -120,8 +123,9 @@ public sealed class SandboxControlService(
             cancellationToken);
 
     /// <summary>
-    /// One click, typed text, key press, or scroll, built by the same <see cref="DesktopCommands"/> a bot's tools use,
-    /// with the same bounds and key list. A paused sandbox is resumed; one not made yet is not made for this.
+    /// One click, typed text, key press, scroll, or pointer action, built by the same <see cref="DesktopCommands"/> a
+    /// bot's tools use, with the same bounds and key list. A paused sandbox is resumed; one not made yet is not made
+    /// for this. A button a pointer action holds down is always let go of: see <see cref="SandboxPointerHolds"/>.
     /// </summary>
     public async Task<SandboxControlResult<bool>> Input(
         Guid spaceId,
@@ -132,10 +136,12 @@ public sealed class SandboxControlService(
     {
         CommandRequest action;
         string doing;
+        PointerAction? pointer;
 
         try
         {
-            (action, doing) = BuildAction(input);
+            pointer = input.ToPointerAction();
+            (action, doing) = pointer is null ? BuildAction(input) : (pointer.Command, pointer.Doing);
         }
         catch (BuiltinToolException wrong)
         {
@@ -147,9 +153,15 @@ public sealed class SandboxControlService(
             userId,
             botId,
             new Audit("sandbox.input", new JsonObject { ["input"] = input.Kind }),
-            async (sandbox, person) => await sandbox.Act(person, action, doing, create: false, cancellationToken) is not null
-                ? true
-                : throw new BuiltinToolException(NoSandboxYet),
+            async (sandbox, person) =>
+            {
+                if (pointer is null)
+                {
+                    return await Act(sandbox, person, action, doing, cancellationToken);
+                }
+
+                return await ActWithPointer(sandbox, person, (spaceId, userId, botId), pointer, cancellationToken);
+            },
             cancellationToken);
     }
 
@@ -182,6 +194,9 @@ public sealed class SandboxControlService(
             cancellationToken);
     }
 
+    /// <summary>Lets go of every button a person still holds down, as this server stops.</summary>
+    public ValueTask DisposeAsync() => holds.DisposeAsync();
+
     #endregion
 
     #region Acting
@@ -195,7 +210,19 @@ public sealed class SandboxControlService(
         Func<SandboxBroker, SandboxCaller, Task<bool>> work,
         CancellationToken cancellationToken)
     {
-        var done = await Control(spaceId, userId, botId, new Audit(action, null), work, cancellationToken, auditWhen: changed => changed);
+        var done = await Control(
+            spaceId,
+            userId,
+            botId,
+            new Audit(action, null),
+            async (sandbox, person) =>
+            {
+                // A button held down when the sandbox pauses would still be down when it resumes.
+                await holds.ReleaseAll(spaceId, botId, cancellationToken);
+                return await work(sandbox, person);
+            },
+            cancellationToken,
+            auditWhen: changed => changed);
 
         return done.Refusal is SandboxControlRefusal.None
             ? await GetStatus(spaceId, userId, botId, cancellationToken)
@@ -320,6 +347,72 @@ public sealed class SandboxControlService(
         {
             screens.TryRemove(key, out _);
         }
+    }
+
+    #endregion
+
+    #region Pointer
+
+    private async Task<bool> Act(SandboxBroker sandbox, SandboxCaller person, CommandRequest action, string doing, CancellationToken cancellationToken) =>
+        await sandbox.Act(person, action, doing, create: false, cancellationToken) is not null
+            ? true
+            : throw new BuiltinToolException(NoSandboxYet);
+
+    /// <summary>
+    /// A pointer action, with what it holds down kept track of. A press is noted before its command runs, so that a
+    /// command that fails, is cancelled, or runs out of time halfway still has its button let go of, and it starts its
+    /// time limit when it has worked. A drag lets go of its own button, but a drag that fails may not have.
+    /// </summary>
+    private async Task<bool> ActWithPointer(
+        SandboxBroker sandbox,
+        SandboxCaller person,
+        (Guid SpaceId, Guid UserId, Guid BotId) who,
+        PointerAction pointer,
+        CancellationToken cancellationToken)
+    {
+        var (spaceId, userId, botId) = who;
+
+        if (pointer.Step is PointerStep.Down or PointerStep.Drag)
+        {
+            holds.Track(spaceId, botId, userId, pointer.Button, ReleaseHeld);
+        }
+
+        try
+        {
+            await Act(sandbox, person, pointer.Command, pointer.Doing, cancellationToken);
+        }
+        catch (Exception) when (pointer.Step is PointerStep.Down or PointerStep.Drag)
+        {
+            await holds.ReleaseAll(spaceId, botId, CancellationToken.None);
+            throw;
+        }
+
+        switch (pointer.Step)
+        {
+            case PointerStep.Down:
+                holds.Held(spaceId, botId, userId, pointer.Button, ReleaseHeld);
+                break;
+            case PointerStep.Move:
+                holds.Keep(spaceId, botId);
+                break;
+            default:
+                holds.Lift(spaceId, botId, pointer.Button);
+                break;
+        }
+
+        return true;
+    }
+
+    /// <summary>Lets go of buttons a person held, as the person who pressed them. The broker's failures are thrown to try again.</summary>
+    private async Task ReleaseHeld(HeldButtons held, CancellationToken cancellationToken)
+    {
+        if (broker is null)
+        {
+            return;
+        }
+
+        var person = new SandboxCaller(scopes.For(held.SpaceId, held.UserId), held.BotId);
+        await broker.Release(person, DesktopCommands.Release(held.Buttons), cancellationToken);
     }
 
     #endregion

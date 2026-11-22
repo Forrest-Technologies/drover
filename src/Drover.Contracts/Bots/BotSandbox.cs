@@ -35,8 +35,14 @@ public sealed record SandboxHold(Guid RunId, bool ForYou, DateTimeOffset? Since)
 /// One mouse or keyboard action of a person on a bot's sandbox screen. <see cref="Kind"/> is <c>click</c>
 /// (<see cref="X"/>, <see cref="Y"/>, <see cref="Button"/>: left, right or middle, <see cref="Twice"/>, a double click),
 /// <c>type</c> (<see cref="Text"/>), <c>key</c> (<see cref="Keys"/>, pressed together, from the same list a bot
-/// uses), <c>password</c> (masked input), <c>open_terminal</c>, or <c>scroll</c> (<see cref="Direction"/>: up or down, <see cref="Amount"/>). Coordinates are on the
-/// sandbox's own screen, 1024 by 768.
+/// uses), <c>password</c> (masked input), <c>open_terminal</c>, or <c>scroll</c> (<see cref="Direction"/>: up or down, <see cref="Amount"/>).
+/// The pointer has four more. <c>down</c> holds <see cref="Button"/> (left when none is named) down at <see cref="X"/>,
+/// <see cref="Y"/>. <c>move</c> moves the pointer to <see cref="X"/>, <see cref="Y"/>, and a button that is held stays
+/// held. <c>up</c> lets go of <see cref="Button"/>, at <see cref="X"/>, <see cref="Y"/> when both are given. <c>drag</c>
+/// holds <see cref="Button"/> down at <see cref="X"/>, <see cref="Y"/>, moves along a short line to
+/// <see cref="X2"/>, <see cref="Y2"/> and lets go there, in one request that always lets go. The server also lets go of
+/// a button held down for ten seconds with no <c>move</c> or <c>up</c>. Coordinates are on the sandbox's own screen,
+/// 1024 by 768.
 /// </summary>
 public sealed record SandboxInputRequest(
     string Kind,
@@ -47,7 +53,9 @@ public sealed record SandboxInputRequest(
     string? Text = null,
     IReadOnlyList<string>? Keys = null,
     string? Direction = null,
-    int? Amount = null)
+    int? Amount = null,
+    int? X2 = null,
+    int? Y2 = null)
 {
     public override string ToString() => $"Sandbox input ({Kind})";
 }
