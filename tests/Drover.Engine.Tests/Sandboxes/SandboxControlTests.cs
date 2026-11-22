@@ -922,14 +922,14 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await StartDesktop(world, control, provider);
         var member = await world.AddMember(MembershipRole.Member);
 
-        var results = new[]
-        {
+        List<SandboxControlResult<bool>> results =
+        [
             await control.Input(world.SpaceId, member, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token),
             await control.Input(world.SpaceId, member, world.BotId, new("drag", X: 5, Y: 6, X2: 7, Y2: 8),
                 RunWorld.Token),
             await control.Input(world.SpaceId, Guid.CreateVersion7(), world.BotId, new("down", X: 5, Y: 6),
                 RunWorld.Token),
-        };
+        ];
 
         results.Select(result => result.Refusal).Should().Equal(SandboxControlRefusal.NotPermitted,
             SandboxControlRefusal.NotPermitted, SandboxControlRefusal.NotFound);
@@ -1229,6 +1229,61 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
         rebuilt.Refusal.Should().Be(SandboxControlRefusal.None);
         click.Refusal.Should().Be(SandboxControlRefusal.None);
+    }
+
+    [Fact]
+    public async Task A_press_that_worked_is_let_go_of_when_recording_the_use_is_cancelled_or_fails()
+    {
+        using var caller = new CancellationTokenSource();
+        var provider = PointerProvider((command, _) => IsPress(command) ? Cancelling(caller) : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var press = () => control.Input(
+            world.SpaceId,
+            world.UserId,
+            world.BotId,
+            new("down", X: 5, Y: 6),
+            caller.Token);
+
+        await press.Should().ThrowAsync<OperationCanceledException>();
+
+        Pointer(provider).Select(arguments => arguments.Contains("mousedown")).Should().Equal(true, false);
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_press_waits_for_a_pause_that_is_under_way_on_the_same_sandbox()
+    {
+        var pausing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        provider.BeforePause = async (_, cancellationToken) =>
+        {
+            pausing.TrySetResult();
+            await finish.Task.WaitAsync(cancellationToken);
+        };
+
+        var pause = control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        await pausing.Task.WaitAsync(RunWorld.Token);
+        var press = control.Input(
+            world.SpaceId,
+            world.UserId,
+            world.BotId,
+            new("down", X: 7, Y: 8, Button: "right"),
+            RunWorld.Token);
+        await Task.WhenAny(press, Task.Delay(TimeSpan.FromMilliseconds(500), RunWorld.Token));
+
+        Pointer(provider).Select(arguments => arguments.Contains("mousedown")).Should().Equal(
+            [true, false],
+            "only the first press, and its release, reached the display while the pause was under way");
+        finish.SetResult();
+        (await pause).Refusal.Should().Be(SandboxControlRefusal.None);
+        await Record.ExceptionAsync(() => press);
     }
 
     #endregion
@@ -1639,6 +1694,15 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         provider.Behaviour = (command, token, cancellationToken) => pointer(command, cancellationToken)
             ?? Desktop(provider.WithToken(token), command, null, cancellationToken);
         return provider;
+    }
+
+    /// <summary>A command that works, and ends the request that sent it as it does.</summary>
+    private static async IAsyncEnumerable<CommandOutput> Cancelling(CancellationTokenSource request)
+    {
+        await Task.Yield();
+        yield return new CommandStarted(1);
+        await request.CancelAsync();
+        yield return new CommandExited(0, null);
     }
 
     private static IAsyncEnumerable<CommandOutput> Failing(string failure) => failure switch

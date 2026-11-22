@@ -87,7 +87,7 @@ internal sealed class SandboxPointerHolds(
             {
                 var held = Register(screen, press);
                 await RunPressed(screen, held, run);
-                Settle(screen, held, staysDown);
+                await Settle(screen, held, staysDown);
             }
             finally
             {
@@ -201,17 +201,7 @@ internal sealed class SandboxPointerHolds(
     /// limit again. A test that moves the clock uses it, so that the clock never moves under a release that is running.
     /// Not used outside tests.
     /// </summary>
-    internal Task Quiet()
-    {
-        Task[] running;
-
-        lock (sync)
-        {
-            running = [.. expiring];
-        }
-
-        return Task.WhenAll(running);
-    }
+    internal Task Quiet() => Task.WhenAll(Running());
 
     /// <summary>The sandbox was destroyed, which let go of everything on its display: its holds go.</summary>
     public void Forget(Guid spaceId, Guid sandboxId)
@@ -235,25 +225,81 @@ internal sealed class SandboxPointerHolds(
 
     /// <summary>
     /// Stops taking presses, waits for the releases that are running and for the presses that are, then lets go of
-    /// every button still held. Bounded to ten seconds for each sandbox.
+    /// every button still held, all within one budget of ten seconds. A press that is still running when the budget is
+    /// spent lets go of its own button when it ends, since the server has stopped, so none is left down.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        Task[] running;
-        KeyValuePair<(Guid SpaceId, Guid SandboxId), Screen>[] held;
+        var (running, screensHeld) = Close();
+        using var budget = new CancellationTokenSource(limit, time);
+
+        try
+        {
+            await Task.WhenAll(running).WaitAsync(budget.Token);
+
+            foreach (var screen in screensHeld)
+            {
+                await ReleaseOnStop(screen, budget.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogError(
+                "Mouse buttons were still being let go of after {Seconds} seconds as the server stopped",
+                limit.TotalSeconds);
+        }
 
         lock (sync)
         {
-            closed = true;
-            running = [.. expiring];
-            held = [.. screens];
+            foreach (var held in screens.Values.SelectMany(screen => screen.Presses.Values))
+            {
+                held.Timer?.Dispose();
+            }
         }
+    }
 
-        await Task.WhenAll(running);
+    /// <summary>
+    /// Lets go of every button held on this sandbox and, with the screen's gate still held so that no press or
+    /// release can come between, runs <paramref name="work"/>. False, and the work is not run, when
+    /// <paramref name="required"/> is set and a button could not be let go of. This is how a pause is made to take
+    /// effect on a display with nothing held down.
+    /// </summary>
+    public async Task<bool> RunWhileReleased(
+        Guid spaceId,
+        Guid sandboxId,
+        bool required,
+        Func<Task> work,
+        CancellationToken cancellationToken)
+    {
+        var screen = Enter(spaceId, sandboxId);
 
-        foreach (var (key, screen) in held)
+        try
         {
-            await ReleaseOnStop(key, screen);
+            await screen.Gate.WaitAsync(cancellationToken);
+
+            try
+            {
+                foreach (var held in Snapshot(screen))
+                {
+                    await ReleaseHeld(screen, held, cancellationToken);
+                }
+
+                if (required && IsHeld(screen))
+                {
+                    return false;
+                }
+
+                await work();
+                return true;
+            }
+            finally
+            {
+                screen.Gate.Release();
+            }
+        }
+        finally
+        {
+            Leave(spaceId, sandboxId, screen);
         }
     }
 
@@ -290,7 +336,9 @@ internal sealed class SandboxPointerHolds(
                     throw new BuiltinToolException("Another person is holding that mouse button on this screen.");
                 }
 
+                // The same physical press: its longest hold counts from when the button went down, not from now.
                 existing.Timer?.Dispose();
+                return existing;
             }
 
             var held = new PressRecord(press, time.GetUtcNow() + maxHold);
@@ -312,8 +360,12 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
-    /// <summary>The press worked: it is held with its time limit started, or, for a drag, it is already over.</summary>
-    private void Settle(Screen screen, PressRecord held, bool staysDown)
+    /// <summary>
+    /// The press worked: it is held with its time limit started, or, for a drag, it is already over. When the server
+    /// stopped while it ran, the button is let go of here, under the gate the press still holds, since the stop can no
+    /// longer wait for it.
+    /// </summary>
+    private async Task Settle(Screen screen, PressRecord held, bool staysDown)
     {
         lock (sync)
         {
@@ -322,15 +374,21 @@ internal sealed class SandboxPointerHolds(
                 return;
             }
 
-            if (staysDown)
-            {
-                Arm(screen, held, Within(held));
-            }
-            else
+            if (!staysDown)
             {
                 Remove(screen, held.Request.Button);
+                return;
+            }
+
+            if (!closed)
+            {
+                Arm(screen, held, Within(held));
+                return;
             }
         }
+
+        using var bound = new CancellationTokenSource(limit, time);
+        await ReleaseHeld(screen, held, bound.Token);
     }
 
     private void Renew(Guid spaceId, Guid sandboxId, PointerOwner owner)
@@ -410,40 +468,20 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
-    private async Task ReleaseOnStop((Guid SpaceId, Guid SandboxId) key, Screen screen)
+    private async Task ReleaseOnStop(Screen screen, CancellationToken budget)
     {
-        using var bound = new CancellationTokenSource(limit, time);
+        await screen.Gate.WaitAsync(budget);
 
         try
         {
-            await screen.Gate.WaitAsync(bound.Token);
-
-            try
+            foreach (var held in Snapshot(screen))
             {
-                foreach (var held in Snapshot(screen))
-                {
-                    await ReleaseHeld(screen, held, bound.Token);
-                }
-            }
-            finally
-            {
-                screen.Gate.Release();
+                await ReleaseHeld(screen, held, budget);
             }
         }
-        catch (OperationCanceledException)
+        finally
         {
-            logger.LogError(
-                "Sandbox {SandboxId} was still busy after {Seconds} seconds as the server stopped",
-                key.SandboxId,
-                limit.TotalSeconds);
-        }
-
-        lock (sync)
-        {
-            foreach (var held in screen.Presses.Values)
-            {
-                held.Timer?.Dispose();
-            }
+            screen.Gate.Release();
         }
     }
 
@@ -455,6 +493,12 @@ internal sealed class SandboxPointerHolds(
     private void Arm(Screen screen, PressRecord held, TimeSpan due)
     {
         held.Timer?.Dispose();
+
+        if (closed)
+        {
+            return;
+        }
+
         held.Generation++;
         var generation = held.Generation;
         held.Timer = time.CreateTimer(_ => Expire(screen, held, generation), null, due, Timeout.InfiniteTimeSpan);
@@ -470,6 +514,8 @@ internal sealed class SandboxPointerHolds(
     /// </summary>
     private void Expire(Screen screen, PressRecord held, int generation)
     {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
         lock (sync)
         {
             if (closed || held.Generation != generation || held.Stuck || !IsCurrent(screen, held))
@@ -477,19 +523,39 @@ internal sealed class SandboxPointerHolds(
                 return;
             }
 
+            // Admitted and registered in one step, so a stop that closes after this sees the work and waits for it.
             screen.Users++;
+            expiring.Add(done.Task);
         }
 
-        logger.LogInformation(
-            "A mouse button held on sandbox {SandboxId} is being let go of after {Seconds} seconds",
-            held.Request.SandboxId,
-            limit.TotalSeconds);
-        var work = ReleaseExpired(screen, held, generation);
+        _ = RunExpiry(screen, held, generation, done);
+    }
 
-        lock (sync)
+    private async Task RunExpiry(Screen screen, PressRecord held, int generation, TaskCompletionSource done)
+    {
+        try
         {
-            expiring.RemoveAll(done => done.IsCompleted);
-            expiring.Add(work);
+            logger.LogInformation(
+                "A mouse button held on sandbox {SandboxId} is being let go of after {Seconds} seconds",
+                held.Request.SandboxId,
+                limit.TotalSeconds);
+            await ReleaseExpired(screen, held, generation);
+        }
+        catch (Exception failure)
+        {
+            logger.LogError(
+                "Letting go of a mouse button on sandbox {SandboxId} ended with {Failure}",
+                held.Request.SandboxId,
+                failure.GetType().Name);
+        }
+        finally
+        {
+            lock (sync)
+            {
+                expiring.Remove(done.Task);
+            }
+
+            done.SetResult();
         }
     }
 
@@ -572,10 +638,36 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
+    private bool IsHeld(Screen screen)
+    {
+        lock (sync)
+        {
+            return screen.Presses.Count > 0;
+        }
+    }
+
     private static bool IsStuck(Screen screen) => screen.Presses.Values.Any(held => held.Stuck);
 
     private bool IsCurrent(Screen screen, PressRecord held) =>
         screen.Presses.TryGetValue(held.Request.Button, out var current) && current.Id == held.Id;
+
+    private Task[] Running()
+    {
+        lock (sync)
+        {
+            return [.. expiring];
+        }
+    }
+
+    /// <summary>Stops admitting work, and takes what a stop waits for in the same step.</summary>
+    private (Task[] Running, Screen[] Screens) Close()
+    {
+        lock (sync)
+        {
+            closed = true;
+            return ([.. expiring], [.. screens.Values]);
+        }
+    }
 
     private PressRecord[] Snapshot(Screen screen)
     {

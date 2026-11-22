@@ -312,6 +312,154 @@ public sealed class SandboxPointerHoldsTests
 
     #endregion
 
+    #region The Same Press And The Stop
+
+    [Fact]
+    public async Task Work_started_by_the_timer_is_registered_before_anything_else_is_done_for_it()
+    {
+        var world = new World();
+        var registered = new List<bool>();
+        world.Watching = message =>
+        {
+            if (message.Contains("is being let go of", StringComparison.Ordinal))
+            {
+                registered.Add(!world.Holds.Quiet().IsCompleted);
+            }
+        };
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        await world.Holds.Quiet();
+
+        registered.Should().Equal([true], "a stop that closes at that moment must see the work and wait for it");
+    }
+
+    [Fact]
+    public async Task A_second_press_of_a_held_button_does_not_restart_its_longest_hold()
+    {
+        var world = new World();
+        var owner = World.Owner(1);
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+
+        for (var step = 0; step < 5; step++)
+        {
+            world.Clock.Advance(TimeSpan.FromSeconds(9));
+            await world.Holds.Move(World.Space, world.Sandbox, owner, World.Nothing);
+        }
+
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+        world.Clock.Advance(TimeSpan.FromSeconds(9));
+        await world.Holds.Move(World.Space, world.Sandbox, owner, World.Nothing);
+        world.Calls.Should().BeEmpty("forty-five seconds in, the button was kept every nine seconds");
+        world.Clock.Advance(TimeSpan.FromSeconds(6));
+        await world.Holds.Quiet();
+
+        world.Calls.Should().ContainSingle("sixty seconds after the first press, not after the second");
+    }
+
+    [Fact]
+    public async Task A_press_still_running_when_the_budget_of_a_stop_is_spent_lets_go_of_its_button_when_it_ends()
+    {
+        var world = new World();
+        var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pressing = world.Holds.Press(world.Press(), staysDown: true, () => inFlight.Task, World.Token);
+        var stopping = world.Holds.DisposeAsync().AsTask();
+        await World.Idle();
+        stopping.IsCompleted.Should().BeFalse("the press is still running");
+
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
+        world.Calls.Should().BeEmpty("the press had not ended, so there was nothing to let go of yet");
+        inFlight.SetResult();
+        await pressing;
+
+        world.Calls.Should().ContainSingle().Which.Button.Should().Be(MouseButton.Left);
+        world.Clock.Advance(SandboxPointerHolds.Limit * 3);
+        world.Calls.Should().ContainSingle("it was let go of once, and nothing is left to expire");
+    }
+
+    [Fact]
+    public async Task A_stop_has_one_budget_for_every_sandbox_not_one_for_each()
+    {
+        var world = new World { Behaviour = (_, token) => World.Wait(token) };
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+        await world.Holds.Press(world.Press() with { SandboxId = Guid.CreateVersion7() }, staysDown: true,
+            World.Nothing, World.Token);
+
+        var stopping = world.Holds.DisposeAsync().AsTask();
+        await World.Idle();
+        world.Calls.Should().ContainSingle("the first sandbox's release is waiting");
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
+        world.Calls
+            .Should().ContainSingle("the budget was spent, so the second sandbox was not given another ten seconds");
+    }
+
+    [Fact]
+    public async Task A_pause_runs_with_nothing_held_and_no_press_can_come_between_the_release_and_the_pause()
+    {
+        var world = new World();
+        await world.Holds.Press(world.Press(World.Owner(1)), staysDown: true, World.Nothing, World.Token);
+        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var pausing = world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            async () =>
+            {
+                inside.SetResult();
+                await finish.Task;
+            },
+            World.Token);
+        await inside.Task;
+        var pressed = false;
+        var press = world.Holds.Press(
+            world.Press(World.Owner(2), button: MouseButton.Right),
+            staysDown: true,
+            () =>
+            {
+                pressed = true;
+                return Task.CompletedTask;
+            },
+            World.Token);
+        await World.Idle();
+
+        world.Calls.Should().ContainSingle("the held button was let go of before the pause began");
+        pressed.Should().BeFalse("a press waits for the pause to end");
+        finish.SetResult();
+        (await pausing).Should().BeTrue();
+        await press;
+        pressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_pause_does_not_run_while_a_button_cannot_be_let_go_of_when_it_is_required_not_to()
+    {
+        var world = new World { Outcome = ReleaseOutcome.Unreachable };
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+        var ran = false;
+
+        var required = await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: true, () =>
+        {
+            ran = true;
+            return Task.CompletedTask;
+        }, World.Token);
+        var notRequired = await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, () =>
+        {
+            ran = true;
+            return Task.CompletedTask;
+        }, World.Token);
+
+        required.Should().BeFalse();
+        notRequired.Should().BeTrue();
+        ran.Should().BeTrue("only the work that did not require it ran");
+    }
+
+    #endregion
+
     #region A Button That Cannot Be Let Go Of
 
     [Theory]
@@ -431,7 +579,7 @@ public sealed class SandboxPointerHoldsTests
 
         #region Constructors
 
-        public World() => Holds = new SandboxPointerHolds(Clock, NullLogger.Instance, Release);
+        public World() => Holds = new SandboxPointerHolds(Clock, new Watcher(this), Release);
 
         #endregion
 
@@ -450,6 +598,9 @@ public sealed class SandboxPointerHoldsTests
         public ReleaseOutcome Outcome { get; set; } = ReleaseOutcome.Released;
 
         public Func<PointerPress, CancellationToken, Task<ReleaseOutcome>>? Behaviour { get; set; }
+
+        /// <summary>Told each message the holds log, as it is logged, on the thread that logs it.</summary>
+        public Action<string>? Watching { get; set; }
 
         public IReadOnlyList<PointerPress> Calls
         {
@@ -492,6 +643,14 @@ public sealed class SandboxPointerHoldsTests
 
         #region Private Methods
 
+        /// <summary>A release that waits for its token, as one stuck on a provider does, then ends in
+        /// failure.</summary>
+        public static async Task<ReleaseOutcome> Wait(CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return ReleaseOutcome.Unreachable;
+        }
+
         private static Guid Identity(int number) => new(number, 0, 0, new byte[8]);
 
         private Task<ReleaseOutcome> Release(PointerPress held, CancellationToken cancellationToken)
@@ -510,6 +669,26 @@ public sealed class SandboxPointerHoldsTests
 
             return Behaviour is { } scripted ? scripted(held, cancellationToken) : Task.FromResult(Outcome);
         }
+
+        #endregion
+    }
+
+    private sealed class Watcher(World world) : ILogger
+    {
+        #region Public Methods
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            world.Watching?.Invoke(formatter(state, exception));
 
         #endregion
     }

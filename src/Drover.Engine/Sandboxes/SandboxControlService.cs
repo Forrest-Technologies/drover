@@ -441,24 +441,29 @@ public sealed class SandboxControlService(
             return await work();
         }
 
-        switch (buttons)
+        if (buttons is ButtonsOnPower.LetGoAfter)
         {
-            case ButtonsOnPower.LetGoFirst when !await Holds.ReleaseAll(spaceId, sandboxId, cancellationToken):
-                throw new BuiltinToolException(NotPausedWhileHeld);
-            case ButtonsOnPower.Reset:
-                await Holds.ReleaseAll(spaceId, sandboxId, cancellationToken);
-                break;
+            var resumed = await work();
+            await Holds.ReleaseAll(spaceId, sandboxId, cancellationToken);
+            return resumed;
         }
 
-        var done = await work();
+        var done = false;
+        var ran = await Holds.RunWhileReleased(
+            spaceId,
+            sandboxId,
+            required: buttons is ButtonsOnPower.LetGoFirst,
+            async () => done = await work(),
+            cancellationToken);
+
+        if (!ran)
+        {
+            throw new BuiltinToolException(NotPausedWhileHeld);
+        }
 
         if (done && buttons is ButtonsOnPower.Reset)
         {
             Holds.Forget(spaceId, sandboxId);
-        }
-        else if (buttons is ButtonsOnPower.LetGoAfter)
-        {
-            await Holds.ReleaseAll(spaceId, sandboxId, cancellationToken);
         }
 
         return done;
@@ -651,7 +656,7 @@ public sealed class SandboxControlService(
 
     #region Nested Types
 
-    /// <summary>An input ready to run: its command, what it does in words, and the pointer action when it is one.</summary>
+    /// <summary>An input ready to run: its command, what it does, and the pointer action when it is one.</summary>
     private sealed record BuiltInput(CommandRequest Action, string Doing, PointerAction? Pointer);
 
     /// <summary>What a power control does about the mouse buttons held down on the sandbox's display.</summary>
