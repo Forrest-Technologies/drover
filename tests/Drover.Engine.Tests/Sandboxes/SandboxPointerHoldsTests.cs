@@ -379,21 +379,70 @@ public sealed class SandboxPointerHoldsTests
     }
 
     [Fact]
-    public async Task A_stop_has_one_budget_for_every_sandbox_not_one_for_each()
+    public async Task A_stop_tries_every_sandbox_on_its_own_under_one_budget_so_a_busy_one_does_not_spend_it()
     {
-        var world = new World { Behaviour = (_, token) => World.Wait(token) };
+        var world = new World();
+        var busy = world.Sandbox;
+        var other = Guid.CreateVersion7();
+        world.Behaviour = (held, token) => held.SandboxId == busy
+            ? World.Wait(token)
+            : Task.FromResult(ReleaseOutcome.Released);
         await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
-        await world.Holds.Press(world.Press() with { SandboxId = Guid.CreateVersion7() }, staysDown: true,
-            World.Nothing, World.Token);
+        await world.Holds.Press(world.Press() with { SandboxId = other }, staysDown: true, World.Nothing, World.Token);
 
         var stopping = world.Holds.DisposeAsync().AsTask();
         await World.Idle();
-        world.Calls.Should().ContainSingle("the first sandbox's release is waiting");
+
+        world.Calls.Select(call => call.SandboxId).Should().BeEquivalentTo(
+            [busy, other],
+            "the second sandbox was tried while the first was still busy");
+        stopping.IsCompleted.Should().BeFalse("the busy sandbox is still within the budget");
         world.Clock.Advance(SandboxPointerHolds.Limit);
 
         await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
-        world.Calls
-            .Should().ContainSingle("the budget was spent, so the second sandbox was not given another ten seconds");
+        world.Calls.Should().HaveCount(2, "the budget ended the busy one, and nothing was given another ten seconds");
+    }
+
+    [Fact]
+    public async Task A_press_that_waited_for_a_pause_to_run_is_refused_and_registers_nothing()
+    {
+        var world = new World();
+        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.Holds.PressWaiting = () => waiting.TrySetResult();
+        var pausing = world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            async () =>
+            {
+                inside.SetResult();
+                await finish.Task;
+            },
+            World.Token);
+        await inside.Task;
+        var ran = false;
+
+        var press = world.Holds.Press(
+            world.Press(),
+            staysDown: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token);
+        await waiting.Task;
+        finish.SetResult();
+        await pausing;
+        var refused = async () => await press;
+
+        await refused.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+        ran.Should().BeFalse("nothing was pressed on a display that was paused under it");
+        world.Clock.Advance(SandboxPointerHolds.Limit * 3);
+        world.Calls.Should().BeEmpty("nothing was registered, so nothing is left to let go of");
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
     }
 
     [Fact]
@@ -403,6 +452,8 @@ public sealed class SandboxPointerHoldsTests
         await world.Holds.Press(world.Press(World.Owner(1)), staysDown: true, World.Nothing, World.Token);
         var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.Holds.PressWaiting = () => waiting.TrySetResult();
 
         var pausing = world.Holds.RunWhileReleased(
             World.Space,
@@ -425,14 +476,16 @@ public sealed class SandboxPointerHoldsTests
                 return Task.CompletedTask;
             },
             World.Token);
-        await World.Idle();
+        await waiting.Task;
 
         world.Calls.Should().ContainSingle("the held button was let go of before the pause began");
         pressed.Should().BeFalse("a press waits for the pause to end");
         finish.SetResult();
         (await pausing).Should().BeTrue();
-        await press;
-        pressed.Should().BeTrue();
+        var refused = async () => await press;
+
+        await refused.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+        pressed.Should().BeFalse("the press that waited for the pause was refused, not run on the paused display");
     }
 
     [Fact]

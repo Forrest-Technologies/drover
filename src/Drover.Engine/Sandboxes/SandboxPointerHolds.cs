@@ -59,6 +59,12 @@ internal sealed class SandboxPointerHolds(
 
     #region Properties
 
+    /// <summary>
+    /// Runs when a press finds the screen's gate taken and is about to wait for it. A test uses it to know the press
+    /// has reached the gate. Not used outside tests.
+    /// </summary>
+    internal Action? PressWaiting { get; set; }
+
     /// <summary>How long a held button may go without a move from the session that pressed it.</summary>
     public static TimeSpan Limit => limit;
 
@@ -78,14 +84,20 @@ internal sealed class SandboxPointerHolds(
     {
         RefuseWhenStopping();
         var screen = Enter(press.SpaceId, press.SandboxId);
+        var epoch = ReadEpoch(screen);
 
         try
         {
+            if (screen.Gate.CurrentCount is 0)
+            {
+                PressWaiting?.Invoke();
+            }
+
             await screen.Gate.WaitAsync(cancellationToken);
 
             try
             {
-                var held = Register(screen, press);
+                var held = Register(screen, press, epoch);
                 await RunPressed(screen, held, run);
                 await Settle(screen, held, staysDown);
             }
@@ -230,30 +242,29 @@ internal sealed class SandboxPointerHolds(
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        var (running, screensHeld) = Close();
+        var (running, held) = Close();
         using var budget = new CancellationTokenSource(limit, time);
+
+        // Every screen is tried on its own, all under the one budget, so a busy or unreachable screen cannot spend it
+        // before the others are attempted.
+        List<Task> cleanups = [.. held.Select(screen => ReleaseOnStop(screen, budget.Token))];
+        await Task.WhenAll(cleanups);
 
         try
         {
             await Task.WhenAll(running).WaitAsync(budget.Token);
-
-            foreach (var screen in screensHeld)
-            {
-                await ReleaseOnStop(screen, budget.Token);
-            }
         }
         catch (OperationCanceledException)
         {
-            logger.LogError(
-                "Mouse buttons were still being let go of after {Seconds} seconds as the server stopped",
+            logger.LogError("Releases were still running after {Seconds} seconds as the server stopped",
                 limit.TotalSeconds);
         }
 
         lock (sync)
         {
-            foreach (var held in screens.Values.SelectMany(screen => screen.Presses.Values))
+            foreach (var press in screens.Values.SelectMany(screen => screen.Presses.Values))
             {
-                held.Timer?.Dispose();
+                press.Timer?.Dispose();
             }
         }
     }
@@ -290,6 +301,12 @@ internal sealed class SandboxPointerHolds(
                 }
 
                 await work();
+
+                lock (sync)
+                {
+                    screen.Epoch++;
+                }
+
                 return true;
             }
             finally
@@ -318,12 +335,18 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
-    private PressRecord Register(Screen screen, PointerPress press)
+    private PressRecord Register(Screen screen, PointerPress press, int epoch)
     {
         RefuseWhenStopping();
 
         lock (sync)
         {
+            if (screen.Epoch != epoch)
+            {
+                throw new BuiltinToolException(
+                    "The sandbox was paused or replaced while this waited, so nothing was pressed. Try again.");
+            }
+
             if (IsStuck(screen))
             {
                 throw new BuiltinToolException(StuckSentence);
@@ -468,20 +491,33 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
+    /// <summary>
+    /// Lets go of what is held on one screen as the server stops, within the stop's budget. The budget running out
+    /// ends this screen's attempt and is logged; it never ends another screen's.
+    /// </summary>
     private async Task ReleaseOnStop(Screen screen, CancellationToken budget)
     {
-        await screen.Gate.WaitAsync(budget);
-
         try
         {
-            foreach (var held in Snapshot(screen))
+            await screen.Gate.WaitAsync(budget);
+
+            try
             {
-                await ReleaseHeld(screen, held, budget);
+                foreach (var held in Snapshot(screen))
+                {
+                    await ReleaseHeld(screen, held, budget);
+                }
+            }
+            finally
+            {
+                screen.Gate.Release();
             }
         }
-        finally
+        catch (OperationCanceledException)
         {
-            screen.Gate.Release();
+            logger.LogError(
+                "A screen was still busy after {Seconds} seconds as the server stopped, with a button held on it",
+                limit.TotalSeconds);
         }
     }
 
@@ -638,6 +674,14 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
+    private int ReadEpoch(Screen screen)
+    {
+        lock (sync)
+        {
+            return screen.Epoch;
+        }
+    }
+
     private bool IsHeld(Screen screen)
     {
         lock (sync)
@@ -709,6 +753,10 @@ internal sealed class SandboxPointerHolds(
         public Dictionary<MouseButton, PressRecord> Presses { get; } = [];
 
         public int Users { get; set; }
+
+        /// <summary>Counts the power controls that ran on the display, so a press that waited for one knows it
+        /// did.</summary>
+        public int Epoch { get; set; }
 
         #endregion
     }

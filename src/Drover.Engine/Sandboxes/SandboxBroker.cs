@@ -66,6 +66,9 @@ public sealed class SandboxBroker(
     private const string HeldSentence =
         "A person has this sandbox's screen right now, because a bot that shares it asked them to take it over. Nothing was done in the sandbox. Try again once they hand it back; an owner or admin can see who holds it, and stop that run, on the bot's sandbox page.";
 
+    private const string MovedSentence =
+        "The bot's sandbox changed while this was under way, so nothing was done. Try again.";
+
     private const string ClosedConversationSentence =
         "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.";
 
@@ -588,13 +591,15 @@ public sealed class SandboxBroker(
         RunCommand(person, null, command, null, limit, _ => Task.CompletedTask, cancellationToken);
 
     /// <summary>Pauses the bot's sandbox, keeping its files. False when it has none to pause.</summary>
-    public async Task<bool> Pause(SandboxCaller person, CancellationToken cancellationToken)
+    public async Task<bool> Pause(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
     {
         if (await Locate(person, null, create: false, cancellationToken) is not { Token: { } token } target
             || target.Row.State is SandboxState.Creating)
         {
             return false;
         }
+
+        RefuseWhenMoved(target, only);
 
         try
         {
@@ -649,14 +654,16 @@ public sealed class SandboxBroker(
     /// Replaces the bot's sandbox with a fresh one: the live one is taken out of use and destroyed at the provider, its
     /// token deleted, and a new one made, as when the Desktop setting changes. Its files are gone.
     /// </summary>
-    public async Task Rebuild(SandboxCaller person, CancellationToken cancellationToken)
+    public async Task Rebuild(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
     {
         if (await Locate(person, null, create: false, cancellationToken) is { } target)
         {
+            RefuseWhenMoved(target, only);
             appliedNetworks.TryRemove(target.Row.Id, out _);
             var now = time.GetUtcNow();
             await person.Tenant.Transact(
-                services => services.GetRequiredService<SandboxRepository>().RetireLiveForOwner(target.Owner.Id, now, cancellationToken),
+                services => services.GetRequiredService<SandboxRepository>().RetireLive(target.Row.Id, now,
+                    cancellationToken),
                 cancellationToken);
         }
 
@@ -669,12 +676,14 @@ public sealed class SandboxBroker(
     /// Destroys the bot's sandbox now, at the provider and in Drover: its files are gone and its token deleted. The next
     /// use makes a new one. False when it has none.
     /// </summary>
-    public async Task<bool> TurnOff(SandboxCaller person, CancellationToken cancellationToken)
+    public async Task<bool> TurnOff(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
     {
         if (await Locate(person, null, create: false, cancellationToken) is not { } target)
         {
             return false;
         }
+
+        RefuseWhenMoved(target, only);
 
         if (target is { Token: { } token, Row.ProviderSandboxId.Length: > 0 })
         {
@@ -965,6 +974,18 @@ public sealed class SandboxBroker(
         appliedNetworks[target.Row.Id] = network;
         logger.LogInformation("Created sandbox {SandboxId} for bot {BotId} at {Provider}", target.Row.Id, target.Owner.Id, provider.Kind);
         return created;
+    }
+
+    /// <summary>
+    /// A power control that was made ready for one sandbox does not act on another: if the bot's sandbox is not the one
+    /// that was meant, nothing is done. The check is on the row the control is about to act on, not a separate lookup.
+    /// </summary>
+    private static void RefuseWhenMoved(SandboxTarget target, Guid? only)
+    {
+        if (only is { } meant && target.Row.Id != meant)
+        {
+            throw new BuiltinToolException(MovedSentence);
+        }
     }
 
     /// <summary>Marks a sandbox the provider no longer has as destroyed and forgets its token.</summary>

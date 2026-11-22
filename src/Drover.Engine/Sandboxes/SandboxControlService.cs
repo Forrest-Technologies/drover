@@ -97,7 +97,7 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.paused",
-            (sandbox, person) => sandbox.Pause(person, cancellationToken),
+            (sandbox, person, only) => sandbox.Pause(person, cancellationToken, only),
             ButtonsOnPower.LetGoFirst,
             cancellationToken);
 
@@ -107,7 +107,7 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.resumed",
-            (sandbox, person) => sandbox.Resume(person, cancellationToken),
+            (sandbox, person, _) => sandbox.Resume(person, cancellationToken),
             ButtonsOnPower.LetGoAfter,
             cancellationToken);
 
@@ -117,9 +117,9 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.rebuilt",
-            async (sandbox, person) =>
+            async (sandbox, person, only) =>
             {
-                await sandbox.Rebuild(person, cancellationToken);
+                await sandbox.Rebuild(person, cancellationToken, only);
                 return true;
             },
             ButtonsOnPower.Reset,
@@ -131,7 +131,7 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.turned_off",
-            (sandbox, person) => sandbox.TurnOff(person, cancellationToken),
+            (sandbox, person, only) => sandbox.TurnOff(person, cancellationToken, only),
             ButtonsOnPower.Reset,
             cancellationToken);
 
@@ -233,7 +233,7 @@ public sealed class SandboxControlService(
         Guid userId,
         Guid botId,
         string action,
-        Func<SandboxBroker, SandboxCaller, Task<bool>> work,
+        Func<SandboxBroker, SandboxCaller, Guid?, Task<bool>> work,
         ButtonsOnPower buttons,
         CancellationToken cancellationToken)
     {
@@ -247,7 +247,7 @@ public sealed class SandboxControlService(
                 sandbox,
                 person,
                 buttons,
-                () => work(sandbox, person),
+                only => work(sandbox, person, only),
                 cancellationToken),
             cancellationToken,
             auditWhen: changed => changed);
@@ -433,17 +433,17 @@ public sealed class SandboxControlService(
         SandboxBroker sandbox,
         SandboxCaller person,
         ButtonsOnPower buttons,
-        Func<Task<bool>> work,
+        Func<Guid?, Task<bool>> work,
         CancellationToken cancellationToken)
     {
         if (await sandbox.CurrentSandbox(person, cancellationToken) is not { } sandboxId)
         {
-            return await work();
+            return await work(null);
         }
 
         if (buttons is ButtonsOnPower.LetGoAfter)
         {
-            var resumed = await work();
+            var resumed = await work(sandboxId);
             await Holds.ReleaseAll(spaceId, sandboxId, cancellationToken);
             return resumed;
         }
@@ -453,7 +453,7 @@ public sealed class SandboxControlService(
             spaceId,
             sandboxId,
             required: buttons is ButtonsOnPower.LetGoFirst,
-            async () => done = await work(),
+            async () => done = await work(sandboxId),
             cancellationToken);
 
         if (!ran)
