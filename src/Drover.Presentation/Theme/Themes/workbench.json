@@ -3,6 +3,7 @@
   "id": "workbench",
   "name": "Workbench",
   "intent": "Large, high-contrast and touch-first, for phones, bright rooms and low vision.",
+  "group": "expressive",
   "firstMode": "dark",
   "suits": ["large-text"],
   "type": {

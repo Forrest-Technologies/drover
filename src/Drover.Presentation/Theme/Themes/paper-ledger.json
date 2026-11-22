@@ -3,6 +3,7 @@
   "id": "paper-ledger",
   "name": "Paper Ledger",
   "intent": "Warm paper and a reading face, for long reading and writing in conversation.",
+  "group": "expressive",
   "firstMode": "light",
   "suits": [],
   "type": {
