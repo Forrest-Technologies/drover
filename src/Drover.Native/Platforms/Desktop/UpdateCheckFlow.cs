@@ -4,6 +4,7 @@ namespace Drover.Native.Platform;
 /// Runs update checks and the checks setting for one installation. Every check and every change of the setting takes
 /// a new generation. A check that resumes after a newer generation began does nothing more: it does not replace the
 /// updater, clear old downloads, or change what is shown, so it can never disturb a newer check, download, or install.
+/// Disposing ends the flow for good: checks in progress are superseded, and no new check or setting change starts.
 /// </summary>
 internal sealed class UpdateCheckFlow(
     IDeviceSettings settings,
@@ -18,6 +19,8 @@ internal sealed class UpdateCheckFlow(
     #region Private Fields
 
     private long generation;
+
+    private int disposed;
 
     #endregion
 
@@ -35,6 +38,11 @@ internal sealed class UpdateCheckFlow(
 
     public void SetChecks(bool enabled)
     {
+        if (IsDisposed)
+        {
+            return;
+        }
+
         try
         {
             DesktopUpdateChecks.Store(settings, enabled);
@@ -57,7 +65,8 @@ internal sealed class UpdateCheckFlow(
     public async Task Check(bool reportFailure)
     {
         var current = state();
-        if (current is not { Supported: true, ChecksEnabled: true }
+        if (IsDisposed
+            || current is not { Supported: true, ChecksEnabled: true }
             || current.Phase is DesktopUpdatePhase.Checking or DesktopUpdatePhase.Downloading
                 or DesktopUpdatePhase.Installing)
         {
@@ -105,14 +114,24 @@ internal sealed class UpdateCheckFlow(
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref disposed, 1) == 1)
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref generation);
         Updater?.Dispose();
+        Updater = null;
+        Available = null;
     }
 
     #endregion
 
     #region Private Methods
 
-    private bool IsSuperseded(long ticket) => Interlocked.Read(ref generation) != ticket;
+    private bool IsDisposed => Volatile.Read(ref disposed) == 1;
+
+    private bool IsSuperseded(long ticket) => IsDisposed || Interlocked.Read(ref generation) != ticket;
 
     private void Offer(UpdateInfo result, bool reportFailure)
     {

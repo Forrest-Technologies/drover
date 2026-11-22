@@ -304,8 +304,11 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
 
 /// <summary>How one package download ended.</summary>
-internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled)
+internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled, Exception? NotRemoved = null)
 {
+    /// <summary>True when the download finished and its file is on disk.</summary>
+    public bool Finished => Error is null && !Cancelled;
+
     /// <summary>
     /// The outcome once the partial file was removed, or could not be. A file that could not be removed is a failure
     /// that carries both causes, even for a cancelled download, because the library reports no error for a
@@ -313,7 +316,10 @@ internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled
     /// </summary>
     public DownloadOutcome AfterCleanup(Exception? notRemoved) => notRemoved is null || Error is null
         ? this
-        : new(new AggregateException(BoundedPackageDownloader.CleanupProblem, Error, notRemoved), Cancelled: false);
+        : new(
+            new AggregateException(BoundedPackageDownloader.CleanupProblem, Error, notRemoved),
+            Cancelled: false,
+            notRemoved);
 
     public global::System.ComponentModel.AsyncCompletedEventArgs ToEventArgs() => new(Error, Cancelled, null);
 }

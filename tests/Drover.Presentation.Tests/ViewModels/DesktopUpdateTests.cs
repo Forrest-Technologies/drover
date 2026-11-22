@@ -223,11 +223,11 @@ public sealed class DesktopUpdateTests
         var act = async () =>
         {
             var path = await UpdatePackageTrust.Download(
-            updater,
-            item,
-            directory,
-            TimeSpan.FromSeconds(20),
-            NullLogger.Instance);
+                updater,
+                item,
+                directory,
+                TimeSpan.FromSeconds(20),
+                NullLogger.Instance);
             var package = await File.ReadAllBytesAsync(path);
             var decision = UpdatePackageTrust.Decide(publicKey, item.DownloadSignature, package, UpdateHost.Windows, path, new(true, true));
             if (decision.StartInstaller)
@@ -1115,6 +1115,7 @@ public sealed class DesktopUpdateTests
         var completions = 0;
         downloader.DownloadFileCompleted += (_, _) => completions++;
         var blocked = BlockRemovalOnFirstProgress(updater);
+        var log = new RecordingLogger();
 
         try
         {
@@ -1123,7 +1124,7 @@ public sealed class DesktopUpdateTests
                 offered,
                 served.Directory,
                 TimeSpan.FromSeconds(20),
-                NullLogger.Instance);
+                log);
 
             var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
             failure.Message.Should().StartWith(BoundedPackageDownloader.CleanupProblem);
@@ -1134,6 +1135,11 @@ public sealed class DesktopUpdateTests
             blocked.Path.Should().NotBeNull("part of the package was written before the limit was crossed");
             completions.Should().Be(1, "every download ends with exactly one completion");
             File.Exists(blocked.Path).Should().BeTrue("the file that could not be removed is reported, not hidden");
+            log.Entries.Should().Contain(entry =>
+                entry.Level == LogLevel.Warning
+                && entry.Message.Contains(Path.GetDirectoryName(blocked.Path)!, StringComparison.Ordinal)
+                && entry.Exception != null,
+                "the attempt that could not be removed is reported with why");
         }
         finally
         {
@@ -1514,6 +1520,274 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
+    public async Task A_package_that_fails_its_signature_leaves_nothing_behind_across_retries()
+    {
+        var (publicKey, privateKey) = Key(
+            nameof(A_package_that_fails_its_signature_leaves_nothing_behind_across_retries));
+        var original = Enumerable.Range(0, 4096).Select(index => (byte)index).ToArray();
+        var tampered = original.ToArray();
+        tampered[^1] ^= 1;
+        await using var feed = await FeedHost.Open();
+        var item = AppCast(
+            "2.0.0",
+            null,
+            $"{feed.Address}package.bin",
+            Sign(original, privateKey),
+            HostOs(),
+            tampered.Length);
+        feed.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey));
+        feed.Add("package.bin", tampered);
+        var root = Path.Combine(Path.GetTempPath(), $"drover-rejected-{Guid.NewGuid():N}");
+        using var client = Client();
+
+        try
+        {
+            using var updater = StableUpdater($"{feed.Address}appcast.xml", publicKey, root, client);
+            var offered = await Offered(updater);
+
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                var download = () => UpdatePackageTrust.Download(
+                    updater,
+                    offered,
+                    root,
+                    TimeSpan.FromSeconds(20),
+                    NullLogger.Instance);
+
+                await download.Should().ThrowAsync<InvalidDataException>()
+                    .WithMessage(UpdatePackageTrust.SignatureProblem);
+            }
+
+            Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)
+                .Should().BeEmpty("a rejected package and its attempt are removed once the library is done with them");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("shared")]
+    [InlineData("stable")]
+    public void A_stable_check_ignores_a_preview_floor_an_earlier_build_recorded(string where)
+    {
+        var settings = new MemorySettings();
+        var stable = UpdatePackageTrust.FeedSettingName("stable");
+        var recorded = where is "shared" ? UpdatePackageTrust.LegacyFeedSettingName : stable;
+        settings.Values[recorded] = "2.0.0-preview.1";
+
+        UpdatePackageTrust.AcceptFeed(settings, "stable", null).Accepted.Should().BeTrue();
+        if (where is "shared")
+        {
+            settings.Values.Should().NotContainKey(stable, "a preview version is never imported as a stable floor");
+            settings.Values[UpdatePackageTrust.LegacyFeedSettingName]
+                .Should().Be("2.0.0-preview.1", "it is left for a preview install to take");
+        }
+
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.3.0")
+            .Accepted.Should().BeTrue("a legitimate stable release is not refused by a preview floor");
+        settings.Values[stable].Should().Be("1.3.0");
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.2.0").Accepted.Should().BeFalse("the new floor holds");
+    }
+
+    [Fact]
+    public void Valid_floors_and_a_clean_record_are_kept_for_each_channel()
+    {
+        var clean = new MemorySettings();
+        UpdatePackageTrust.AcceptFeed(clean, "stable", "1.3.0").Accepted.Should().BeTrue();
+        clean.Values[UpdatePackageTrust.FeedSettingName("stable")].Should().Be("1.3.0");
+
+        var stableFloor = new MemorySettings();
+        stableFloor.Values[UpdatePackageTrust.FeedSettingName("stable")] = "1.4.0";
+        UpdatePackageTrust.AcceptFeed(stableFloor, "stable", "1.3.0").Accepted.Should().BeFalse();
+
+        var sharedStable = new MemorySettings();
+        sharedStable.Values[UpdatePackageTrust.LegacyFeedSettingName] = "1.4.0";
+        UpdatePackageTrust.AcceptFeed(sharedStable, "stable", "1.3.0").Accepted.Should().BeFalse();
+        sharedStable.Values[UpdatePackageTrust.FeedSettingName("stable")].Should().Be("1.4.0");
+
+        var sharedPreview = new MemorySettings();
+        sharedPreview.Values[UpdatePackageTrust.LegacyFeedSettingName] = "2.0.0-preview.3";
+        UpdatePackageTrust.AcceptFeed(sharedPreview, "preview", "2.0.0-preview.2").Accepted.Should().BeFalse();
+        sharedPreview.Values[UpdatePackageTrust.FeedSettingName("preview")]
+            .Should().Be("2.0.0-preview.3", "a preview install keeps a preview floor");
+    }
+
+    [Theory]
+    [InlineData("not removed", LogLevel.Warning, "could not remove its partial file")]
+    [InlineData("cancelled", LogLevel.Information, "removed its partial file")]
+    [InlineData("transfer failed", LogLevel.Information, "removed its partial file")]
+    [InlineData("finished", LogLevel.Warning, "left its file on disk")]
+    public async Task A_download_that_stops_exactly_at_the_deadline_has_its_actual_outcome_logged(
+        string ended,
+        LogLevel level,
+        string says)
+    {
+        var outcome = ended switch
+        {
+            "not removed" => new DownloadOutcome(
+                new AggregateException(
+                    BoundedPackageDownloader.CleanupProblem,
+                    new OperationCanceledException(),
+                    new IOException("Sample: the file is held.")),
+                Cancelled: false,
+                new IOException("Sample: the file is held.")),
+            "cancelled" => new DownloadOutcome(new OperationCanceledException(), Cancelled: true),
+            "transfer failed" => new DownloadOutcome(new HttpRequestException("Sample: reset."), Cancelled: false),
+            _ => new DownloadOutcome(null, Cancelled: false),
+        };
+        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var log = new RecordingLogger();
+
+        // The deadline wins, and the download stops in that same moment: the task is complete before anything else
+        // could look at it. The decision the wait made still holds.
+        var teardown = await UpdatePackageTrust.ObserveTeardown(
+            stopped.Task,
+            () =>
+            {
+                stopped.SetResult(outcome);
+                return Task.FromResult(false);
+            },
+            "/sample/attempt-1",
+            log);
+
+        teardown.Should().BeOfType<TimeoutException>().Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem);
+        await WaitUntil(() => !log.Entries.IsEmpty);
+        var entry = log.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(level);
+        entry.Message.Should().Contain(says).And.Contain("/sample/attempt-1");
+    }
+
+    [Fact]
+    public async Task A_download_that_stops_in_time_reports_its_outcome_to_the_caller_and_logs_nothing()
+    {
+        var notRemoved = new IOException("Sample: the file is held.");
+        var failure = new AggregateException(
+            BoundedPackageDownloader.CleanupProblem,
+            new TimeoutException(),
+            notRemoved);
+        var log = new RecordingLogger();
+
+        var failed = await UpdatePackageTrust.ObserveTeardown(
+            Task.FromResult(new DownloadOutcome(failure, Cancelled: false, notRemoved)),
+            () => Task.FromResult(true),
+            "/sample/attempt-2",
+            log);
+        var clean = await UpdatePackageTrust.ObserveTeardown(
+            Task.FromResult(new DownloadOutcome(new OperationCanceledException(), Cancelled: true)),
+            () => Task.FromResult(true),
+            "/sample/attempt-3",
+            log);
+
+        failed.Should().BeSameAs(failure);
+        clean.Should().BeNull();
+        log.Entries.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("a newer check")]
+    [InlineData("checks turned off")]
+    public async Task An_appcast_that_arrives_after_its_check_was_superseded_publishes_nothing(string supersededBy)
+    {
+        await using var served = await GatedFeed(
+            nameof(An_appcast_that_arrives_after_its_check_was_superseded_publishes_nothing));
+        var settings = new MemorySettings();
+        var feeds = 0;
+        using var probe = new FlowProbe(
+            settings,
+            new DesktopUpdateState(true, true),
+            build: address => StableUpdater(address, served.PublicKey, served.Directory, served.Client),
+            feed: () => ++feeds == 1
+                ? Task.FromResult(served.Feed)
+                : Task.FromException<string>(new InvalidDataException("Sample: the newer check finds no feed.")));
+
+        var older = probe.Flow.Check(reportFailure: true);
+        probe.Builds.Should().Be(1, "the older check has built its updater and is waiting for the signed appcast");
+        probe.Flow.SetChecks(false);
+        if (supersededBy is "a newer check")
+        {
+            probe.Flow.SetChecks(true);
+            await WaitUntil(() => probe.State.Phase is DesktopUpdatePhase.Idle && feeds == 2);
+        }
+
+        var settled = probe.State;
+        var changes = probe.Changes;
+        served.Gate.SetResult();
+        await older;
+
+        probe.Flow.Available.Should().BeNull("a superseded check never publishes an offer");
+        settings.Values.Should().NotContainKey(
+            UpdatePackageTrust.FeedSettingName("stable"),
+            "a superseded check never writes the version record");
+        probe.Changes.Should().Be(changes);
+        probe.State.Should().Be(settled);
+    }
+
+    [Fact]
+    public async Task Disposing_while_a_check_waits_for_its_feed_ends_it_and_refuses_new_ones()
+    {
+        var probe = new FlowProbe(new MemorySettings(), new DesktopUpdateState(true, true));
+        var older = probe.Flow.Check(reportFailure: true);
+        probe.Flow.Dispose();
+        var changes = probe.Changes;
+
+        probe.Feeds[0].SetResult("https://example.invalid/appcast.xml");
+        await older;
+
+        // Even from a state in which a check could start, a disposed flow starts none.
+        probe.State = probe.State with { Phase = DesktopUpdatePhase.Idle };
+        var late = probe.Flow.Check(reportFailure: true);
+        late.IsCompleted.Should().BeTrue("a disposed flow returns at once and waits for no feed");
+        probe.Flow.SetChecks(false);
+
+        probe.Builds.Should().Be(0, "a disposed flow never builds an updater");
+        probe.Sweeps.Should().Be(0, "a disposed flow never clears old downloads");
+        probe.Feeds.Should().HaveCount(1, "a disposed flow starts no new check");
+        probe.Changes.Should().Be(changes, "a disposed flow never changes what is shown");
+    }
+
+    [Fact]
+    public async Task Disposing_while_a_check_waits_for_its_appcast_publishes_nothing()
+    {
+        await using var served = await GatedFeed(
+            nameof(Disposing_while_a_check_waits_for_its_appcast_publishes_nothing));
+        var settings = new MemorySettings();
+        var probe = new FlowProbe(
+            settings,
+            new DesktopUpdateState(true, true),
+            build: address => StableUpdater(address, served.PublicKey, served.Directory, served.Client),
+            feed: () => Task.FromResult(served.Feed));
+
+        var older = probe.Flow.Check(reportFailure: true);
+        probe.Builds.Should().Be(1);
+        probe.Flow.Dispose();
+        var changes = probe.Changes;
+        served.Gate.SetResult();
+        await older;
+
+        probe.Flow.Available.Should().BeNull();
+        probe.Flow.Updater.Should().BeNull("disposing releases the updater and builds no other");
+        settings.Values.Should().NotContainKey(UpdatePackageTrust.FeedSettingName("stable"));
+        probe.Changes.Should().Be(changes, "nothing is shown after disposal");
+        probe.Builds.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(DesktopUpdatePhase.Downloading, "Downloading and checking the package.")]
+    [InlineData(DesktopUpdatePhase.Installing, "The installer is opening. Drover will restart when it finishes.")]
+    public void A_running_update_stays_visible_after_checks_are_turned_off(DesktopUpdatePhase phase, string detail)
+    {
+        var updates = new MemoryDesktopUpdates(new DesktopUpdateState(true, true, phase, "2.0.0"));
+        using var menu = Menu(updates);
+
+        menu.SetUpdateChecks(false);
+
+        menu.UpdateChecksEnabled.Should().BeFalse();
+        menu.UpdatesDetail.Should().Be(detail, "turning checks off stops new checks, not the update already running");
+    }
+
+    [Fact]
     public async Task A_cancelled_download_stops_and_its_partial_file_is_removed()
     {
         await using var feed = await FeedHost.Open();
@@ -1624,6 +1898,25 @@ public sealed class DesktopUpdateTests
         feed.Add("package.bin", stalls ? package[..512] : package, streamed, splitAt, stalls);
         var folder = directory ?? Path.Combine(Path.GetTempPath(), $"drover-served-{Guid.NewGuid():N}");
         return new(feed, Client(), $"{feed.Address}appcast.xml", publicKey, package, folder);
+    }
+
+    /// <summary>A signed feed whose appcast is held until <see cref="GatedServedFeed.Gate"/> opens.</summary>
+    private static async Task<GatedServedFeed> GatedFeed(string name)
+    {
+        var (publicKey, privateKey) = Key(name);
+        var package = Encoding.UTF8.GetBytes("sample desktop package");
+        var host = await FeedHost.Open();
+        var item = AppCast(
+            "2.0.0",
+            null,
+            $"{host.Address}package.bin",
+            Sign(package, privateKey),
+            HostOs(),
+            package.Length);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey), gate.Task);
+        var directory = Path.Combine(Path.GetTempPath(), $"drover-gated-{Guid.NewGuid():N}");
+        return new(host, Client(), $"{host.Address}appcast.xml", publicKey, directory, gate);
     }
 
     private static async Task<AppCastItem> Offered(SparkleUpdater updater)
@@ -1802,13 +2095,19 @@ internal sealed class FeedHost : IAsyncDisposable
     /// Serves <paramref name="body"/>, with its length declared, or in chunks with no length when streamed. A body
     /// split at <paramref name="splitAt"/> is sent in two parts a moment apart. A stalled body sends nothing more.
     /// </summary>
-    public void Add(string name, byte[] body, bool streamed = false, int splitAt = 0, bool stalls = false) =>
-        files[name] = new(body, streamed, stalls, splitAt);
+    public void Add(
+        string name,
+        byte[] body,
+        bool streamed = false,
+        int splitAt = 0,
+        bool stalls = false,
+        Task? gate = null) =>
+        files[name] = new(body, streamed, stalls, splitAt, gate);
 
     /// <summary>Serves a signed feed and its detached signature.</summary>
-    public void AddFeed(string name, (byte[] Body, string Signature) feed)
+    public void AddFeed(string name, (byte[] Body, string Signature) feed, Task? gate = null)
     {
-        Add(name, feed.Body);
+        Add(name, feed.Body, gate: gate);
         Add($"{name}.signature", Encoding.UTF8.GetBytes(feed.Signature));
     }
 
@@ -1863,6 +2162,11 @@ internal sealed class FeedHost : IAsyncDisposable
             else
             {
                 context.Response.ContentLength64 = reply.Body.Length;
+            }
+
+            if (reply.Gate is not null)
+            {
+                await reply.Gate.WaitAsync(cancel.Token);
             }
 
             var split = reply.SplitAt > 0 ? reply.SplitAt : reply.Body.Length;
@@ -1921,7 +2225,29 @@ internal sealed class FeedHost : IAsyncDisposable
 
 
 /// <summary>One file the test feed serves, and how it is sent.</summary>
-internal sealed record FeedReply(byte[] Body, bool Streamed, bool Stalls, int SplitAt);
+internal sealed record FeedReply(byte[] Body, bool Streamed, bool Stalls, int SplitAt, Task? Gate);
+
+
+/// <summary>A signed feed on a test host whose appcast waits for <paramref name="Gate"/>.</summary>
+internal sealed record GatedServedFeed(
+    FeedHost Host,
+    HttpClient Client,
+    string Feed,
+    string PublicKey,
+    string Directory,
+    TaskCompletionSource Gate) : IAsyncDisposable
+{
+    public async ValueTask DisposeAsync()
+    {
+        Gate.TrySetResult();
+        Client.Dispose();
+        await Host.DisposeAsync();
+        if (global::System.IO.Directory.Exists(Directory))
+        {
+            global::System.IO.Directory.Delete(Directory, true);
+        }
+    }
+}
 
 
 /// <summary>A signed package and its feed on a test host, with a client and download folder, removed after.</summary>
@@ -1955,11 +2281,25 @@ internal sealed class BlockedFile
 /// <summary>An update check flow with feeds the test completes, and counts of what the flow did.</summary>
 file sealed class FlowProbe : IDisposable
 {
+    #region Private Fields
+
+    private readonly Func<string, SparkleUpdater>? build;
+
+    private readonly Func<Task<string>>? feed;
+
+    #endregion
+
     #region Constructors
 
-    public FlowProbe(IDeviceSettings settings, DesktopUpdateState state)
+    public FlowProbe(
+        IDeviceSettings settings,
+        DesktopUpdateState state,
+        Func<string, SparkleUpdater>? build = null,
+        Func<Task<string>>? feed = null)
     {
         State = state;
+        this.build = build;
+        this.feed = feed;
         Flow = new(
             settings,
             "stable",
@@ -1999,15 +2339,21 @@ file sealed class FlowProbe : IDisposable
 
     private Task<string> NextFeed()
     {
-        var feed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Feeds.Add(feed);
-        return feed.Task;
+        if (feed is not null)
+        {
+            return feed();
+        }
+
+        var next = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Feeds.Add(next);
+        return next.Task;
     }
 
-    private SparkleUpdater BuildUpdater(string feed)
+    private SparkleUpdater BuildUpdater(string address)
     {
         Builds++;
-        throw new InvalidOperationException($"Sample: this test builds no updater for {feed}.");
+        return build?.Invoke(address)
+            ?? throw new InvalidOperationException($"Sample: this test builds no updater for {address}.");
     }
 
     private void Change(DesktopUpdateState state)
