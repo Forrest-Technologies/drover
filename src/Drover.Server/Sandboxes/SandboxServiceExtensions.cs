@@ -38,12 +38,80 @@ public static class SandboxServiceExtensions
         // Retired sandboxes and interrupted creations are cleared up whether or not their bot is used again.
         services.AddSingleton<SandboxSweep>();
         services.AddHostedService<SandboxSweeper>();
+        services.AddCredentialBroker(configuration, policy);
         return services;
     }
 
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// The credential broker, when the operator set it up: a public host name sandboxes reach it by, and a certificate
+    /// for that name. Half a setup stops the server, naming what is missing. Without one, brokered secrets are not
+    /// given to sandboxes and raw ones still are.
+    /// </summary>
+    private static IServiceCollection AddCredentialBroker(this IServiceCollection services, IConfiguration configuration, DeploymentPolicy policy)
+    {
+        var section = configuration.GetSection(CredentialBrokerOptions.Section);
+        var broker = new CredentialBrokerOptions();
+        section.Bind(broker);
+        services.Configure<CredentialBrokerOptions>(section);
+
+        if (string.IsNullOrWhiteSpace(broker.PublicHost) && string.IsNullOrWhiteSpace(broker.CertificatePath))
+        {
+            return services;
+        }
+
+        if (!broker.IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"The credential broker needs both {CredentialBrokerOptions.Section}:PublicHost and {CredentialBrokerOptions.Section}:CertificatePath. Set both, or neither to turn it off.");
+        }
+
+        if (SandboxSecretRules.HostProblem(SandboxSecretRules.NormalizeHost(broker.PublicHost!)) is not null || broker.PublicHost!.StartsWith("*.", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{CredentialBrokerOptions.Section}:PublicHost must be the public host name sandboxes reach the broker by, such as broker.example.com.");
+        }
+
+        CredentialBrokerServer.ReadCertificate(broker).Dispose();
+        services.AddSingleton(provider => BrokerUpstream.ForPublicAddresses(
+            policy,
+            RefusedAddresses(broker, provider.GetRequiredService<ILogger<CredentialBrokerServer>>())));
+        services.AddSingleton<BrokerLimits>();
+        services.AddSingleton<CredentialBrokerServer>();
+        services.AddHostedService(provider => provider.GetRequiredService<CredentialBrokerServer>());
+        return services;
+    }
+
+    /// <summary>
+    /// The server's own public addresses, from its broker host name, and the operator's list. A listed entry that is not
+    /// an address stops the server, naming the setting.
+    /// </summary>
+    private static List<IPAddress> RefusedAddresses(CredentialBrokerOptions broker, ILogger logger)
+    {
+        List<IPAddress> refused = [];
+
+        foreach (var entry in broker.RefusedAddresses)
+        {
+            refused.Add(IPAddress.TryParse(entry, out var address)
+                ? address
+                : throw new InvalidOperationException($"{CredentialBrokerOptions.Section}:RefusedAddresses holds an entry that is not an address. List addresses only."));
+        }
+
+        try
+        {
+            refused.AddRange(Dns.GetHostAddresses(broker.PublicHost!));
+        }
+        catch (SocketException unresolved)
+        {
+            // The name may not resolve yet on first start; its addresses are then not on the list until a restart.
+            logger.LogWarning("The broker host name could not be resolved at start ({Error}); list this server's addresses in RefusedAddresses", unresolved.SocketErrorCode);
+        }
+
+        return refused;
+    }
 
     private static string? ReadKey(IConfiguration configuration)
     {

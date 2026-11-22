@@ -108,6 +108,8 @@ services:
     # Only this machine can reach it. To reach it from another device, put the HTTPS proxy in front (compose.proxy.yaml).
     ports:
       - "127.0.0.1:8080:8080"
+      # Credential broker, if set up above: sandboxes must reach it from the internet.
+      # - "8443:8443"
     environment:
       Database__Host: db
       Database__AppPasswordFile: /run/secrets/app_password
@@ -119,6 +121,13 @@ services:
       # Sandboxes (optional): put an E2B API key in ./secrets/e2b_api_key, readable by uid 1654, then uncomment this
       # line, the secrets entry below, and the top-level secrets at the end. The key is held in memory only.
       # Drover__Sandbox__E2B__ApiKeyFile: /run/drover-sandbox/e2b_api_key
+      # Credential broker (optional, with sandboxes): lets bots use secrets without the values entering a sandbox.
+      # Sandboxes run at the provider and reach the broker over the internet, so this needs a public host name for
+      # this machine, a certificate for it (PEM files), and port 8443 published below. Without it, only secrets kept
+      # as raw values reach a sandbox. See docs/architecture/07-sandbox.md, "Credential broker".
+      # Drover__SecretBroker__PublicHost: broker.example.com
+      # Drover__SecretBroker__CertificatePath: /run/drover-broker/certificate.pem
+      # Drover__SecretBroker__CertificateKeyPath: /run/drover-broker/key.pem
       # Web search (optional): the address of a SearXNG instance with JSON output on (search.formats lists json).
       # Drover__WebSearch__SearXng__BaseUrl: http://searxng:8080/
     # secrets:

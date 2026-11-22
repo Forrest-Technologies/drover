@@ -1796,6 +1796,49 @@ namespace Drover.Data.Migrations
                     b.ToTable("usage_records", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Domain.Sandboxes.BrokerAuthority", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Certificate")
+                        .IsRequired()
+                        .HasMaxLength(8192)
+                        .HasColumnType("character varying(8192)")
+                        .HasColumnName("certificate");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTimeOffset>("NotAfter")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("not_after");
+
+                    b.Property<Guid>("SecretId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("secret_id");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_broker_authorities");
+
+                    b.HasIndex("SecretId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_broker_authorities_secret_id");
+
+                    b.HasIndex("SpaceId", "NotAfter")
+                        .HasDatabaseName("ix_broker_authorities_space_id_not_after");
+
+                    b.ToTable("broker_authorities", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Domain.Sandboxes.Sandbox", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1805,6 +1848,10 @@ namespace Drover.Data.Migrations
                     b.Property<Guid?>("AccessSecretId")
                         .HasColumnType("uuid")
                         .HasColumnName("access_secret_id");
+
+                    b.Property<byte[]>("BrokerTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("broker_token_hash");
 
                     b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
@@ -1860,6 +1907,11 @@ namespace Drover.Data.Migrations
                     b.HasAlternateKey("SpaceId", "Id")
                         .HasName("ak_sandboxes_space_id_id");
 
+                    b.HasIndex("BrokerTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_sandboxes_broker_token_hash")
+                        .HasFilter("broker_token_hash IS NOT NULL");
+
                     b.HasIndex("SpaceId", "OwnerBotId")
                         .HasDatabaseName("ix_sandboxes_space_id_owner_bot_id");
 
@@ -1869,6 +1921,37 @@ namespace Drover.Data.Migrations
 
                             t.HasCheckConstraint("ck_sandboxes_state", "state IN ('creating', 'running', 'paused', 'retiring', 'destroyed')");
                         });
+                });
+
+            modelBuilder.Entity("Drover.Domain.Sandboxes.SandboxSecretEntry", b =>
+                {
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<Guid>("SandboxId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sandbox_id");
+
+                    b.Property<Guid>("SandboxSecretId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sandbox_secret_id");
+
+                    b.Property<byte[]>("PlaceholderHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("placeholder_hash");
+
+                    b.HasKey("SpaceId", "SandboxId", "SandboxSecretId")
+                        .HasName("pk_sandbox_secret_entries");
+
+                    b.HasIndex("SpaceId", "SandboxSecretId")
+                        .HasDatabaseName("ix_sandbox_secret_entries_space_id_sandbox_secret_id");
+
+                    b.HasIndex("SpaceId", "SandboxId", "PlaceholderHash")
+                        .HasDatabaseName("ix_sandbox_secret_entries_space_id_sandbox_id_placeholder_hash")
+                        .HasFilter("placeholder_hash IS NOT NULL");
+
+                    b.ToTable("sandbox_secret_entries", (string)null);
                 });
 
             modelBuilder.Entity("Drover.Domain.Secrets.SandboxSecret", b =>
@@ -2070,7 +2153,7 @@ namespace Drover.Data.Migrations
 
                     b.ToTable("secrets", null, t =>
                         {
-                            t.HasCheckConstraint("ck_secrets_kind", "kind IN ('model_key', 'tool_header', 'oauth_tokens', 'oauth_client_secret', 'sandbox_provider_key', 'sandbox_token', 'push_key', 'sandbox_environment')");
+                            t.HasCheckConstraint("ck_secrets_kind", "kind IN ('model_key', 'tool_header', 'oauth_tokens', 'oauth_client_secret', 'sandbox_provider_key', 'sandbox_token', 'push_key', 'sandbox_environment', 'broker_authority')");
                         });
                 });
 
@@ -3164,6 +3247,25 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_sandboxes_bots_space_id_owner_bot_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Sandboxes.SandboxSecretEntry", b =>
+                {
+                    b.HasOne("Drover.Domain.Sandboxes.Sandbox", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "SandboxId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_sandbox_secret_entries_sandboxes_space_id_sandbox_id");
+
+                    b.HasOne("Drover.Domain.Secrets.SandboxSecret", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "SandboxSecretId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_sandbox_secret_entries_sandbox_secrets_space_id_sandbox_sec");
                 });
 
             modelBuilder.Entity("Drover.Domain.Secrets.SandboxSecret", b =>

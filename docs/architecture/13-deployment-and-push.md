@@ -104,6 +104,10 @@ DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy
 
 With a proxy of your own: set `DROVER_PUBLIC_URL` to the address people open, and `Drover__Proxy__TrustedAddresses__0` to the proxy's address or network as Drover sees it. Leaving the proxy untrusted still works, but every person then shares the proxy's address for the sign-in limit. Never turn on `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
 
+### The credential broker
+
+Bots use brokered sandbox secrets through the credential broker, a second TLS listener in the server ([07-sandbox.md](07-sandbox.md#the-credential-broker)). Sandboxes run at the sandbox provider, so they reach it over the internet. To turn it on: give this machine a public host name, get a certificate for that name, and set `Drover__SecretBroker__PublicHost`, `Drover__SecretBroker__CertificatePath` and `Drover__SecretBroker__CertificateKeyPath` (PEM files), then publish port 8443 (`Drover__SecretBroker__ListenPort` to change it, and `Drover__SecretBroker__PublicPort` when a forwarder maps another public port to it). `compose.yaml` has the lines commented out. The broker is not behind `compose.proxy.yaml`'s proxy: it terminates TLS itself, because it must see which sandbox is asking. Without it, only secrets a person keeps as raw values reach a sandbox, and the Secrets screen says so.
+
 ### Build cost
 
 The image is built on the self-hoster's machine, so the build must fit a modest VPS. Design choices that keep it down:

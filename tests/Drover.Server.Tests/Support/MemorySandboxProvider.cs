@@ -19,6 +19,8 @@ public sealed class MemorySandboxProvider : ISandboxProvider
 
     public ConcurrentQueue<CommandRequest> Commands { get; } = new();
 
+    public ConcurrentQueue<SandboxSpec> Specs { get; } = new();
+
     public IReadOnlyCollection<string> Ids => [.. machines.Keys];
 
     public IReadOnlyCollection<string> Tokens => [.. machines.Values.Select(machine => machine.Token)];
@@ -40,6 +42,7 @@ public sealed class MemorySandboxProvider : ISandboxProvider
 
     public Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
     {
+        Specs.Enqueue(spec);
         var id = $"mem{Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant()}";
         var machine = machines.GetOrAdd(id, _ => new Machine(spec.SpaceId, spec.SharingGroupId, $"tok_{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}"));
         return Task.FromResult(new SandboxHandle(id, machine.SpaceId, machine.GroupId, machine.Token));

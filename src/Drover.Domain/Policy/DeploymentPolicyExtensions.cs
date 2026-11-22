@@ -79,7 +79,12 @@ public static class DeploymentPolicyExtensions
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
 
     public static DeploymentPolicy WithBoundedSandboxSecrets(this DeploymentPolicy policy) =>
-        policy with { MaxSandboxSecretsPerSpace = DeploymentPolicy.HostedMaxSandboxSecretsPerSpace };
+        policy with
+        {
+            MaxSandboxSecretsPerSpace = DeploymentPolicy.HostedMaxSandboxSecretsPerSpace,
+            MaxBrokerConnectionsPerSandbox = DeploymentPolicy.HostedMaxBrokerConnectionsPerSandbox,
+            MaxBrokerMegabytesPerSandboxPerHour = DeploymentPolicy.HostedMaxBrokerMegabytesPerSandboxPerHour,
+        };
 
     public static DeploymentPolicy WithBoundedSchedules(this DeploymentPolicy policy) =>
         policy with

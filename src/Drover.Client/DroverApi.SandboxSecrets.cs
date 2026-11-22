@@ -29,6 +29,9 @@ public sealed partial class DroverApi
     public Task DeleteSandboxSecret(Guid spaceId, Guid secretId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/sandbox-secrets/{secretId}", cancellationToken);
 
+    public Task<SandboxSandboxesRestarted> RestartSandboxSecretSandboxes(Guid spaceId, Guid secretId, CancellationToken cancellationToken = default) =>
+        Post<SandboxSandboxesRestarted>($"{Space(spaceId)}/sandbox-secrets/{secretId}/restart-sandboxes", null, cancellationToken);
+
     public Task<List<SandboxSecretHistoryEntry>> GetSandboxSecretHistory(Guid spaceId, Guid secretId, CancellationToken cancellationToken = default) =>
         Get<List<SandboxSecretHistoryEntry>>($"{Space(spaceId)}/sandbox-secrets/{secretId}/history", cancellationToken);
 

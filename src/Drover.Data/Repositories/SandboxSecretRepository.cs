@@ -98,6 +98,12 @@ public sealed class SandboxSecretRepository(DroverDbContext db)
             .Where(profile => userIds.Contains(profile.UserId))
             .ToDictionaryAsync(profile => profile.UserId, profile => profile.DisplayName, cancellationToken);
 
+    /// <summary>The bots a secret reaches: every bot for the space or a project, else the chosen ones.</summary>
+    public Task<List<Guid>> ListOwnersReached(SandboxSecret secret, CancellationToken cancellationToken) =>
+        secret.Scope is SandboxSecretScope.Bots
+            ? ListBotIds(secret.Id, cancellationToken)
+            : db.Bots.Where(bot => bot.Status != BotStatus.Removed).Select(bot => bot.Id).ToListAsync(cancellationToken);
+
     /// <summary>The project's secrets, tracked, for removing them with the project.</summary>
     public Task<List<SandboxSecret>> GetProjectSecrets(Guid projectId, CancellationToken cancellationToken) =>
         db.SandboxSecrets.Where(secret => secret.ProjectId == projectId).ToListAsync(cancellationToken);

@@ -31,6 +31,9 @@ public static class SandboxSecretEndpoints
         secrets.MapPut("/{secretId:guid}/binding", ChangeBinding).WithBodyLimit(MaxChangeBytes).WithName("ChangeSandboxSecretBinding");
         secrets.MapPut("/{secretId:guid}/description", ChangeDescription).WithBodyLimit(MaxChangeBytes).WithName("ChangeSandboxSecretDescription");
         secrets.MapDelete("/{secretId:guid}", Delete).WithName("DeleteSandboxSecret");
+        secrets.MapPost("/{secretId:guid}/restart-sandboxes", RestartSandboxes)
+            .WithName("RestartSandboxSecretSandboxes")
+            .WithSummary("Takes out of use the live sandboxes of every bot the secret reaches, so the next use starts one with the secrets as they are now.");
         secrets.MapGet("/{secretId:guid}/history", History).WithName("GetSandboxSecretHistory");
 
         space.MapGet("/bots/{botId:guid}/sandbox/secrets", NamesForBot)
@@ -104,6 +107,14 @@ public static class SandboxSecretEndpoints
     private static async Task<Results<NoContent, NotFound>> Delete(Guid secretId, HttpContext context, SandboxSecretService secrets) =>
         await secrets.Delete(secretId, context.GetSpaceAccess().UserId, context.RequestAborted)
             ? TypedResults.NoContent()
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<SandboxSandboxesRestarted>, NotFound>> RestartSandboxes(
+        Guid secretId,
+        HttpContext context,
+        SandboxSecretService secrets) =>
+        await secrets.RestartSandboxes(secretId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } count
+            ? TypedResults.Ok(new SandboxSandboxesRestarted(count))
             : TypedResults.NotFound();
 
     private static async Task<Results<Ok<List<SandboxSecretHistoryEntry>>, NotFound>> History(

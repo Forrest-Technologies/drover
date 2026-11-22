@@ -22,6 +22,7 @@ public sealed partial class RunExecutor(
     IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    IOptions<CredentialBrokerOptions> credentialBroker,
     TimeProvider time,
     ILoggerFactory loggers)
 {
@@ -273,7 +274,14 @@ public sealed partial class RunExecutor(
         var carriesFiles = thread is not null
             && (projectHasFiles || await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken));
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project, carriesFiles);
+        // A bot that may run commands is told which secrets its sandbox holds, by name and never by value.
+        var sandboxSecrets = bot is not null && granted.Any(tool => tool.Tool is { SourceKind: ToolSourceKind.Builtin, Name: SandboxTools.RunName })
+            ? await services.GetRequiredService<SandboxSecretRepository>().ListSecretsReachingBot(
+                SandboxGroups.OwnerOf(bot.Id, await services.GetRequiredService<BotRepository>().ListSandboxPath(bot.Id, cancellationToken)),
+                cancellationToken)
+            : [];
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project, carriesFiles, sandboxSecrets);
     }
 
     /// <summary>
@@ -728,7 +736,7 @@ public sealed partial class RunExecutor(
         return [.. held, .. placed.Where(message => held.All(known => known.Id != message.Id))];
     }
 
-    private static RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()
+    private RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()
     {
         RunId = loaded.Run.Id,
         SpaceId = loaded.Run.SpaceId,
@@ -816,11 +824,13 @@ public sealed partial class RunExecutor(
         }
     }
 
-    private static ToolDefinition ToDefinition(RunSession session, LoadedRun loaded, RunTool tool) => new()
+    private ToolDefinition ToDefinition(RunSession session, LoadedRun loaded, RunTool tool) => new()
     {
         ToolId = tool.Tool.Id,
         Name = tool.ModelName,
-        Description = tool.IsDelegation ? DelegateTool.DescribeFor(loaded.Children) : tool.Tool.Description,
+        Description = tool.IsDelegation
+            ? DelegateTool.DescribeFor(loaded.Children)
+            : tool.Tool.Name == SandboxTools.RunName ? SandboxTools.DescribeRunFor(tool.Tool.Description, loaded.SandboxSecrets, credentialBroker.Value.IsConfigured) : tool.Tool.Description,
         IsDelegation = tool.IsDelegation,
         IsIdempotent = tool.Builtin is { IsIdempotent: true },
         InputSchema = tool.Tool.InputSchema,
@@ -1259,7 +1269,8 @@ public sealed partial class RunExecutor(
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
         Project? Project,
-        bool CarriesFiles);
+        bool CarriesFiles,
+        IReadOnlyList<SandboxSecret> SandboxSecrets);
 
     #endregion
 }

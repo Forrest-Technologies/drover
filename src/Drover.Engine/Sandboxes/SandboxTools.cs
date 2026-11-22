@@ -18,6 +18,8 @@ public static class SandboxTools
 
     private const string ShareFileName = "sandbox.share_file";
 
+    public const string RunName = "sandbox.run";
+
     private const string NewSandboxNote = "This is a new sandbox: the one this bot used before was lost at the provider, and its files with it.";
 
     #endregion
@@ -36,9 +38,31 @@ public static class SandboxTools
     /// The person's controls (<see cref="SandboxControlService"/>) are registered on every server, and use the broker
     /// when there is one.
     /// </summary>
+    /// <summary>
+    /// The command tool's description with the secrets its sandbox holds, by name and never by value: a brokered one
+    /// with the hosts it works for, and none of those when the broker is not set up, since the sandbox then lacks them.
+    /// </summary>
+    public static string DescribeRunFor(string description, IReadOnlyList<SandboxSecret> secrets, bool brokerOn)
+    {
+        var names = secrets
+            .Where(secret => secret.Mode is SandboxSecretMode.Raw || brokerOn)
+            .GroupBy(secret => secret.Name, StringComparer.Ordinal)
+            .Select(named => named.All(secret => secret.Mode is SandboxSecretMode.Brokered)
+                ? $"{named.Key} (works only over HTTPS to {string.Join(", ", named.SelectMany(secret => secret.Hosts).Distinct(StringComparer.Ordinal))})"
+                : named.Key)
+            .ToList();
+
+        return names.Count == 0
+            ? description
+            : $"{description} These environment variables hold credentials a person gave this bot; use them by name, and never print or write out their values: {string.Join("; ", names)}.";
+    }
+
     public static IServiceCollection AddSandboxTools(this IServiceCollection services)
     {
         services.AddSingleton<SandboxBroker>();
+        services.AddSingleton<BrokerAuthorities>();
+        services.AddSingleton<SandboxCommandProjects>();
+        services.AddSingleton<CredentialBrokerService>();
         services.AddSingleton(provider => RunCommand(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => ReadFile(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => WriteFile(provider.GetRequiredService<SandboxBroker>()));
@@ -52,7 +76,7 @@ public static class SandboxTools
 
     public static BuiltinTool RunCommand(SandboxBroker broker) =>
         new(
-            "sandbox.run",
+            RunName,
             "Run a command",
             "Runs a bash command in this bot's sandbox, an isolated computer with its own files, and returns its exit code and output. The output also shows live while it runs.",
             Schema(

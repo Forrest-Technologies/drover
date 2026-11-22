@@ -167,7 +167,7 @@ Notes:
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `sandboxes` | Space-owned | `id`, `owner_bot_id`, `policy`, `provider`, `provider_sandbox_id`, `state`, `access_secret_id`, `last_used_at`, `expires_at`, `retire_after null`, `tainted` |
+| `sandboxes` | Space-owned | `id`, `owner_bot_id`, `policy`, `provider`, `provider_sandbox_id`, `state`, `access_secret_id`, `last_used_at`, `expires_at`, `retire_after null`, `tainted`, `broker_token_hash null` |
 | `files` | Space-owned with an audience, inherited from the thread or shared in a project | `id`, `audience_user_id`, `thread_id null`, `project_id null`, `message_id null`, `storage_key`, `name`, `content_type`, `size`, `sha256`, `width null`, `height null`, `preview null`, `reading_note null`, `created_by_user_id null`, `created_by_bot_id null`, `created_at` |
 | `file_byte_reservations` | Space-owned | `id`, `bytes`, `created_at` |
 | `pending_file_deletions` | Space-owned | `id`, `project_id`, `storage_key`, `size`, `cleanup_claim_until null`, `created_at` |
@@ -175,6 +175,8 @@ Notes:
 | `secrets` | Space-owned with an audience | `id`, `audience_user_id`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
 | `sandbox_secrets` | Space-owned | `id`, `name`, `description`, `mode`, `hosts text[]`, `allow_in_query`, `allow_in_body`, `scope`, `project_id null`, `secret_id`, `created_by_user_id`, `created_at`, `rotated_by_user_id null`, `rotated_at null`, `last_used_at null` |
 | `sandbox_secret_bots` | Space-owned | `sandbox_secret_id`, `bot_id`, `name` |
+| `sandbox_secret_entries` | Space-owned | `sandbox_id`, `sandbox_secret_id`, `placeholder_hash null` |
+| `broker_authorities` | Space-owned | `id`, `certificate`, `secret_id`, `not_after`, `created_at` |
 | `memories` | Space-owned with an audience | `id`, `audience_user_id`, `bot_id`, `text`, `written_by_bot_id null`, `written_by_user_id null`, `source_thread_id null`, `source_message_id null`, `tainted`, `created_at`, `updated_at` |
 | `audit_log` | Space-owned, insert and select only | `id`, `actor_kind`, `actor_id`, `action`, `target_kind`, `target_id`, `data jsonb`, `created_at` |
 | `sys.audit` | Global, in schema `sys`, outside the model | One row per call of a cross-tenant function: `function_name`, `caller`, `called_at`, `row_count`. Created by the migration, written only by the `sys` functions. The application role has no privilege on it, and no entity maps it. |

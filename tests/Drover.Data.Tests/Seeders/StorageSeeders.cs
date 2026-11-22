@@ -165,3 +165,24 @@ public sealed class SandboxSecretBotSeeder : PlainSeeder<SandboxSecretBot>
         ["name"] = seed.Unique("SAMPLE_TOKEN").ToUpperInvariant().Replace('-', '_'),
     };
 }
+
+public sealed class SandboxSecretEntrySeeder : PlainSeeder<SandboxSecretEntry>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["sandbox_id"] = seed.Parent("sandboxes"),
+        ["sandbox_secret_id"] = seed.Parent("sandbox_secrets"),
+        ["placeholder_hash"] = RandomNumberGenerator.GetBytes(32),
+    };
+}
+
+public sealed class BrokerAuthoritySeeder : PlainSeeder<BrokerAuthority>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["certificate"] = "-----BEGIN CERTIFICATE-----\nsample\n-----END CERTIFICATE-----\n",
+        ["secret_id"] = Guid.CreateVersion7(),
+        ["not_after"] = DateTimeOffset.UtcNow.AddYears(1),
+    };
+}

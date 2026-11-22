@@ -36,6 +36,9 @@ public sealed class SandboxBroker(
     IOptions<DeploymentPolicyOptions> deployment,
     IOptions<RunOptions> runOptions,
     SandboxCommandLocks commandLocks,
+    IOptions<CredentialBrokerOptions> credentialBroker,
+    BrokerAuthorities authorities,
+    SandboxCommandProjects commandProjects,
     TimeProvider time,
     ILogger<SandboxBroker> logger)
 {
@@ -141,6 +144,8 @@ public sealed class SandboxBroker(
         {
             await RefuseCleanRunInATaintedSandbox(caller, lease, cancellationToken);
             await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
+
+            using var project = await HoldProject(caller, lease.SandboxId, cancellationToken);
 
             try
             {
@@ -414,7 +419,7 @@ public sealed class SandboxBroker(
 
         var idle = IdleFor(target.Owner);
         var handle = new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token);
-        var lease = new SandboxLease(target.Row.Id, handle, NetworkFor(target.Owner), idle, idle, NewSandbox: false);
+        var lease = new SandboxLease(target.Row.Id, handle, ReachFor(NetworkFor(target.Owner), target.Row), idle, idle, NewSandbox: false);
         await EnsureDisplay(lease, cancellationToken);
         return lease;
     }
@@ -639,8 +644,8 @@ public sealed class SandboxBroker(
             newSandbox = true;
         }
 
-        await ApplyNetwork(target.Row.Id, handle, network, cancellationToken);
-        return new SandboxLease(target.Row.Id, handle, network, idle, keepFor, newSandbox);
+        await ApplyNetwork(target.Row.Id, handle, ProviderNetwork(network, target.Row), cancellationToken);
+        return new SandboxLease(target.Row.Id, handle, ReachFor(network, target.Row), idle, keepFor, newSandbox);
     }
 
     /// <summary>
@@ -853,8 +858,24 @@ public sealed class SandboxBroker(
     /// </summary>
     private async Task<SandboxHandle> Create(RunTenant tenant, SandboxTarget target, TimeSpan keepFor, CancellationToken cancellationToken)
     {
-        var network = NetworkFor(target.Owner);
         var desktop = DesktopFor(target.Owner);
+        // What the sandbox will hold is recorded before the provider is called, with the row still creating, so a
+        // secret removed while it is made finds the row and takes it out of use.
+        var secrets = await tenant.Transact(
+            async services =>
+            {
+                var prepared = await SandboxSecretsAtStart.Prepare(services, target.Row.Id, target.Owner.Id, credentialBroker.Value, authorities, cancellationToken);
+                var row = await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(target.Row.Id, cancellationToken)
+                    ?? throw new BuiltinToolException("The sandbox was removed while it was being made.");
+                var brokers = services.GetRequiredService<CredentialBrokerRepository>();
+                await brokers.RemoveEntries(row.Id, cancellationToken);
+                brokers.AddEntries(prepared.Entries);
+                row.BrokerTokenHash = prepared.TokenHash;
+                return prepared;
+            },
+            cancellationToken);
+        target.Row.BrokerTokenHash = secrets.TokenHash;
+        var network = ProviderNetwork(NetworkFor(target.Owner), target.Row);
         SandboxHandle created;
 
         try
@@ -868,7 +889,7 @@ public sealed class SandboxBroker(
                     Network = network,
                     IdleTimeout = keepFor,
                     Desktop = desktop,
-                    Environment = desktop ? DesktopCommands.Environment : new Dictionary<string, string>(),
+                    Environment = EnvironmentFor(desktop, secrets),
                 },
                 cancellationToken);
         }
@@ -898,8 +919,42 @@ public sealed class SandboxBroker(
             },
             CancellationToken.None);
         appliedNetworks[target.Row.Id] = network;
+        await TrustTheBroker(created, secrets, cancellationToken);
         logger.LogInformation("Created sandbox {SandboxId} for bot {BotId} at {Provider}", target.Row.Id, target.Owner.Id, provider.Kind);
         return created;
+    }
+
+    /// <summary>
+    /// Puts the space's broker authority into a new sandbox and joins it with the system's roots into the bundle its
+    /// environment names, so common tools trust the broker for the hosts its secrets are bound to. The certificate is
+    /// public; the script is Drover's own and holds no model text.
+    /// </summary>
+    private async Task TrustTheBroker(SandboxHandle sandbox, SandboxSecretsAtStart secrets, CancellationToken cancellationToken)
+    {
+        if (secrets.Authority is not { } authority)
+        {
+            return;
+        }
+
+        try
+        {
+            await using (var pem = new MemoryStream(Encoding.UTF8.GetBytes(authority)))
+            {
+                await provider.WriteFile(sandbox, SandboxSecretsAtStart.AuthorityPath, pem, cancellationToken);
+            }
+
+            await foreach (var _ in provider.Run(
+                sandbox,
+                new CommandRequest { Program = "/bin/sh", Arguments = ["-c", SandboxSecretsAtStart.BundleScript], Timeout = TimeSpan.FromSeconds(30) },
+                cancellationToken))
+            {
+            }
+        }
+        catch (SandboxProviderException failure)
+        {
+            logger.LogWarning("The broker authority could not be put into a new sandbox: {Failure}", failure.Failure);
+            throw Refusal(failure);
+        }
     }
 
     /// <summary>Marks a sandbox the provider no longer has as destroyed and forgets its token.</summary>
@@ -1124,6 +1179,23 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
+    /// Tells the credential broker which project's work this command is, for the length of the command, so a project's
+    /// secret applies only to its own work. A command outside any project holds nothing.
+    /// </summary>
+    private async Task<IDisposable?> HoldProject(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
+    {
+        if (caller.Call is not { ThreadId: { } threadId })
+        {
+            return null;
+        }
+
+        var project = await caller.Tenant.Transact(
+            async services => (await services.GetRequiredService<ThreadRepository>().FindThread(threadId, cancellationToken))?.ProjectId,
+            cancellationToken);
+        return project is { } projectId ? commandProjects.Hold(sandboxId, projectId) : null;
+    }
+
+    /// <summary>
     /// Takes the sandbox's command lock. The wait is bounded and costs no database session; the lock is held on one
     /// session, with no tenant transaction open, until the provider call returns. A tainted write takes the same lock,
     /// so it cannot mark the row or change the sandbox while this command is admitted. When too many commands hold or
@@ -1211,6 +1283,38 @@ public sealed class SandboxBroker(
     #endregion
 
     #region Limits
+
+    /// <summary>
+    /// What the provider is told: a sandbox that goes through the credential broker may reach the broker and nothing
+    /// else, and the broker applies the bot's own setting; any other gets the bot's setting.
+    /// </summary>
+    private NetworkPolicy ProviderNetwork(NetworkPolicy own, Sandbox row) =>
+        row.BrokerTokenHash is not null && credentialBroker.Value.PublicHost is { Length: > 0 } broker
+            ? new NetworkPolicy(NetworkAccess.Allowlist, [broker])
+            : own;
+
+    /// <summary>
+    /// What a sandbox can reach, for deciding whether what it returns may hold text from outside: a sandbox that goes
+    /// through the credential broker reaches the hosts its secrets are bound to even with its network off.
+    /// </summary>
+    private static NetworkPolicy ReachFor(NetworkPolicy own, Sandbox row) =>
+        row.BrokerTokenHash is not null && own.Access is NetworkAccess.Off ? new NetworkPolicy(NetworkAccess.Allowlist, []) : own;
+
+    /// <summary>The display's variables for a sandbox with a screen, and the secrets'; the display's win a clash.</summary>
+    private static Dictionary<string, string> EnvironmentFor(bool desktop, SandboxSecretsAtStart secrets)
+    {
+        Dictionary<string, string> environment = new(secrets.Environment, StringComparer.Ordinal);
+
+        if (desktop)
+        {
+            foreach (var (name, value) in DesktopCommands.Environment)
+            {
+                environment[name] = value;
+            }
+        }
+
+        return environment;
+    }
 
     /// <summary>The bot's network setting, unless the deployment forbids it. Limits only narrow, so that is a refusal.</summary>
     private NetworkPolicy NetworkFor(Bot owner) =>

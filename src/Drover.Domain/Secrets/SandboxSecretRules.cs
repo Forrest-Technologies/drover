@@ -96,6 +96,12 @@ public static partial class SandboxSecretRules
         return value.Contains('\0', StringComparison.Ordinal) ? "A value cannot contain a null character." : null;
     }
 
+    /// <summary>A value the broker puts into requests is one line: a line break could start a header of its own.</summary>
+    public static string? BrokeredValueProblem(SandboxSecretMode mode, string value) =>
+        mode is SandboxSecretMode.Brokered && value.Any(letter => letter is '\r' or '\n')
+            ? "A value sent through the broker is one line. Keep a value with line breaks in the sandbox instead."
+            : null;
+
     public static string? DescriptionProblem(string description) =>
         description.Length > MaxDescriptionCharacters
             ? $"A description has at most {MaxDescriptionCharacters} characters."

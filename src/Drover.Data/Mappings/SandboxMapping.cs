@@ -14,6 +14,7 @@ public sealed class SandboxMapping : IEntityTypeConfiguration<Sandbox>
         builder.HasEnumColumn(sandbox => sandbox.Policy);
         builder.HasEnumColumn(sandbox => sandbox.State);
         builder.WithinSpace<Sandbox, Bot>(nameof(Sandbox.OwnerBotId));
+        builder.HasIndex(sandbox => sandbox.BrokerTokenHash).IsUnique().HasFilter("broker_token_hash IS NOT NULL");
     }
 
     #endregion

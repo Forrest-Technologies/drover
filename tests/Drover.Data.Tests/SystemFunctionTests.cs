@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "broker_sandbox_for_token", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
 
     #endregion
 
@@ -292,6 +292,44 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         inATransaction.Should().HaveCount(4, "a tenant transaction gets the same answer: the function is the only way across spaces");
     }
 
+    [Fact]
+    public async Task The_broker_finds_a_live_sandbox_by_its_token_in_any_space_and_returns_ids_only()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        var inB = await SaveSandboxes(provider, world.SpaceB, world.UserB1, now, [(SandboxState.Running, null, null, null), (SandboxState.Retiring, now, null, null)]);
+        var token = RandomNumberGenerator.GetBytes(32);
+        var retiredToken = RandomNumberGenerator.GetBytes(32);
+        await SetBrokerTokens(provider, world.SpaceB, world.UserB1, (inB[0], token), (inB[1], retiredToken));
+        const string Sql = "SELECT * FROM sys.broker_sandbox_for_token(@hash)";
+
+        var found = await Query(scratch.AppConnectionString, Sql, [("hash", token)]);
+        var retired = await Query(scratch.AppConnectionString, Sql, [("hash", retiredToken)]);
+        var unknown = await Query(scratch.AppConnectionString, Sql, [("hash", RandomNumberGenerator.GetBytes(32))]);
+        var fromA = await QueryAs(scratch.AppConnectionString, world.UserA1, Sql, [("hash", token)]);
+
+        found.Single().Should().HaveCount(2, "ids only: nothing that leads to a token or a secret");
+        ((Guid)found.Single()[0]!, (Guid)found.Single()[1]!).Should().Be((world.SpaceB, inB[0]));
+        retired.Should().BeEmpty("a sandbox taken out of use no longer answers to its token");
+        unknown.Should().BeEmpty();
+        fromA.Should().ContainSingle("the function is the one way across spaces, and it gives ids only");
+    }
+
+    private static async Task SetBrokerTokens(IServiceProvider provider, Guid spaceId, Guid userId, params (Guid SandboxId, byte[] Token)[] tokens)
+    {
+        await using var session = await TenantSession.Open(provider, spaceId, userId);
+
+        foreach (var (sandboxId, token) in tokens)
+        {
+            var sandbox = await session.Db.Sandboxes.SingleAsync(row => row.Id == sandboxId, TestContext.Current.CancellationToken);
+            sandbox.BrokerTokenHash = token;
+        }
+
+        await session.Commit();
+    }
+
     #endregion
 
     #region Cleanup And Health
@@ -371,6 +409,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
             ("expired_uploads", "SELECT * FROM sys.expired_uploads(@limit)", 0, [("limit", 10)]),
             ("claim_pending_upload_deletions", "SELECT * FROM sys.claim_pending_upload_deletions(@limit)", 0, [("limit", 10)]),
+            ("broker_sandbox_for_token", "SELECT * FROM sys.broker_sandbox_for_token(@hash)", 0, [("hash", new byte[32])]),
             ("claim_due_schedules", "SELECT * FROM sys.claim_due_schedules(@now, @until, @limit)", 0, [("now", DateTime.UtcNow), ("until", DateTime.UtcNow.AddMinutes(5)), ("limit", 10)]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
@@ -473,7 +512,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("memberships", "SELECT", "space_id user_id role"),
             .. Columns("spaces", "SELECT", "id kind name slug"),
             .. Columns("oauth_flows", "SELECT", "state_hash space_id audience_user_id tool_connection_id expires_at"),
-            .. Columns("sandboxes", "SELECT", "id space_id state retire_after expires_at"),
+            .. Columns("sandboxes", "SELECT", "id space_id state retire_after expires_at broker_token_hash"),
             .. Columns("files", "SELECT", "id space_id audience_user_id thread_id project_id message_id created_by_user_id created_by_bot_id created_at"),
             .. Columns("pending_upload_deletions", "SELECT", "id space_id audience_user_id cleanup_claim_until created_at"),
             .. Columns("pending_upload_deletions", "UPDATE", "cleanup_claim_until"),

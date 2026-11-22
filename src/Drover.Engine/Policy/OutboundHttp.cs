@@ -77,6 +77,28 @@ public static class OutboundHttp
         return new RoutingHandler(guarded, open);
     }
 
+    /// <summary>
+    /// A TCP connection to a host that resolves only to addresses <paramref name="isRefused"/> allows, made to the
+    /// address that was checked, so a second lookup cannot return a different answer. For a caller that relays bytes
+    /// itself, such as the credential broker's tunnels; every HTTP client goes through the handlers above.
+    /// </summary>
+    public static async ValueTask<Stream> ConnectToAllowedAddress(
+        string host,
+        int port,
+        Func<string, CancellationToken, Task<IPAddress[]>> resolve,
+        Func<IPAddress, bool> isRefused,
+        CancellationToken cancellationToken)
+    {
+        var addresses = IPAddress.TryParse(host, out var literal) ? [literal] : await resolve(host, cancellationToken);
+
+        if (addresses.Length == 0 || addresses.Any(isRefused))
+        {
+            throw new OutboundBlockedException($"{host} is not a public address, so it cannot be reached from a sandbox.");
+        }
+
+        return await ConnectToFirstReachable(addresses, port, cancellationToken);
+    }
+
     #endregion
 
     #region Private Methods

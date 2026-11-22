@@ -162,6 +162,7 @@ public sealed class SandboxSecretApiTests(PostgresServer postgres) : ServerTestB
         { "host on a private network", Brokered("API_KEY", "a-value-for-the-test", "space") with { Hosts = ["vault.internal"] }, "private network" },
         { "wildcard on a private network", Brokered("API_KEY", "a-value-for-the-test", "space") with { Hosts = ["*.svc.cluster.local"] }, "private network" },
         { "proxy settings name", Brokered("GOPROXY", "a-value-for-the-test", "space"), "reserved" },
+        { "brokered value with a line break", Brokered("API_KEY", "first-line\nsecond-line", "space"), "is one line" },
         { "unknown mode", Brokered("API_KEY", "a-value-for-the-test", "space") with { Mode = "plain" }, "through the broker" },
         { "unknown scope", Brokered("API_KEY", "a-value-for-the-test", "everyone"), "every bot, chosen bots, or a project" },
         { "chosen bots without any", Brokered("API_KEY", "a-value-for-the-test", "bots"), "at least one bot" },

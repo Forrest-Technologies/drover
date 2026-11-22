@@ -34,5 +34,11 @@ public sealed class Sandbox : ISpaceOwned
     /// </summary>
     public bool Tainted { get; set; }
 
+    /// <summary>
+    /// A SHA-256 hash of the token this sandbox gives the credential broker, or null when it was made without one. The
+    /// token itself is only ever in the sandbox's environment.
+    /// </summary>
+    public byte[]? BrokerTokenHash { get; set; }
+
     #endregion
 }

@@ -38,3 +38,6 @@ public sealed record BotSandboxSecretName(
     IReadOnlyList<string> Hosts,
     string From,
     string? ProjectName);
+
+/// <summary>How many live sandboxes were taken out of use; each bot gets a new one on its next use.</summary>
+public sealed record SandboxSandboxesRestarted(int Count);

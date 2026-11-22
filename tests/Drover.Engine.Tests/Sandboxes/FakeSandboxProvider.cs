@@ -53,6 +53,9 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>Awaited with the path before a file is written.</summary>
     public Func<string, CancellationToken, Task>? BeforeWrite { get; set; }
 
+    /// <summary>Awaited with the spec before a sandbox is made, as when something happens while the provider works.</summary>
+    public Func<SandboxSpec, CancellationToken, Task>? BeforeCreate { get; set; }
+
     /// <summary>Called with the path after a file is written, as when the caller is cancelled right after.</summary>
     public Action<string>? AfterWrite { get; set; }
 
@@ -95,9 +98,14 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     #region Interface Implementations
 
-    public Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
+    public async Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
     {
         Specs.Enqueue(spec);
+
+        if (BeforeCreate is { } before)
+        {
+            await before(spec, cancellationToken);
+        }
 
         lock (creating)
         {
@@ -109,7 +117,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
             }
 
             var sandbox = sandboxes[id];
-            return Task.FromResult(new SandboxHandle(id, sandbox.SpaceId, sandbox.GroupId, sandbox.Token));
+            return new SandboxHandle(id, sandbox.SpaceId, sandbox.GroupId, sandbox.Token);
         }
     }
 

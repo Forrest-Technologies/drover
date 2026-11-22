@@ -132,6 +132,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxSandboxSecretsPerSpace = 50;
 
+    public const int SelfHostedMaxBrokerConnectionsPerSandbox = 64;
+
+    public const int HostedMaxBrokerConnectionsPerSandbox = 32;
+
+    public const int SelfHostedMaxBrokerMegabytesPerSandboxPerHour = 2048;
+
+    public const int HostedMaxBrokerMegabytesPerSandboxPerHour = 512;
+
     public const int SelfHostedMaxFileBytes = 25 * 1024 * 1024;
 
     public const int HostedMaxFileBytes = 10 * 1024 * 1024;
@@ -255,6 +263,12 @@ public sealed record DeploymentPolicy
 
     /// <summary>The most sandbox secrets a space may hold. Each is a credential the operator's server keeps and hands out.</summary>
     public int MaxSandboxSecretsPerSpace { get; init; } = SelfHostedMaxSandboxSecretsPerSpace;
+
+    /// <summary>The most connections one sandbox may hold open through the credential broker at once.</summary>
+    public int MaxBrokerConnectionsPerSandbox { get; init; } = SelfHostedMaxBrokerConnectionsPerSandbox;
+
+    /// <summary>The most megabytes one sandbox may move through the credential broker in an hour. The server carries them.</summary>
+    public int MaxBrokerMegabytesPerSandboxPerHour { get; init; } = SelfHostedMaxBrokerMegabytesPerSandboxPerHour;
 
     /// <summary>The most bytes of one file a person attaches to a message. A larger one is refused, not cut.</summary>
     public int MaxFileBytes { get; init; } = SelfHostedMaxFileBytes;
@@ -545,6 +559,16 @@ public sealed record DeploymentPolicy
             policy => policy.MaxSandboxSecretsPerSpace,
             HostedMaxSandboxSecretsPerSpace,
             Enforcement.Now("SandboxSecretService, when a secret is added")),
+        PolicyRule.Limit(
+            nameof(MaxBrokerConnectionsPerSandbox),
+            policy => policy.MaxBrokerConnectionsPerSandbox,
+            HostedMaxBrokerConnectionsPerSandbox,
+            Enforcement.Now("BrokerLimits, when a sandbox opens a connection to the credential broker")),
+        PolicyRule.Limit(
+            nameof(MaxBrokerMegabytesPerSandboxPerHour),
+            policy => policy.MaxBrokerMegabytesPerSandboxPerHour,
+            HostedMaxBrokerMegabytesPerSandboxPerHour,
+            Enforcement.Now("BrokerLimits, on every byte the credential broker relays for a sandbox")),
         PolicyRule.Limit(
             nameof(MaxFileBytes),
             policy => policy.MaxFileBytes,

@@ -16,6 +16,8 @@ public sealed record SandboxSecretChange(SandboxSecretResponse? Secret, string? 
 /// </summary>
 public sealed class SandboxSecretService(
     SandboxSecretRepository secrets,
+    CredentialBrokerRepository brokers,
+    SandboxRepository sandboxes,
     BotRepository bots,
     ProjectRepository projects,
     AuditRepository auditEntries,
@@ -62,7 +64,7 @@ public sealed class SandboxSecretService(
             return SandboxSecretChange.Refused(problem);
         }
 
-        if (BindingProblem(mode, hosts, scope, request.ConfirmRawMode) is { } binding)
+        if ((BindingProblem(mode, hosts, scope, request.ConfirmRawMode) ?? SandboxSecretRules.BrokeredValueProblem(mode, request.Value)) is { } binding)
         {
             return SandboxSecretChange.Refused(binding);
         }
@@ -118,7 +120,7 @@ public sealed class SandboxSecretService(
             return SandboxSecretChange.NotFound;
         }
 
-        if (SandboxSecretRules.ValueProblem(request.Value) is { } problem)
+        if ((SandboxSecretRules.ValueProblem(request.Value) ?? SandboxSecretRules.BrokeredValueProblem(secret.Mode, request.Value)) is { } problem)
         {
             return SandboxSecretChange.Refused(problem);
         }
@@ -165,6 +167,7 @@ public sealed class SandboxSecretService(
         }
 
         var before = Snapshot(secret, current);
+        var previousScope = secret.Scope;
         secret.Scope = scope;
         secret.ProjectId = scope is SandboxSecretScope.Project ? request.ProjectId : null;
 
@@ -174,6 +177,12 @@ public sealed class SandboxSecretService(
         }
 
         await secrets.SetBots(secret, targetBots, cancellationToken);
+
+        if (secret.Mode is SandboxSecretMode.Raw && Widens(scope, targetBots, previousScope, current))
+        {
+            await RetireRawHolders(secret, cancellationToken);
+        }
+
         audit.Record(actorUserId, "sandbox_secret.scope_changed", AuditTargets.SandboxSecret, secret.Id, before, Snapshot(secret, targetBots), About(secret));
         return await Changed(secret, targetBots, cancellationToken);
     }
@@ -198,8 +207,20 @@ public sealed class SandboxSecretService(
             return SandboxSecretChange.Refused(problem);
         }
 
+        if (secret.Mode is SandboxSecretMode.Raw && mode is SandboxSecretMode.Brokered
+            && SandboxSecretRules.BrokeredValueProblem(mode, await vault.Reveal(secret.SecretId, cancellationToken)) is { } multiline)
+        {
+            return SandboxSecretChange.Refused(multiline);
+        }
+
         var botIds = await secrets.ListBotIds(secret.Id, cancellationToken);
         var before = Snapshot(secret, botIds);
+
+        if (secret.Mode is SandboxSecretMode.Raw && mode is not SandboxSecretMode.Raw)
+        {
+            await RetireRawHolders(secret, cancellationToken);
+        }
+
         secret.Mode = mode;
         secret.Hosts = mode is SandboxSecretMode.Brokered ? hosts : [];
         secret.AllowInQuery = mode is SandboxSecretMode.Brokered && request.AllowInQuery;
@@ -240,6 +261,30 @@ public sealed class SandboxSecretService(
         await Remove(secret, AuditActor.Person(actorUserId), cancellationToken);
         logger.LogInformation("Sandbox secret {SecretId} removed", secret.Id);
         return true;
+    }
+
+    /// <summary>
+    /// Takes out of use every live sandbox of a bot this secret reaches, so the next use starts one with the secrets as
+    /// they are now. Their files go with them. How many, or null when there is no such secret.
+    /// </summary>
+    public async Task<int?> RestartSandboxes(Guid id, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        if (await secrets.GetSecret(id, cancellationToken) is not { } secret)
+        {
+            return null;
+        }
+
+        var owners = await secrets.ListOwnersReached(secret, cancellationToken);
+        var count = 0;
+
+        foreach (var owner in owners)
+        {
+            count += await sandboxes.RetireLiveForOwner(owner, time.GetUtcNow(), cancellationToken) ? 1 : 0;
+        }
+
+        audit.Record(actorUserId, "sandbox_secret.sandboxes_restarted", AuditTargets.SandboxSecret, secret.Id, null, null, About(secret));
+        logger.LogInformation("Sandbox secret {SecretId}: {Count} sandboxes taken out of use", secret.Id, count);
+        return count;
     }
 
     /// <summary>Removes every secret of a project, with their values, as the project is removed.</summary>
@@ -393,10 +438,25 @@ public sealed class SandboxSecretService(
 
     private async Task Remove(SandboxSecret secret, AuditActor actor, CancellationToken cancellationToken)
     {
+        await RetireRawHolders(secret, cancellationToken);
         var botIds = await secrets.ListBotIds(secret.Id, cancellationToken);
         await vault.Delete(secret.SecretId, cancellationToken);
         secrets.Remove(secret);
         audit.Record(actor, "sandbox_secret.deleted", AuditTargets.SandboxSecret, secret.Id, Snapshot(secret, botIds), null, About(secret));
+    }
+
+    /// <summary>
+    /// Takes out of use every live sandbox that holds this secret's real value, so it does not outlive a removal or a
+    /// narrowing. The next use starts a sandbox without it.
+    /// </summary>
+    private async Task RetireRawHolders(SandboxSecret secret, CancellationToken cancellationToken)
+    {
+        foreach (var sandbox in await brokers.ListLiveSandboxesHoldingRaw(secret.Id, cancellationToken))
+        {
+            sandbox.State = SandboxState.Retiring;
+            sandbox.RetireAfter = time.GetUtcNow();
+            logger.LogInformation("Sandbox {SandboxId} taken out of use: it held the value of sandbox secret {SecretId}", sandbox.Id, secret.Id);
+        }
     }
 
     private async Task<Dictionary<Guid, string>> Names(CancellationToken cancellationToken) =>

@@ -15,6 +15,9 @@ public sealed class SandboxRepository(DroverDbContext db)
 
     #region Public Methods
 
+    public Task<Sandbox?> FindSandbox(Guid id, CancellationToken cancellationToken) =>
+        db.Sandboxes.AsNoTracking().SingleOrDefaultAsync(sandbox => sandbox.Id == id, cancellationToken);
+
     /// <summary>The owner's sandbox that is being created, running, or paused, if it has one.</summary>
     public Task<Sandbox?> FindLiveForOwner(Guid ownerBotId, CancellationToken cancellationToken) =>
         db.Sandboxes.AsNoTracking()
