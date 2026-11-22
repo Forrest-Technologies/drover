@@ -51,6 +51,26 @@ public sealed partial class SandboxScreenViewModel(
     /// <summary>Set when a person sent something, so the next picture comes soon. Set twice, it is still one picture.</summary>
     private TaskCompletionSource soon = NewSoon();
 
+    // Touches go to the sandbox one after another, in the order the fingers made them.
+    private Task touches = Task.CompletedTask;
+
+    private int touchesWaiting;
+
+    // Wheel steps not sent yet: below zero turns down, above zero up. They go together in one scroll.
+    private int wheel;
+
+    private (int X, int Y) wheelAt;
+
+    private (int X, int Y)? dragFrom;
+
+    // The server takes 1 to 20 wheel steps in one scroll.
+    private const int MaxWheelSteps = 20;
+
+    // How long a touch waits for a key's request on its way: a pause at a time, at most this many.
+    private const int SendingWaits = 100;
+
+    private static readonly TimeSpan SendingPause = TimeSpan.FromMilliseconds(50);
+
     #endregion
 
     #region Properties
@@ -216,8 +236,24 @@ public sealed partial class SandboxScreenViewModel(
         : null;
 
     public string ControlWords => Control
-        ? "Clicks and keys go to the sandbox."
+        ? TouchWords ?? "Clicks and keys go to the sandbox."
         : "View only. Turn on Send desktop input to click or type.";
+
+    /// <summary>What a finger on the picture is doing, while it is worth hearing once. Null otherwise.</summary>
+    public string? TouchWords { get; private set; }
+
+    /// <summary>How touch drives the screen, said under the picture on a touch device while in control.</summary>
+    public static string TouchHelp =>
+        "Tap to click. Hold still, then lift, to right-click. Press and move to drag. Two fingers scroll or zoom.";
+
+    /// <summary>Said once, when a finger has rested long enough that lifting it right-clicks.</summary>
+    public static string LongPressWords => "Lift to right-click.";
+
+    /// <summary>Said once, when a drag starts. The window or the text moves when the finger lifts.</summary>
+    public static string DragWords => "Dragging. Lift to let go there.";
+
+    /// <summary>The most touches that may wait for the sandbox before more are turned away in words.</summary>
+    public const int MaxTouchesWaiting = 8;
 
     /// <summary>Said while the person drives the screen and the bot works: both may use the same desktop.</summary>
     public string? WorkingNote => DesktopReady && Control && status is { BotWorking: true }
@@ -491,6 +527,12 @@ public sealed partial class SandboxScreenViewModel(
             SetPasswordMode(false);
         }
 
+        if (!on)
+        {
+            // A drag that was held goes nowhere: nothing was pressed in the sandbox, and nothing will be.
+            (dragFrom, wheel, TouchWords) = (null, 0, null);
+        }
+
         Changed();
     }
 
@@ -610,6 +652,160 @@ public sealed partial class SandboxScreenViewModel(
 
         Changed();
         return sent;
+    }
+
+    #endregion
+
+    #region Touch
+
+    /// <summary>
+    /// What a gesture on the picture sends, in order. Places are on the frame, which was
+    /// <paramref name="shownWidth"/> by <paramref name="shownHeight"/>. A tap clicks as the click type says, a long
+    /// press right-clicks, a drag goes as one drag request when the finger lifts (this server shows still pictures,
+    /// so nothing streams), and wheel steps
+    /// go together in one scroll. While a drag is held the pointer follows the finger, so the person sees where it
+    /// will land.
+    /// </summary>
+    public void Touch(IReadOnlyList<ScreenTouch> gesture, double shownWidth, double shownHeight)
+    {
+        foreach (var touch in gesture)
+        {
+            var at = ScreenPoint.FromShown(
+                touch.X, touch.Y, shownWidth, shownHeight, PictureWidth, PictureHeight, Zoom);
+            Touch(touch.Kind, at);
+        }
+    }
+
+    /// <summary>Says, once, that lifting the finger now right-clicks. Null takes the words away.</summary>
+    public void LongPressReady(bool ready) => SayTouch(ready ? LongPressWords : null);
+
+    private void Touch(ScreenTouchKind kind, (int X, int Y) at)
+    {
+        switch (kind)
+        {
+            case ScreenTouchKind.Tap:
+                Queue(() => ClickAt(at, ClickMode is "right" ? "right" : "left", ClickMode is "double"));
+                break;
+            case ScreenTouchKind.LongPress:
+                Queue(() => ClickAt(at, "right", twice: false));
+                break;
+            case ScreenTouchKind.Press:
+                dragFrom = at;
+                PointerAt = at;
+                SayTouch(DragWords);
+                break;
+            case ScreenTouchKind.Drag:
+                PointerAt = at;
+                Changed();
+                break;
+            case ScreenTouchKind.Release:
+                Release(at);
+                break;
+            case ScreenTouchKind.ScrollUp or ScreenTouchKind.ScrollDown:
+                Turn(kind is ScreenTouchKind.ScrollUp ? 1 : -1, at);
+                break;
+        }
+    }
+
+    private void Release((int X, int Y) at)
+    {
+        SayTouch(null);
+        if (dragFrom is not { } from)
+        {
+            return;
+        }
+
+        dragFrom = null;
+        PointerAt = at;
+        if (from != at)
+        {
+            var drag = new SandboxInputRequest("drag", X: from.X, Y: from.Y, Button: "left", X2: at.X, Y2: at.Y);
+            Queue(() => Send(drag));
+        }
+    }
+
+    // Steps that arrive while one scroll is on its way wait and go with the next, so a fast swipe is one request.
+    private void Turn(int step, (int X, int Y) at)
+    {
+        var sending = wheel != 0;
+        wheel += step;
+        wheelAt = at;
+        if (!sending)
+        {
+            Queue(SendWheel);
+        }
+    }
+
+    private async Task<bool> SendWheel()
+    {
+        var sent = true;
+        while (wheel != 0)
+        {
+            var steps = Math.Clamp(wheel, -MaxWheelSteps, MaxWheelSteps);
+            var at = wheelAt;
+            sent &= await Send(new SandboxInputRequest(
+                "scroll",
+                Direction: steps > 0 ? "up" : "down",
+                Amount: Math.Abs(steps),
+                X: at.X,
+                Y: at.Y));
+            wheel = sent ? wheel - steps : 0;
+        }
+
+        return sent;
+    }
+
+    private Task<bool> ClickAt((int X, int Y) at, string button, bool twice)
+    {
+        PointerAt = at;
+        return Send(new SandboxInputRequest("click", X: at.X, Y: at.Y, Button: button, Twice: twice));
+    }
+
+    // One touch at a time, after the one before has been answered, so a drag never overtakes the tap before it.
+    private void Queue(Func<Task<bool>> send)
+    {
+        if (touchesWaiting >= MaxTouchesWaiting)
+        {
+            ScreenProblem = "The sandbox has not caught up with your touches yet. Wait a moment, then try again.";
+            Changed();
+            return;
+        }
+
+        touchesWaiting++;
+        touches = After(touches, send);
+    }
+
+    private async Task After(Task before, Func<Task<bool>> send)
+    {
+        await before;
+
+        try
+        {
+            await WhenNotSending();
+            await send();
+        }
+        finally
+        {
+            touchesWaiting--;
+        }
+    }
+
+    // A key or a button may have its own request on the way; a touch waits for it rather than being dropped.
+    private async Task WhenNotSending()
+    {
+        for (var tries = 0; Sending && tries < SendingWaits; tries++)
+        {
+            await Task.Delay(SendingPause);
+        }
+    }
+
+    private void SayTouch(string? words)
+    {
+        if (TouchWords != words)
+        {
+            TouchWords = words;
+            Changed();
+        }
     }
 
     #endregion
