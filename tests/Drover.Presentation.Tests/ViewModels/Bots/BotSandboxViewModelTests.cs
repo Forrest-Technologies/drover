@@ -1153,6 +1153,132 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
 
     #endregion
 
+    #region Touch
+
+    [Fact]
+    public async Task A_touch_tap_clicks_and_a_long_press_right_clicks_at_the_pixel_under_the_finger()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+
+        Screen.Touch([new(ScreenTouchKind.Tap, 164, 123), new(ScreenTouchKind.LongPress, 0, 0)], 328, 246);
+
+        await Eventually(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().Equal(
+            new SandboxInputRequest("click", X: 512, Y: 384, Button: "left", Twice: false),
+            new SandboxInputRequest("click", X: 0, Y: 0, Button: "right", Twice: false)));
+    }
+
+    [Fact]
+    public async Task A_drag_goes_as_one_request_when_the_finger_lifts_and_is_said_once_while_held()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+
+        Screen.Touch([new(ScreenTouchKind.Press, 0, 0), new(ScreenTouchKind.Drag, 82, 61.5)], 328, 246);
+
+        Screen.ControlWords.Should().Be(SandboxScreenViewModel.DragWords);
+        Screen.PointerAt.Should().Be((256, 192), "the pointer follows the finger so the person sees where it lands");
+        Requests("POST", $"{sandbox}/input").Should().BeEmpty("nothing is pressed until the finger lifts");
+
+        Screen.Touch([new(ScreenTouchKind.Drag, 164, 123), new(ScreenTouchKind.Release, 164, 123)], 328, 246);
+
+        await Eventually(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Should().Be(
+            new SandboxInputRequest("drag", X: 0, Y: 0, Button: "left", X2: 512, Y2: 384)));
+        Screen.ControlWords.Should().Be("Clicks and keys go to the sandbox.");
+    }
+
+    [Fact]
+    public async Task A_drag_that_ends_where_it_started_sends_nothing()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+
+        Screen.Touch([new(ScreenTouchKind.Press, 10, 10), new(ScreenTouchKind.Release, 10, 10)], 328, 246);
+        await Screen.Press(["enter"]);
+
+        Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Kind.Should().Be("key");
+    }
+
+    [Fact]
+    public async Task Wheel_steps_that_arrive_while_a_scroll_is_on_its_way_go_together_in_the_next_one()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+
+        Screen.Touch([new(ScreenTouchKind.ScrollDown, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+        Screen.Touch([.. Enumerable.Repeat(new ScreenTouch(ScreenTouchKind.ScrollDown, 164, 123), 3)], 328, 246);
+        gate.SetResult();
+
+        await Eventually(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().Equal(
+            new SandboxInputRequest("scroll", Direction: "down", Amount: 1, X: 512, Y: 384),
+            new SandboxInputRequest("scroll", Direction: "down", Amount: 3, X: 512, Y: 384)));
+    }
+
+    [Fact]
+    public async Task A_drag_after_a_tap_waits_for_the_tap_and_is_never_dropped()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+
+        Screen.Touch([new(ScreenTouchKind.Tap, 0, 0)], 328, 246);
+        Screen.Touch([new(ScreenTouchKind.Press, 0, 0), new(ScreenTouchKind.Release, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+        gate.SetResult();
+
+        await Eventually(() => Sent<SandboxInputRequest>($"{sandbox}/input").Select(input => input.Kind)
+            .Should().Equal("click", "drag"));
+    }
+
+    [Fact]
+    public async Task Too_many_touches_waiting_are_turned_away_in_words()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+
+        var most = SandboxScreenViewModel.MaxTouchesWaiting;
+        Screen.Touch([.. Enumerable.Repeat(new ScreenTouch(ScreenTouchKind.Tap, 0, 0), most + 1)], 328, 246);
+
+        Screen.ScreenProblem.Should().StartWith("The sandbox has not caught up with your touches yet.");
+        gate.SetResult();
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(most));
+    }
+
+    [Fact]
+    public async Task Ending_control_during_a_drag_sends_nothing_and_takes_the_words_away()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        Screen.Touch([new(ScreenTouchKind.Press, 0, 0), new(ScreenTouchKind.Drag, 164, 123)], 328, 246);
+
+        Screen.SetControl(false);
+        Screen.Touch([new(ScreenTouchKind.Release, 164, 123)], 328, 246);
+        Screen.Touch([new(ScreenTouchKind.Tap, 164, 123)], 328, 246);
+
+        Screen.TouchWords.Should().BeNull();
+        Screen.ControlWords.Should().StartWith("View only.");
+        await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
+        Requests("POST", $"{sandbox}/input").Should().BeEmpty("the person no longer drives the screen");
+    }
+
+    [Fact]
+    public async Task Lifting_after_a_long_press_is_said_before_it_happens_and_the_words_go_with_the_finger()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+
+        Screen.LongPressReady(true);
+        Screen.ControlWords.Should().Be(SandboxScreenViewModel.LongPressWords);
+
+        Screen.LongPressReady(false);
+        Screen.ControlWords.Should().Be("Clicks and keys go to the sandbox.");
+    }
+
+    #endregion
+
     #region Helpers
 
     private static BotSandboxStatus Status(string state, DateTimeOffset? lastUsed = default) =>

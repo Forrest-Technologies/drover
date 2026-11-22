@@ -12,6 +12,21 @@ public sealed record SandboxListResult(IReadOnlyList<SandboxEntry> Entries, bool
 /// <summary>A screenshot of a sandbox's screen, as a PNG file, and the size it says it is.</summary>
 public sealed record SandboxScreenshot(byte[] Png, int Width, int Height, bool NewSandbox);
 
+/// <summary>How an attempt to let go of a held mouse button on a sandbox's screen ended.</summary>
+public enum ReleaseOutcome
+{
+    /// <summary>The button was let go of.</summary>
+    Released,
+
+    /// <summary>The sandbox is out of use or destroyed, so no button on it can be held by anything that
+    /// matters.</summary>
+    Gone,
+
+    /// <summary>The sandbox could not be reached to let go: it is paused, not found for this bot, or refused.</summary>
+    Unreachable,
+}
+
+
 /// <summary>
 /// Who is using a bot's sandbox: the bot itself, in a tool call of a run (<see cref="Call"/> is set), or a person
 /// acting on the bot's own sandbox from the sandbox screen (it is not). <see cref="Tenant"/> opens the short
@@ -340,9 +355,18 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// One action on the screen, for a bot or a person. Null when <paramref name="create"/> is false and there is no
-    /// sandbox yet; otherwise whether the sandbox is a new one.
+    /// sandbox yet; otherwise whether the sandbox is a new one. <paramref name="around"/> is given the sandbox's id and
+    /// the work, after the sandbox is acquired and its command lock taken, and runs the work: a person's pointer
+    /// actions
+    /// use it to keep track of what is held down on that physical sandbox.
     /// </summary>
-    public async Task<bool?> Act(SandboxCaller caller, CommandRequest action, string doing, bool create, CancellationToken cancellationToken)
+    public async Task<bool?> Act(
+        SandboxCaller caller,
+        CommandRequest action,
+        string doing,
+        bool create,
+        CancellationToken cancellationToken,
+        Func<Guid, Func<Task>, Task>? around = null)
     {
         if (await AcquireScreen(caller, create, cancellationToken) is not { } lease)
         {
@@ -352,11 +376,94 @@ public sealed class SandboxBroker(
         await AuthorizeLiveWrite(caller, cancellationToken);
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            await RunOnScreen(lease, action, doing, cancellationToken);
+            Task Run() => RunOnScreen(lease, action, doing, cancellationToken);
+            await (around is null ? Run() : around(lease.SandboxId, Run));
         }
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
+
+    /// <summary>
+    /// Lets go of a mouse button a person pressed on sandbox <paramref name="sandboxId"/>, with the command
+    /// <see cref="DesktopCommands.Release"/> built. It is about that physical sandbox, not the bot: a button pressed on
+    /// one sandbox is never let go of on another that replaced it. It makes no sandbox, starts no display, takes no
+    /// command lock, and does not count as use, so it waits on nothing a bot is running. One deadline of
+    /// <see cref="DesktopCommands.ReleaseLimit"/> covers the lookup and the provider's work. The answer is
+    /// <see cref="ReleaseOutcome.Gone"/> only when the row says the sandbox is out of use or destroyed; a refusal or a
+    /// sandbox that cannot be reached now is <see cref="ReleaseOutcome.Unreachable"/>, and the button is still to be
+    /// let go of. A failure of the command itself, or of the deadline, is thrown.
+    /// </summary>
+    public async Task<ReleaseOutcome> Release(
+        SandboxCaller person,
+        Guid sandboxId,
+        CommandRequest release,
+        CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(DesktopCommands.ReleaseLimit, time);
+        using var bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        var found = await FindForRelease(person, bound.Token);
+
+        if (found is not { } target || target.Row.Id != sandboxId)
+        {
+            return await IsOutOfUse(person, sandboxId, bound.Token)
+                ? ReleaseOutcome.Gone
+                : ReleaseOutcome.Unreachable;
+        }
+
+        if (target is not { Token: { } token, Row.State: SandboxState.Running }
+            || target.Row.ExpiresAt <= time.GetUtcNow()
+            || !target.Owner.SandboxSettings.Desktop
+            || !deployment.Value.Rules.AllowDesktopSandboxes)
+        {
+            return ReleaseOutcome.Unreachable;
+        }
+
+        var handle = new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token);
+        var idle = IdleFor(target.Owner);
+        var network = target.Owner.SandboxSettings.ToNetworkPolicy();
+        var lease = new SandboxLease(target.Row.Id, handle, network, idle, idle, NewSandbox: false);
+        await RunOnScreen(lease, release, "let go of the mouse button", bound.Token);
+        return ReleaseOutcome.Released;
+    }
+
+    /// <summary>The id of the sandbox the bot's input would reach now, or null when there is none to reach.</summary>
+    public async Task<Guid?> CurrentSandbox(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await Locate(person, null, create: false, cancellationToken))?.Row.Id;
+        }
+        catch (BuiltinToolException)
+        {
+            logger.LogDebug("Bot {BotId} has no sandbox that input would reach", person.BotId);
+            return null;
+        }
+    }
+
+    /// <summary>The bot's live sandbox, or null when the bot cannot be resolved to one, which is no release.</summary>
+    private async Task<SandboxTarget?> FindForRelease(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await Locate(person, null, create: false, cancellationToken);
+        }
+        catch (BuiltinToolException)
+        {
+            logger.LogDebug("Bot {BotId} cannot be resolved to a sandbox to let go of a button on", person.BotId);
+            return null;
+        }
+    }
+
+    /// <summary>True when the row says the sandbox is out of use or destroyed; false when it says nothing.</summary>
+    private static Task<bool> IsOutOfUse(SandboxCaller person, Guid sandboxId, CancellationToken cancellationToken) =>
+        person.Tenant.Transact(
+            async services =>
+            {
+                var sandboxes = services.GetRequiredService<SandboxRepository>();
+                var row = await sandboxes.FindSandbox(sandboxId, cancellationToken);
+                return row is { State: SandboxState.Retiring or SandboxState.Destroyed };
+            },
+            cancellationToken);
 
     /// <summary>
     /// The bot's own sandbox, which must have a screen, with its display and desktop session running. Null when

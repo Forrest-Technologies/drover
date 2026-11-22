@@ -642,6 +642,17 @@ client's `BotSandbox.razor.cs` and `SandboxScreen.razor.cs` with the same calls,
 - **What the web client's script did** is now `ScreenGesture` (pinch, drag, and what counts as a tap; framework
   free and tested), pointer and key handlers in `SandboxPicture`, the window's `VisibilityChanged`, and the
   platform's `InputPane` for the on-screen keyboard.
+- **The touch model in control** is `ScreenGesture` too (issue 798), started with `inControl: true` and the time of
+  each event, so it reads no clock. A tap is a click and a long press (`LongPressTime`, 600 ms, still) a right
+  click, both when the finger lifts. A move past `TapSlop` (10 px) drags with the left button: `Press` where the
+  finger went down, `Drag` for each new place, `Release` where it last was. On an enlarged picture a quick move pans
+  the view, and a move after `HoldTime` (300 ms) drags. Two fingers moving together turn the wheel, one step for
+  each `ScrollStep` (24 px), up and down only as the sandbox scrolls; two fingers whose spread changes by
+  `PinchShare` (12 percent) pinch the view. A second finger during a drag releases the button and ends the gesture.
+  A cancelled finger releases a held button; `Release()` does the same when the focus or control goes. What the
+  sandbox is sent is handed over by `TakeInput()` as `ScreenTouch` values at places on the frame. Watching, it does
+  what it always did. `ScreenGestureTests` holds every transition. The picture uses it in the second layer of issue
+  798, with the pointer kinds of issue 797.
 - **The keyboard.** While the person drives the screen the picture is one tab stop: the arrow keys move the pointer
   (with Shift, far), Enter or Space clicks there. Enlarged and only looked at, it is a tab stop whose arrow keys
   move the view. Tab and Shift+Tab are never taken, so the focus enters and leaves the picture as it does a button.

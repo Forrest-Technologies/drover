@@ -30,6 +30,10 @@ public sealed class SandboxRepository(DroverDbContext db)
             .OrderByDescending(sandbox => sandbox.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    /// <summary>The sandbox with this id in any state, or null when there is none.</summary>
+    public Task<Sandbox?> FindSandbox(Guid id, CancellationToken cancellationToken) =>
+        db.Sandboxes.AsNoTracking().SingleOrDefaultAsync(sandbox => sandbox.Id == id, cancellationToken);
+
     /// <summary>The tracked row, locked until the transaction ends, so two calls that finish creating it take turns.</summary>
     public async Task<Sandbox?> GetSandboxForUpdate(Guid id, CancellationToken cancellationToken) =>
         (await db.Sandboxes.FromSql($"SELECT * FROM sandboxes WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault();
