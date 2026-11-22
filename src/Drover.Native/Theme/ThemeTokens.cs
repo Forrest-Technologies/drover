@@ -31,7 +31,10 @@ public static class ThemeTokens
 
     #region Public Methods
 
-    /// <summary>Applies a theme in both of its modes. The mode a person sees is chosen apart, by the requested theme of the window.</summary>
+    /// <summary>
+    /// Applies a theme in both of its modes. The mode a person sees is chosen apart, by the requested theme of the
+    /// window.
+    /// </summary>
     public static void Apply(ThemeFile theme)
     {
         var (dark, light) = (theme.Resolve(ColorMode.Dark), theme.Resolve(ColorMode.Light));
@@ -127,7 +130,8 @@ public static class ThemeTokens
         Tokens.Dictionary["DvFontHeading"] = Family(faces.Heading);
 
         // The one variable face of the web client draws large text with its display cut. The static files the
-        // native renderer needs keep the two cuts apart, so the largest heading takes the display cut where a face has one.
+        // native renderer needs keep the two cuts apart, so the largest heading takes the display cut where a face
+        // has one.
         Tokens.Dictionary["DvFontHeadingLarge"] = new FontFamily(faces.Heading.DisplayAsset ?? faces.Heading.Asset);
     }
 

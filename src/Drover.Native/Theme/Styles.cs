@@ -11,7 +11,9 @@ public static class Styles
 
     #region Properties
 
-    /// <summary>The style file, loaded when first asked for and merged into the application's resources by the app.</summary>
+    /// <summary>
+    /// The style file, loaded when first asked for and merged into the application's resources by the app.
+    /// </summary>
     public static ResourceDictionary Dictionary => dictionary ??= Load();
 
     #endregion

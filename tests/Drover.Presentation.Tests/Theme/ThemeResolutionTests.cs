@@ -9,7 +9,13 @@ public sealed class ThemeResolutionTests
 
     private static readonly string[] namedTokens = ["line-0", "line-2", "line-h1"];
 
-    private static readonly Dictionary<int, string> weightNames = new() { [400] = "Normal", [500] = "Medium", [600] = "SemiBold", [700] = "Bold" };
+    private static readonly Dictionary<int, string> weightNames = new()
+    {
+        [400] = "Normal",
+        [500] = "Medium",
+        [600] = "SemiBold",
+        [700] = "Bold",
+    };
 
     #endregion
 
@@ -22,14 +28,15 @@ public sealed class ThemeResolutionTests
     public void Night_yard_resolves_to_every_color_of_the_token_file_in_each_mode(ColorMode mode, string dictionary)
     {
         var resolved = BuiltInThemes.NightYard.Resolve(mode).Colors;
-        var problems = new List<string>();
+        List<string> problems = [];
 
         foreach (var (name, hex) in NativeTokens.Colors(dictionary))
         {
             var token = resolved.Where(color => NativeTokens.NameOf(color.Key) == name).ToList();
             if (token.Count != 1 || !string.Equals(token[0].Value.ToString(), hex, StringComparison.OrdinalIgnoreCase))
             {
-                problems.Add($"{name} is {hex} in the token file and {(token.Count == 1 ? token[0].Value.ToString() : "missing")} from Night Yard's file");
+                var found = token.Count == 1 ? token[0].Value.ToString() : "missing";
+                problems.Add($"{name} is {hex} in the token file and {found} from Night Yard's file");
             }
         }
 
@@ -41,7 +48,7 @@ public sealed class ThemeResolutionTests
     {
         var resolved = BuiltInThemes.NightYard.Resolve(ColorMode.Dark).Numbers;
         var native = NativeTokens.Values();
-        var problems = new List<string>();
+        List<string> problems = [];
 
         foreach (var (token, value) in resolved)
         {
@@ -51,14 +58,18 @@ public sealed class ThemeResolutionTests
                 continue;
             }
 
-            if (token.StartsWith("weight-", StringComparison.Ordinal) ? found != weightNames[(int)value] : double.Parse(found, CultureInfo.InvariantCulture) != value)
+            var differs = token.StartsWith("weight-", StringComparison.Ordinal)
+                ? found != weightNames[(int)value]
+                : double.Parse(found, CultureInfo.InvariantCulture) != value;
+            if (differs)
             {
                 problems.Add($"{name} is {found} in the token file and {value} from Night Yard's file");
             }
         }
 
         problems.Should().BeEmpty();
-        resolved.Keys.Where(token => native.ContainsKey(TokenNames.Of(token))).Should().HaveCountGreaterThan(30, "most numbers are compared");
+        resolved.Keys.Where(token => native.ContainsKey(TokenNames.Of(token)))
+            .Should().HaveCountGreaterThan(30, "most numbers are compared");
     }
 
     [Fact]
@@ -107,16 +118,28 @@ public sealed class ThemeResolutionTests
     [Fact]
     public void Durations_come_from_the_scale_and_bloom_and_the_cycles_are_taken_as_they_are()
     {
-        var slow = Edited(file => file with { Motion = file.Motion with { Scale = 1.3, Bloom = 3, Breath = 3380, Travel = 1690 } }).Numbers;
+        var slow = Edited(file => file with
+        {
+            Motion = file.Motion with { Scale = 1.3, Bloom = 3, Breath = 3380, Travel = 1690 },
+        }).Numbers;
 
         Enumerable.Range(1, 3).Select(step => slow[$"dur-{step}"]).Should().Equal(156, 286, 546);
-        (slow["bloom-ion"], slow["bloom-violet"], slow["dur-breath"], slow["dur-travel"]).Should().Be((3, 3, 3380, 1690));
+        (slow["bloom-ion"], slow["bloom-violet"], slow["dur-breath"], slow["dur-travel"])
+            .Should().Be((3, 3, 3380, 1690));
     }
 
     [Fact]
     public void The_type_scale_the_weights_and_the_measure_come_from_the_file()
     {
-        var small = Edited(file => file with { Type = file.Type with { Scale = [11, 12, 13, 15, 18, 24], MachineNumerals = true, Headings = HeadingFace.Machine } });
+        var small = Edited(file => file with
+        {
+            Type = file.Type with
+            {
+                Scale = [11, 12, 13, 15, 18, 24],
+                MachineNumerals = true,
+                Headings = HeadingFace.Machine,
+            },
+        });
 
         Enumerable.Range(0, 6).Select(step => small.Numbers[$"size-{step}"]).Should().Equal(11, 12, 13, 15, 18, 24);
         small.Numbers["measure"].Should().Be(Math.Round(65 * (22 / 35.0) * 13));
@@ -145,7 +168,8 @@ public sealed class ThemeResolutionTests
 
     #region Private Methods
 
-    private static ThemeTokenSet Edited(Func<ThemeFile, ThemeFile> change) => change(BuiltInThemes.NightYard).Resolve(ColorMode.Dark);
+    private static ThemeTokenSet Edited(Func<ThemeFile, ThemeFile> change) =>
+        change(BuiltInThemes.NightYard).Resolve(ColorMode.Dark);
 
     #endregion
 }
