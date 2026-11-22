@@ -15,9 +15,16 @@ public static class AudienceChecks
         await using var asA2 = await harness.Open(world.SpaceA, world.UserA2);
 
         Expect.That(await harness.CountRow(asA1, table, mine) == 1, $"Control: A1 cannot see their private row in '{tableName}'.");
-        if (!table.Seeder.ForOnePersonOnly)
+        if (table.Seeder.ForOnePersonOnly)
         {
-            Expect.That(await harness.CountRow(asA2, table, shared) == 1, $"Control: A2 cannot see a shared row in '{tableName}'.");
+            var theirs = await harness.Seed(table, RowPlacement.Private(world.SpaceA, world.UserA2));
+            Expect.That(await harness.CountRow(asA2, table, theirs) == 1,
+                $"Control: A2 cannot see their own row in '{tableName}'.");
+        }
+        else
+        {
+            Expect.That(await harness.CountRow(asA2, table, shared) == 1,
+                $"Control: A2 cannot see a shared row in '{tableName}'.");
         }
 
         Expect.That(await harness.CountRow(asA2, table, mine) == 0, $"A2 selected A1's private row in '{tableName}' by key.");
@@ -77,7 +84,9 @@ public static class AudienceChecks
     {
         var (table, world, mine, _) = await Arrange(harness, tableName);
         Expect.That(table.Seeder.ForOnePersonOnly, $"'{tableName}' can be shared, so this check does not apply to it.");
-        var values = new Dictionary<string, object?>(await harness.Compose(table, RowPlacement.Private(world.SpaceA, world.UserA1), mine.Parents))
+        var placement = RowPlacement.Private(world.SpaceA, world.UserA1);
+        var composed = await harness.Compose(table, placement, mine.Parents);
+        var values = new Dictionary<string, object?>(composed)
         {
             ["audience_user_id"] = Domain.Tenancy.Audience.Everyone,
         };

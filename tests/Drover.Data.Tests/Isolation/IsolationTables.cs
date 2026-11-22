@@ -41,7 +41,7 @@ public static class IsolationTables
     public static TheoryData<string> Audience() =>
         [.. OwnershipMap.Current.InClass(OwnershipClass.SpaceWithAudience).Select(table => table.Table), .. scratchAudienceTables];
 
-    /// <summary>Tables with <c>audience_user_id</c> whose rows always act for one person and are never shared.</summary>
+    /// <summary>Tables with <c>audience_user_id</c> whose rows act for one person and are never shared.</summary>
     public static TheoryData<string> ForOnePersonOnly() =>
     [
         .. SeederRegistry.Discover()
