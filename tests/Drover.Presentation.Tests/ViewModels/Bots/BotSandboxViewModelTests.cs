@@ -1361,6 +1361,43 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_scroll_declined_at_once_before_the_desktop_is_ready_leaves_the_wheel_ready_for_the_next()
+    {
+        Answer(Status("running"));
+        var gate = server.Hold("POST", $"{sandbox}/screen");
+        await Open();
+        Screen.SetControl(true);
+        Screen.DesktopReady.Should().BeFalse("the first picture has not arrived");
+
+        Screen.Touch([new(ScreenTouchKind.ScrollDown, 164, 123)], 328, 246);
+        await Screen.TouchesSent();
+        gate.SetResult();
+        await Eventually(() => Screen.DesktopReady.Should().BeTrue());
+        Screen.Touch([new(ScreenTouchKind.ScrollDown, 164, 123)], 328, 246);
+        await Screen.TouchesSent();
+
+        Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Should().Be(
+            new SandboxInputRequest("scroll", Direction: "down", Amount: 1, X: 512, Y: 384));
+    }
+
+    [Fact]
+    public async Task A_touch_still_queued_when_the_screen_closes_is_never_sent()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+        Screen.Touch([new(ScreenTouchKind.Tap, 0, 0), new(ScreenTouchKind.Tap, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+
+        var closing = Screen.Stop();
+        gate.SetResult();
+        await closing;
+        await Screen.TouchesSent();
+
+        Requests("POST", $"{sandbox}/input").Should().HaveCount(1, "the second tap was for a screen that went away");
+    }
+
+    [Fact]
     public async Task Lifting_after_a_long_press_is_said_before_it_happens_and_the_words_go_with_the_finger()
     {
         Answer(Status("running"));

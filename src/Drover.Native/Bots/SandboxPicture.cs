@@ -43,6 +43,9 @@ internal sealed class SandboxPicture : UserControl
 
     private bool pressedByMouse;
 
+    // Whether the gesture under way began while the person drove the screen.
+    private bool gestureInControl;
+
     #endregion
 
     #region Constructors
@@ -116,8 +119,9 @@ internal sealed class SandboxPicture : UserControl
         ShowRing();
         InvalidateMeasure();
 
-        // Control ended while a finger was down: a held drag is let go of, and nothing more goes to the sandbox.
-        if (!model.Control && gesture.IsDragging)
+        // Control ended while a finger was down: the whole gesture ends (a held drag is let go of), so a press or a
+        // scroll can never carry on when control comes back. A gesture that began while only looking is left alone.
+        if (!model.Control && gestureInControl && gesture.IsActive)
         {
             LetGo();
         }
@@ -206,6 +210,15 @@ internal sealed class SandboxPicture : UserControl
             return;
         }
 
+        // The picture keeps the finger only when it holds it. A finger the picture could not capture is left to the
+        // page and starts nothing here, so the gesture never waits for a lift it may not be told of. A finger on a
+        // picture at fit, only looked at, may be scrolling the page, which the system decides.
+        var keeps = isMouse || KeepsFinger;
+        if (keeps && !CapturePointer(pointer.Pointer))
+        {
+            return;
+        }
+
         if (gesture.IsActive)
         {
             // A second finger is never a long press.
@@ -213,20 +226,14 @@ internal sealed class SandboxPicture : UserControl
         }
         else
         {
-            pressedByMouse = isMouse;
+            (pressedByMouse, gestureInControl) = (isMouse, model.Control);
         }
 
         pressedAt = (point.Position.X, point.Position.Y);
         gesture.Down(pointer.Pointer.PointerId, point.Position.X, point.Position.Y, placed, model.Control, Now);
         SendTouches();
         WatchForLongPress();
-
-        // A finger on a picture at fit, only looked at, may be scrolling the page, which the system decides.
-        if (isMouse || KeepsFinger)
-        {
-            CapturePointer(pointer.Pointer);
-            pointer.Handled = true;
-        }
+        pointer.Handled = keeps;
 
         if (IsTabStop)
         {
@@ -311,6 +318,8 @@ internal sealed class SandboxPicture : UserControl
         {
             SendTouches();
         }
+
+        ReleasePointerCaptures();
     }
 
     private void WatchForLongPress()

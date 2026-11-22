@@ -70,6 +70,8 @@ public sealed partial class SandboxScreenViewModel(
 
     private (int X, int Y)? dragFrom;
 
+    private bool control;
+
     // Completed while no input is on its way to the sandbox. A queued touch waits on it, however long that takes.
     private TaskCompletionSource idle = NewIdle();
 
@@ -175,7 +177,20 @@ public sealed partial class SandboxScreenViewModel(
     public bool Sending { get; private set; }
 
     /// <summary>Whether clicks and keys go to the sandbox. Off, the person only looks.</summary>
-    public bool Control { get; private set; }
+    /// <summary>Whether the person drives the screen. Any change starts a new session of touches.</summary>
+    public bool Control
+    {
+        get => control;
+        private set
+        {
+            if (value != control)
+            {
+                NewTouchSession();
+            }
+
+            control = value;
+        }
+    }
 
     public bool PasswordMode { get; private set; }
 
@@ -338,6 +353,7 @@ public sealed partial class SandboxScreenViewModel(
         }
 
         stopping = null;
+        NewTouchSession();
         await stop.CancelAsync();
 
         // Closing never fails because of how the refresh ended: the screen is going away either way.
@@ -403,6 +419,9 @@ public sealed partial class SandboxScreenViewModel(
             typed = string.Empty;
             PasswordMode = false;
             Control = held;
+
+            // With no running sandbox there is nothing to send a touch to: those still queued go nowhere.
+            NewTouchSession();
         }
 
         Changed();
@@ -750,10 +769,12 @@ public sealed partial class SandboxScreenViewModel(
             return;
         }
 
-        wheelQueued = Queue(SendWheel);
-        if (!wheelQueued)
+        // The flag is set before the scroll is queued: the queue may run it to the end at once, and the scroll then
+        // clears the flag itself.
+        wheelQueued = true;
+        if (!Queue(SendWheel))
         {
-            wheel = 0;
+            (wheel, wheelQueued) = (0, false);
         }
     }
 
@@ -818,11 +839,11 @@ public sealed partial class SandboxScreenViewModel(
         }
 
         touchesWaiting++;
-        touches = After(touches, touchSession, send);
+        touches = After(touches, touchSession, BotId, send);
         return true;
     }
 
-    private async Task After(Task before, int session, Func<Task<bool>> send)
+    private async Task After(Task before, int session, Guid bot, Func<Task<bool>> send)
     {
         try
         {
@@ -835,7 +856,9 @@ public sealed partial class SandboxScreenViewModel(
                 await idle.Task;
             }
 
-            if (session == touchSession && Control)
+            // A touch is sent only in the session it was made in, to the bot it was made for, while the person still
+            // drives the screen.
+            if (session == touchSession && bot == BotId && Control)
             {
                 await send();
             }
