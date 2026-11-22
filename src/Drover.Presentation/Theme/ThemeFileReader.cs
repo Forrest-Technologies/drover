@@ -12,18 +12,26 @@ public static partial class ThemeFileReader
 
     private static readonly string[] colorTokens =
     [
-        "bg-0", "bg-1", "bg-2", "bg-3", "line", "text", "text-2", "text-3", "ember", "ion", "violet", "ok", "warn", "danger",
-        "on-accent", .. Enumerable.Range(0, 12).Select(step => $"hue-{step}"), .. Enumerable.Range(0, 12).Select(step => $"head-{step}"),
+        "bg-0", "bg-1", "bg-2", "bg-3", "line", "text", "text-2", "text-3", "ember", "ion", "violet", "ok", "warn",
+        "danger", "on-accent",
+        .. Enumerable.Range(0, 12).Select(step => $"hue-{step}"),
+        .. Enumerable.Range(0, 12).Select(step => $"head-{step}"),
         "on-head", "visor", "visor-lit", "visor-failed",
     ];
 
-    private static readonly JsonDocumentOptions strict = new() { CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false };
+    private static readonly JsonDocumentOptions strict = new()
+    {
+        CommentHandling = JsonCommentHandling.Disallow,
+        AllowTrailingCommas = false,
+    };
 
     #endregion
 
     #region Public Methods
 
-    /// <summary>Reads a theme file. <paramref name="expectedId"/> is the file's name without <c>.json</c>, when it has one.</summary>
+    /// <summary>
+    /// Reads a theme file. <paramref name="expectedId"/> is the file's name without <c>.json</c>, when it has one.
+    /// </summary>
     /// <exception cref="ThemeFormatException">The text is not JSON, or does not follow the format.</exception>
     public static ThemeFile Read(string json, string? expectedId = null)
     {
@@ -42,7 +50,9 @@ public static partial class ThemeFileReader
             var reading = new ThemeReading();
             var file = reading.ReadFile(document.RootElement, expectedId);
 
-            return reading.Problems.Count > 0 || file is null ? throw new ThemeFormatException(reading.Problems) : file;
+            return reading.Problems.Count > 0 || file is null
+                ? throw new ThemeFormatException(reading.Problems)
+                : file;
         }
     }
 
@@ -62,7 +72,11 @@ public static partial class ThemeFileReader
 
         public ThemeFile? ReadFile(JsonElement root, string? expectedId)
         {
-            var top = Keys(root, "the file", "format", "id", "name", "intent", "firstMode", "suits", "type", "density", "shape", "surfaces", "motion", "characters", "dark", "light");
+            var top = Keys(
+                root,
+                "the file",
+                "format", "id", "name", "intent", "firstMode", "suits", "type", "density", "shape", "surfaces",
+                "motion", "characters", "dark", "light");
             if (top is null)
             {
                 return null;
@@ -77,21 +91,37 @@ public static partial class ThemeFileReader
 
             var name = Text(top, "name", "name", 1, 40);
             var intent = Text(top, "intent", "intent", 1, 120);
-            var firstMode = Choice(top, "firstMode", "firstMode", new Dictionary<string, ColorMode> { ["dark"] = ColorMode.Dark, ["light"] = ColorMode.Light });
+            var firstMode = Choice(
+                top,
+                "firstMode",
+                "firstMode",
+                new Dictionary<string, ColorMode> { ["dark"] = ColorMode.Dark, ["light"] = ColorMode.Light });
 
             var before = Problems.Count;
             var motion = ReadMotion(top);
             var characters = ReadCharacters(top);
 
-            // A bloom that could not be read is already a problem, and reads as 0: it is not also a missing visor edge.
+            // A bloom that could not be read is already a problem, and reads as 0: it is not also a missing visor
+            // edge.
             if (Problems.Count == before && motion.Bloom == 0 && characters.Visor is not VisorStyle.Outlined)
             {
                 Problems.Add("motion.bloom is 0, and the visor must then be 'outlined' so it reads without bloom");
             }
 
             return new(
-                id, name, intent, firstMode, Suits(top), ReadType(top), ReadDensity(top), ReadShape(top), ReadSurfaces(top),
-                motion, characters, ReadMode(top, "dark"), ReadMode(top, "light"));
+                id,
+                name,
+                intent,
+                firstMode,
+                Suits(top),
+                ReadType(top),
+                ReadDensity(top),
+                ReadShape(top),
+                ReadSurfaces(top),
+                motion,
+                characters,
+                ReadMode(top, "dark"),
+                ReadMode(top, "light"));
         }
 
         #endregion
@@ -100,7 +130,11 @@ public static partial class ThemeFileReader
 
         private List<DeviceRequest> Suits(Dictionary<string, JsonElement> parent)
         {
-            var names = new Dictionary<string, DeviceRequest> { ["large-text"] = DeviceRequest.LargeText, ["reduced-motion"] = DeviceRequest.ReducedMotion };
+            var names = new Dictionary<string, DeviceRequest>
+            {
+                ["large-text"] = DeviceRequest.LargeText,
+                ["reduced-motion"] = DeviceRequest.ReducedMotion,
+            };
             List<DeviceRequest> found = [];
             if (parent["suits"].ValueKind is not JsonValueKind.Array)
             {
@@ -110,13 +144,16 @@ public static partial class ThemeFileReader
 
             foreach (var item in parent["suits"].EnumerateArray())
             {
-                if (item.ValueKind is JsonValueKind.String && names.TryGetValue(item.GetString()!, out var request) && !found.Contains(request))
+                if (item.ValueKind is JsonValueKind.String
+                    && names.TryGetValue(item.GetString()!, out var request)
+                    && !found.Contains(request))
                 {
                     found.Add(request);
                 }
                 else
                 {
-                    Problems.Add("suits holds a name that is not 'large-text' or 'reduced-motion', or holds one twice");
+                    Problems.Add(
+                        "suits holds a name that is not 'large-text' or 'reduced-motion', or holds one twice");
                 }
             }
 
@@ -125,7 +162,11 @@ public static partial class ThemeFileReader
 
         private ThemeType ReadType(Dictionary<string, JsonElement> top)
         {
-            var type = Keys(top["type"], "type", "interface", "machine", "reading", "headings", "machineNumerals", "scale", "weights", "leading", "tracking", "headingTracking", "measure");
+            var type = Keys(
+                top["type"],
+                "type",
+                "interface", "machine", "reading", "headings", "machineNumerals", "scale", "weights", "leading",
+                "tracking", "headingTracking", "measure");
             if (type is null)
             {
                 return Empty.Type;
@@ -133,7 +174,9 @@ public static partial class ThemeFileReader
 
             var face = Text(type, "interface", "type.interface", 1, 40, IdPattern());
             var machine = Text(type, "machine", "type.machine", 1, 40, IdPattern());
-            var reading = type["reading"].ValueKind is JsonValueKind.Null ? null : Text(type, "reading", "type.reading", 1, 40, IdPattern());
+            var reading = type["reading"].ValueKind is JsonValueKind.Null
+                ? null
+                : Text(type, "reading", "type.reading", 1, 40, IdPattern());
             CheckFace(face, "type.interface");
             CheckFace(machine, "type.machine");
             CheckFace(reading, "type.reading");
@@ -144,7 +187,9 @@ public static partial class ThemeFileReader
 
             var weights = Keys(type["weights"], "type.weights", "body", "label", "heading");
             var leading = Keys(type["leading"], "type.leading", "text", "heading");
-            var (body, label, heading) = weights is null ? (400, 500, 600) : (Weight(weights, "body"), Weight(weights, "label"), Weight(weights, "heading"));
+            var (body, label, heading) = weights is null
+                ? (400, 500, 600)
+                : (Weight(weights, "body"), Weight(weights, "label"), Weight(weights, "heading"));
             if (!(body < label && label <= heading))
             {
                 Problems.Add("type.weights must have body below label and label at most heading");
@@ -154,7 +199,15 @@ public static partial class ThemeFileReader
                 face,
                 machine,
                 reading,
-                Choice(type, "headings", "type.headings", new Dictionary<string, HeadingFace> { ["interface"] = HeadingFace.Interface, ["machine"] = HeadingFace.Machine }),
+                Choice(
+                    type,
+                    "headings",
+                    "type.headings",
+                    new Dictionary<string, HeadingFace>
+                    {
+                        ["interface"] = HeadingFace.Interface,
+                        ["machine"] = HeadingFace.Machine,
+                    }),
                 Flag(type, "machineNumerals", "type.machineNumerals"),
                 Scale(type["scale"]),
                 body,
@@ -180,8 +233,16 @@ public static partial class ThemeFileReader
 
             return new(
                 Number(density, "spacing", "density.spacing", 0.85, 1.25),
-                control is null ? new(32, 44) : new(Whole(control, "pointer", "density.control.pointer", 32, 48), Whole(control, "touch", "density.control.touch", 44, 56)),
-                row is null ? new(44, 44) : new(Whole(row, "pointer", "density.row.pointer", 32, 56), Whole(row, "touch", "density.row.touch", 44, 64)),
+                control is null
+                    ? new(32, 44)
+                    : new(
+                        Whole(control, "pointer", "density.control.pointer", 32, 48),
+                        Whole(control, "touch", "density.control.touch", 44, 56)),
+                row is null
+                    ? new(44, 44)
+                    : new(
+                        Whole(row, "pointer", "density.row.pointer", 32, 56),
+                        Whole(row, "touch", "density.row.touch", 44, 64)),
                 Whole(density, "composerLines", "density.composerLines", 4, 12));
         }
 
@@ -193,7 +254,16 @@ public static partial class ThemeFileReader
                 return Empty.Shape;
             }
 
-            var corners = Choice(shape, "corners", "shape.corners", new Dictionary<string, CornerLanguage> { ["faceted"] = CornerLanguage.Faceted, ["square"] = CornerLanguage.Square, ["ticked"] = CornerLanguage.Ticked });
+            var corners = Choice(
+                shape,
+                "corners",
+                "shape.corners",
+                new Dictionary<string, CornerLanguage>
+                {
+                    ["faceted"] = CornerLanguage.Faceted,
+                    ["square"] = CornerLanguage.Square,
+                    ["ticked"] = CornerLanguage.Ticked,
+                });
             var cut = Keys(shape["cut"], "shape.cut", "control", "frame");
             var radius = Keys(shape["radius"], "shape.radius", "control", "card", "sheet");
             var registration = Flag(shape, "registration", "shape.registration");
@@ -202,17 +272,44 @@ public static partial class ThemeFileReader
                 Problems.Add("shape.registration is true, and only ticked corners have registration marks");
             }
 
-            var cuts = cut is null ? new SizePair(0, 0) : corners is CornerLanguage.Square
-                ? new(Whole(cut, "control", "shape.cut.control", 0, 0), Whole(cut, "frame", "shape.cut.frame", 0, 0))
-                : new(Whole(cut, "control", "shape.cut.control", 4, 10), Whole(cut, "frame", "shape.cut.frame", 8, 16));
-            var (control, card, sheet) = radius is null ? (0, 0, 0) : corners switch
+            var cuts = cut is null ? new SizePair(0, 0) : ReadCuts(cut, corners);
+            var (control, card, sheet) = radius is null ? (0, 0, 0) : ReadRadii(radius, corners);
+
+            return new(
+                corners,
+                cuts,
+                registration,
+                control,
+                card,
+                sheet,
+                Whole(shape, "line", "shape.line", 1, 2),
+                Number(shape, "iconStroke", "shape.iconStroke", 1.5, 2));
+        }
+
+        private SizePair ReadCuts(Dictionary<string, JsonElement> cut, CornerLanguage corners)
+        {
+            var (control, frame) = corners is CornerLanguage.Square ? ((0, 0), (0, 0)) : ((4, 10), (8, 16));
+
+            return new(
+                Whole(cut, "control", "shape.cut.control", control.Item1, control.Item2),
+                Whole(cut, "frame", "shape.cut.frame", frame.Item1, frame.Item2));
+        }
+
+        private (int Control, int Card, int Sheet) ReadRadii(
+            Dictionary<string, JsonElement> radius,
+            CornerLanguage corners)
+        {
+            var (control, card, sheet) = corners switch
             {
-                CornerLanguage.Square => (Whole(radius, "control", "shape.radius.control", 2, 8), Whole(radius, "card", "shape.radius.card", 2, 12), Whole(radius, "sheet", "shape.radius.sheet", 4, 16)),
-                CornerLanguage.Ticked => (Whole(radius, "control", "shape.radius.control", 0, 0), Whole(radius, "card", "shape.radius.card", 0, 0), Whole(radius, "sheet", "shape.radius.sheet", 0, 0)),
-                _ => (Whole(radius, "control", "shape.radius.control", 0, 16), Whole(radius, "card", "shape.radius.card", 0, 16), Whole(radius, "sheet", "shape.radius.sheet", 0, 16)),
+                CornerLanguage.Square => ((2, 8), (2, 12), (4, 16)),
+                CornerLanguage.Ticked => ((0, 0), (0, 0), (0, 0)),
+                _ => ((0, 16), (0, 16), (0, 16)),
             };
 
-            return new(corners, cuts, registration, control, card, sheet, Whole(shape, "line", "shape.line", 1, 2), Number(shape, "iconStroke", "shape.iconStroke", 1.5, 2));
+            return (
+                Whole(radius, "control", "shape.radius.control", control.Item1, control.Item2),
+                Whole(radius, "card", "shape.radius.card", card.Item1, card.Item2),
+                Whole(radius, "sheet", "shape.radius.sheet", sheet.Item1, sheet.Item2));
         }
 
         private ThemeSurfaces ReadSurfaces(Dictionary<string, JsonElement> top)
@@ -225,7 +322,17 @@ public static partial class ThemeFileReader
             }
 
             var levels = Whole(surfaces, "levels", "surfaces.levels", 2, 3);
-            var texture = Choice(yard, "texture", "surfaces.yard.texture", new Dictionary<string, YardTexture> { ["dots"] = YardTexture.Dots, ["lines"] = YardTexture.Lines, ["grid"] = YardTexture.Grid, ["none"] = YardTexture.None });
+            var texture = Choice(
+                yard,
+                "texture",
+                "surfaces.yard.texture",
+                new Dictionary<string, YardTexture>
+                {
+                    ["dots"] = YardTexture.Dots,
+                    ["lines"] = YardTexture.Lines,
+                    ["grid"] = YardTexture.Grid,
+                    ["none"] = YardTexture.None,
+                });
             var strength = Number(yard, "strength", "surfaces.yard.strength", 0, 0.7);
             if (texture is YardTexture.None && strength != 0)
             {
@@ -248,7 +355,11 @@ public static partial class ThemeFileReader
                 Whole(motion, "bloom", "motion.bloom", 0, 8),
                 Whole(motion, "breath", "motion.breath", 2080, 3380),
                 Whole(motion, "travel", "motion.travel", 1040, 1690),
-                Choice(motion, "live", "motion.live", new Dictionary<string, LiveStyle> { ["loop"] = LiveStyle.Loop, ["fade"] = LiveStyle.Fade }),
+                Choice(
+                    motion,
+                    "live",
+                    "motion.live",
+                    new Dictionary<string, LiveStyle> { ["loop"] = LiveStyle.Loop, ["fade"] = LiveStyle.Fade }),
                 Whole(motion, "travelLine", "motion.travelLine", 2, 3));
         }
 
@@ -266,7 +377,15 @@ public static partial class ThemeFileReader
                 Number(head, "chroma", "characters.head.chroma", 0.04, 0.12),
                 Number(characters, "facet", "characters.facet", 0, 0.15),
                 Number(characters, "line", "characters.line", 2, 3.5),
-                Choice(characters, "visor", "characters.visor", new Dictionary<string, VisorStyle> { ["band"] = VisorStyle.Band, ["outlined"] = VisorStyle.Outlined }));
+                Choice(
+                    characters,
+                    "visor",
+                    "characters.visor",
+                    new Dictionary<string, VisorStyle>
+                    {
+                        ["band"] = VisorStyle.Band,
+                        ["outlined"] = VisorStyle.Outlined,
+                    }));
         }
 
         private ModeColors ReadMode(Dictionary<string, JsonElement> top, string mode)
@@ -304,7 +423,10 @@ public static partial class ThemeFileReader
         #region Values
 
         // The object must be an object holding exactly these keys, each once. Anything else is a problem, and null.
-        private Dictionary<string, JsonElement>? Keys(JsonElement element, string path, params string[] expected)
+        private Dictionary<string, JsonElement>? Keys(
+            JsonElement element,
+            string path,
+            params string[] expected)
         {
             if (element.ValueKind is not JsonValueKind.Object)
             {
@@ -324,30 +446,53 @@ public static partial class ThemeFileReader
             var missing = expected.Where(key => !found.ContainsKey(key)).ToList();
             var unknown = found.Keys.Where(key => !expected.Contains(key)).ToList();
             missing.ForEach(key => Problems.Add($"{path} has no '{key}'"));
-            unknown.ForEach(key => Problems.Add($"{path} holds '{key}', which the format does not have"));
+            unknown.ForEach(key =>
+                Problems.Add($"{path} holds '{key}', which the format does not have"));
 
             return missing.Count > 0 ? null : found;
         }
 
-        private string Text(Dictionary<string, JsonElement> parent, string key, string path, int shortest, int longest, Regex? pattern = null)
+        private string Text(
+            Dictionary<string, JsonElement> parent,
+            string key,
+            string path,
+            int shortest,
+            int longest,
+            Regex? pattern = null)
         {
             var value = parent[key];
             var text = value.ValueKind is JsonValueKind.String ? value.GetString()! : null;
-            if (text is null || text.Length < shortest || text.Length > longest || pattern?.IsMatch(text) is false || text.Any(char.IsControl))
+            var fits = text is not null
+                && text.Length >= shortest
+                && text.Length <= longest
+                && pattern?.IsMatch(text) is not false
+                && !text.Any(char.IsControl);
+            if (!fits)
             {
-                Problems.Add($"{path} is not plain text of {shortest} to {longest} characters{(pattern is null ? string.Empty : " in the form the format asks for")}");
+                var form = pattern is null ? string.Empty : " in the form the format asks for";
+                Problems.Add($"{path} is not plain text of {shortest} to {longest} characters{form}");
                 return text ?? string.Empty;
             }
 
-            return text;
+            return text ?? string.Empty;
         }
 
-        private double Number(Dictionary<string, JsonElement> parent, string key, string path, double least, double most)
+        private double Number(
+            Dictionary<string, JsonElement> parent,
+            string key,
+            string path,
+            double least,
+            double most)
         {
             var value = parent[key];
-            if (value.ValueKind is not JsonValueKind.Number || !value.TryGetDouble(out var number) || number < least || number > most)
+            if (value.ValueKind is not JsonValueKind.Number
+                || !value.TryGetDouble(out var number)
+                || number < least
+                || number > most)
             {
-                Problems.Add($"{path} is not a number from {least.ToString(CultureInfo.InvariantCulture)} to {most.ToString(CultureInfo.InvariantCulture)}");
+                var from = least.ToString(CultureInfo.InvariantCulture);
+                var to = most.ToString(CultureInfo.InvariantCulture);
+                Problems.Add($"{path} is not a number from {from} to {to}");
                 return least;
             }
 
@@ -357,7 +502,10 @@ public static partial class ThemeFileReader
         private int Whole(Dictionary<string, JsonElement> parent, string key, string path, int least, int most)
         {
             var value = parent[key];
-            if (value.ValueKind is not JsonValueKind.Number || !value.TryGetInt32(out var number) || number < least || number > most)
+            if (value.ValueKind is not JsonValueKind.Number
+                || !value.TryGetInt32(out var number)
+                || number < least
+                || number > most)
             {
                 Problems.Add($"{path} is not a whole number from {least} to {most}");
                 return least;
@@ -388,7 +536,11 @@ public static partial class ThemeFileReader
             return value.ValueKind is JsonValueKind.True;
         }
 
-        private T Choice<T>(Dictionary<string, JsonElement> parent, string key, string path, Dictionary<string, T> names)
+        private T Choice<T>(
+            Dictionary<string, JsonElement> parent,
+            string key,
+            string path,
+            Dictionary<string, T> names)
         {
             var value = parent[key];
             if (value.ValueKind is JsonValueKind.String && names.TryGetValue(value.GetString()!, out var found))
@@ -396,23 +548,27 @@ public static partial class ThemeFileReader
                 return found;
             }
 
-            Problems.Add($"{path} is not one of {string.Join(", ", names.Keys.Select(name => $"'{name}'"))}");
+            var allowed = string.Join(", ", names.Keys.Select(name => $"'{name}'"));
+            Problems.Add($"{path} is not one of {allowed}");
             return names.Values.First();
         }
 
         private List<int> Scale(JsonElement value)
         {
             var steps = value.ValueKind is JsonValueKind.Array ? value.EnumerateArray().ToList() : [];
-            if (steps.Count != 6 || steps.Any(step => step.ValueKind is not JsonValueKind.Number || !step.TryGetInt32(out _)))
+            if (steps.Count != 6
+                || steps.Any(step => step.ValueKind is not JsonValueKind.Number || !step.TryGetInt32(out _)))
             {
                 Problems.Add("type.scale is not six whole numbers");
                 return [12, 13, 14, 16, 20, 28];
             }
 
             var sizes = steps.Select(step => step.GetInt32()).ToList();
-            if (!sizes.Zip(sizes.Skip(1), (smaller, larger) => smaller < larger).All(ascending => ascending) || sizes[0] < 11 || sizes[2] is < 13 or > 16)
+            var ascends = sizes.Zip(sizes.Skip(1), (smaller, larger) => smaller < larger).All(ascending => ascending);
+            if (!ascends || sizes[0] < 11 || sizes[2] is < 13 or > 16)
             {
-                Problems.Add("type.scale must ascend, start at 11 or more, and have a third step from 13 to 16");
+                Problems.Add(
+                    "type.scale must ascend, start at 11 or more, and have a third step from 13 to 16");
             }
 
             return sizes;
@@ -429,16 +585,32 @@ public static partial class ThemeFileReader
         #endregion
     }
 
-    // What a group reads as when it could not be read at all. The problem is already recorded and the file is refused.
+    // What a group reads as when it could not be read at all. The problem is already recorded and the file is
+    // refused.
     private static class Empty
     {
         #region Properties
 
-        public static readonly ThemeType Type = new("inter", "jetbrains-mono", null, HeadingFace.Interface, false, [12, 13, 14, 16, 20, 28], 400, 500, 600, 1.5, 1.25, 0, 0, 65);
+        public static readonly ThemeType Type = new(
+            "inter",
+            "jetbrains-mono",
+            null,
+            HeadingFace.Interface,
+            false,
+            [12, 13, 14, 16, 20, 28],
+            400,
+            500,
+            600,
+            1.5,
+            1.25,
+            0,
+            0,
+            65);
 
         public static readonly ThemeDensity Density = new(1, new(32, 44), new(44, 44), 8);
 
-        public static readonly ThemeShape Shape = new(CornerLanguage.Faceted, new(6, 10), false, 6, 10, 16, 1, 1.75);
+        public static readonly ThemeShape Shape =
+            new(CornerLanguage.Faceted, new(6, 10), false, 6, 10, 16, 1, 1.75);
 
         public static readonly ThemeSurfaces Surfaces = new(2, YardTexture.None, 0, 16);
 

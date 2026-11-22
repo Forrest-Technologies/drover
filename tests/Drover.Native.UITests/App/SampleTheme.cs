@@ -1,8 +1,9 @@
 namespace Drover.Native.Checks;
 
 /// <summary>
-/// A theme made only for the screen checks, a sample and not a look: Night Yard with a different value in every group
-/// that changes at run time, so a check can tell that each one reached the open screen. It is never offered to a person.
+/// A theme made only for the screen checks, a sample and not a look: Night Yard with a different value in every
+/// group that changes at run time, so a check can tell that each one reached the open screen. It is never offered to
+/// a person.
 /// </summary>
 internal static class SampleTheme
 {
@@ -63,7 +64,15 @@ internal static class SampleTheme
                 Line = 2,
             },
             Surfaces = night.Surfaces with { Texture = YardTexture.Grid, YardStrength = 0.4, YardStep = YardStep },
-            Motion = night.Motion with { Scale = 1.3, Bloom = Bloom, Breath = 3380, Travel = 1690, Live = LiveStyle.Fade, TravelLine = 3 },
+            Motion = night.Motion with
+            {
+                Scale = 1.3,
+                Bloom = Bloom,
+                Breath = 3380,
+                Travel = 1690,
+                Live = LiveStyle.Fade,
+                TravelLine = 3,
+            },
             Characters = night.Characters with { Facet = 0.12, Line = CharacterLine, Visor = VisorStyle.Outlined },
             Dark = night.Dark with { Colors = colors },
         };

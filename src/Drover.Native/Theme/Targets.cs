@@ -14,7 +14,9 @@ public static class Targets
     /// <summary>The smallest height, and for an icon the smallest width, of a control.</summary>
     public static double Minimum => Tokens.Number(IsCoarse ? "DvTargetTouch" : "DvTargetPointer");
 
-    /// <summary>The smallest height of a row in a list, which the theme's density sets apart from a control's.</summary>
+    /// <summary>
+    /// The smallest height of a row in a list, which the theme's density sets apart from a control's.
+    /// </summary>
     public static double Row => Tokens.Number(IsCoarse ? "DvRowTouch" : "DvRowPointer");
 
     #endregion
