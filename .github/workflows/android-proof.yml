@@ -86,7 +86,7 @@ jobs:
           mkdir -p "$artifacts"
           sudo chmod a+rw /dev/kvm
           sdkmanager 'emulator' 'system-images;android-35;default;x86_64'
-          printf 'no\n' | avdmanager create avd -n drover-proof -k 'system-images;android-35;default;x86_64'
+          printf 'no\n' | avdmanager create avd -n drover-proof -d pixel_5 -k 'system-images;android-35;default;x86_64'
           "$ANDROID_HOME/emulator/emulator" -avd drover-proof -no-window -no-audio \
             -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$artifacts/emulator.log" 2>&1 &
           trap 'adb emu kill || true' EXIT

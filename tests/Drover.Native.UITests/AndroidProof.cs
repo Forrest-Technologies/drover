@@ -20,7 +20,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
     private static readonly TimeSpan pickPatience = TimeSpan.FromSeconds(60);
 
-    private static readonly TimeSpan dragPatience = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan dragPatience = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan poll = TimeSpan.FromSeconds(1);
 
@@ -183,6 +183,18 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
             if (nodes.FirstOrDefault(node => node.Description.Contains("Click or tap the desktop", StringComparison.Ordinal)) is { } picture)
             {
                 var (left, top, width, height) = (picture.Left, picture.Top, picture.Right - picture.Left, picture.Bottom - picture.Top);
+                var (screenWidth, screenHeight) = (nodes.Max(node => node.Right), nodes.Max(node => node.Bottom));
+
+                // The device reports only what is on screen, so a picture that is not all there is cut short. It is
+                // below the controls on a phone, so the page is scrolled by a finger that starts in its margin, where
+                // the picture cannot take it.
+                if (height < width * 0.7 || picture.Bottom > screenHeight * 0.88)
+                {
+                    await AndroidApp.Adb(serial, "shell", "input", "swipe", "8", $"{screenHeight * 7 / 10}", "8", $"{screenHeight * 4 / 10}", "500");
+                    await Task.Delay(poll);
+                    continue;
+                }
+
                 var (fromX, fromY) = (left + (width * 44 / 100), top + (height * 22 / 100));
                 var (toX, toY) = (left + (width * 64 / 100), top + (height * 48 / 100));
                 logger.LogInformation("Dragging from {FromX},{FromY} to {ToX},{ToY} over the sandbox picture", fromX, fromY, toX, toY);
