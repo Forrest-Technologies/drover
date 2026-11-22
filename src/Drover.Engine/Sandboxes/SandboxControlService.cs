@@ -81,6 +81,9 @@ public sealed class SandboxControlService(
     /// </summary>
     public const int MaxLiftsPerSpace = 4;
 
+    /// <summary>The longest the audit row of an input may take while the input holds its screen's gate.</summary>
+    public static TimeSpan AuditLimit { get; } = TimeSpan.FromSeconds(30);
+
     /// <summary>
     /// Runs when a screen request has joined the shared screenshot, taken or being taken, and before it waits for it.
     /// A test uses it to know every request has met before it lets the provider answer. Not used outside tests.
@@ -103,7 +106,7 @@ public sealed class SandboxControlService(
     /// Runs inside the transaction that writes an audit row, before the row is added, so a test can make the write
     /// fail. Not used outside tests.
     /// </summary>
-    internal Action? AuditWriting { get; set; }
+    internal Func<Task>? AuditWriting { get; set; }
 
     /// <summary>
     /// The mouse buttons people hold down, which are always let go of, kept by the broker: see
@@ -235,6 +238,7 @@ public sealed class SandboxControlService(
                         pointer,
                         epoch,
                         () => RecordDone(person.Tenant, userId, botId, audit),
+                        () => Authorize(person.Tenant, spaceId, userId, botId, cancellationToken),
                         cancellationToken);
                     return await sandbox.Act(person, action, doing, steps, cancellationToken) is not null
                         ? true
@@ -386,7 +390,8 @@ public sealed class SandboxControlService(
         Func<T, bool>? auditWhen,
         T value,
         string outcome,
-        bool rethrowing)
+        bool rethrowing,
+        CancellationToken writing = default)
     {
         if (audit is null || audit.Written || (outcome is "done" && !(auditWhen?.Invoke(value) ?? true)))
         {
@@ -400,13 +405,16 @@ public sealed class SandboxControlService(
         try
         {
             await tenant.Transact(
-                services =>
+                async services =>
                 {
-                    AuditWriting?.Invoke();
+                    if (AuditWriting is { } writingHook)
+                    {
+                        await writingHook();
+                    }
+
                     services.GetRequiredService<AuditLog>().Record(userId, audit.Action, AuditTargets.Bot, botId, null, null, about);
-                    return Task.CompletedTask;
                 },
-                CancellationToken.None);
+                writing);
         }
         catch (Exception exception) when (rethrowing)
         {
@@ -460,11 +468,19 @@ public sealed class SandboxControlService(
         PointerAction? pointer,
         PowerSample epoch,
         Func<Task> recordDone,
+        Func<Task> authorize,
         CancellationToken cancellationToken) =>
         use =>
         {
             var guarded = use with
             {
+                Acquire = async () =>
+                {
+                    await authorize();
+                    var acquired = await use.Acquire();
+                    await authorize();
+                    return acquired;
+                },
                 Run = async () =>
                 {
                     await use.Run();
@@ -490,11 +506,38 @@ public sealed class SandboxControlService(
             };
         };
 
-    /// <summary>The done row of an input, written inside its guarded work.</summary>
-    private Task RecordDone(RunTenant tenant, Guid userId, Guid botId, Audit audit)
+    /// <summary>
+    /// The done row of an input, written inside its guarded work, within <see cref="AuditLimit"/> on the clock: the
+    /// request cannot cancel it, and a write that hangs fails the input and lets go of its press rather than keep the
+    /// screen's gate.
+    /// </summary>
+    private async Task RecordDone(RunTenant tenant, Guid userId, Guid botId, Audit audit)
     {
         WorkCompleted?.Invoke();
-        return Record(tenant, userId, botId, audit, null, true, "done", rethrowing: false);
+        using var bound = new CancellationTokenSource(AuditLimit, time);
+        await Record(tenant, userId, botId, audit, null, true, "done", rethrowing: false, bound.Token);
+    }
+
+    /// <summary>
+    /// Checks again, at the screen's gate, that the person may still change the bot, before the sandbox is acquired
+    /// and again before the input is sent: a person demoted while the input waited sends nothing. Letting go of a
+    /// button never depends on this.
+    /// </summary>
+    private static async Task Authorize(
+        RunTenant tenant,
+        Guid spaceId,
+        Guid userId,
+        Guid botId,
+        CancellationToken cancellationToken)
+    {
+        var refusal = await tenant.Transact(
+            services => Check(services, spaceId, userId, botId, cancellationToken),
+            cancellationToken);
+
+        if (refusal is { } refused)
+        {
+            throw new BuiltinToolException(Refuse<bool>(refused).Problem!);
+        }
     }
 
     /// <summary>
@@ -549,7 +592,9 @@ public sealed class SandboxControlService(
 
         if (done && buttons is ButtonsOnPower.Reset)
         {
-            holds.Forget(spaceId, sandboxId);
+            // Asked again rather than forgotten: a hold ends only once the release worked or the sandbox is confirmed
+            // destroyed. A rebuild whose old sandbox could not be destroyed yet keeps trying to let go of it.
+            await holds.ReleaseAll(spaceId, sandboxId, CancellationToken.None);
         }
 
         return done;

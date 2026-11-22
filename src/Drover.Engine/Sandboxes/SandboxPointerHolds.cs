@@ -81,6 +81,9 @@ internal sealed class SandboxPointerHolds(
     private const string TooOldSentence =
         "This waited too long to be sure the sandbox was unchanged, so nothing was sent to it. Try again.";
 
+    private const string DueSentence =
+        "A mouse button on this screen was due to be let go of and could not be, so nothing was sent. Try again.";
+
     private const string TakenSentence = "Another person is holding that mouse button on this screen.";
 
     private const string FullWhat =
@@ -93,6 +96,8 @@ internal sealed class SandboxPointerHolds(
     private static readonly TimeSpan maxHold = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan stuckProbe = TimeSpan.FromMinutes(1);
+
+    private static readonly TimeSpan stopRetry = TimeSpan.FromSeconds(1);
 
     /// <summary>How long a power control is remembered: longer than any input can wait to be admitted.</summary>
     private static readonly TimeSpan powerMemory = TimeSpan.FromMinutes(15);
@@ -149,6 +154,9 @@ internal sealed class SandboxPointerHolds(
     /// <summary>The longest a button is held, however often its session moves or presses it again.</summary>
     public static TimeSpan MaxHold => maxHold;
 
+    /// <summary>How often a button still held is tried again while the server stops.</summary>
+    public static TimeSpan StopRetry => stopRetry;
+
     /// <summary>How often a button that could not be let go of is tried again once the screen takes no input.</summary>
     public static TimeSpan StuckProbe => stuckProbe;
 
@@ -196,9 +204,11 @@ internal sealed class SandboxPointerHolds(
             press.SandboxId,
             async screen =>
             {
-                await ReleaseOverdue(screen);
+                await ReleaseDue(screen, refuse: false);
                 Admit(screen, press, epoch);
+                RefuseDue(screen);
                 var acquired = press with { ProviderSandboxId = await use.Acquire() };
+                await ReleaseDue(screen, refuse: true);
                 var held = Register(screen, acquired);
                 await RunPressed(screen, held, use);
                 Settle(screen, held, staysDown);
@@ -227,11 +237,13 @@ internal sealed class SandboxPointerHolds(
             sandboxId,
             async screen =>
             {
-                await ReleaseOverdue(screen);
+                await ReleaseDue(screen, refuse: false);
                 RefuseUnsafe(screen, spaceId, sandboxId, epoch, refuseStuck: true);
+                RefuseDue(screen);
                 await use.Acquire();
+                var at = await ReleaseDue(screen, refuse: true);
                 await use.Run();
-                Renew(screen, owner);
+                Renew(screen, owner, at);
                 return true;
             },
             cancellationToken);
@@ -255,9 +267,11 @@ internal sealed class SandboxPointerHolds(
             sandboxId,
             async screen =>
             {
-                await ReleaseOverdue(screen);
+                await ReleaseDue(screen, refuse: false);
                 RefuseUnsafe(screen, spaceId, sandboxId, epoch, refuseStuck: true);
+                RefuseDue(screen);
                 await use.Acquire();
+                await ReleaseDue(screen, refuse: true);
                 await use.Run();
                 return true;
             },
@@ -290,9 +304,10 @@ internal sealed class SandboxPointerHolds(
             sandboxId,
             async screen =>
             {
-                await ReleaseOverdue(screen);
+                await ReleaseDue(screen, refuse: false);
                 RefuseUnsafe(screen, spaceId, sandboxId, epoch, refuseStuck: false);
                 await use.Acquire();
+                await ReleaseDue(screen, refuse: false);
                 await use.Run();
 
                 lock (sync)
@@ -525,17 +540,26 @@ internal sealed class SandboxPointerHolds(
     }
 
     /// <summary>
-    /// Gives the gate back. When the server stopped while this held it, the stop could not take the gate, so whatever
-    /// is still held on the display is let go of here first, within <see cref="Limit"/>.
+    /// Gives the gate back, first letting go of every press that came due while the work held it, so a deadline that
+    /// passed during slow work (a provider command, recording the use, the audit row) is kept the moment that work
+    /// ends. When the server stopped while this held the gate, the stop could not take it, so everything still held on
+    /// the display is let go of here instead, tried again until <see cref="Limit"/> runs out.
     /// </summary>
     private async Task LeaveGate(Screen screen)
     {
         try
         {
-            if (IsClosed() && IsHeld(screen))
+            if (IsClosed())
             {
-                using var bound = new CancellationTokenSource(limit, time);
-                await ReleaseEvery(screen, bound.Token);
+                if (IsHeld(screen))
+                {
+                    using var bound = new CancellationTokenSource(limit, time);
+                    await ReleaseUntilDone(screen, bound.Token);
+                }
+            }
+            else
+            {
+                await ReleaseDue(screen, refuse: false);
             }
         }
         finally
@@ -591,21 +615,33 @@ internal sealed class SandboxPointerHolds(
     }
 
     /// <summary>
-    /// The press, noted with the gate held: the one its session already holds, which keeps its timer running, or a new
-    /// one whose longest hold starts now.
+    /// The press, noted with the gate held and its timer armed, just before its command is sent: the one its session
+    /// already holds, kept from now as a move would (never past its longest hold), or a new one whose deadlines start
+    /// now. From here the record owns the cleanup of the button until a release is confirmed or the sandbox is
+    /// confirmed gone. Refused when the server began to stop while the sandbox was acquired.
     /// </summary>
     private PressRecord Register(Screen screen, PointerPress press)
     {
         lock (sync)
         {
+            if (closed)
+            {
+                throw new BuiltinToolException(StoppingSentence);
+            }
+
+            var now = time.GetTimestamp();
+
             if (screen.Presses.TryGetValue(press.Button, out var existing))
             {
+                existing.IdleFrom = now;
+                Arm(screen, existing, Remaining(existing));
                 return existing;
             }
 
             RefuseWhenFull(screen, press.SpaceId);
-            var held = new PressRecord(press, time.GetTimestamp());
+            var held = new PressRecord(press, now);
             screen.Presses[press.Button] = held;
+            Arm(screen, held, Remaining(held));
             return held;
         }
     }
@@ -641,38 +677,32 @@ internal sealed class SandboxPointerHolds(
     }
 
     /// <summary>
-    /// The press worked: it is held with its time limit started from now (never past its longest hold), or, for a
-    /// drag, it is already over. When the server stopped while it ran, no limit is set: the gate is given back only
-    /// after what is held is let go of.
+    /// The press worked. A drag is already over, so it is forgotten. A held button keeps the deadlines it was given
+    /// when it was registered: a press whose work outlasted them is let go of as the work leaves the gate.
     /// </summary>
     private void Settle(Screen screen, PressRecord held, bool staysDown)
     {
         lock (sync)
         {
-            if (!IsCurrent(screen, held))
-            {
-                return;
-            }
-
-            if (!staysDown)
+            if (!staysDown && IsCurrent(screen, held))
             {
                 Remove(screen, held.Request.Button);
-                return;
             }
-
-            held.IdleFrom = time.GetTimestamp();
-            Arm(screen, held, Remaining(held));
         }
     }
 
-    /// <summary>Called with the gate held, so no press of this screen is under way.</summary>
-    private void Renew(Screen screen, PointerOwner owner)
+    /// <summary>
+    /// Keeps this session's buttons from <paramref name="at"/>, the moment the move was sent, when none of them was
+    /// due: a deadline that passes while the move runs still lets go of the button, at <paramref name="at"/> plus
+    /// <see cref="Limit"/>. Called with the gate held.
+    /// </summary>
+    private void Renew(Screen screen, PointerOwner owner, long at)
     {
         lock (sync)
         {
             foreach (var held in screen.Presses.Values.Where(held => held.Request.Owner == owner && !held.Stuck))
             {
-                held.IdleFrom = time.GetTimestamp();
+                held.IdleFrom = Math.Max(held.IdleFrom, at);
                 Arm(screen, held, Remaining(held));
             }
         }
@@ -789,13 +819,14 @@ internal sealed class SandboxPointerHolds(
     }
 
     /// <summary>
-    /// Lets go of every press past its longest hold before an input runs, called with the gate held, so no input runs
-    /// on the display, or keeps or presses the button again, after that deadline while the timer's release waits for
-    /// the gate. A release that fails is tried again as any other.
+    /// Lets go of every press that is due by either deadline, called with the gate held, so no input runs on the
+    /// display, or keeps or presses a button again, after its deadline while the timer's release waits for the gate.
+    /// With <paramref name="refuse"/> set, the input is refused when a due button could not be let go of, rather than
+    /// run with it still down. The answer is the moment after, which a move keeps its session's buttons from.
     /// </summary>
-    private async Task ReleaseOverdue(Screen screen)
+    private async Task<long> ReleaseDue(Screen screen, bool refuse)
     {
-        foreach (var held in Snapshot(screen).Where(IsOverdue))
+        foreach (var held in Snapshot(screen).Where(IsReadyToRelease))
         {
             using var bound = new CancellationTokenSource(limit, time);
 
@@ -806,18 +837,45 @@ internal sealed class SandboxPointerHolds(
             catch (OperationCanceledException)
             {
                 logger.LogWarning(
-                    "Letting go of a mouse button on sandbox {SandboxId} after its longest hold ran out of time",
+                    "Letting go of a due mouse button on sandbox {SandboxId} ran out of time",
                     held.Request.SandboxId);
                 Fail(screen, held);
             }
         }
+
+        if (refuse)
+        {
+            RefuseDue(screen);
+        }
+
+        return time.GetTimestamp();
     }
 
-    private bool IsOverdue(PressRecord held)
+    /// <summary>Refuses an input while a due button could not be let go of: it would run with it down.</summary>
+    private void RefuseDue(Screen screen)
+    {
+        if (Snapshot(screen).Any(IsDueToRelease))
+        {
+            throw new BuiltinToolException(DueSentence);
+        }
+    }
+
+    private bool IsDueToRelease(PressRecord held)
     {
         lock (sync)
         {
-            return !held.Stuck && time.GetElapsedTime(held.PressedAt) >= maxHold;
+            return !held.Stuck && IsDue(held);
+        }
+    }
+
+    /// <summary>Due, and not within the wait after a release of it failed, which its own timer ends.</summary>
+    private bool IsReadyToRelease(PressRecord held)
+    {
+        lock (sync)
+        {
+            return !held.Stuck
+                && IsDue(held)
+                && (held.FailedAt is not { } failed || time.GetElapsedTime(failed) >= limit);
         }
     }
 
@@ -862,6 +920,7 @@ internal sealed class SandboxPointerHolds(
             }
 
             held.Failures++;
+            held.FailedAt = time.GetTimestamp();
 
             if (!held.Stuck && held.Failures >= MaxFailedReleases)
             {
@@ -898,7 +957,7 @@ internal sealed class SandboxPointerHolds(
 
             try
             {
-                await ReleaseEvery(screen, budget);
+                await ReleaseUntilDone(screen, budget);
             }
             finally
             {
@@ -908,6 +967,34 @@ internal sealed class SandboxPointerHolds(
         finally
         {
             Leave(screen);
+        }
+    }
+
+    /// <summary>
+    /// Lets go of everything held on the screen as the server stops, every button at once, and tries what is still
+    /// held again every <see cref="StopRetry"/> until nothing is or the budget runs out. Called with the gate held.
+    /// </summary>
+    private async Task ReleaseUntilDone(Screen screen, CancellationToken budget)
+    {
+        try
+        {
+            while (true)
+            {
+                await ReleaseEvery(screen, budget);
+
+                if (!IsHeld(screen))
+                {
+                    return;
+                }
+
+                await Task.Delay(stopRetry, time, budget);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogError(
+                "A mouse button was still held on a screen {Seconds} seconds after the stop began",
+                limit.TotalSeconds);
         }
     }
 
@@ -1004,7 +1091,10 @@ internal sealed class SandboxPointerHolds(
 
         try
         {
-            await screen.Gate.WaitAsync(bound.Token);
+            if (!await TakeGate(screen, held, bound.Token))
+            {
+                return;
+            }
 
             try
             {
@@ -1013,21 +1103,50 @@ internal sealed class SandboxPointerHolds(
                     await ReleaseHeld(screen, held, bound.Token);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning(
+                    "Letting go of a mouse button on sandbox {SandboxId} ran out of time; it is tried again",
+                    held.Request.SandboxId);
+                Fail(screen, held);
+            }
             finally
             {
                 await LeaveGate(screen);
             }
         }
-        catch (OperationCanceledException)
-        {
-            logger.LogWarning(
-                "Sandbox {SandboxId} was busy, so a held mouse button waits for its next try",
-                held.Request.SandboxId);
-            Fail(screen, held);
-        }
         finally
         {
             Leave(screen);
+        }
+    }
+
+    /// <summary>
+    /// Waits for the gate for the timer's release. Work that holds the gate past the bound lets go of every due
+    /// button as it leaves, so a busy screen is not a failed release: the press is only asked about again later.
+    /// </summary>
+    private async Task<bool> TakeGate(Screen screen, PressRecord held, CancellationToken bound)
+    {
+        try
+        {
+            await screen.Gate.WaitAsync(bound);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogInformation(
+                "Sandbox {SandboxId} was busy, so a held mouse button is let go of when that work ends",
+                held.Request.SandboxId);
+
+            lock (sync)
+            {
+                if (IsCurrent(screen, held))
+                {
+                    Arm(screen, held, limit);
+                }
+            }
+
+            return false;
         }
     }
 
@@ -1132,7 +1251,10 @@ internal sealed class SandboxPointerHolds(
             }
 
             closed = true;
-            Screen[] held = [.. screens.Values.Where(screen => screen.Presses.Count > 0)];
+
+            // Every screen, not only those with a button held: a press may be acquiring its sandbox on one, and it
+            // registers nothing once the stop has begun.
+            Screen[] held = [.. screens.Values];
 
             foreach (var screen in held)
             {
@@ -1208,6 +1330,8 @@ internal sealed class SandboxPointerHolds(
         public ITimer? Timer { get; set; }
 
         public int Failures { get; set; }
+
+        public long? FailedAt { get; set; }
 
         public bool Stuck { get; set; }
 
