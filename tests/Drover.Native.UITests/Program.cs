@@ -92,6 +92,7 @@ internal static class Program
         await using var server = new CheckServer(database, certificate, folder, sandbox);
 
         server.Start();
+        await CheckAccount.WaitUntilReady(server, certificate);
         var account = await CheckAccount.Create(server, certificate, desktop: true);
         logger.LogInformation("The test server is at {Origin}; starting the app", server.Origin);
 
