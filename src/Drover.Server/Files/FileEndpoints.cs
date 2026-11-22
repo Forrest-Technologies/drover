@@ -160,25 +160,38 @@ public static class FileEndpoints
         HttpContext context,
         FileService files,
         NativePictureCache pictures,
-        TimeProvider time)
+        TimeProvider time,
+        ILoggerFactory loggerFactory)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
-
-        if (await files.Open(fileId, timeout.Token) is not { } found)
-        {
-            return TypedResults.NotFound();
-        }
-
-        await using var content = found.Content;
         context.Response.Headers.CacheControl = "no-store";
-        var access = context.GetSpaceAccess();
-        if (FileInspector.KindOf(found.File.ContentType) is FileKind.Image)
-        {
-            return TypedResults.Ok(await pictures.Read(found, access.UserId, timeout.Token));
-        }
 
-        return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
+        try
+        {
+            if (await files.Open(fileId, timeout.Token) is not { } found)
+            {
+                return TypedResults.NotFound();
+            }
+
+            await using var content = found.Content;
+            var access = context.GetSpaceAccess();
+            if (FileInspector.KindOf(found.File.ContentType) is FileKind.Image)
+            {
+                return TypedResults.Ok(await pictures.Read(found, access.UserId, timeout.Token));
+            }
+
+            return TypedResults.Ok(
+                await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
+        }
+        catch (OperationCanceledException exception) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            var logger = loggerFactory.CreateLogger(typeof(FileEndpoints).FullName!);
+            logger.LogDebug(
+                "Native file preview timed out ({ExceptionType})",
+                exception.GetType().Name);
+            return TypedResults.Ok(new NativeFilePreview(Refusal: NativePreviewRefusal.TooComplex));
+        }
     }
 
     private static async Task<Results<Ok<FilePreviewResponse>, NotFound>> MintPreview(
