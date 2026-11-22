@@ -47,6 +47,9 @@ internal sealed class SandboxPointerHolds(
 
     private static readonly TimeSpan maxHold = TimeSpan.FromSeconds(60);
 
+    /// <summary>How long a power control is remembered: longer than any press can wait to be admitted.</summary>
+    private static readonly TimeSpan powerMemory = TimeSpan.FromMinutes(15);
+
     private readonly Lock sync = new();
 
     private readonly Dictionary<(Guid SpaceId, Guid SandboxId), Screen> screens = [];
@@ -56,6 +59,9 @@ internal sealed class SandboxPointerHolds(
     private bool closed;
 
     private int powerEpoch;
+
+    /// <summary>The power controls that acted, by the space and the physical sandbox they acted on, and when.</summary>
+    private readonly Dictionary<(Guid SpaceId, Guid SandboxId), (int Epoch, DateTimeOffset At)> powered = [];
 
     #endregion
 
@@ -68,10 +74,12 @@ internal sealed class SandboxPointerHolds(
     internal Action? PressWaiting { get; set; }
 
     /// <summary>
-    /// Counts the power controls (pause, rebuild, turn off) that began or ended on any screen, whatever way they ended.
-    /// A press reads it before it acquires its sandbox and gives it back to <see cref="Press"/>, which refuses the
-    /// press if it changed: a control ran, or was running, while the press held a sandbox that may since have been
-    /// paused or replaced, even when the control failed or was cancelled after the provider acted.
+    /// A number that grows each time a power control (pause, rebuild, turn off) acts on any sandbox. A press reads it
+    /// before it acquires its sandbox and gives it back to <see cref="Press"/>, which refuses the press only if a
+    /// control acted on that press's own sandbox in its own space after the number was read: a control that ran
+    /// while the press held a sandbox that may since have been paused or replaced, even one that failed or was
+    /// cancelled after the provider acted. A control on another sandbox or in another space changes the number and
+    /// nothing else, so one tenant's activity never ends another's press or drag.
     /// </summary>
     public int PowerEpoch => Volatile.Read(ref powerEpoch);
 
@@ -298,7 +306,7 @@ internal sealed class SandboxPointerHolds(
         CancellationToken cancellationToken)
     {
         var screen = Enter(spaceId, sandboxId);
-        Interlocked.Increment(ref powerEpoch);
+        var acted = false;
 
         try
         {
@@ -316,13 +324,21 @@ internal sealed class SandboxPointerHolds(
                     return false;
                 }
 
+                // The guarded transition begins here, inside the gate: a control that was cancelled while it waited,
+                // or refused because a button could not be let go of, ran nothing and invalidates nothing.
+                MarkPower(spaceId, sandboxId);
+                acted = true;
                 await work();
                 return true;
             }
             finally
             {
-                // However it ended: the provider may have acted before a failure or a cancellation.
-                Interlocked.Increment(ref powerEpoch);
+                if (acted)
+                {
+                    // However it ended: the provider may have acted before a failure or a cancellation.
+                    MarkPower(spaceId, sandboxId);
+                }
+
                 screen.Gate.Release();
             }
         }
@@ -353,7 +369,9 @@ internal sealed class SandboxPointerHolds(
 
         lock (sync)
         {
-            if (epoch is { } sampled && sampled != PowerEpoch)
+            if (epoch is { } sampled
+                && powered.TryGetValue((press.SpaceId, press.SandboxId), out var power)
+                && power.Epoch > sampled)
             {
                 throw new BuiltinToolException(
                     "The sandbox was paused or replaced while this waited, so nothing was pressed. Try again.");
@@ -686,6 +704,30 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
+    /// <summary>
+    /// Records that a power control acted on this sandbox, and forgets the ones too old for any press to still be
+    /// waiting on. Only the sandbox's own space and id are marked.
+    /// </summary>
+    private void MarkPower(Guid spaceId, Guid sandboxId)
+    {
+        lock (sync)
+        {
+            var now = time.GetUtcNow();
+            var epoch = Interlocked.Increment(ref powerEpoch);
+            powered[(spaceId, sandboxId)] = (epoch, now);
+
+            List<(Guid, Guid)> forgotten =
+            [
+                .. powered.Where(entry => now - entry.Value.At > powerMemory).Select(entry => entry.Key),
+            ];
+
+            foreach (var key in forgotten)
+            {
+                powered.Remove(key);
+            }
+        }
+    }
+
     private bool IsHeld(Screen screen)
     {
         lock (sync)
@@ -757,10 +799,6 @@ internal sealed class SandboxPointerHolds(
         public Dictionary<MouseButton, PressRecord> Presses { get; } = [];
 
         public int Users { get; set; }
-
-        /// <summary>Counts the power controls that ran on the display, so a press that waited for one knows it
-        /// did.</summary>
-        public int Epoch { get; set; }
 
         #endregion
     }

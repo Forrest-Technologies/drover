@@ -446,6 +446,109 @@ public sealed class SandboxPointerHoldsTests
         await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_power_control_in_another_space_does_not_end_a_press_or_a_drag_here(bool drag)
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        var anotherSpace = Guid.CreateVersion7();
+        await world.Holds.RunWhileReleased(anotherSpace, world.Sandbox, required: false, World.Nothing, World.Token);
+        await world.Holds.RunWhileReleased(anotherSpace, Guid.CreateVersion7(), required: true, World.Nothing,
+            World.Token);
+        var ran = false;
+
+        await world.Holds.Press(
+            world.Press(),
+            staysDown: !drag,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token,
+            before);
+
+        ran.Should().BeTrue("a control in another space changes nothing here, whatever sandbox id it used");
+    }
+
+    [Fact]
+    public async Task A_power_control_on_another_sandbox_of_the_same_space_does_not_end_a_press()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_that_was_cancelled_while_it_waited_for_the_gate_leaves_a_press_valid()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var busy = world.Holds.Press(
+            world.Press(World.Owner(1), button: MouseButton.Right),
+            staysDown: false,
+            () => inFlight.Task,
+            World.Token);
+        using var cancelled = new CancellationTokenSource();
+        var pausing = world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: false,
+            World.Nothing,
+            cancelled.Token);
+        await World.Idle();
+        await cancelled.CancelAsync();
+        var gone = async () => await pausing;
+        await gone.Should().ThrowAsync<OperationCanceledException>();
+        inFlight.SetResult();
+        await busy;
+
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_refused_because_a_button_could_not_be_let_go_of_leaves_a_press_valid()
+    {
+        var world = new World { Outcome = ReleaseOutcome.Unreachable };
+        await world.Holds.Press(world.Press(World.Owner(1), button: MouseButton.Right), staysDown: true, World.Nothing,
+            World.Token);
+        var before = world.Holds.PowerEpoch;
+        var ran = false;
+
+        var refused = await world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token);
+
+        refused.Should().BeFalse();
+        ran.Should().BeFalse();
+        await world.Holds.Press(world.Press(World.Owner(1)), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_that_ran_on_this_sandbox_still_ends_a_press_that_read_the_number_before_it()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
     [Fact]
     public async Task A_press_is_refused_when_a_power_control_that_failed_ran_since_it_read_the_epoch()
     {
