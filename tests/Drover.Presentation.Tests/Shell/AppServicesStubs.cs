@@ -15,6 +15,16 @@ internal static class AppDiagnostics
     #endregion
 }
 
+/// <summary>The screen factory the native registration's documentation points at.</summary>
+internal abstract class Screen
+{
+    #region Public Methods
+
+    protected static T Make<T>() => default!;
+
+    #endregion
+}
+
 /// <summary>Device-only registrations, left out of this build of the native service registration.</summary>
 internal static class ShellTestExtensions
 {
