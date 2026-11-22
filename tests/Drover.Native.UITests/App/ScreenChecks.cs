@@ -19,9 +19,17 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private const string Message = "Hello from the screen checks.";
 
-    private static readonly TimeSpan patience = TimeSpan.FromSeconds(30);
+    // How long a step waits for the screen it expects. The test server shares a small hosted runner with the
+    // simulator, and signing in hashes a password on a thread pool that the same machine's load can starve, so a step
+    // that talks to the server has taken 17 s in a passing run. A passing step returns the moment its screen is
+    // there; this is only how long a real failure is given before it is reported.
+    private static readonly TimeSpan patience = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan startPatience = TimeSpan.FromSeconds(120);
+
+    // The connect screen gives the server 30 s to answer, retrying a refusal. The check waits longer, so a server that
+    // does not answer is reported with the screen's own problem text and not as a screen that never changed.
+    private static readonly TimeSpan connectPatience = TimeSpan.FromSeconds(45);
 
     // The widths a desktop window is made in turn, in pixels: the two the app is required to work at. A phone has the
     // one width it has, which is taken as it is (0).
@@ -123,7 +131,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await Press("ConnectSubmit");
         try
         {
-            await Shown("SignInEmail");
+            await Shown("SignInEmail", connectPatience);
         }
         catch (CheckFailedException failure)
             when (Find("ConnectProblem") is StatusNote { Text: { Length: > 0 } problem })
