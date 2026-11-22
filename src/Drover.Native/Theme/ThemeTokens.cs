@@ -51,6 +51,20 @@ public static class ThemeTokens
 
     #region Private Methods
 
+    // A number keeps the type its token has in the token file: a count such as the tracking is a whole number, and a
+    // client that reads it as one must still find one. (A conditional between the two would be a double either way.)
+    private static void WriteNumber(string key, double value)
+    {
+        if (Tokens.Dictionary.TryGetValue(key, out var held) && held is int)
+        {
+            Tokens.Dictionary[key] = (int)value;
+        }
+        else
+        {
+            Tokens.Dictionary[key] = value;
+        }
+    }
+
     private static void WriteColors(string dictionaryKey, ThemeTokenSet set)
     {
         var target = (ResourceDictionary)Tokens.Dictionary.ThemeDictionaries[dictionaryKey];
@@ -78,9 +92,14 @@ public static class ThemeTokens
         foreach (var (token, value) in set.Numbers)
         {
             var key = TokenNames.Of(token);
-            Tokens.Dictionary[key] = fontWeightTokens.Contains(token)
-                ? new FontWeight((ushort)value)
-                : Tokens.Dictionary.TryGetValue(key, out var held) && held is int ? (int)value : value;
+            if (fontWeightTokens.Contains(token))
+            {
+                Tokens.Dictionary[key] = new FontWeight((ushort)value);
+            }
+            else
+            {
+                WriteNumber(key, value);
+            }
         }
     }
 
