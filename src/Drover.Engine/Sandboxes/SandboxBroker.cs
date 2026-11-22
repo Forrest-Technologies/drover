@@ -376,10 +376,26 @@ public sealed class SandboxBroker(
         await AuthorizeLiveWrite(caller, cancellationToken);
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            Task Run() => RunOnScreen(lease, action, doing, cancellationToken);
+            // With work around the command, recording the use is part of it: a press that worked and whose request is
+            // then cancelled or fails while recording is still a press to let go of.
+            async Task Run()
+            {
+                await RunOnScreen(lease, action, doing, cancellationToken);
+
+                if (around is not null)
+                {
+                    await Finish(caller, lease, readsSandbox: false, cancellationToken);
+                }
+            }
+
             await (around is null ? Run() : around(lease.SandboxId, Run));
         }
-        await Finish(caller, lease, readsSandbox: false, cancellationToken);
+
+        if (around is null)
+        {
+            await Finish(caller, lease, readsSandbox: false, cancellationToken);
+        }
+
         return lease.NewSandbox;
     }
 

@@ -170,8 +170,8 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         var drag = await client.Post($"{sandbox}/input", new SandboxInputRequest("drag", X: 1, Y: 2, X2: 300, Y2: 200,
             Button: "right"));
 
-        new[] { down, move, up, drag }.Select(answer => answer.StatusCode)
-            .Should().AllBeEquivalentTo(HttpStatusCode.NoContent);
+        List<HttpResponseMessage> answers = [down, move, up, drag];
+        answers.Select(answer => answer.StatusCode).Should().AllBeEquivalentTo(HttpStatusCode.NoContent);
         var sent = provider.Commands
             .Where(command => command.Program == "xdotool")
             .Select(command => command.Arguments.ToArray())
