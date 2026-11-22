@@ -1,6 +1,8 @@
 namespace Drover.Presentation.Tests.Theme;
 
-/// <summary>The theme choice a device keeps: a theme and a mode, with the one-word value an older version wrote.</summary>
+/// <summary>
+/// The theme choice a device keeps: a theme and a mode, with the one-word value an older version wrote.
+/// </summary>
 public sealed class ThemeChoiceTests
 {
     #region Public Methods
@@ -41,7 +43,8 @@ public sealed class ThemeChoiceTests
 
     [Fact]
     public void A_choice_is_kept_as_a_theme_id_and_a_mode() =>
-        new ThemeChoice("night-yard", ThemeMode.Light).ToStored().Should().Be("""{"themeId":"night-yard","mode":"light"}""");
+        new ThemeChoice("night-yard", ThemeMode.Light).ToStored()
+            .Should().Be("""{"themeId":"night-yard","mode":"light"}""");
 
     [Fact]
     public void The_model_reads_an_old_value_and_keeps_the_next_choice_in_the_new_form()

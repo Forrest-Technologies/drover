@@ -24,7 +24,9 @@ public enum LiveStyle
     Fade,
 }
 
-/// <summary>How a character's visor is drawn: a band, or a band with its edge drawn so it reads without bloom.</summary>
+/// <summary>
+/// How a character's visor is drawn: a band, or a band with its edge drawn so it reads without bloom.
+/// </summary>
 public enum VisorStyle
 {
     Band,
@@ -89,9 +91,16 @@ public sealed record ThemeSurfaces(int Levels, YardTexture Texture, double YardS
 public sealed record ThemeMotion(double Scale, int Bloom, int Breath, int Travel, LiveStyle Live, int TravelLine);
 
 /// <summary>The characters group.</summary>
-public sealed record ThemeCharacters(double HeadLightness, double HeadChroma, double Facet, double Line, VisorStyle Visor);
+public sealed record ThemeCharacters(
+    double HeadLightness,
+    double HeadChroma,
+    double Facet,
+    double Line,
+    VisorStyle Visor);
 
-/// <summary>One mode of a theme: how its hues were made and its 43 color tokens, by name without the "--dv-" prefix.</summary>
+/// <summary>
+/// One mode of a theme: how its hues were made and its 43 color tokens, by name without the "--dv-" prefix.
+/// </summary>
 public sealed record ModeColors(double HueLightness, double HueChroma, IReadOnlyDictionary<string, Rgb> Colors);
 
 /// <summary>

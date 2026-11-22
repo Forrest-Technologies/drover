@@ -1,6 +1,8 @@
 namespace Drover.Ui.Theme;
 
-/// <summary>Works out the values a screen draws with from a theme file. Nothing derived is stored in the file.</summary>
+/// <summary>
+/// Works out the values a screen draws with from a theme file. Nothing derived is stored in the file.
+/// </summary>
 public static class ThemeResolution
 {
     #region Private Fields
@@ -40,7 +42,9 @@ public static class ThemeResolution
 
     private static Dictionary<string, double> Numbers(ThemeFile theme)
     {
-        var (type, density, shape, surfaces, motion, characters) = (theme.Type, theme.Density, theme.Shape, theme.Surfaces, theme.Motion, theme.Characters);
+        var (type, density, shape) = (theme.Type, theme.Density, theme.Shape);
+        var (surfaces, motion, characters) = (theme.Surfaces, theme.Motion, theme.Characters);
+        var readingFace = FontFaces.Drawn(type.Reading ?? type.Interface);
         Dictionary<string, double> numbers = new()
         {
             ["leading-text"] = type.TextLeading,
@@ -48,7 +52,7 @@ public static class ThemeResolution
             ["weight-body"] = type.BodyWeight,
             ["weight-label"] = type.LabelWeight,
             ["weight-heading"] = type.HeadingWeight,
-            ["measure"] = Math.Round(type.Measure * FontFaces.Drawn(type.Reading ?? type.Interface).ZeroAdvance * type.Scale[BaseStep]),
+            ["measure"] = Math.Round(type.Measure * readingFace.ZeroAdvance * type.Scale[BaseStep]),
             ["tracking"] = Math.Round(type.Tracking * 1000),
             ["tracking-heading"] = Math.Round(type.HeadingTracking * 1000),
             ["target-pointer"] = density.Control.ForPointer,

@@ -208,7 +208,8 @@ public sealed class ShellViewModelTests : IDisposable
         theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
         menu.Themes.Single(option => option.InUse).Name.Should().Be("Light theme");
         changes.Should().Be(1);
-        ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance).Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
+        ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
+            .Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
     }
 
     [Theory]
