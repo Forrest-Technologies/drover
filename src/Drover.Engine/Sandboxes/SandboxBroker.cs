@@ -12,6 +12,7 @@ public sealed record SandboxListResult(IReadOnlyList<SandboxEntry> Entries, bool
 /// <summary>A screenshot of a sandbox's screen, as a PNG file, and the size it says it is.</summary>
 public sealed record SandboxScreenshot(byte[] Png, int Width, int Height, bool NewSandbox);
 
+
 /// <summary>How an attempt to let go of a held mouse button on a sandbox's screen ended.</summary>
 public enum ReleaseOutcome
 {
@@ -22,7 +23,7 @@ public enum ReleaseOutcome
     /// matters.</summary>
     Gone,
 
-    /// <summary>The sandbox could not be reached to let go: it is paused, not found for this bot, or refused.</summary>
+    /// <summary>The sandbox could not be reached to let go: its row says it is paused or expired, or has no token.</summary>
     Unreachable,
 }
 
@@ -51,6 +52,7 @@ public sealed class SandboxBroker(
     IOptions<DeploymentPolicyOptions> deployment,
     IOptions<RunOptions> runOptions,
     SandboxCommandLocks commandLocks,
+    RunScopes scopes,
     TimeProvider time,
     ILogger<SandboxBroker> logger)
 {
@@ -69,6 +71,9 @@ public sealed class SandboxBroker(
     private const string MovedSentence =
         "The bot's sandbox changed while this was under way, so nothing was done. Try again.";
 
+    private const string HeldForBotSentence =
+        "A mouse button a person pressed on this sandbox's screen could not be let go of, so nothing was done in the sandbox. Try again in a moment; an owner or admin can let go of it or rebuild the sandbox from the bot's sandbox page.";
+
     private const string ClosedConversationSentence =
         "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.";
 
@@ -79,6 +84,8 @@ public sealed class SandboxBroker(
 
     /// <summary>The network rules last set on each sandbox, so a change to a bot's settings reaches its sandbox on next use.</summary>
     private readonly ConcurrentDictionary<Guid, NetworkPolicy> appliedNetworks = new();
+
+    private SandboxPointerHolds? holds;
 
     #endregion
 
@@ -91,10 +98,23 @@ public sealed class SandboxBroker(
     public Func<CancellationToken, Task>? BeforeAcquire { get; set; }
 
     /// <summary>
-    /// Runs when a screen action has acquired its sandbox and is about to wait for the sandbox's command lock. A test
-    /// uses it to know the action holds a sandbox before it waits. Not used outside tests.
+    /// Runs when a person's screen action has found its sandbox and is about to wait for the sandbox's command lock. A
+    /// test uses it to know the action has its sandbox before it waits. Not used outside tests.
     /// </summary>
     internal Action? LeaseHeld { get; set; }
+
+    /// <summary>
+    /// Runs as a person's pause, rebuild or turn off begins to look for the sandbox it acts on, inside the screen's
+    /// gate, so a test can end the request during that lookup. Not used outside tests.
+    /// </summary>
+    internal Func<CancellationToken, Task>? BeforePowerLookup { get; set; }
+
+    /// <summary>
+    /// The mouse buttons people hold down on each physical sandbox's screen, and the gate every person's input, every
+    /// release and every power control on that screen takes turns on: see <see cref="SandboxPointerHolds"/>.
+    /// </summary>
+    internal SandboxPointerHolds Holds =>
+        LazyInitializer.EnsureInitialized(ref holds, () => new SandboxPointerHolds(time, logger, Release));
 
     #endregion
 
@@ -363,19 +383,15 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
-    /// One action on the screen, for a bot or a person. Null when <paramref name="create"/> is false and there is no
-    /// sandbox yet; otherwise whether the sandbox is a new one. <paramref name="around"/> is given the sandbox's id and
-    /// the work, after the sandbox is acquired and its command lock taken, and runs the work: a person's pointer
-    /// actions
-    /// use it to keep track of what is held down on that physical sandbox.
+    /// One action on the screen for a bot. Null when <paramref name="create"/> is false and there is no sandbox yet;
+    /// otherwise whether the sandbox is a new one.
     /// </summary>
     public async Task<bool?> Act(
         SandboxCaller caller,
         CommandRequest action,
         string doing,
         bool create,
-        CancellationToken cancellationToken,
-        Func<Guid, Func<Task>, Task>? around = null)
+        CancellationToken cancellationToken)
     {
         if (await AcquireScreen(caller, create, cancellationToken) is not { } lease)
         {
@@ -383,72 +399,91 @@ public sealed class SandboxBroker(
         }
 
         await AuthorizeLiveWrite(caller, cancellationToken);
-        LeaseHeld?.Invoke();
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            // With work around the command, recording the use is part of it: a press that worked and whose request is
-            // then cancelled or fails while recording is still a press to let go of.
-            async Task Run()
-            {
-                await RunOnScreen(lease, action, doing, cancellationToken);
-
-                if (around is not null)
-                {
-                    await Finish(caller, lease, readsSandbox: false, cancellationToken);
-                }
-            }
-
-            await (around is null ? Run() : around(lease.SandboxId, Run));
+            await RunOnScreen(lease, action, doing, cancellationToken);
         }
 
-        if (around is null)
-        {
-            await Finish(caller, lease, readsSandbox: false, cancellationToken);
-        }
-
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
     /// <summary>
-    /// Lets go of a mouse button a person pressed on sandbox <paramref name="sandboxId"/>, with the command
-    /// <see cref="DesktopCommands.Release"/> built. It is about that physical sandbox, not the bot: a button pressed on
-    /// one sandbox is never let go of on another that replaced it. It makes no sandbox, starts no display, takes no
-    /// command lock, and does not count as use, so it waits on nothing a bot is running. One deadline of
-    /// <see cref="DesktopCommands.ReleaseLimit"/> covers the lookup and the provider's work. The answer is
-    /// <see cref="ReleaseOutcome.Gone"/> only when the row says the sandbox is out of use or destroyed; a refusal or a
-    /// sandbox that cannot be reached now is <see cref="ReleaseOutcome.Unreachable"/>, and the button is still to be
-    /// let go of. A failure of the command itself, or of the deadline, is thrown.
+    /// One action of a person on the bot's screen, never making a sandbox. Null when the bot has no sandbox yet. The
+    /// sandbox is found first, by its row, and its command lock taken; then <paramref name="around"/> is handed the
+    /// steps, which it runs under that physical sandbox's gate: acquiring the sandbox (bound to that row, so a sandbox
+    /// replaced since is never acquired instead), the action with the use recorded, and letting go of buttons on the
+    /// exact sandbox acquired. Nothing reaches the provider before <paramref name="around"/> has admitted the action.
     /// </summary>
-    public async Task<ReleaseOutcome> Release(
-        SandboxCaller person,
-        Guid sandboxId,
-        CommandRequest release,
+    internal async Task<bool?> Act(
+        SandboxCaller caller,
+        CommandRequest action,
+        string doing,
+        Func<ScreenUse, Task> around,
         CancellationToken cancellationToken)
+    {
+        if (await Locate(caller, null, create: false, cancellationToken) is not { } target)
+        {
+            return null;
+        }
+
+        var sandboxId = target.Row.Id;
+        SandboxLease? lease = null;
+        LeaseHeld?.Invoke();
+
+        await using (await HoldCommands(caller, sandboxId, cancellationToken))
+        {
+            await around(new ScreenUse(
+                sandboxId,
+                async () =>
+                {
+                    lease = await AcquireScreen(caller, create: false, cancellationToken, only: sandboxId)
+                        ?? throw new BuiltinToolException(MovedSentence);
+                    await AuthorizeLiveWrite(caller, cancellationToken);
+                    return lease.Handle.ProviderSandboxId;
+                },
+                async () =>
+                {
+                    var acquired = lease ?? throw new InvalidOperationException("The sandbox is acquired first.");
+                    await RunOnScreen(acquired, action, doing, cancellationToken);
+                    await Finish(caller, acquired, readsSandbox: false, cancellationToken);
+                },
+                (buttons, _) => lease is { } acquired
+                    ? LetGo(acquired, buttons)
+                    : Task.FromResult(ReleaseOutcome.Unreachable)));
+        }
+
+        return lease?.NewSandbox ?? false;
+    }
+
+    /// <summary>
+    /// Lets go of a mouse button a person pressed, on the physical sandbox it was pressed on: the row is read by its
+    /// id in its space, never through a bot, so a bot that was removed or now shares another sandbox changes nothing,
+    /// and a button pressed on one sandbox is never let go of on another. It makes no sandbox, starts no display, takes
+    /// no command lock, and does not count as use, so it waits on nothing a bot is running, and no setting refuses it:
+    /// letting go is not use. One deadline of <see cref="DesktopCommands.ReleaseLimit"/> covers the lookup and the
+    /// provider's work. The answer is <see cref="ReleaseOutcome.Gone"/> when the row is missing, out of use or
+    /// destroyed, or names another provider sandbox than the one pressed; <see cref="ReleaseOutcome.Unreachable"/>
+    /// when it says the sandbox is paused or expired or has no token, and the button is still to be let go of. A
+    /// failure of the command itself, or of the deadline, is thrown.
+    /// </summary>
+    internal async Task<ReleaseOutcome> Release(PointerPress held, CancellationToken cancellationToken)
     {
         using var deadline = new CancellationTokenSource(DesktopCommands.ReleaseLimit, time);
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        var found = await FindForRelease(person, bound.Token);
+        var tenant = scopes.For(held.SpaceId, held.Owner.UserId);
+        var (outcome, handle) = await tenant.Transact(
+            services => FindPressed(services, held, bound.Token),
+            bound.Token);
 
-        if (found is not { } target || target.Row.Id != sandboxId)
+        if (handle is null)
         {
-            return await IsOutOfUse(person, sandboxId, bound.Token)
-                ? ReleaseOutcome.Gone
-                : ReleaseOutcome.Unreachable;
+            return outcome;
         }
 
-        if (target is not { Token: { } token, Row.State: SandboxState.Running }
-            || target.Row.ExpiresAt <= time.GetUtcNow()
-            || !target.Owner.SandboxSettings.Desktop
-            || !deployment.Value.Rules.AllowDesktopSandboxes)
-        {
-            return ReleaseOutcome.Unreachable;
-        }
-
-        var handle = new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token);
-        var idle = IdleFor(target.Owner);
-        var network = target.Owner.SandboxSettings.ToNetworkPolicy();
-        var lease = new SandboxLease(target.Row.Id, handle, network, idle, idle, NewSandbox: false);
-        await RunOnScreen(lease, release, "let go of the mouse button", bound.Token);
+        var network = new NetworkPolicy(NetworkAccess.Off, []);
+        var lease = new SandboxLease(held.SandboxId, handle, network, defaultIdle, defaultIdle, NewSandbox: false);
+        await RunOnScreen(lease, DesktopCommands.Release([held.Button]), "let go of the mouse button", bound.Token);
         return ReleaseOutcome.Released;
     }
 
@@ -466,38 +501,62 @@ public sealed class SandboxBroker(
         }
     }
 
-    /// <summary>The bot's live sandbox, or null when the bot cannot be resolved to one, which is no release.</summary>
-    private async Task<SandboxTarget?> FindForRelease(SandboxCaller person, CancellationToken cancellationToken)
+    /// <summary>
+    /// Lets go of every held button as the server stops. Holds exist only once a person's input or power control
+    /// asked for them, through <see cref="SandboxControlService"/>, which stops them as it is disposed.
+    /// </summary>
+    internal ValueTask StopHolds() => holds?.DisposeAsync() ?? ValueTask.CompletedTask;
+
+    /// <summary>
+    /// The pressed sandbox's row, read by its id, and a handle to it when a release can be sent now; otherwise why
+    /// not. Only a row that still names the provider sandbox that was pressed gets a handle.
+    /// </summary>
+    private async Task<(ReleaseOutcome Outcome, SandboxHandle? Handle)> FindPressed(
+        IServiceProvider services,
+        PointerPress held,
+        CancellationToken cancellationToken)
     {
-        try
+        var row = await services.GetRequiredService<SandboxRepository>().FindSandbox(held.SandboxId, cancellationToken);
+
+        if (row is null or { State: SandboxState.Retiring or SandboxState.Destroyed }
+            || (held.ProviderSandboxId.Length > 0 && row.ProviderSandboxId != held.ProviderSandboxId))
         {
-            return await Locate(person, null, create: false, cancellationToken);
+            return (ReleaseOutcome.Gone, null);
         }
-        catch (BuiltinToolException)
+
+        if (row is not { State: SandboxState.Running, AccessSecretId: { } secretId } || row.ExpiresAt <= time.GetUtcNow())
         {
-            logger.LogDebug("Bot {BotId} cannot be resolved to a sandbox to let go of a button on", person.BotId);
-            return null;
+            return (ReleaseOutcome.Unreachable, null);
         }
+
+        var token = await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken);
+        return (ReleaseOutcome.Released, new SandboxHandle(row.ProviderSandboxId, held.SpaceId, row.OwnerBotId, token));
     }
 
-    /// <summary>True when the row says the sandbox is out of use or destroyed; false when it says nothing.</summary>
-    private static Task<bool> IsOutOfUse(SandboxCaller person, Guid sandboxId, CancellationToken cancellationToken) =>
-        person.Tenant.Transact(
-            async services =>
-            {
-                var sandboxes = services.GetRequiredService<SandboxRepository>();
-                var row = await sandboxes.FindSandbox(sandboxId, cancellationToken);
-                return row is { State: SandboxState.Retiring or SandboxState.Destroyed };
-            },
-            cancellationToken);
+    /// <summary>
+    /// Lets go of buttons on the sandbox a person's action acquired, through the handle it used, whatever its row
+    /// says: the action may have resumed a sandbox whose row still reads as paused. One deadline of
+    /// <see cref="DesktopCommands.ReleaseLimit"/>, and the request's own cancellation does not end it.
+    /// </summary>
+    private async Task<ReleaseOutcome> LetGo(SandboxLease lease, IReadOnlyList<MouseButton> buttons)
+    {
+        using var deadline = new CancellationTokenSource(DesktopCommands.ReleaseLimit, time);
+        await RunOnScreen(lease, DesktopCommands.Release(buttons), "let go of the mouse button", deadline.Token);
+        return ReleaseOutcome.Released;
+    }
 
     /// <summary>
     /// The bot's own sandbox, which must have a screen, with its display and desktop session running. Null when
-    /// <paramref name="create"/> is false and the bot has no sandbox yet.
+    /// <paramref name="create"/> is false and the bot has no sandbox yet. With <paramref name="only"/>, it is that
+    /// sandbox or nothing is done.
     /// </summary>
-    private async Task<SandboxLease?> AcquireScreen(SandboxCaller caller, bool create, CancellationToken cancellationToken)
+    private async Task<SandboxLease?> AcquireScreen(
+        SandboxCaller caller,
+        bool create,
+        CancellationToken cancellationToken,
+        Guid? only = null)
     {
-        if (await Prepare(caller, null, desktopMargin, screen: true, create, cancellationToken) is not { } lease)
+        if (await Prepare(caller, null, desktopMargin, screen: true, create, cancellationToken, only) is not { } lease)
         {
             return null;
         }
@@ -597,9 +656,18 @@ public sealed class SandboxBroker(
     public Task<SandboxCommandResult> Run(SandboxCaller person, string command, TimeSpan limit, CancellationToken cancellationToken) =>
         RunCommand(person, null, command, null, limit, _ => Task.CompletedTask, cancellationToken);
 
-    /// <summary>Pauses the bot's sandbox, keeping its files. False when it has none to pause.</summary>
-    public async Task<bool> Pause(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
+    /// <summary>
+    /// Pauses the bot's sandbox, keeping its files. False when it has none to pause. With <paramref name="only"/>, it
+    /// is that sandbox or nothing is done; <paramref name="begin"/> is called once that is checked, just before the
+    /// provider is asked.
+    /// </summary>
+    public async Task<bool> Pause(
+        SandboxCaller person,
+        CancellationToken cancellationToken,
+        Guid? only = null,
+        Action? begin = null)
     {
+        await LookingForPower(cancellationToken);
         var found = await Locate(person, null, create: false, cancellationToken);
 
         if (found is { } located)
@@ -611,6 +679,8 @@ public sealed class SandboxBroker(
         {
             return false;
         }
+
+        begin?.Invoke();
 
         try
         {
@@ -649,10 +719,13 @@ public sealed class SandboxBroker(
             cancellationToken);
     }
 
-    /// <summary>Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made.</summary>
-    public async Task<bool> Resume(SandboxCaller person, CancellationToken cancellationToken)
+    /// <summary>
+    /// Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made. With
+    /// <paramref name="only"/>, it is that sandbox or nothing is done, and one the provider lost is not replaced here.
+    /// </summary>
+    public async Task<bool> Resume(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
     {
-        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken) is not { } lease)
+        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken, only) is not { } lease)
         {
             return false;
         }
@@ -663,38 +736,82 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// Replaces the bot's sandbox with a fresh one: the live one is taken out of use and destroyed at the provider, its
-    /// token deleted, and a new one made, as when the Desktop setting changes. Its files are gone.
+    /// token deleted, and a new one made for the same sharing group, as when the Desktop setting changes. Its files are
+    /// gone. With <paramref name="only"/>, the live one must be that sandbox and still live when it is taken out of
+    /// use, or nothing is done; <paramref name="begin"/> is called once that is checked. The bot's sandbox must still be
+    /// shared the same way when the new one is made, and a fresh one another call made meanwhile is left as it is.
     /// </summary>
-    public async Task Rebuild(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
+    public async Task Rebuild(
+        SandboxCaller person,
+        CancellationToken cancellationToken,
+        Guid? only = null,
+        Action? begin = null)
     {
-        if (await Locate(person, null, create: false, cancellationToken) is { } target)
+        await LookingForPower(cancellationToken);
+        var target = await Locate(person, null, create: false, cancellationToken);
+
+        if (target is null && only is { } meant && meant != Guid.Empty)
+        {
+            throw new BuiltinToolException(MovedSentence);
+        }
+
+        if (target is not null)
         {
             RefuseWhenMoved(target, only);
+            begin?.Invoke();
             appliedNetworks.TryRemove(target.Row.Id, out _);
             var now = time.GetUtcNow();
-            await person.Tenant.Transact(
+            var retired = await person.Tenant.Transact(
                 services => services.GetRequiredService<SandboxRepository>().RetireLive(target.Row.Id, now,
                     cancellationToken),
                 cancellationToken);
+
+            if (!retired)
+            {
+                // Another call took it out of use first: this rebuild's view of it is stale, so it makes nothing.
+                throw new BuiltinToolException(MovedSentence);
+            }
         }
 
-        // Finding it again finds the retired one due, destroys it, and makes the new one.
-        var lease = await Acquire(person, null, null, screen: false, cancellationToken);
+        var fresh = await Locate(person, null, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+
+        if (target is not null && fresh.Owner.Id != target.Owner.Id)
+        {
+            throw new BuiltinToolException(MovedSentence);
+        }
+
+        if (target is not null && fresh.Row.State is not SandboxState.Creating)
+        {
+            // Another call made the new one between the retirement and this lookup. It is already fresh, so it is not
+            // touched here; only the old one is destroyed.
+            await DestroyRetired(person.Tenant, fresh, cancellationToken);
+            logger.LogInformation("Sandbox {SandboxId} of bot {BotId} was already replaced during a rebuild", target.Row.Id, target.Owner.Id);
+            return;
+        }
+
+        var lease = await PrepareLocated(person, fresh, null, screen: false, bound: false, cancellationToken);
         await Finish(person, lease, readsSandbox: false, cancellationToken);
     }
 
     /// <summary>
     /// Destroys the bot's sandbox now, at the provider and in Drover: its files are gone and its token deleted. The next
-    /// use makes a new one. False when it has none.
+    /// use makes a new one. False when it has none. With <paramref name="only"/>, it is that sandbox or nothing is
+    /// done; <paramref name="begin"/> is called once that is checked, just before the provider is asked.
     /// </summary>
-    public async Task<bool> TurnOff(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
+    public async Task<bool> TurnOff(
+        SandboxCaller person,
+        CancellationToken cancellationToken,
+        Guid? only = null,
+        Action? begin = null)
     {
+        await LookingForPower(cancellationToken);
         if (await Locate(person, null, create: false, cancellationToken) is not { } target)
         {
             return false;
         }
 
         RefuseWhenMoved(target, only);
+        begin?.Invoke();
 
         if (target is { Token: { } token, Row.ProviderSandboxId.Length: > 0 })
         {
@@ -731,7 +848,8 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// As <see cref="Acquire"/>, but when <paramref name="create"/> is false and the owner has no live sandbox, null,
-    /// and nothing is made.
+    /// and nothing is made. With <paramref name="only"/>, the live sandbox must be that one, or nothing is done (an
+    /// empty id means none was expected), and one the provider lost is not replaced.
     /// </summary>
     private async Task<SandboxLease?> Prepare(
         SandboxCaller caller,
@@ -739,13 +857,31 @@ public sealed class SandboxBroker(
         TimeSpan? keepAtLeast,
         bool screen,
         bool create,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? only = null)
     {
         if (await Locate(caller, environment, create, cancellationToken) is not { } target)
         {
             return null;
         }
 
+        RefuseWhenMoved(target, only);
+        return await PrepareLocated(caller, target, keepAtLeast, screen, bound: only is not null, cancellationToken, environment);
+    }
+
+    /// <summary>
+    /// The located sandbox running and ready. One the provider lost is retired and, unless <paramref name="bound"/>
+    /// to that one sandbox, replaced once.
+    /// </summary>
+    private async Task<SandboxLease> PrepareLocated(
+        SandboxCaller caller,
+        SandboxTarget target,
+        TimeSpan? keepAtLeast,
+        bool screen,
+        bool bound,
+        CancellationToken cancellationToken,
+        string? environment = null)
+    {
         if (screen && !DesktopFor(target.Owner))
         {
             throw new BuiltinToolException("This bot's sandbox has no screen. A person can turn on Desktop in the bot's Sandbox settings.");
@@ -760,6 +896,12 @@ public sealed class SandboxBroker(
         if (await Resume(caller.Tenant, target, keepFor, cancellationToken) is not { } handle)
         {
             await Retire(caller.Tenant, target.Row.Id, cancellationToken);
+
+            if (bound)
+            {
+                throw new BuiltinToolException(MovedSentence);
+            }
+
             target = await Locate(caller, environment, create: true, cancellationToken) ?? throw MadeSandboxMissing();
             handle = await Resume(caller.Tenant, target, keepFor, cancellationToken)
                 ?? throw new BuiltinToolException("The sandbox provider lost the sandbox again right after it was made. Try again later.");
@@ -986,6 +1128,9 @@ public sealed class SandboxBroker(
         logger.LogInformation("Created sandbox {SandboxId} for bot {BotId} at {Provider}", target.Row.Id, target.Owner.Id, provider.Kind);
         return created;
     }
+
+    private Task LookingForPower(CancellationToken cancellationToken) =>
+        BeforePowerLookup?.Invoke(cancellationToken) ?? Task.CompletedTask;
 
     /// <summary>
     /// A power control that was made ready for one sandbox does not act on another: if the bot's sandbox is not the one
@@ -1223,15 +1368,42 @@ public sealed class SandboxBroker(
     /// cannot change the sandbox while a command is admitted. When too many commands hold or
     /// wait for sandboxes, this is refused with a sentence the model or the person can read.
     /// </summary>
+    /// <summary>
+    /// Takes the sandbox's command lock. For a bot's call, every mouse button a person still holds on that sandbox's
+    /// screen is let go of first, under the screen's gate, and the call is refused if one cannot be: a bot never works
+    /// on a display with a person's button down, whether the person handed the screen back, stopped, or is still on it.
+    /// </summary>
     private async Task<SandboxCommandGate> HoldCommands(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
     {
+        SandboxCommandGate gate;
+
         try
         {
-            return await commandLocks.Hold(caller.Tenant.SpaceId, sandboxId, cancellationToken);
+            gate = await commandLocks.Hold(caller.Tenant.SpaceId, sandboxId, cancellationToken);
         }
         catch (SandboxBusyException busy)
         {
             throw new BuiltinToolException(busy.Message);
+        }
+
+        if (caller.Call is null || holds is not { } held || !held.IsHeldOn(caller.Tenant.SpaceId, sandboxId))
+        {
+            return gate;
+        }
+
+        try
+        {
+            if (!await held.ReleaseAll(caller.Tenant.SpaceId, sandboxId, cancellationToken))
+            {
+                throw new BuiltinToolException(HeldForBotSentence);
+            }
+
+            return gate;
+        }
+        catch (Exception)
+        {
+            await gate.DisposeAsync();
+            throw;
         }
     }
 

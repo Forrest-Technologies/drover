@@ -21,6 +21,10 @@ public sealed class SandboxControlLiveTests(PostgresServer postgres)
 
     private const string ScreenshotFolderVariable = "DROVER_TEST_SCREENSHOT_DIR";
 
+    /// <summary>Where the pointer is and whether the left button is down, as the display itself says.</summary>
+    private const string PointerProbe =
+        """export DISPLAY=:0; xdotool getmouselocation --shell; xinput --query-state 'Virtual core pointer' | grep -o 'button\[1\]=[a-z]*'""";
+
     #endregion
 
     #region Public Methods
@@ -99,9 +103,72 @@ public sealed class SandboxControlLiveTests(PostgresServer postgres)
         }
     }
 
+    /// <summary>
+    /// The pointer kinds against the real desktop tooling: a press holds the left button down where it was made, a move
+    /// carries the held button to the new point, a release lets go of it there, and a drag ends at its end point with
+    /// nothing held. The display's own pointer state is read after each step from the person's terminal, which takes no
+    /// part in the holds.
+    /// </summary>
+    [Fact(Explicit = true)]
+    public async Task A_persons_press_move_release_and_drag_reach_the_real_pointer_and_leave_no_button_held()
+    {
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel([new TextOutput("Done.")]),
+            everyHost: services =>
+            {
+                services.AddE2BSandboxProvider(options =>
+                {
+                    options.ApiKey = Environment.GetEnvironmentVariable(KeyVariable)
+                        ?? throw new InvalidOperationException($"Set {KeyVariable} to an E2B API key to run the live pointer test.");
+                    options.Domain = Environment.GetEnvironmentVariable(DomainVariable) ?? options.Domain;
+                });
+                services.AddSandboxTools();
+            });
+        await world.Read(async db =>
+        {
+            var bot = await db.Bots.SingleAsync(found => found.Id == world.BotId, RunWorld.Token);
+            bot.SandboxPolicy = SandboxPolicy.Private;
+            bot.SandboxSettings = new SandboxSettings { Network = NetworkAccess.Off, IdleTimeoutMinutes = 3, Desktop = true };
+            return true;
+        });
+        var host = world.StartHost();
+        var control = host.Services.GetRequiredService<SandboxControlService>();
+        var provider = host.Services.GetRequiredService<ISandboxProvider>();
+
+        try
+        {
+            (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Problem.Should().BeNull();
+
+            await Input(control, world, new SandboxInputRequest("down", X: 200, Y: 210));
+            (await Probe(control, world)).Should().ContainAll("X=200", "Y=210", "button[1]=down");
+
+            await Input(control, world, new SandboxInputRequest("move", X: 400, Y: 300));
+            (await Probe(control, world)).Should().ContainAll("X=400", "Y=300", "button[1]=down");
+
+            await Input(control, world, new SandboxInputRequest("up"));
+            (await Probe(control, world)).Should().ContainAll("X=400", "Y=300", "button[1]=up");
+
+            await Input(control, world, new SandboxInputRequest("drag", X: 100, Y: 110, X2: 300, Y2: 250));
+            (await Probe(control, world)).Should().ContainAll("X=300", "Y=250", "button[1]=up");
+        }
+        finally
+        {
+            await DestroyCreated(world, provider);
+        }
+    }
+
     #endregion
 
     #region Private Methods
+
+    private static async Task<string> Probe(SandboxControlService control, RunWorld world)
+    {
+        var probed = await control.Run(world.SpaceId, world.UserId, world.BotId, PointerProbe, RunWorld.Token);
+        probed.Problem.Should().BeNull();
+        Note($"The display says: {probed.Value!.Stdout.ReplaceLineEndings(" ")}");
+        return probed.Value.Stdout;
+    }
 
     private static async Task Input(SandboxControlService control, RunWorld world, SandboxInputRequest input)
     {

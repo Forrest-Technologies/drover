@@ -1268,7 +1268,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             pausing.TrySetResult();
             await finish.Task.WaitAsync(cancellationToken);
         };
-        control.Holds.PressWaiting = () => atTheGate.TrySetResult();
+        control.Holds.Waiting = () => atTheGate.TrySetResult();
 
         var pause = control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
         await pausing.Task.WaitAsync(RunWorld.Token);
@@ -1342,7 +1342,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             await finish.Task.WaitAsync(cancellationToken);
             await request.CancelAsync();
         };
-        control.Holds.PressWaiting = () => atTheGate.TrySetResult();
+        control.Holds.Waiting = () => atTheGate.TrySetResult();
 
         var pause = control.Pause(world.SpaceId, world.UserId, world.BotId, request.Token);
         await pausing.Task.WaitAsync(RunWorld.Token);
@@ -1426,6 +1426,299 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         provider.Destroys.Should().BeEmpty();
         provider.Created.Should().Be(1, "nothing was replaced");
         (await broker.CurrentSandbox(person, RunWorld.Token)).Should().NotBeNull("the sandbox is still live");
+    }
+
+    #endregion
+
+    #region The Physical Sandbox, The Gate And The Audit Row
+
+    [Theory]
+    [InlineData("down", "exit")]
+    [InlineData("drag", "exit")]
+    [InlineData("down", "cancel")]
+    public async Task A_press_that_fails_right_after_waking_a_paused_sandbox_is_let_go_of_on_the_sandbox_it_woke(
+        string kind,
+        string failure)
+    {
+        using var caller = new CancellationTokenSource();
+        var provider = PointerProvider((command, _) => IsPress(command) || IsDrag(command)
+            ? failure is "cancel" ? Cancelling(caller) : Failing("exit")
+            : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        (await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal
+            .Should().Be(SandboxControlRefusal.None);
+        SandboxInputRequest input = kind is "drag" ? new("drag", X: 5, Y: 6, X2: 50, Y2: 60) : new("down", X: 5, Y: 6);
+
+        var pressing = () => control.Input(world.SpaceId, world.UserId, world.BotId, input, caller.Token);
+
+        if (failure is "cancel")
+        {
+            await pressing.Should().ThrowAsync<OperationCanceledException>();
+        }
+        else
+        {
+            (await pressing()).Refusal.Should().Be(SandboxControlRefusal.Refused);
+        }
+
+        Pointer(provider).Should().HaveCount(2, "the row still read as paused, but the sandbox the press woke is let go of");
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_button_is_let_go_of_on_its_own_sandbox_after_the_bot_that_pressed_it_is_removed()
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        await world.Read(async db =>
+        {
+            var bot = await db.Bots.SingleAsync(found => found.Id == world.BotId, RunWorld.Token);
+            bot.Status = BotStatus.Removed;
+            return true;
+        });
+
+        await Advance(clock, control, SandboxPointerHolds.Limit);
+
+        Pointer(provider).Should().HaveCount(2, "the release finds the sandbox by its own row, not through the bot");
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+    }
+
+    [Fact]
+    public async Task A_resume_does_nothing_when_the_bot_has_another_sandbox_by_the_time_it_acts()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        control.AfterFirstLookup = async () =>
+        {
+            control.AfterFirstLookup = null;
+            await SetSandboxRow(world, row =>
+            {
+                row.State = SandboxState.Retiring;
+                row.RetireAfter = DateTimeOffset.UtcNow.AddDays(1);
+            });
+            await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        };
+
+        var resumed = await control.Resume(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+
+        resumed.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        resumed.Problem.Should().Contain("changed while this was under way");
+        provider.Created.Should().Be(2);
+        Pointer(provider).Should().ContainSingle("the resume let go of nothing on either sandbox");
+    }
+
+    [Fact]
+    public async Task A_press_that_comes_while_a_resume_is_under_way_is_not_let_go_of_by_it()
+    {
+        var resuming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atTheGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        (await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal
+            .Should().Be(SandboxControlRefusal.None);
+        var resumes = 0;
+        provider.BeforeResume = async (_, cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref resumes) is 1)
+            {
+                resuming.TrySetResult();
+                await finish.Task.WaitAsync(cancellationToken);
+            }
+        };
+        control.Holds.Waiting = () => atTheGate.TrySetResult();
+
+        var resume = control.Resume(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        await resuming.Task.WaitAsync(RunWorld.Token);
+        var press = control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        await Task.WhenAny(atTheGate.Task, press).WaitAsync(RunWorld.Token);
+        finish.SetResult();
+
+        (await resume).Refusal.Should().Be(SandboxControlRefusal.None);
+        (await press).Refusal.Should().Be(SandboxControlRefusal.None);
+        Pointer(provider).Should().ContainSingle("the press came after the resume began, so the resume let go of nothing")
+            .Which.Should().Contain("mousedown");
+    }
+
+    [Fact]
+    public async Task A_move_or_a_release_that_overlaps_a_pause_sends_nothing_and_leaves_the_row_paused()
+    {
+        var pausing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atTheGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        provider.BeforePause = async (_, cancellationToken) =>
+        {
+            pausing.TrySetResult();
+            await finish.Task.WaitAsync(cancellationToken);
+        };
+
+        var pause = control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        await pausing.Task.WaitAsync(RunWorld.Token);
+        control.Holds.Waiting = () => atTheGate.TrySetResult();
+        var move = control.Input(world.SpaceId, world.UserId, world.BotId, new("move", X: 7, Y: 8), RunWorld.Token);
+        var up = control.Input(world.SpaceId, world.UserId, world.BotId, new("up", X: 7, Y: 8), RunWorld.Token);
+        await Task.WhenAny(atTheGate.Task, move).WaitAsync(RunWorld.Token);
+        finish.SetResult();
+
+        (await pause).Refusal.Should().Be(SandboxControlRefusal.None);
+        var moved = await move;
+        var lifted = await up;
+        moved.Problem.Should().Contain("paused or replaced");
+        lifted.Problem.Should().Contain("paused or replaced");
+        Pointer(provider).Should().HaveCount(2, "only the press and the pause's release reached the display");
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+        (await world.Read(db => db.Sandboxes.OrderBy(row => row.Id).LastAsync(RunWorld.Token))).State
+            .Should().Be(SandboxState.Paused, "no input that overlapped the pause recorded a use afterwards");
+    }
+
+    [Fact]
+    public async Task A_press_whose_audit_row_cannot_be_written_is_let_go_of_and_the_row_is_tried_once()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var attempts = 0;
+        control.AuditWriting = () =>
+        {
+            attempts++;
+            throw new InvalidOperationException("The audit log could not be written.");
+        };
+
+        var pressing = () => control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6),
+            RunWorld.Token);
+
+        await pressing.Should().ThrowAsync<InvalidOperationException>();
+        attempts.Should().Be(1, "the attempt has one row, written once");
+        Pointer(provider).Should().HaveCount(2);
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+        control.Holds.IsHeldOn(world.SpaceId, await SandboxId(world)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_pause_ended_while_it_looks_for_its_sandbox_does_not_refuse_a_press_that_was_waiting()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leaseHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = PointerProvider((command, token) => command.Arguments is [.., "sleep 1"]
+            ? HoldCommand(running, release, token)
+            : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        var command = control.Run(world.SpaceId, world.UserId, world.BotId, "sleep 1", RunWorld.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+        broker.LeaseHeld = () => leaseHeld.TrySetResult();
+        var press = control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 7, Y: 8), RunWorld.Token);
+        await leaseHeld.Task.WaitAsync(RunWorld.Token);
+        using var request = new CancellationTokenSource();
+        broker.BeforePowerLookup = _ => request.CancelAsync();
+
+        var pause = () => control.Pause(world.SpaceId, world.UserId, world.BotId, request.Token);
+
+        await pause.Should().ThrowAsync<OperationCanceledException>();
+        broker.BeforePowerLookup = null;
+        release.SetResult();
+        await command;
+        (await press).Refusal.Should().Be(SandboxControlRefusal.None, "the pause ended before it asked for anything");
+        provider.Pauses.Should().BeEmpty();
+        Pointer(provider).Should().ContainSingle().Which.Should().Contain("mousedown");
+    }
+
+    [Fact]
+    public async Task A_rebuild_whose_sandbox_was_taken_out_of_use_meanwhile_makes_nothing()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        control.AfterFirstLookup = async () =>
+        {
+            control.AfterFirstLookup = null;
+            await SetSandboxRow(world, row =>
+            {
+                row.State = SandboxState.Retiring;
+                row.RetireAfter = DateTimeOffset.UtcNow.AddDays(1);
+            });
+        };
+
+        var rebuilt = await control.Rebuild(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+
+        rebuilt.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        rebuilt.Problem.Should().Contain("changed while this was under way");
+        provider.Created.Should().Be(1, "a rebuild whose view is stale makes no sandbox");
+    }
+
+    [Fact]
+    public async Task A_bots_use_of_the_sandbox_lets_go_of_a_persons_button_first_even_one_still_being_pressed()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = PointerProvider((command, token) => IsPress(command) ? HoldCommand(running, release, token) : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        var press = control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+
+        var clicking = broker.Act(BotCall(world), DesktopCommands.Click(1, 1, MouseButton.Left, false), "click there",
+            RunWorld.Token);
+        release.SetResult();
+        (await press).Refusal.Should().Be(SandboxControlRefusal.None);
+        await clicking;
+
+        Pointer(provider)
+            .Select(arguments => arguments.Contains("mousedown") ? "press" : arguments.Contains("mouseup") ? "release" : "click")
+            .Should().Equal(["press", "release", "click"], "the bot never works on a display with a person's button down");
+    }
+
+    [Fact]
+    public async Task Input_past_the_spaces_bound_is_refused_before_anything_reaches_the_provider_and_letting_go_still_goes()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = PointerProvider((command, token) => command.Program == "xdotool" && command.Arguments.Contains("click")
+            ? HoldCommand(running, release, token)
+            : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        List<Task<SandboxControlResult<bool>>> underWay =
+        [
+            .. Enumerable.Range(0, SandboxControlService.MaxInputsPerSpace).Select(_ =>
+                control.Input(world.SpaceId, world.UserId, world.BotId, new("click", X: 1, Y: 1), RunWorld.Token)),
+        ];
+        await running.Task.WaitAsync(RunWorld.Token);
+        var sent = provider.Commands.Count;
+
+        var refused = await control.Input(world.SpaceId, world.UserId, world.BotId, new("move", X: 2, Y: 2),
+            RunWorld.Token);
+
+        refused.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        refused.Problem.Should().Contain("Too much input");
+        provider.Commands.Count.Should().Be(sent, "nothing was looked up or sent for it");
+        var letting = control.Input(world.SpaceId, world.UserId, world.BotId, new("up"), RunWorld.Token);
+        release.SetResult();
+        (await Task.WhenAll(underWay)).Should().OnlyContain(result => result.Refusal == SandboxControlRefusal.None);
+        (await letting).Refusal.Should().Be(SandboxControlRefusal.None, "letting go has room of its own");
     }
 
     #endregion
@@ -1865,6 +2158,21 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     private static IAsyncEnumerable<CommandOutput> Holding(TaskCompletionSource running, TaskCompletionSource never,
         CancellationToken cancellationToken) =>
         HoldCommand(running, never, cancellationToken);
+
+    private static Task<Guid> SandboxId(RunWorld world) =>
+        world.Read(async db => (await db.Sandboxes.OrderBy(row => row.Id).LastAsync(RunWorld.Token)).Id);
+
+    /// <summary>A bot's tool call outside a run's conversation, as the broker is handed one.</summary>
+    private static BuiltinToolCall BotCall(RunWorld world) =>
+        new(
+            JsonSerializer.SerializeToElement(new { }),
+            world.BotId,
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            world.Hosts[^1].Services.GetRequiredService<RunScopes>().For(world.SpaceId, world.UserId),
+            _ => Task.CompletedTask,
+            () => Task.CompletedTask,
+            _ => { });
 
     private static async Task SetSandboxRow(RunWorld world, Action<Sandbox> change) =>
         await world.Read(async db =>

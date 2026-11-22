@@ -176,6 +176,8 @@ public sealed class DesktopCommandsTests
         command.Arguments.TakeLast(2).Should().Equal("mouseup", "1");
         command.Arguments.Skip(5).Where(argument => argument == "mousemove")
             .Should().HaveCount(DesktopCommands.DragSteps + 1);
+        command.Arguments.Skip(5).Where(argument => argument == "mousemove")
+            .Should().HaveCount(9, "eight points on the way and one at the end, whatever the constant says");
         command.Arguments.Should().ContainInOrder("mousemove", "500", "600", "sleep", "mouseup");
         command.Arguments.Count(argument => argument == "mousedown").Should().Be(1);
         command.Arguments.Count(argument => argument == "mouseup").Should().Be(1);
@@ -200,6 +202,16 @@ public sealed class DesktopCommandsTests
         points[^1].Should().Be((1023, 0));
         points.Select(point => point.X).Should().BeInAscendingOrder();
         points.Select(point => point.Y).Should().BeInDescendingOrder();
+        points.Should().HaveCount(10, "the press, eight points on the way, and the end");
+        points.Should().OnlyHaveUniqueItems("no point on the way repeats another");
+
+        for (var step = 0; step < points.Count; step++)
+        {
+            // Each point is within a pixel of where an equal share of the way falls on the straight line.
+            var share = step / 9.0;
+            points[step].X.Should().BeCloseTo((int)Math.Round(1023 * share), 1);
+            points[step].Y.Should().BeCloseTo((int)Math.Round(767 - (767 * share)), 1);
+        }
     }
 
     [Fact]
