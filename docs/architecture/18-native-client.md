@@ -136,6 +136,58 @@ adb install -r <folder>/*-Signed.apk
 dotnet run --project tests/Drover.Native.UITests -- android
 ```
 
+## Android proof
+
+Two things keep the Android basics from breaking again without anyone seeing it. Neither is added to the Android
+preview build or to the checks every pull request runs.
+
+**Fast tests, in the normal test jobs.** They need no device and take seconds.
+
+- `tests/Drover.Server.Tests/AndroidPickedFileUploadTests.cs` sends a picture the way the app sends one picked on
+  Android: the picker reports no size, the stream has no length and cannot seek, the app measures it by buffering
+  (`UploadFileWithUnverifiedSize`) and sends it with the antiforgery token, to the real upload route. It reads the
+  picture back from the server and compares its hash, and it covers a small file, a file at the limit, a file past
+  the limit (the server's refusal must carry a code the app can name), no token, and a cancelled upload.
+- `tests/Drover.Server.Tests/SandboxPointerDragApiTests.cs` sends a drag to the real sandbox input route as the app
+  does (a press, moves, a release, and the whole drag as one request) to a sandbox provider that records the commands
+  it ran. `tests/Shared/PointerEvents.cs` reads those commands as a pointer's events, so a test asserts a down, one or
+  more moves and an up, with no button left held.
+
+**A manual proof on an emulator.** The workflow `.github/workflows/android-proof.yml` runs only when someone starts it
+(Actions, "Android proof", "Run workflow"): never on a push, a pull request or a tag. It runs on a GitHub-hosted
+runner. The input is the branch, tag or commit to prove; a pull request is `refs/pull/<number>/head`. The ref must
+contain the harness, so it must be based on a trunk that has this workflow. Each of the pull requests that fix the
+upload or the touch drag links the run that proves it; without that run the fix is not called fixed.
+
+The run builds the app made for the screen checks (the preview app refuses a test server's certificate, as it must),
+starts an emulator (`system-images;android-35;default;x86_64`) and waits for `sys.boot_completed`, starts the real
+server of the screen checks in the harness with a sandbox provider that records its input, waits for
+`/health/ready`, and runs `dotnet run --project tests/Drover.Native.UITests -- android-proof <folder>`. Every wait has
+a bound and says what it saw when the bound passes. Four things print one `PROOF PASS` or `PROOF FAIL` line each:
+
+1. **Chat.** The app sends a message and the bot's reply arrives.
+2. **Upload.** The app presses attach. The harness chooses `drover-proof.png` in the system's file picker, so the
+   file comes through the same path as a person's screenshot. The app waits for its chip to say it is uploaded, sends
+   it, and sees it in the conversation. The harness then reads the stored file from the server and compares its hash
+   with the file it sent.
+3. **Sandbox screen.** The app opens the bot's sandbox screen and waits for its view-only mode line. The sandbox must
+   have been asked for its picture.
+4. **Touch drag.** The app turns on "Send desktop input". The harness finds the picture in the device's accessibility
+   tree and runs `adb shell input draganddrop` over it (a hold, then moves, then a lift: real touch events). The
+   recording sandbox must have been told a button down, one or more moves and a button up, with nothing left held.
+
+The artifact `android-proof` holds `proof-summary.md` (the four lines), `harness-and-server.log` (the harness and the
+test server), `app-report.txt` (the app's own steps), `logcat-tail.txt`, `final-screen.png`, `the-last-screen.xml`
+(what the harness last read from the device), `proof.mp4` (a recording of the run), `drover-proof.png` (the file it
+sent) and `emulator.log`.
+
+To add a step, add the app's part to the proof steps in `ScreenChecks` (`tests/Drover.Native.UITests/App/`), named
+`proof <number> <what>`, add the harness's part to `AndroidProof` (what only the device or the server can say), and give
+every control the step uses an automation id. The fast tests and the proof are written to fail on a build that has the
+bug, so a step is added only with a test that failed before its fix.
+
+The emulator is never started on the Mac mini or by hand on a developer machine: the proof is a run of this workflow.
+
 ## Tokens
 
 `Theme/Tokens.xaml` is the only XAML file that holds raw values. It carries every token of `Theme/tokens.css`, and `TokenParityTests` fails when the two files disagree. The CSS file is the specification, as ADR 0015 decided: a new token is added there first. It moved there from the retired web client and is not part of the app.

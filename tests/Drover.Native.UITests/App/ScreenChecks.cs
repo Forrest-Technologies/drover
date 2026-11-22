@@ -296,6 +296,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
         var name = settings.ProofPicture ?? throw new CheckFailedException("no picture was named for the proof");
         await Type("ComposerField", "Here is the picture.");
+        await Press("ComposerMore");
         await Press("ComposerAttach");
         Report($"ui-check wait: choose {name} in the system picker");
         var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
