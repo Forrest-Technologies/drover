@@ -17,9 +17,13 @@ internal static class NativeImagePreview
 
     private static readonly SKSamplingOptions sampling = new(SKCubicResampler.Mitchell);
 
+    #endregion
+
+    #region Properties
+
     internal static DecodeLimits DefaultLimits { get; } = new(
         MaxJpegScans: 64,
-        MaxProgressivePixels: 16_000_000,
+        MaxMultiScanPixels: 16_000_000,
         Deadline: TimeSpan.FromSeconds(2));
 
     #endregion
@@ -29,7 +33,11 @@ internal static class NativeImagePreview
     public static NativeFilePreview Resize(byte[] bytes) =>
         Resize(bytes, DefaultLimits, TimeProvider.System);
 
-    internal static NativeFilePreview Resize(byte[] bytes, DecodeLimits limits, TimeProvider time)
+    internal static NativeFilePreview Resize(
+        byte[] bytes,
+        DecodeLimits limits,
+        TimeProvider time,
+        Action<ReadOnlyMemory<byte>>? observeCodecInput = null)
     {
         if (bytes.Length > MaxInputBytes)
         {
@@ -41,11 +49,16 @@ internal static class NativeImagePreview
             return new(Refusal: NativePreviewRefusal.Malformed);
         }
 
-        return ResizeFromHeader(bytes, width, height, limits, time);
+        return ResizeFromHeader(bytes, width, height, limits, time, observeCodecInput);
     }
 
     internal static NativeFilePreview ResizeFromHeader(
-        byte[] bytes, int width, int height, DecodeLimits limits, TimeProvider time)
+        byte[] bytes,
+        int width,
+        int height,
+        DecodeLimits limits,
+        TimeProvider time,
+        Action<ReadOnlyMemory<byte>>? observeCodecInput = null)
     {
         if (!WithinSourceBounds(width, height))
         {
@@ -57,15 +70,15 @@ internal static class NativeImagePreview
             return new(Refusal: NativePreviewRefusal.Malformed);
         }
 
-        if (InspectJpegLayout(bytes, width, height, limits, out var progressive) is { } jpegRefusal)
+        if (InspectJpegLayout(bytes, width, height, limits, out var multiScan) is { } jpegRefusal)
         {
             return new(Refusal: jpegRefusal);
         }
 
         var started = time.GetTimestamp();
-        using var data = stripped is null
-            ? SKData.CreateCopy(bytes)
-            : SKData.CreateCopy(stripped.WrittenSpan);
+        var codecInput = stripped is null ? bytes.AsMemory() : stripped.WrittenMemory;
+        observeCodecInput?.Invoke(codecInput);
+        using var data = SKData.CreateCopy(codecInput.Span);
         using var codec = SKCodec.Create(data);
         if (codec is null)
         {
@@ -101,7 +114,7 @@ internal static class NativeImagePreview
             decodeInfo,
             source.Width,
             source.Height,
-            progressive,
+            multiScan,
             limits.Deadline,
             time,
             started);
@@ -116,7 +129,7 @@ internal static class NativeImagePreview
         SKImageInfo decodeInfo,
         int sourceWidth,
         int sourceHeight,
-        bool progressive,
+        bool multiScan,
         TimeSpan deadline,
         TimeProvider time,
         long started)
@@ -134,7 +147,7 @@ internal static class NativeImagePreview
 
         if (codec.StartScanlineDecode(decodeInfo) is not SKCodecResult.Success)
         {
-            return progressive
+            return multiScan
                 ? new(Refusal: NativePreviewRefusal.TooComplex)
                 : DecodeWithoutScanlines(codec, decoded, sourceWidth, sourceHeight, deadline, time, started);
         }
@@ -315,9 +328,9 @@ internal static class NativeImagePreview
         int width,
         int height,
         DecodeLimits limits,
-        out bool progressive)
+        out bool multiScan)
     {
-        progressive = false;
+        multiScan = false;
         if (!IsJpeg(bytes))
         {
             return null;
@@ -325,6 +338,7 @@ internal static class NativeImagePreview
 
         var position = 2;
         var scans = 0;
+        var frameComponents = 0;
         var inScan = false;
         while (position < bytes.Length)
         {
@@ -382,16 +396,44 @@ internal static class NativeImagePreview
                 return NativePreviewRefusal.Malformed;
             }
 
-            if (marker is 0xC2 or 0xC6 or 0xCA or 0xCE)
+            if (IsStartOfFrame(marker))
             {
-                progressive = true;
-                if ((long)width * height > limits.MaxProgressivePixels)
+                if (length < 8)
+                {
+                    return NativePreviewRefusal.Malformed;
+                }
+
+                frameComponents = bytes[position + 7];
+                if (frameComponents == 0 || length != 8 + (3 * frameComponents))
+                {
+                    return NativePreviewRefusal.Malformed;
+                }
+
+                multiScan |= IsProgressiveFrame(marker);
+            }
+
+            if (marker == 0xDA)
+            {
+                if (length < 3 || frameComponents == 0)
+                {
+                    return NativePreviewRefusal.Malformed;
+                }
+
+                var scanComponents = bytes[position + 2];
+                if (scanComponents == 0 || length != 6 + (2 * scanComponents))
+                {
+                    return NativePreviewRefusal.Malformed;
+                }
+
+                scans++;
+                multiScan |= scans > 1 || scanComponents < frameComponents;
+                if (scans > limits.MaxJpegScans)
                 {
                     return NativePreviewRefusal.TooComplex;
                 }
             }
 
-            if (marker == 0xDA && ++scans > limits.MaxJpegScans)
+            if (multiScan && (long)width * height > limits.MaxMultiScanPixels)
             {
                 return NativePreviewRefusal.TooComplex;
             }
@@ -405,6 +447,12 @@ internal static class NativeImagePreview
 
     private static bool IsJpeg(ReadOnlySpan<byte> bytes) =>
         bytes is [0xFF, 0xD8, 0xFF, ..];
+
+    private static bool IsStartOfFrame(byte marker) =>
+        marker is >= 0xC0 and <= 0xCF && marker is not (0xC4 or 0xC8 or 0xCC);
+
+    private static bool IsProgressiveFrame(byte marker) =>
+        marker is 0xC2 or 0xC6 or 0xCA or 0xCE;
 
     private static bool Expired(TimeProvider time, long started, TimeSpan deadline) =>
         time.GetElapsedTime(started) >= deadline;
@@ -457,7 +505,7 @@ internal static class NativeImagePreview
 
     #region Nested Types
 
-    internal sealed record DecodeLimits(int MaxJpegScans, long MaxProgressivePixels, TimeSpan Deadline);
+    internal sealed record DecodeLimits(int MaxJpegScans, long MaxMultiScanPixels, TimeSpan Deadline);
 
     #endregion
 }
