@@ -41,7 +41,8 @@ internal static class Program
 
             if (Target(args, folder) is not { } app)
             {
-                logger.LogError("Name the app to check: desktop <dll>, android, android-proof <dir>, ios <app> <device>");
+                logger.LogError(
+                    "Name the app to check: desktop <dll>, android, android-proof <dir>, ios <app> <device>");
                 return 2;
             }
 

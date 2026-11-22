@@ -124,10 +124,9 @@ public sealed class PostgresServer : IAsyncLifetime
         await new NpgsqlCommand(sql, connection).ExecuteNonQueryAsync();
     }
 
-    private static async Task OpenWithPatience(NpgsqlConnection connection, CancellationToken caller = default)
+    private static async Task OpenWithPatience(NpgsqlConnection connection)
     {
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(caller);
-        budget.CancelAfter(connectionPatience);
+        using var budget = new CancellationTokenSource(connectionPatience);
         var delay = TimeSpan.FromMilliseconds(500);
 
         while (true)
