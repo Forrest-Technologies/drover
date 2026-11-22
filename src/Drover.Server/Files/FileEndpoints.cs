@@ -172,12 +172,12 @@ public static class FileEndpoints
 
         await using var content = found.Content;
         context.Response.Headers.CacheControl = "no-store";
+        var access = context.GetSpaceAccess();
         if (FileInspector.KindOf(found.File.ContentType) is FileKind.Image)
         {
-            return TypedResults.Ok(await pictures.Read(found, timeout.Token));
+            return TypedResults.Ok(await pictures.Read(found, access.UserId, timeout.Token));
         }
 
-        var access = context.GetSpaceAccess();
         return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
     }
 
