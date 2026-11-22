@@ -122,7 +122,9 @@ public sealed class IsolationHarness : IAsyncDisposable
 
         if (table.Class is OwnershipClass.SpaceWithAudience)
         {
-            row["audience_user_id"] = placement.Audience;
+            row["audience_user_id"] = table.Seeder.ForOnePersonOnly && placement.Audience == Domain.Tenancy.Audience.Everyone
+                ? placement.User
+                : placement.Audience;
         }
 
         if (table.Class is OwnershipClass.User)

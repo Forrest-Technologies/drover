@@ -15,7 +15,11 @@ public static class AudienceChecks
         await using var asA2 = await harness.Open(world.SpaceA, world.UserA2);
 
         Expect.That(await harness.CountRow(asA1, table, mine) == 1, $"Control: A1 cannot see their private row in '{tableName}'.");
-        Expect.That(await harness.CountRow(asA2, table, shared) == 1, $"Control: A2 cannot see a shared row in '{tableName}'.");
+        if (!table.Seeder.ForOnePersonOnly)
+        {
+            Expect.That(await harness.CountRow(asA2, table, shared) == 1, $"Control: A2 cannot see a shared row in '{tableName}'.");
+        }
+
         Expect.That(await harness.CountRow(asA2, table, mine) == 0, $"A2 selected A1's private row in '{tableName}' by key.");
         var leaked = await asA2.Count(
             $"SELECT count(*) FROM {table.Quoted} WHERE audience_user_id = @user",
@@ -66,6 +70,31 @@ public static class AudienceChecks
             $"A2 inserting a row addressed to A1 into '{tableName}'",
             "42501",
             () => harness.Insert(asA2, table, values));
+    }
+
+    /// <summary>A table that acts for one person refuses the shared audience, on insert and on update.</summary>
+    public static async Task CannotShareARowMeantForOnePerson(IsolationHarness harness, string tableName)
+    {
+        var (table, world, mine, _) = await Arrange(harness, tableName);
+        Expect.That(table.Seeder.ForOnePersonOnly, $"'{tableName}' can be shared, so this check does not apply to it.");
+        var values = new Dictionary<string, object?>(await harness.Compose(table, RowPlacement.Private(world.SpaceA, world.UserA1), mine.Parents))
+        {
+            ["audience_user_id"] = Domain.Tenancy.Audience.Everyone,
+        };
+
+        await using (var asA1 = await harness.Open(world.SpaceA, world.UserA1))
+        {
+            await Expect.Refused(
+                $"A1 inserting a row addressed to everyone into '{tableName}'",
+                "42501",
+                () => harness.Insert(asA1, table, values));
+        }
+
+        await using var again = await harness.Open(world.SpaceA, world.UserA1);
+        await Expect.Refused(
+            $"A1 sharing their row in '{tableName}' with everyone",
+            "42501",
+            () => harness.SetColumn(again, table, mine, "audience_user_id", Domain.Tenancy.Audience.Everyone));
     }
 
     public static async Task CannotHandARowToAnotherMember(IsolationHarness harness, string tableName)

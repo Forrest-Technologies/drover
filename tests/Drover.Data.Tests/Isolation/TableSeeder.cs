@@ -23,6 +23,12 @@ public abstract class TableSeeder
     public abstract Task<IReadOnlyDictionary<string, object?>> Row(SeedRow seed);
 
     /// <summary>
+    /// True for a table whose rows always act for one person and are never shared. The suite then addresses every row
+    /// it would have shared to the acting user instead, and proves the shared audience is refused.
+    /// </summary>
+    public virtual bool ForOnePersonOnly => false;
+
+    /// <summary>
     /// Inserts the row used by positive isolation controls. Most tables use a direct insert. A table whose rows are
     /// produced only by another table's trigger can override this and exercise that production path.
     /// </summary>
