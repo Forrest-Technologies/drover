@@ -111,7 +111,8 @@ public abstract class FileStoreConformance
 
         var save = () => store.Save(Space, key, new FailingStream(RandomBytes(100_000)), Token);
 
-        await save.Should().ThrowAsync<IOException>();
+        var failure = (await save.Should().ThrowAsync<IOException>()).Which;
+        failure.Should().NotBeOfType<FileStorageUnavailableException>();
         (await store.Open(Space, key, Token)).Should().BeNull();
     }
 

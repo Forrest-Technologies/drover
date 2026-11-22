@@ -1184,7 +1184,9 @@ async function withDeadline(promise, milliseconds, what) {
 
 // The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
 function shown(page, words) {
-    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true })).first();
+    // The polite announcer retains the last message even after the rendered status disappears.
+    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true }))
+        .and(page.locator(':not(#uno-live-region-polite, #uno-live-region-polite *)')).first();
 }
 
 async function waitForShown(page, words) {

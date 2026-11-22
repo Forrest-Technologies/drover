@@ -200,7 +200,12 @@ public static class FileEndpoints
     private static ProblemHttpResult UploadProblem(FileUpload upload) =>
         TypedResults.Problem(
             title: upload.Detail,
-            statusCode: upload.Refusal is FileRefusals.TooLarge ? StatusCodes.Status413PayloadTooLarge : StatusCodes.Status422UnprocessableEntity,
+            statusCode: upload.Refusal switch
+            {
+                FileRefusals.TooLarge => StatusCodes.Status413PayloadTooLarge,
+                FileRefusals.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
+                _ => StatusCodes.Status422UnprocessableEntity,
+            },
             extensions: new Dictionary<string, object?> { ["refusal"] = upload.Refusal });
 
     private static FileStreamHttpResult ServeDownload(FileDownload found, bool? download, HttpContext context)

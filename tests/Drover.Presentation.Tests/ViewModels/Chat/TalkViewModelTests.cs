@@ -1408,6 +1408,45 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_transport_failure_records_its_cause_without_the_file_name_or_exception_messages()
+    {
+        var name = $"private-{Guid.NewGuid():N}.png";
+        var message = $"private-{Guid.NewGuid():N}";
+        var cause = new IOException(name);
+        var failure = new HttpRequestException(message, new InvalidOperationException(message, cause));
+        AttachmentsAllowed();
+        Server.Fail("POST", $"{Space}/threads/{threadId}/files", failure);
+        var log = new DiagnosticLog(new MemoryDiagnosticStore(), TimeProvider.System);
+        HashSet<string> unhandled = [];
+        using var factory = LoggerFactory.Create(builder =>
+            builder.AddProvider(new DiagnosticLogProvider(log, TimeProvider.System, unhandled)));
+        using var talk = new TalkViewModel(Server.CreateApi(), Session, Navigator, Toasts, Inbox, Ui, factory);
+        await Do(() => talk.Open(new TalkAddress(botId)));
+        await Until(() => talk.MainPane!.Messages.Should().HaveCount(2));
+
+        await Attach(() => talk.MainPane!, new SamplePickedFile(name, "one", sizeKnown: false));
+        await Until(() => talk.MainPane!.Composer.Attachments.Single().Phase.Should().Be(UploadPhase.Failed));
+
+        var saved = log.Compose(new AppDescription("test", "test"));
+        saved.Should().Contain("ExceptionType=HttpRequestException CauseType=IOException");
+        saved.Should().NotContain(name).And.NotContain(message);
+    }
+
+    [Fact]
+    public async Task A_size_refusal_without_a_problem_document_explains_the_failed_upload()
+    {
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/threads/{threadId}/files", HttpStatusCode.RequestEntityTooLarge);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Attach(() => MainPane, new SamplePickedFile("screen.png", "one", sizeKnown: false));
+
+        await Until(() => Status(MainPane).Should().Equal("Larger than this server takes."));
+        MainPane.Composer.CanSend.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task An_upload_that_fails_with_no_reason_from_the_server_says_so_and_holds_the_message()
     {
         AttachmentsAllowed();

@@ -32,5 +32,8 @@ public static class FileRefusals
     /// </summary>
     public const string PrivateConversation = "private_conversation";
 
+    /// <summary>The server could not write to its file store.</summary>
+    public const string StorageUnavailable = "storage_unavailable";
+
     #endregion
 }

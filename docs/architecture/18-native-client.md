@@ -112,8 +112,12 @@ so each shows the same controls.
   and `TalkBack`. Each step reports one line, and the last line says whether all of them passed.
 - **The harness.** `tests/Drover.Native.UITests` runs the real server in process on a loopback HTTPS port, with a
   certificate made for the run, a scripted model, and PostgreSQL from `DROVER_TEST_POSTGRES` or a container. It
-  makes an account and one bot through the API, starts the app with the server's address, the account, and the
-  certificate's SHA-256 hash, and exits with 0 only when the app reports that every check passed. The app trusts
+  waits until `/health/ready` answers over the same HTTPS connection the app will use (a bounded wait that fails with
+  the end of the server log), makes an account and one bot through the API, starts the app with the server's
+  address, the account, and the certificate's SHA-256 hash, and exits with 0 only when the app reports that every
+  check passed. The app's connect step gives the server 30 s and tries a refused connection again after 0.5, 1 and 2
+  s, logging each attempt; a server that never answers still fails with the screen's own problem text, and a failed
+  iOS run prints the app's log. A step waits up to 60 s for its screen and returns as soon as it is there, because a hosted runner shared with the simulator has taken 17 s to sign in. The app trusts
   that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
   port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
   through the device log under the tag `DroverUiCheck`.
@@ -135,6 +139,70 @@ dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFramework
 adb install -r <folder>/*-Signed.apk
 dotnet run --project tests/Drover.Native.UITests -- android
 ```
+
+## Android proof
+
+Two things keep the Android basics from breaking again without anyone seeing it. Neither is added to the Android
+preview build or to the checks every pull request runs.
+
+**Fast tests, in the normal test jobs.** They need no device and take seconds.
+
+- `tests/Drover.Server.Tests/AndroidPickedFileUploadTests.cs` sends a picture the way the app sends one picked on
+  Android: the picker reports no size, the stream has no length and cannot seek, the app measures it by buffering
+  (`UploadFileWithUnverifiedSize`) and sends it with the antiforgery token, to the real upload route. It reads the
+  picture back from the server and compares its hash, and it covers a small file, a file at the limit, a file past
+  the limit (the server answers 413 with a sentence that names the limit, which is what the app turns into its words),
+  no token, and a cancelled upload. These guard the path that works today. They do not cover a server that cannot
+  write its file store or the words the chip shows; those belong to the #799 fix, which carries its own failing-before
+  tests.
+- The sandbox pointer has its own server test, `SandboxPointerDragApiTests`, which lives with the pointer input
+  route (#797, in the pull request that stacks on it) and needs that route to pass. It sends a drag to the real route as the app does (a press, moves, a release, and the whole drag as one
+  request) to a sandbox provider that records the commands it ran. `tests/Shared/PointerEvents.cs` reads those commands
+  as a pointer's events, so a test asserts a down, one or more moves and an up, with no button left held. The emulator
+  proof below uses the same reader.
+
+**A manual proof on an emulator.** The workflow `.github/workflows/android-proof.yml` runs only when someone starts it
+(Actions, "Android proof", "Run workflow"): never on a push, a pull request or a tag. It runs on a GitHub-hosted
+runner. It proves the branch or tag it is started on and takes no input: choose it under "Use workflow from", or run
+`gh workflow run android-proof.yml --ref <branch>`. The branch must contain the workflow and the harness. GitHub's
+documentation says a manual workflow is listed and dispatched from the default branch (`main`). Tried for this
+workflow, the dispatch was accepted from a branch while the file was on no default branch: it works once GitHub
+knows the workflow, which it learns from a run of its file (here, runs made from the branch that added it with a
+temporary push trigger). A workflow GitHub has not run yet is not expected to be found (not tried), and the Actions tab lists it only from
+`main`. So the dependable start for a new proof workflow is its file on `main`, for example a small stub there that
+takes a `ref` input and runs the proof for it. Each of the pull requests that fix the
+upload or the touch drag links the run that proves it; without that run the fix is not called fixed. The drag
+step needs the pointer input route (#797) and the touch model on the picture (#798) in the build, so on a base that
+has neither it is expected to fail while the other three pass.
+
+The run builds the app made for the screen checks (the preview app refuses a test server's certificate, as it must),
+starts an emulator (`system-images;android-35;default;x86_64`) and waits for `sys.boot_completed`, starts the real
+server of the screen checks in the harness with a sandbox provider that records its input, waits for
+`/health/ready`, and runs `dotnet run --project tests/Drover.Native.UITests -- android-proof <folder>`. Every wait has
+a bound and says what it saw when the bound passes. Four things print one `PROOF PASS` or `PROOF FAIL` line each:
+
+1. **Chat.** The app sends a message and the bot's reply arrives.
+2. **Upload.** The app presses attach. The harness chooses `drover-proof.png` in the system's file picker, so the
+   file comes through the same path as a person's screenshot. The app waits for its chip to say it is uploaded, sends
+   it, and sees it in the conversation. The harness then reads the stored file from the server and compares its hash
+   with the file it sent.
+3. **Sandbox screen.** The app opens the bot's sandbox screen and waits for its view-only mode line. The sandbox must
+   have been asked for its picture.
+4. **Touch drag.** The app turns on "Send desktop input". The harness finds the picture in the device's accessibility
+   tree and runs `adb shell input draganddrop` over it (a hold, then moves, then a lift: real touch events). The
+   recording sandbox must have been told a button down, one or more moves and a button up, with nothing left held.
+
+The artifact `android-proof` holds `proof-summary.md` (the four lines), `harness-and-server.log` (the harness and the
+test server), `app-report.txt` (the app's own steps), `logcat-tail.txt`, `final-screen.png`, `the-last-screen.xml`
+(what the harness last read from the device), `proof.mp4` (a recording of the run), `drover-proof.png` (the file it
+sent) and `emulator.log`.
+
+To add a step, add the app's part to the proof steps in `ScreenChecks` (`tests/Drover.Native.UITests/App/`), named
+`proof <number> <what>`, add the harness's part to `AndroidProof` (what only the device or the server can say), and give
+every control the step uses an automation id. The fast tests and the proof are written to fail on a build that has the
+bug, so a step is added only with a test that failed before its fix.
+
+The emulator is never started on the Mac mini or by hand on a developer machine: the proof is a run of this workflow.
 
 ## Tokens
 
@@ -580,6 +648,17 @@ client's `BotSandbox.razor.cs` and `SandboxScreen.razor.cs` with the same calls,
 - **What the web client's script did** is now `ScreenGesture` (pinch, drag, and what counts as a tap; framework
   free and tested), pointer and key handlers in `SandboxPicture`, the window's `VisibilityChanged`, and the
   platform's `InputPane` for the on-screen keyboard.
+- **The touch model in control** is `ScreenGesture` too (issue 798), started with `inControl: true` and the time of
+  each event, so it reads no clock. A tap is a click and a long press (`LongPressTime`, 600 ms, still) a right
+  click, both when the finger lifts. A move past `TapSlop` (10 px) drags with the left button: `Press` where the
+  finger went down, `Drag` for each new place, `Release` where it last was. On an enlarged picture a quick move pans
+  the view, and a move after `HoldTime` (300 ms) drags. Two fingers moving together turn the wheel, one step for
+  each `ScrollStep` (24 px), up and down only as the sandbox scrolls; two fingers whose spread changes by
+  `PinchShare` (12 percent) pinch the view. A second finger during a drag releases the button and ends the gesture.
+  A cancelled finger releases a held button; `Release()` does the same when the focus or control goes. What the
+  sandbox is sent is handed over by `TakeInput()` as `ScreenTouch` values at places on the frame. Watching, it does
+  what it always did. `ScreenGestureTests` holds every transition. The picture uses it in the second layer of issue
+  798, with the pointer kinds of issue 797.
 - **The keyboard.** While the person drives the screen the picture is one tab stop: the arrow keys move the pointer
   (with Shift, far), Enter or Space clicks there. Enlarged and only looked at, it is a tab stop whose arrow keys
   move the view. Tab and Shift+Tab are never taken, so the focus enters and leaves the picture as it does a button.

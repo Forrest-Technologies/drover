@@ -27,6 +27,7 @@ public enum FileRefusal
     SpaceFull,
     UploadExpired,
     PrivateConversation,
+    StorageUnavailable,
 }
 
 /// <summary>A file chosen for a message that has not been sent yet.</summary>
@@ -137,6 +138,7 @@ public static class FileWords
 
     public static string Refused(FileRefusal refusal, string botName) => refusal switch
     {
+        FileRefusal.StorageUnavailable => "The server could not store this file. Contact the server administrator.",
         FileRefusal.TooLarge => "Larger than this server takes.",
         FileRefusal.TooMany => "More files than one message may carry.",
         FileRefusal.ModelCannotReadImages => $"{botName}'s model cannot read pictures.",
@@ -152,6 +154,7 @@ public static class FileWords
     /// </summary>
     public static FileRefusal RefusalFrom(string? code) => code switch
     {
+        FileRefusals.StorageUnavailable => FileRefusal.StorageUnavailable,
         FileRefusals.TooLarge => FileRefusal.TooLarge,
         FileRefusals.TooMany => FileRefusal.TooMany,
         FileRefusals.SpaceFull => FileRefusal.SpaceFull,

@@ -123,13 +123,18 @@ internal sealed class IosApp(string path, string device) : IAppUnderCheck
         if (outcome is null)
         {
             logger.LogError("The iOS app did not report a result within {Minutes} minutes", patience.TotalMinutes);
+            outcome = "ui-check result: failed";
+        }
+
+        // The app's own log says why a check failed, such as a refused connection or a timeout. Without it a failure
+        // like "Could not reach Drover" cannot be told from a server that was not ready.
+        if (outcome != "ui-check result: passed")
+        {
             var recent = await SimctlLogs();
             if (!string.IsNullOrWhiteSpace(recent))
             {
                 logger.LogError("Recent iOS simulator logs for Drover.Native:{NewLine}{Logs}", Environment.NewLine, recent);
             }
-
-            outcome = "ui-check result: failed";
         }
 
         return
