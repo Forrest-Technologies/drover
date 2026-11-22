@@ -22,6 +22,10 @@ from color import luminance, ratio  # noqa: E402,F401
 from themes import ROOT, load, modes  # noqa: E402
 
 BLOCKS = json.loads((pathlib.Path(__file__).parent / "blocks.json").read_text())
+
+# A theme with no row of its own yet, such as a draft, draws with today's block and weight-only highlighting.
+PLAIN = {"surface": "bg-2", "line": 1, "padding": 3, "machineSize": 13, "outputLines": 12, "wrap": False,
+         "highlighting": "weight"}
 TARGET = ROOT / "docs/design/themes/blocks-sheet.html"
 FONTS = ROOT / "src/Drover.Native/Assets/Fonts"
 SPACE = [4, 8, 12, 16, 24, 32, 48]
@@ -52,7 +56,7 @@ def distance(first, second):
 
 def tones(theme, mode):
     colors = theme[mode]["color"]
-    block = BLOCKS[theme["id"]]
+    block = BLOCKS.get(theme["id"], PLAIN)
     quiet = block.get(mode, {})
     return {
         "keyword": (colors["text"], "heading"),
@@ -104,9 +108,22 @@ def log(theme, mode):
         f'<span style="color:{colors["text"]}">{html.escape(words)}</span>' for time, token, level, words in rows)
 
 
+def table(theme, mode):
+    colors = theme[mode]["color"]
+    label = theme["type"]["weights"]["label"]
+    rows = [("Sample bot", "Runs", "Failed"), ("Marshal", "128", "2"), ("Scout", "41", "0")]
+    cells = []
+    for index, row in enumerate(rows):
+        style = f'font-weight:{label};border-bottom:1px solid {colors["line"]}' if index == 0 else ""
+        cells.append("".join(
+            f'<span style="color:{colors["text"]};{style};text-align:{"left" if column == 0 else "right"}">'
+            f'{html.escape(value)}</span>' for column, value in enumerate(row)))
+    return f'<span class="table">{"".join(cells)}</span>'
+
+
 def block(theme, mode, label, body):
     colors = theme[mode]["color"]
-    settings = BLOCKS[theme["id"]]
+    settings = BLOCKS.get(theme["id"], PLAIN)
     pad = round(SPACE[settings["padding"] - 1] * theme["density"]["spacing"])
     radius = theme["shape"]["radius"]["card"] if theme["shape"]["corners"] != "faceted" else 10
     wrap = "pre-wrap" if settings["wrap"] else "pre"
@@ -120,20 +137,21 @@ def block(theme, mode, label, body):
 
 def panel(theme, mode):
     colors = theme[mode]["color"]
-    settings = BLOCKS[theme["id"]]
+    settings = BLOCKS.get(theme["id"], PLAIN)
     words = (f'{settings["highlighting"]} highlighting, {settings["surface"]}, {settings["machineSize"]} px, '
              f'{settings["outputLines"]} lines in a card')
     return (
         f'<div class="panel" style="background:{colors["bg-0"]};color:{colors["text"]}">'
         f'<h3>{html.escape(theme["name"])}, {mode} <small style="color:{colors["text-3"]}">{words}</small></h3>'
         f'{block(theme, mode, "JSON", code(theme, mode))}{block(theme, mode, "bash", shell(theme, mode))}'
-        f'{block(theme, mode, "Diff", diff(theme, mode))}{block(theme, mode, "Log", log(theme, mode))}</div>')
+        f'{block(theme, mode, "Diff", diff(theme, mode))}{block(theme, mode, "Table, 2 rows", table(theme, mode))}'
+        f'{block(theme, mode, "Log", log(theme, mode))}</div>')
 
 
-def check():
+def check(folder=None):
     failures = []
-    for theme in load():
-        settings = BLOCKS[theme["id"]]
+    for theme in load(folder):
+        settings = BLOCKS.get(theme["id"], PLAIN)
         for mode in modes(theme):
             colors = theme[mode]["color"]
             if settings["highlighting"] != "quiet":
@@ -158,7 +176,10 @@ def check():
 def main():
     options = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     options.add_argument("--out", default=str(TARGET))
-    target = pathlib.Path(options.parse_args().out).resolve()
+    options.add_argument("--folder", help="draw the theme files of this folder, such as drafts for approval")
+    arguments = options.parse_args()
+    target = pathlib.Path(arguments.out).resolve()
+    folder = pathlib.Path(arguments.folder).resolve() if arguments.folder else None
     fonts = os.path.relpath(FONTS, target.parent)
     style = (
         f'@font-face{{font-family:"JetBrains Mono";src:url("{fonts}/JetBrainsMono-Regular.ttf");font-weight:400}}'
@@ -166,14 +187,15 @@ def main():
         f'@font-face{{font-family:"Inter";src:url("{fonts}/Inter-Regular.ttf");font-weight:400}}'
         "body{margin:0;background:#000;font:13px Inter,sans-serif}.grid{display:flex;flex-direction:column;gap:8px;padding:8px}.theme{display:flex;gap:8px}"
         ".panel{width:560px;box-sizing:border-box;padding:12px;display:flex;flex-direction:column;gap:8px}.panel h3{margin:0;font-size:14px}"
+        ".table{display:grid;grid-template-columns:repeat(3,max-content);column-gap:24px;white-space:normal}"
         ".bar{display:flex;justify-content:space-between;font-size:12px}pre{margin:0;font-family:'JetBrains Mono',monospace;line-height:1.5}"
     )
-    panels = "".join(f'<div class="theme">{"".join(panel(theme, mode) for mode in modes(theme))}</div>' for theme in load())
+    panels = "".join(f'<div class="theme">{"".join(panel(theme, mode) for mode in modes(theme))}</div>' for theme in load(folder))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blocks group: samples</title><style>{style}</style>'
         f'</head><body><div class="grid">{panels}</div></body></html>')
-    failures = check()
+    failures = check(folder)
     print(f"wrote {target}; {len(failures)} tones fall short")
     return 1 if failures else 0
 

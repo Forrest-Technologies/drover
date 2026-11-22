@@ -15,8 +15,9 @@ HEADS = [f"head-{step}" for step in range(12)]
 VISORS = ["visor", "visor-lit", "visor-failed"]
 
 
-def load():
-    found = {path.stem: json.loads(path.read_text()) for path in FOLDER.glob("*.json")}
+def load(folder=None):
+    """The theme files of the app, or of another folder, such as drafts waiting for approval."""
+    found = {path.stem: json.loads(path.read_text()) for path in (folder or FOLDER).glob("*.json")}
     return [found[name] for name in ORDER if name in found] + [found[name] for name in sorted(found) if name not in ORDER]
 
 

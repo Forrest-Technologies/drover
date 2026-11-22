@@ -1,0 +1,183 @@
+{
+  "format": 1,
+  "id": "slate",
+  "name": "Slate",
+  "intent": "Cool gray and plain lines, a restrained look for work you share with others.",
+  "group": "professional",
+  "firstMode": "light",
+  "suits": [],
+  "type": {
+    "interface": "inter",
+    "machine": "jetbrains-mono",
+    "reading": null,
+    "headings": "interface",
+    "machineNumerals": false,
+    "scale": [12, 13, 14, 16, 20, 28],
+    "weights": {
+      "body": 400,
+      "label": 500,
+      "heading": 600
+    },
+    "leading": {
+      "text": 1.5,
+      "heading": 1.25
+    },
+    "tracking": 0.01,
+    "headingTracking": 0,
+    "measure": 65
+  },
+  "density": {
+    "spacing": 1.0,
+    "control": {
+      "pointer": 32,
+      "touch": 44
+    },
+    "row": {
+      "pointer": 40,
+      "touch": 48
+    },
+    "composerLines": 8
+  },
+  "shape": {
+    "corners": "square",
+    "cut": {
+      "control": 0,
+      "frame": 0
+    },
+    "registration": false,
+    "radius": {
+      "control": 4,
+      "card": 4,
+      "sheet": 8
+    },
+    "line": 1,
+    "iconStroke": 1.75
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "none",
+      "strength": 0,
+      "step": 16
+    }
+  },
+  "motion": {
+    "scale": 0.9,
+    "bloom": 0,
+    "breath": 2340,
+    "travel": 1170,
+    "live": "loop",
+    "travelLine": 2
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.52,
+      "chroma": 0.055
+    },
+    "facet": 0.04,
+    "line": 2.5,
+    "visor": "outlined"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.74,
+      "chroma": 0.075
+    },
+    "color": {
+      "bg-0": "#0F1113",
+      "bg-1": "#15171A",
+      "bg-2": "#1D2022",
+      "bg-3": "#25282B",
+      "line": "#37393C",
+      "text": "#E9EBED",
+      "text-2": "#BBBEC1",
+      "text-3": "#8E9194",
+      "ember": "#CE995D",
+      "ion": "#6FAFC8",
+      "violet": "#A699DE",
+      "ok": "#75B683",
+      "warn": "#BBA357",
+      "danger": "#E6867B",
+      "on-accent": "#0F1113",
+      "hue-0": "#D397A9",
+      "hue-1": "#D6998F",
+      "hue-2": "#CEA07B",
+      "hue-3": "#BDA973",
+      "hue-4": "#A4B27C",
+      "hue-5": "#89B992",
+      "hue-6": "#74BBAC",
+      "hue-7": "#6FB8C5",
+      "hue-8": "#7FB2D6",
+      "hue-9": "#98A9DB",
+      "hue-10": "#B2A1D4",
+      "hue-11": "#C69AC2",
+      "head-0": "#845C68",
+      "head-1": "#865D56",
+      "head-2": "#816249",
+      "head-3": "#756844",
+      "head-4": "#656E4A",
+      "head-5": "#527258",
+      "head-6": "#43746A",
+      "head-7": "#40727A",
+      "head-8": "#4B6D86",
+      "head-9": "#5C6889",
+      "head-10": "#6E6284",
+      "head-11": "#7B5E78",
+      "on-head": "#F5F6F7",
+      "visor": "#0E1012",
+      "visor-lit": "#A7DAEF",
+      "visor-failed": "#F2C2BC"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.52,
+      "chroma": 0.08
+    },
+    "color": {
+      "bg-0": "#EEF3F9",
+      "bg-1": "#F6FCFF",
+      "bg-2": "#E5EAF0",
+      "bg-3": "#DBE0E6",
+      "line": "#CDD2D8",
+      "text": "#16191B",
+      "text-2": "#44484D",
+      "text-3": "#5E6267",
+      "ember": "#885716",
+      "ion": "#286980",
+      "violet": "#655897",
+      "ok": "#2E6E3F",
+      "warn": "#765F04",
+      "danger": "#9F463F",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#8A5163",
+      "hue-1": "#8D5249",
+      "hue-2": "#855831",
+      "hue-3": "#736026",
+      "hue-4": "#5B6730",
+      "hue-5": "#3B6C46",
+      "hue-6": "#176C5F",
+      "hue-7": "#0F6B78",
+      "hue-8": "#316689",
+      "hue-9": "#505F90",
+      "hue-10": "#6A588A",
+      "hue-11": "#7F537A",
+      "head-0": "#845C68",
+      "head-1": "#865D56",
+      "head-2": "#816249",
+      "head-3": "#756844",
+      "head-4": "#656E4A",
+      "head-5": "#527258",
+      "head-6": "#43746A",
+      "head-7": "#40727A",
+      "head-8": "#4B6D86",
+      "head-9": "#5C6889",
+      "head-10": "#6E6284",
+      "head-11": "#7B5E78",
+      "on-head": "#F5F6F7",
+      "visor": "#0E1012",
+      "visor-lit": "#A7DAEF",
+      "visor-failed": "#F2C2BC"
+    }
+  }
+}

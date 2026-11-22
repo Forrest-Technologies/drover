@@ -1,0 +1,183 @@
+{
+  "format": 1,
+  "id": "linen",
+  "name": "Linen",
+  "intent": "Warm off-white and soft grays, a quiet look for long working days.",
+  "group": "professional",
+  "firstMode": "light",
+  "suits": [],
+  "type": {
+    "interface": "inter",
+    "machine": "jetbrains-mono",
+    "reading": null,
+    "headings": "interface",
+    "machineNumerals": false,
+    "scale": [12, 13, 15, 17, 21, 28],
+    "weights": {
+      "body": 400,
+      "label": 500,
+      "heading": 600
+    },
+    "leading": {
+      "text": 1.5,
+      "heading": 1.25
+    },
+    "tracking": 0.01,
+    "headingTracking": 0,
+    "measure": 68
+  },
+  "density": {
+    "spacing": 1.05,
+    "control": {
+      "pointer": 32,
+      "touch": 44
+    },
+    "row": {
+      "pointer": 40,
+      "touch": 48
+    },
+    "composerLines": 8
+  },
+  "shape": {
+    "corners": "square",
+    "cut": {
+      "control": 0,
+      "frame": 0
+    },
+    "registration": false,
+    "radius": {
+      "control": 4,
+      "card": 4,
+      "sheet": 8
+    },
+    "line": 1,
+    "iconStroke": 1.75
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "none",
+      "strength": 0,
+      "step": 16
+    }
+  },
+  "motion": {
+    "scale": 1.0,
+    "bloom": 0,
+    "breath": 2600,
+    "travel": 1300,
+    "live": "loop",
+    "travelLine": 2
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.52,
+      "chroma": 0.055
+    },
+    "facet": 0.04,
+    "line": 2.5,
+    "visor": "outlined"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.74,
+      "chroma": 0.075
+    },
+    "color": {
+      "bg-0": "#13100C",
+      "bg-1": "#1A1713",
+      "bg-2": "#221F1B",
+      "bg-3": "#2B2723",
+      "line": "#3C3834",
+      "text": "#EDEBE7",
+      "text-2": "#C2BDB8",
+      "text-3": "#94908B",
+      "ember": "#D29661",
+      "ion": "#6EB1BD",
+      "violet": "#A89AD7",
+      "ok": "#75B683",
+      "warn": "#BBA357",
+      "danger": "#E6867B",
+      "on-accent": "#13100C",
+      "hue-0": "#D397A9",
+      "hue-1": "#D6998F",
+      "hue-2": "#CEA07B",
+      "hue-3": "#BDA973",
+      "hue-4": "#A4B27C",
+      "hue-5": "#89B992",
+      "hue-6": "#74BBAC",
+      "hue-7": "#6FB8C5",
+      "hue-8": "#7FB2D6",
+      "hue-9": "#98A9DB",
+      "hue-10": "#B2A1D4",
+      "hue-11": "#C69AC2",
+      "head-0": "#845C68",
+      "head-1": "#865D56",
+      "head-2": "#816249",
+      "head-3": "#756844",
+      "head-4": "#656E4A",
+      "head-5": "#527258",
+      "head-6": "#43746A",
+      "head-7": "#40727A",
+      "head-8": "#4B6D86",
+      "head-9": "#5C6889",
+      "head-10": "#6E6284",
+      "head-11": "#7B5E78",
+      "on-head": "#F5F6F7",
+      "visor": "#0E1012",
+      "visor-lit": "#A3DCE7",
+      "visor-failed": "#F2C2BC"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.52,
+      "chroma": 0.08
+    },
+    "color": {
+      "bg-0": "#F8F1E9",
+      "bg-1": "#FFFAF2",
+      "bg-2": "#EFE8E0",
+      "bg-3": "#E5DFD6",
+      "line": "#D7D1C8",
+      "text": "#1A1814",
+      "text-2": "#4C4740",
+      "text-3": "#66615A",
+      "ember": "#8B551C",
+      "ion": "#266B76",
+      "violet": "#675891",
+      "ok": "#2E6E3F",
+      "warn": "#765F04",
+      "danger": "#9F463F",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#8A5163",
+      "hue-1": "#8D5249",
+      "hue-2": "#855831",
+      "hue-3": "#736026",
+      "hue-4": "#5B6730",
+      "hue-5": "#3B6C46",
+      "hue-6": "#196E61",
+      "hue-7": "#126C79",
+      "hue-8": "#316689",
+      "hue-9": "#505F90",
+      "hue-10": "#6A588A",
+      "hue-11": "#7F537A",
+      "head-0": "#845C68",
+      "head-1": "#865D56",
+      "head-2": "#816249",
+      "head-3": "#756844",
+      "head-4": "#656E4A",
+      "head-5": "#527258",
+      "head-6": "#43746A",
+      "head-7": "#40727A",
+      "head-8": "#4B6D86",
+      "head-9": "#5C6889",
+      "head-10": "#6E6284",
+      "head-11": "#7B5E78",
+      "on-head": "#F5F6F7",
+      "visor": "#0E1012",
+      "visor-lit": "#A3DCE7",
+      "visor-failed": "#F2C2BC"
+    }
+  }
+}

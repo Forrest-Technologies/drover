@@ -264,7 +264,7 @@ code{font-family:var(--dv-font-mono);font-size:var(--dv-size-1);color:var(--dv-t
 """
 
 
-def page(fonts, target):
+def page(fonts, target, folder=None):
     bundled = os.path.relpath(FONTS, target.parent)
     faces = [f'@font-face{{font-family:"{family}";src:url("{bundled}/{file}");font-weight:{weight}}}'
              for family, files in FACES.items() for file, weight in files]
@@ -279,7 +279,7 @@ def page(fonts, target):
         'All names, messages and commands here are samples. This page is a drawing for approval, not the app; the '
         'app draws the same pieces natively once issue 422 applies the files. Live states are shown as one still frame.</p></div>',
     ]
-    for theme in load():
+    for theme in load(folder):
         parts.append(f'<div class="theme"><h1>{html.escape(theme["name"])}<span class="sample-label">Sample</span></h1>'
                      f'<p>{html.escape(theme["intent"])}</p>')
         for mode in modes(theme):
@@ -295,10 +295,12 @@ def main():
     options = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     options.add_argument("--fonts", help="a folder with faces that are not bundled yet")
     options.add_argument("--out", default=str(TARGET))
+    options.add_argument("--folder", help="draw the theme files of this folder, such as drafts for approval")
     arguments = options.parse_args()
     target = pathlib.Path(arguments.out)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(page(arguments.fonts, target.resolve()))
+    folder = pathlib.Path(arguments.folder).resolve() if arguments.folder else None
+    target.write_text(page(arguments.fonts, target.resolve(), folder))
     print(f"wrote {target}")
 
 
