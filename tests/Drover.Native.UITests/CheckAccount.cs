@@ -84,39 +84,6 @@ internal sealed class CheckAccount
         return account;
     }
 
-    /// <summary>Waits until the server says it is ready, within a bound, and says what it last saw if not.</summary>
-    public static async Task WaitUntilReady(CheckServer server, X509Certificate2 certificate, ILogger logger)
-    {
-        using var http = Connect(server.Origin, certificate, new CookieContainer());
-        var watch = Stopwatch.StartNew();
-        Exception? failure = null;
-        var last = "no answer";
-
-        while (watch.Elapsed < TimeSpan.FromSeconds(60))
-        {
-            try
-            {
-                using var response = await http.GetAsync("/health/ready");
-                last = $"HTTP {(int)response.StatusCode}";
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return;
-                }
-            }
-            catch (HttpRequestException refused)
-            {
-                failure = refused;
-                last = refused.GetType().Name;
-                logger.LogDebug(refused, "The test server did not answer yet");
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-        }
-
-        throw new InvalidOperationException($"The test server was not ready after 60 seconds: {last}.", failure);
-    }
-
     /// <summary>The bytes the server stored for the bot's file of this name, or null when it holds none.</summary>
     public async Task<byte[]?> StoredFile(string name)
     {
