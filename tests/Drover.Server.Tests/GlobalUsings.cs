@@ -30,6 +30,7 @@ global using Drover.Adapters.SearXng;
 global using Drover.Client;
 global using Drover.Client.Runs;
 global using Drover.Client.Streaming;
+global using Drover.Contracts.Appearance;
 global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;

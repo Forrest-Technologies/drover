@@ -252,6 +252,34 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Domain.Appearance.UserAppearance", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("ThemeId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("theme_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_user_appearance");
+
+                    b.ToTable("user_appearance", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Domain.Audit.AuditLogEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1183,13 +1211,13 @@ namespace Drover.Data.Migrations
 
                             t.HasCheckConstraint("ck_allow_all_windows_ended_reason", "ended_reason IN ('expired', 'work_done', 'asked_again', 'bot_paused', 'bot_removed', 'member_left')");
 
-                            t.HasCheckConstraint("ck_allow_all_windows_kind", "kind IN ('minutes_30', 'hour_1', 'until_done', 'until_off')");
-
                             t.HasCheckConstraint("ck_allow_all_windows_ends_at", "(kind IN ('minutes_30', 'hour_1')) = (ends_at IS NOT NULL)");
 
-                            t.HasCheckConstraint("ck_allow_all_windows_started_from", "started_from IN ('bot', 'approval')");
+                            t.HasCheckConstraint("ck_allow_all_windows_kind", "kind IN ('minutes_30', 'hour_1', 'until_done', 'until_off')");
 
                             t.HasCheckConstraint("ck_allow_all_windows_source", "(started_from = 'approval') = (tool_call_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_started_from", "started_from IN ('bot', 'approval')");
                         });
                 });
 
@@ -2838,6 +2866,16 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Appearance.UserAppearance", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithOne()
+                        .HasForeignKey("Drover.Domain.Appearance.UserAppearance", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_appearance_users_user_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Bots.Bot", b =>
