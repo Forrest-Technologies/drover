@@ -140,6 +140,8 @@ A look that needs to break one is not a theme. It is a change to `DESIGN.md` wit
 
 ### The first batch
 
+All seven are in the `expressive` group. The `professional` group is defined in the format and holds no theme yet.
+
 | Theme | Intent | What makes it different |
 | --- | --- | --- |
 | Night Yard | A dark, calm workspace where the bots are the lit things | Today's look: Inter at 14, faceted cuts 6 and 10, two surface levels, dot yard, bloom 8, standard motion |
@@ -181,6 +183,7 @@ A theme is one JSON file, `src/Drover.Presentation/Theme/Themes/{id}.json`. The 
 | `id` | string | Lowercase words joined by `-`, the file's name without `.json` |
 | `name` | string | 1 to 40 characters, plain text, sentence case words; names the look, never a product |
 | `intent` | string | One sentence, plain text, at most 120 characters; shown under the name where a theme is chosen |
+| `group` | `expressive` or `professional` | Where the Appearance page lists the theme ([issue 424](https://github.com/Forrest-Technologies/drover/issues/424)). `expressive`: a look with a character of its own. `professional`: a restrained look for work settings. Grouping only; it changes no token and no bound |
 | `firstMode` | `dark` or `light` | The mode the theme is shown in first where a person has not chosen one |
 | `suits` | list of names | Zero or more of `large-text`, `reduced-motion`: device requests the theme is suggested for |
 | `type.interface` | face id | The interface face |

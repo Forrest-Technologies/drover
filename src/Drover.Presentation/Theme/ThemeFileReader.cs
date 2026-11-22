@@ -75,7 +75,7 @@ public static partial class ThemeFileReader
             var top = Keys(
                 root,
                 "the file",
-                "format", "id", "name", "intent", "firstMode", "suits", "type", "density", "shape", "surfaces",
+                "format", "id", "name", "intent", "group", "firstMode", "suits", "type", "density", "shape", "surfaces",
                 "motion", "characters", "dark", "light");
             if (top is null)
             {
@@ -91,6 +91,15 @@ public static partial class ThemeFileReader
 
             var name = Text(top, "name", "name", 1, 40);
             var intent = Text(top, "intent", "intent", 1, 120);
+            var group = Choice(
+                top,
+                "group",
+                "group",
+                new Dictionary<string, ThemeGroup>
+                {
+                    ["expressive"] = ThemeGroup.Expressive,
+                    ["professional"] = ThemeGroup.Professional,
+                });
             var firstMode = Choice(
                 top,
                 "firstMode",
@@ -112,6 +121,7 @@ public static partial class ThemeFileReader
                 id,
                 name,
                 intent,
+                group,
                 firstMode,
                 Suits(top),
                 ReadType(top),
