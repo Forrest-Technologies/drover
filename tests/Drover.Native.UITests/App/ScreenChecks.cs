@@ -48,6 +48,17 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             {
                 await Step("restore sign-in", RestoreSignIn);
             }
+            else if (settings.IsProof)
+            {
+                await Step("launch", Launch);
+                await Step("connect", Connect);
+                await Step("sign in", SignIn);
+                await Step("open a conversation", OpenConversation);
+                await Step("proof 1 chat: send a message and read the reply", SendMessage);
+                await Step("proof 2 upload: attach a picture and send it", AttachPicture);
+                await Step("proof 3 sandbox: open the screen and read its mode line", OpenSandboxScreen);
+                await Step("proof 4 drag: turn on control and wait for the touch drag", ReadyForDrag);
+            }
             else
             {
                 await Step("launch", Launch);
@@ -277,6 +288,67 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             Find("MessageList") is { } list && Words(list).Any(words => words.Contains(settings.Reply, StringComparison.Ordinal))
                 ? list
                 : null);
+    }
+
+    // The system's own file picker is another app: the harness chooses the picture there while this step waits, so
+    // the file reaches the conversation the way a person's attached screenshot does.
+    private async Task AttachPicture()
+    {
+        var name = settings.ProofPicture ?? throw new CheckFailedException("no picture was named for the proof");
+        await Type("ComposerField", "Here is the picture.");
+        await Press("ComposerAttach");
+        Report($"ui-check wait: choose {name} in the system picker");
+        var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
+
+        await Until($"{name} to be uploaded", () =>
+        {
+            var status = StatusBeside(root, name);
+
+            if (status is not null && (status.StartsWith("Not uploaded", StringComparison.Ordinal) || status.EndsWith('.')))
+            {
+                throw new CheckFailedException($"the attachment said \"{status}\"");
+            }
+
+            return status is { Length: > 0 } && !status.StartsWith("Uploading", StringComparison.Ordinal) ? root : null;
+        }, TimeSpan.FromSeconds(90));
+
+        await Press("ComposerSend");
+        await Until($"{name} in MessageList", () =>
+            Find("MessageList") is { } list && Words(list).Any(words => words.Contains(name, StringComparison.Ordinal)) ? list : null);
+    }
+
+    private async Task OpenSandboxScreen()
+    {
+        var bot = settings.ProofBot ?? throw new CheckFailedException("no bot was named for the proof");
+        ((App)Application.Current).Services.GetRequiredService<Navigator>().NavigateTo($"/bots/{bot}/sandbox");
+        await Shown("SandboxPicture", startPatience);
+        await Until("the view-only mode line", () =>
+            Words(window.Content ?? throw new CheckFailedException("the window has no content")).Any(words => words.Contains("View only.", StringComparison.Ordinal))
+                ? window.Content
+                : null);
+    }
+
+    private async Task ReadyForDrag()
+    {
+        if (await Shown("SandboxControl") is not Switch control)
+        {
+            throw new CheckFailedException("SandboxControl is not a switch");
+        }
+
+        control.Value = true;
+        await Until("the control mode line", () =>
+            Words(window.Content ?? throw new CheckFailedException("the window has no content")).Any(words => words.Contains("Clicks and keys go to the sandbox.", StringComparison.Ordinal))
+                ? window.Content
+                : null);
+        Report("ui-check wait: drag the sandbox picture");
+    }
+
+    // The words drawn after a file's name are the state of its chip: its size once it is up, or why it is not.
+    private static string? StatusBeside(DependencyObject root, string name)
+    {
+        var words = Words(root).ToList();
+        var at = words.FindIndex(word => string.Equals(word, name, StringComparison.Ordinal));
+        return at >= 0 && at + 1 < words.Count ? words[at + 1] : null;
     }
 
     private async Task Back()
