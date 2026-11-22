@@ -166,7 +166,15 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
         try
         {
-            var outcome = await Attempt(uri, downloadFilePath, created, cancellation);
+            // The transfer and everything after it run on the thread pool, never on the caller's thread. A response
+            // that is already buffered completes every await at once, so run inline the whole download, its
+            // completion, and the update library's signature check would happen inside the library's
+            // InitAndBeginDownload, before the caller's time limit starts, on whatever thread called it. ForceYielding
+            // matters as much as Task.Run: a transfer that finishes before this await is reached would otherwise
+            // continue inline on the caller.
+            var outcome = await Task.Run(
+                () => Attempt(uri, downloadFilePath, created, cancellation),
+                CancellationToken.None).ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
 
             // Only a file this download created is removed. Anything else at the name is left alone.
             ended = outcome.Error is null || !created.Value

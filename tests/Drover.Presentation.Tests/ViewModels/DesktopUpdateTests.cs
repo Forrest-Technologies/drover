@@ -7,6 +7,9 @@ public sealed class DesktopUpdateTests
 
     private static readonly ServiceProvider clients = new ServiceCollection().AddHttpClient().BuildServiceProvider();
 
+    /// <summary>The longest any test waits on a gate or a pending task before it fails as stuck.</summary>
+    private static readonly TimeSpan gateLimit = TimeSpan.FromSeconds(30);
+
     #endregion
 
     #region Public Methods
@@ -1238,7 +1241,7 @@ public sealed class DesktopUpdateTests
 
         // The gate holds the old attempt's teardown: it cannot see its cancellation or remove its file until opened.
         using var gate = new ManualResetEventSlim(false);
-        oldDownloader.DownloadProgressChanged += (_, _) => gate.Wait();
+        oldDownloader.DownloadProgressChanged += (_, _) => Hold(gate);
 
         try
         {
@@ -1269,7 +1272,7 @@ public sealed class DesktopUpdateTests
                 NullLogger.Instance);
 
             gate.Set();
-            await oldDownloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+            await Within(oldDownloader.Stopped, "the old download after its gate opened");
 
             Path.GetDirectoryName(nextPath).Should().NotBe(Path.GetDirectoryName(oldPath));
             (await File.ReadAllBytesAsync(nextPath, TestContext.Current.CancellationToken))
@@ -1411,7 +1414,7 @@ public sealed class DesktopUpdateTests
         // The gate holds teardown past the deadline. Once it opens, the file is made impossible to remove, so the late
         // outcome is a cleanup failure.
         using var gate = new ManualResetEventSlim(false);
-        downloader.DownloadProgressChanged += (_, _) => gate.Wait();
+        downloader.DownloadProgressChanged += (_, _) => Hold(gate);
         var blocked = BlockRemovalOnFirstProgress(updater);
 
         try
@@ -1441,7 +1444,7 @@ public sealed class DesktopUpdateTests
         finally
         {
             gate.Set();
-            await downloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+            await Within(downloader.Stopped, "the download after its gate opened");
             AllowRemoval(blocked.Path);
         }
     }
@@ -1472,7 +1475,7 @@ public sealed class DesktopUpdateTests
             probe.Feeds[0].SetResult("https://example.invalid/appcast.xml");
         }
 
-        await older;
+        await Within(older, "the older check");
 
         probe.Builds.Should().Be(0, "a superseded check never replaces the updater");
         probe.Sweeps.Should().Be(0, "a superseded check never clears old downloads");
@@ -1491,7 +1494,7 @@ public sealed class DesktopUpdateTests
         var changes = probe.Changes;
 
         probe.Feeds[0].SetResult("https://example.invalid/appcast.xml");
-        await older;
+        await Within(older, "the older check");
 
         probe.Builds.Should().Be(0);
         probe.Sweeps.Should().Be(0);
@@ -1759,7 +1762,7 @@ public sealed class DesktopUpdateTests
 
             // This handler is added before the library's own, so it runs first: the whole package is written, and the
             // library's signature verdict waits for the gate while the deadline passes.
-            downloader.DownloadFileCompleted += (_, _) => gate.Wait();
+            downloader.DownloadFileCompleted += (_, _) => Hold(gate);
 
             var download = () => UpdatePackageTrust.Download(
                 updater,
@@ -1776,7 +1779,7 @@ public sealed class DesktopUpdateTests
                 .Should().ContainSingle("the whole package is on disk while the verdict waits");
 
             gate.Set();
-            await downloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+            await Within(downloader.Stopped, "the download after its gate opened");
             await WaitUntil(() => !log.Entries.IsEmpty);
 
             corrupt.Should().Be(1, "the library rejected the package after the deadline");
@@ -1820,7 +1823,7 @@ public sealed class DesktopUpdateTests
         var settled = probe.State;
         var changes = probe.Changes;
         served.Gate.SetResult();
-        await older;
+        await Within(older, "the older check");
 
         probe.Flow.Available.Should().BeNull("a superseded check never publishes an offer");
         settings.Values.Should().NotContainKey(
@@ -1839,7 +1842,7 @@ public sealed class DesktopUpdateTests
         var changes = probe.Changes;
 
         probe.Feeds[0].SetResult("https://example.invalid/appcast.xml");
-        await older;
+        await Within(older, "the older check");
 
         // Even from a state in which a check could start, a disposed flow starts none.
         probe.State = probe.State with { Phase = DesktopUpdatePhase.Idle };
@@ -1870,7 +1873,7 @@ public sealed class DesktopUpdateTests
         probe.Flow.Dispose();
         var changes = probe.Changes;
         served.Gate.SetResult();
-        await older;
+        await Within(older, "the older check");
 
         probe.Flow.Available.Should().BeNull();
         probe.Flow.Updater.Should().BeNull("disposing releases the updater and builds no other");
@@ -1894,6 +1897,85 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
+    public async Task A_download_whose_own_callbacks_block_is_still_held_to_its_time_limit()
+    {
+        await using var served = await ServedPackage(
+            nameof(A_download_whose_own_callbacks_block_is_still_held_to_its_time_limit),
+            streamed: false);
+        using var updater = StableUpdater(served.Feed, served.PublicKey, served.Directory, served.Client);
+        var offered = await Offered(updater);
+        var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
+        using var gate = new ManualResetEventSlim(false);
+
+        // The download announces its start before its first await. Run on the caller's thread, this handler would
+        // block the caller itself, inside the update library, before any time limit had started, and the caller
+        // would only go on once the gate gave up. Thread ids are not compared: the pool reuses threads.
+        downloader.DownloadStarted += (_, _, _) => Hold(gate);
+
+        try
+        {
+            var clock = global::System.Diagnostics.Stopwatch.StartNew();
+            var download = () => UpdatePackageTrust.Download(
+                updater,
+                offered,
+                served.Directory,
+                TimeSpan.FromSeconds(1),
+                NullLogger.Instance,
+                TimeSpan.FromMilliseconds(200));
+
+            var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
+
+            clock.Elapsed.Should()
+                .BeLessThan(TimeSpan.FromSeconds(10), "the time limit holds while the download is stuck");
+            failure.InnerExceptions.Should().Contain(exception =>
+                exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
+            gate.IsSet.Should().BeFalse("the download was still stuck when its timeout was reported");
+        }
+        finally
+        {
+            gate.Set();
+            await Within(downloader.Stopped, "the stuck download after its gate opened");
+        }
+
+        // The timed-out attempt is removed once the download stops. The test's own clean-up of the folder runs only
+        // after that, so the two never delete the same tree at once.
+        await WaitUntil(() => !Directory.Exists(served.Directory)
+            || !Directory.EnumerateDirectories(served.Directory).Any());
+        Directory.EnumerateFileSystemEntries(served.Directory)
+            .Should().BeEmpty("a timed-out attempt is removed once its download stops");
+    }
+
+    [Fact]
+    public async Task A_download_that_ends_at_once_never_finishes_on_the_thread_that_started_it()
+    {
+        using var client = Client();
+        using var downloader = new BoundedPackageDownloader(client, 4096);
+        using var returned = new ManualResetEventSlim(false);
+        var path = Path.Combine(Path.GetTempPath(), $"drover-inline-{Guid.NewGuid():N}.bin");
+        var inline = 0;
+
+        // A download with no address ends at once. Its completion waits for the caller to say it has returned. Run on
+        // the caller's thread, the completion would block the caller and never see that signal.
+        downloader.DownloadFileCompleted += (_, _) =>
+        {
+            if (!returned.Wait(TimeSpan.FromSeconds(2)))
+            {
+                Interlocked.Increment(ref inline);
+            }
+        };
+
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            returned.Reset();
+            var running = downloader.DownloadFile(null, path);
+            returned.Set();
+            await Within(running, "a download with no address");
+        }
+
+        inline.Should().Be(0, "a download's completion never runs on the thread that started it");
+    }
+
+    [Fact]
     public async Task A_cancelled_download_stops_and_its_partial_file_is_removed()
     {
         await using var feed = await FeedHost.Open();
@@ -1912,7 +1994,7 @@ public sealed class DesktopUpdateTests
         downloader.IsDownloading.Should().BeTrue();
 
         downloader.CancelDownload();
-        await running;
+        await Within(running, "the cancelled download");
 
         completed.Should().NotBeNull();
         completed!.Cancelled.Should().BeTrue();
@@ -2126,6 +2208,34 @@ public sealed class DesktopUpdateTests
         }
 
         File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    /// <summary>
+    /// Blocks a download callback until the test opens <paramref name="gate"/>. A gate never opened fails the callback
+    /// after <see cref="gateLimit"/> with a clear message instead of holding the test run forever.
+    /// </summary>
+    private static void Hold(ManualResetEventSlim gate)
+    {
+        if (!gate.Wait(gateLimit))
+        {
+            throw new TimeoutException($"Test harness: a gate was not opened within {gateLimit}.");
+        }
+    }
+
+    /// <summary>
+    /// Awaits <paramref name="task"/>, failing the test with a clear message if it has not finished within
+    /// <see cref="gateLimit"/>, so a stuck test fails instead of hanging the run.
+    /// </summary>
+    private static async Task Within(Task task, string what)
+    {
+        try
+        {
+            await task.WaitAsync(gateLimit, TestContext.Current.CancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new Xunit.Sdk.XunitException($"Test harness: {what} did not finish within {gateLimit}.", exception);
+        }
     }
 
     private static bool IsRemovalFailure(Exception exception) =>

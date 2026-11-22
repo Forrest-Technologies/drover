@@ -35,7 +35,9 @@ checked. The signed feed and its detached signature are each read up to 1 MiB, a
 8 MiB. Each read must finish within 30 seconds. A declared length over the limit is refused before the body is read,
 and a body that runs past it is refused at that point.
 
-A package download stops at 512 MiB while it streams. A declared length over the limit is refused before the file is
+A package download runs on the thread pool, never on the thread that started it, so its time limit covers the
+whole transfer even when the response is already buffered and every read completes at once. A package download stops
+at 512 MiB while it streams. A declared length over the limit is refused before the file is
 created. A download that runs past the limit, fails, or is cancelled is stopped and its partial file removed before the
 update library checks its signature. A partial file that cannot be removed is reported together with the reason the
 download stopped. A download that runs past its time limit is cancelled, and the timeout is reported once the download
