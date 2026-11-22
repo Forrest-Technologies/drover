@@ -273,6 +273,73 @@ public sealed class ScreenGestureTests
         Sent().Should().BeEmpty("neither a click nor a right click");
     }
 
+    [Fact]
+    public void A_third_finger_during_a_scroll_turns_the_wheel_no_further_whatever_the_fingers_do_next()
+    {
+        Press(1, 150, 200);
+        gesture.Down(2, 250, 200, ScreenZoom.Fit, at: Ms(10));
+        MoveBoth((150, 200), (250, 200), (150, 150), (250, 150), Ms(20));
+        Sent();
+
+        gesture.Down(3, 200, 20, ScreenZoom.Fit, at: Ms(30));
+        gesture.Move(3, 200, 290, Width, Height, Ms(40)).Should().BeNull();
+        gesture.Move(1, 150, 40, Width, Height, Ms(50)).Should().BeNull();
+        gesture.Up(3, at: Ms(60));
+        gesture.Move(2, 250, 20, Width, Height, Ms(70)).Should().BeNull();
+        gesture.Up(1, at: Ms(80));
+        gesture.Up(2, at: Ms(90)).Should().Be(default(ScreenGestureEnd));
+
+        Sent().Should().BeEmpty("the jump of the place between the fingers is not a scroll");
+        gesture.IsScrolling.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_third_finger_landing_before_two_fingers_moved_sends_nothing_at_all()
+    {
+        Press(1, 150, 200);
+        gesture.Down(2, 250, 200, ScreenZoom.Fit, at: Ms(10));
+        gesture.Down(3, 200, 20, ScreenZoom.Fit, at: Ms(20));
+
+        MoveBoth((150, 200), (250, 200), (150, 60), (250, 60), Ms(30)).Should().BeTrue();
+        gesture.Up(3, at: Ms(40));
+        gesture.Up(2, at: Ms(50));
+        gesture.Up(1, at: Ms(900));
+
+        Sent().Should().BeEmpty("neither a scroll nor a click nor a right click");
+    }
+
+    [Fact]
+    public void A_third_finger_during_a_pinch_keeps_the_view_the_pinch_reached_and_moves_it_no_further()
+    {
+        Press(1, 150, 150);
+        gesture.Down(2, 250, 150, ScreenZoom.Fit, at: Ms(10));
+        var pinched = gesture.Move(2, 350, 150, Width, Height, Ms(40));
+
+        gesture.Down(3, 50, 50, ScreenZoom.Fit, at: Ms(50));
+        gesture.Move(3, 390, 290, Width, Height, Ms(60)).Should().BeNull();
+        gesture.Up(3, at: Ms(70));
+        gesture.Up(2, at: Ms(80));
+
+        gesture.Up(1, at: Ms(90)).Should().Be(new ScreenGestureEnd(false, pinched));
+        Sent().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_drag_ended_by_a_second_finger_is_released_once_however_many_fingers_follow()
+    {
+        Press(1, 100, 100);
+        gesture.Move(1, 160, 100, Width, Height, Ms(50));
+        gesture.Down(2, 300, 200, ScreenZoom.Fit, at: Ms(60));
+        gesture.Down(3, 200, 20, ScreenZoom.Fit, at: Ms(70));
+        gesture.Release();
+        gesture.Up(3, at: Ms(80));
+        gesture.Up(2, at: Ms(90));
+        gesture.Up(1, at: Ms(100));
+
+        Sent().Select(touch => touch.Kind).Should().Equal(
+            ScreenTouchKind.Press, ScreenTouchKind.Drag, ScreenTouchKind.Release);
+    }
+
     #endregion
 
     #region Watching

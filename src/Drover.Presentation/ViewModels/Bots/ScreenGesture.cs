@@ -245,6 +245,7 @@ public sealed class ScreenGesture
                 input.Add(new(kind, pressedAt.X, pressedAt.Y));
                 return default;
             case TouchPhase.Panning or TouchPhase.Pinching:
+            case TouchPhase.Spent when moved:
                 return new(false, view);
             default:
                 return default;
@@ -253,10 +254,11 @@ public sealed class ScreenGesture
 
     // A second finger turns a press into two fingers, and ends a drag: the button is released where the first finger
     // was, and nothing else happens until every finger is up, so the button is never held by a finger the person
-    // did not mean to drag with.
+    // did not mean to drag with. A third finger ends whatever two were doing: the place between the fingers jumps
+    // when it lands, and that jump must never turn the wheel or move the view.
     private void SecondFinger()
     {
-        if (EndDrag())
+        if (EndDrag() || pointers.Count > 2)
         {
             phase = TouchPhase.Spent;
         }
