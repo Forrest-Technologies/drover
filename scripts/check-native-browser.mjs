@@ -556,7 +556,8 @@ try {
                         exportControl.dispatchEvent('click'),
                     ]);
                     assert.equal(saved.suggestedFilename(), 'extension.json');
-                    const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
+                    const savedPath = await withDeadline(saved.path(), 10000, 'the extension.json download to complete');
+                    const file = JSON.parse(await fs.readFile(savedPath, 'utf8'));
                     assert.equal(file.version, 1);
                 }
                 if (name === 'projects' && width === 360) {
@@ -739,7 +740,12 @@ async function composerRingCheck(page) {
     const ringBetween = async (inField, onButton, elsewhere) => reader.evaluate(async ([one, two, three]) => {
         const load = async base64 => {
             const image = new Image();
-            await new Promise(resolve => { image.onload = resolve; image.src = `data:image/png;base64,${base64}`; });
+            await new Promise((resolve, reject) => {
+                const deadline = setTimeout(() => reject(new Error('A screenshot did not decode within 10 s.')), 10000);
+                image.onload = () => { clearTimeout(deadline); resolve(); };
+                image.onerror = () => { clearTimeout(deadline); reject(new Error('A screenshot could not be decoded.')); };
+                image.src = `data:image/png;base64,${base64}`;
+            });
             const canvas = document.getElementById('c');
             canvas.width = image.width;
             canvas.height = image.height;
@@ -1141,6 +1147,19 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
 
 function previewRequestCount(requestPath) {
     return previewApiRequests.filter(request => request.method === 'GET' && request.path === requestPath).length;
+}
+
+// Playwright waits that have no timeout of their own, such as a download's file, fail here instead of hanging the check.
+async function withDeadline(promise, milliseconds, what) {
+    let timer;
+    const late = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out after ${milliseconds} ms waiting for ${what}.`)), milliseconds);
+    });
+    try {
+        return await Promise.race([promise, late]);
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 // The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
