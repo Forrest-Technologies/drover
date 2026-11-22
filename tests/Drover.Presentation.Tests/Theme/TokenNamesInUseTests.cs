@@ -13,7 +13,11 @@ public sealed partial class TokenNamesInUseTests
     private static readonly XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
 
     // Written by ThemeTokens in code, apart from the numbers and colors a theme resolves to.
-    private static readonly string[] writtenByThemeTokens = ["DvFontUi", "DvFontMono", "DvFontReading", "DvFontNumerals", "DvFontHeading", "DvFontHeadingLarge", "DvLeadIn14", "DvLeadOut14", "DvLeadInMono", "DvLeadOutMono"];
+    private static readonly string[] writtenByThemeTokens =
+    [
+        "DvFontUi", "DvFontMono", "DvFontReading", "DvFontNumerals", "DvFontHeading", "DvFontHeadingLarge",
+        "DvLeadIn14", "DvLeadOut14", "DvLeadInMono", "DvLeadOutMono",
+    ];
 
     #endregion
 
@@ -29,7 +33,8 @@ public sealed partial class TokenNamesInUseTests
                       where !known.Contains(name)
                       select $"{file.Path}: {name}";
 
-        missing.Distinct().Should().BeEmpty("a token is in Tokens.xaml, Styles.xaml, or written by a theme when it is applied");
+        missing.Distinct().Should()
+            .BeEmpty("a token is in Tokens.xaml, Styles.xaml, or written by a theme when it is applied");
     }
 
     [Fact]

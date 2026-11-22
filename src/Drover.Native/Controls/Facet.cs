@@ -57,12 +57,16 @@ public sealed class Facet : Grid
     /// <summary>The corner language this frame was last drawn in, which the screen checks read.</summary>
     internal CornerLanguage DrawnCorners { get; private set; }
 
-    /// <summary>The size of a cut, a tick or a radius this frame was last drawn with, which the screen checks read.</summary>
+    /// <summary>
+    /// The size of a cut, a tick or a radius this frame was last drawn with, which the screen checks read.
+    /// </summary>
     internal double DrawnSize { get; private set; }
 
-    public static readonly DependencyProperty RoleProperty = Dp.Register<Facet, FacetRole>(nameof(Role), FacetRole.Frame, facet => facet.Draw());
+    public static readonly DependencyProperty RoleProperty =
+        Dp.Register<Facet, FacetRole>(nameof(Role), FacetRole.Frame, facet => facet.Draw());
 
-    public static readonly DependencyProperty CutProperty = Dp.Register<Facet, double>(nameof(Cut), double.NaN, facet => facet.Draw());
+    public static readonly DependencyProperty CutProperty =
+        Dp.Register<Facet, double>(nameof(Cut), double.NaN, facet => facet.Draw());
 
     public static readonly DependencyProperty FillProperty = Dp.Register<Facet, Brush?>(nameof(Fill), null, facet => facet.Draw());
 
@@ -132,10 +136,12 @@ public sealed class Facet : Grid
         ring.Points = Outline(corners, focus / 2);
 
         DrawTicks(corners, focus);
-        (DrawnCorners, DrawnSize) = (corners, corners is CornerLanguage.Square ? RadiusOf(Role) : double.IsNaN(Cut) ? CutOf(Role) : Cut);
+        var cut = double.IsNaN(Cut) ? CutOf(Role) : Cut;
+        (DrawnCorners, DrawnSize) = (corners, corners is CornerLanguage.Square ? RadiusOf(Role) : cut);
     }
 
-    // The corner outline: cut corners, rounded corners, or none, moved in by half the line so the whole line is inside the frame.
+    // The corner outline: cut corners, rounded corners, or none, moved in by half the line so the whole line is
+    // inside the frame.
     private PointCollection Outline(CornerLanguage corners, double inset) => corners switch
     {
         CornerLanguage.Faceted => CutCorners(inset, double.IsNaN(Cut) ? CutOf(Role) : Cut),
@@ -189,7 +195,9 @@ public sealed class Facet : Grid
     {
         var shown = corners is CornerLanguage.Ticked;
         var length = CutOf(Role);
-        var outside = ThemeTokens.Current.Shape.Registration ? Tokens.Number("DvSpace1") + (thickness / 2) : thickness / 2;
+        var outside = ThemeTokens.Current.Shape.Registration
+            ? Tokens.Number("DvSpace1") + (thickness / 2)
+            : thickness / 2;
         var (width, height) = (ActualWidth, ActualHeight);
 
         foreach (var tick in ticks)
@@ -210,7 +218,8 @@ public sealed class Facet : Grid
 
     private static double CutOf(FacetRole role) => Tokens.Number(role is FacetRole.Control ? "DvCutS" : "DvCut");
 
-    private static double RadiusOf(FacetRole role) => Tokens.Number(role is FacetRole.Control ? "DvRadiusControl" : "DvRadiusCard");
+    private static double RadiusOf(FacetRole role) =>
+        Tokens.Number(role is FacetRole.Control ? "DvRadiusControl" : "DvRadiusCard");
 
     #endregion
 }

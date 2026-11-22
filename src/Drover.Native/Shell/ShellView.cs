@@ -89,8 +89,9 @@ public sealed class ShellView : Grid
         {
             // A frame does not navigate to the page and parameter it already shows, so it passes through a blank
             // page. Neither stop is kept in the back stack.
-            frame.Navigate(typeof(Page), null, new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo());
-            frame.Navigate(screen, match, new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo());
+            var instantly = new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo();
+            frame.Navigate(typeof(Page), null, instantly);
+            frame.Navigate(screen, match, instantly);
             frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
             frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
         }

@@ -63,7 +63,10 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
         // Only a live state moves, and only while motion is wanted. Nothing loops at rest. A theme that fades its
         // states gives thinking one fade up and holds a running tool still.
-        if (Motion.Loops && state is AvatarState.Thinking or AvatarState.Tool || (Motion.Fades && state is AvatarState.Thinking))
+        var moves = Motion.Loops
+            ? state is AvatarState.Thinking or AvatarState.Tool
+            : Motion.Fades && state is AvatarState.Thinking;
+        if (moves)
         {
             elapsed.Start();
             clock.Start();
@@ -121,7 +124,8 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
         canvas.Save();
         canvas.ClipPath(headOutline, SKClipOperation.Intersect, antialias: true);
-        using (var facet = new SKPaint { Color = onHead.ToSkia().WithAlpha((byte)Math.Round(Tokens.Number("DvCharacterFacet") * byte.MaxValue)) })
+        var facetAlpha = (byte)Math.Round(Tokens.Number("DvCharacterFacet") * byte.MaxValue);
+        using (var facet = new SKPaint { Color = onHead.ToSkia().WithAlpha(facetAlpha) })
         {
             canvas.DrawRect(0, 0, Grid / 2, Grid, facet);
         }
@@ -201,7 +205,13 @@ internal sealed class AvatarCanvas : SKCanvasElement
     {
         var working = state is AvatarState.Thinking or AvatarState.Writing or AvatarState.Tool;
         var edge = Tokens.Color(this, working ? "DvVisorLit" : "DvOnHead").ToSkia();
-        using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = EdgeWidth, Color = edge.WithAlpha(EdgeAlpha), IsAntialias = true };
+        using var stroke = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = EdgeWidth,
+            Color = edge.WithAlpha(EdgeAlpha),
+            IsAntialias = true,
+        };
         canvas.DrawPath(band, stroke);
     }
 
@@ -215,7 +225,8 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
         if (Motion.Fades)
         {
-            return Dim + ((1 - Dim) * Math.Min(1, elapsed.Elapsed.TotalMilliseconds / Motion.FadeTime.TotalMilliseconds));
+            var faded = Math.Min(1, elapsed.Elapsed.TotalMilliseconds / Motion.FadeTime.TotalMilliseconds);
+            return Dim + ((1 - Dim) * faded);
         }
 
         var turn = elapsed.Elapsed.TotalMilliseconds / Tokens.Number("DvDurBreath") % 1;
