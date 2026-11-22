@@ -18,7 +18,9 @@ public enum ThemeGate
     /// <summary>Every value of the file is inside the bounds of the theme-file format.</summary>
     Bounds,
 
-    /// <summary>Control and row heights at the theme's density still give 44 for a finger and 32 for a pointer.</summary>
+    /// <summary>
+    /// Control and row heights at the theme's density still give 44 for a finger and 32 for a pointer.
+    /// </summary>
     TouchTargets,
 
     /// <summary>The accent roles are present and distinct, and a theme defines no gradient and no shadow.</summary>
