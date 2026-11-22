@@ -48,7 +48,8 @@ public sealed class FileWordsTests
         var reason = FileWords.RefusalFrom(FileRefusals.StorageUnavailable);
         var item = new AttachmentItem(Guid.NewGuid(), "photo.png", 68, UploadPhase.Ready, 100, reason);
 
-        FileWords.Status(item, "Helper").Should().Be("The server could not store this file. Contact the server administrator.");
+        FileWords.Status(item, "Helper").Should().Be(
+            "The server could not store this file. Contact the server administrator.");
         FileWords.CanSend([item]).Should().BeFalse();
     }
 

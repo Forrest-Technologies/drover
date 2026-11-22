@@ -773,8 +773,9 @@ public sealed class FileService(
 
     private FileUpload StorageUnavailable(FileStorageUnavailableException failure)
     {
-        logger.LogWarning("The file store could not save an upload ({ExceptionType})", failure.FailureType.Name);
-        return Refused(FileRefusals.StorageUnavailable, "The server could not store this file. Contact the server administrator.");
+        logger.LogWarning("The file store could not save an upload ({ExceptionType}, result {HResult})",
+            failure.InnerException?.GetType().Name, failure.InnerException?.HResult);
+        return Refused(FileRefusals.StorageUnavailable, FileWords.StorageUnavailable);
     }
 
     private static FileUpload Refused(string refusal, string detail) => new(null, FileProblem.Refused, refusal, detail);

@@ -41,40 +41,15 @@ public sealed class LocalFileStore(string root) : IFileStore
         var path = PathOf(spaceId, storageKey);
         var folder = Path.GetDirectoryName(path)!;
         var temporary = Path.Combine(folder, $".{Guid.NewGuid():N}.partial");
-        var readingSource = false;
+        var file = OpenTemporary(folder, temporary);
         try
         {
-            CreateFolder(folder);
-            var file = OpenNew(temporary);
-            try
-            {
-                await using (file)
-                {
-                    var buffer = new byte[BufferSize];
-                    while (true)
-                    {
-                        readingSource = true;
-                        var count = await content.ReadAsync(buffer.AsMemory(), cancellationToken);
-                        readingSource = false;
-                        if (count == 0)
-                        {
-                            break;
-                        }
-
-                        await file.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
-                    }
-                }
-
-                File.Move(temporary, path, overwrite: true);
-            }
-            finally
-            {
-                File.Delete(temporary);
-            }
+            await CopyToTemporary(content, file, cancellationToken);
+            ChangeFile(() => File.Move(temporary, path, overwrite: true));
         }
-        catch (Exception exception) when (!readingSource && exception is IOException or UnauthorizedAccessException)
+        finally
         {
-            throw new FileStorageUnavailableException(exception.GetType());
+            ChangeFile(() => File.Delete(temporary));
         }
     }
 
@@ -101,6 +76,60 @@ public sealed class LocalFileStore(string root) : IFileStore
     {
         var fileId = FileStorageKeys.Require(spaceId, storageKey);
         return Path.Combine(root, spaceId.ToString("N"), fileId.ToString("N"));
+    }
+
+    private static FileStream OpenTemporary(string folder, string temporary)
+    {
+        try
+        {
+            CreateFolder(folder);
+            return OpenNew(temporary);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new FileStorageUnavailableException(failure);
+        }
+    }
+
+    private static async Task CopyToTemporary(Stream source, FileStream file, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var buffer = new byte[BufferSize];
+            var count = 0;
+            while ((count = await source.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+            {
+                await WriteFile(() => file.WriteAsync(buffer.AsMemory(0, count), cancellationToken));
+            }
+        }
+        finally
+        {
+            await WriteFile(file.DisposeAsync);
+        }
+    }
+
+    private static async ValueTask WriteFile(Func<ValueTask> operation)
+    {
+        try
+        {
+            await operation();
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new FileStorageUnavailableException(failure);
+        }
+    }
+
+    private static void ChangeFile(Action operation)
+    {
+        try
+        {
+            operation();
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new FileStorageUnavailableException(failure);
+        }
     }
 
     private static void CreateFolder(string folder)

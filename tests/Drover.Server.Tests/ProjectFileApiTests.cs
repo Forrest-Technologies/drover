@@ -34,7 +34,8 @@ public sealed class ProjectFileApiTests(PostgresServer postgres) : ServerTestBas
         var folder = Path.Combine(DroverFactory.FilesPath(KeyRingPath), owner.SpaceId.ToString("N"));
         await File.WriteAllTextAsync(folder, string.Empty, Token);
 
-        using var response = await client.PostContent(UploadPath(owner.SpaceId, project.Id, "sample.txt"), TextBody("words"));
+        var path = UploadPath(owner.SpaceId, project.Id, "sample.txt");
+        using var response = await client.PostContent(path, TextBody("words"));
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(Token);

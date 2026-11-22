@@ -805,7 +805,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             };
             logger.LogWarning("Attachment failed during {Stage} with {ExceptionType} (HTTP {StatusCode})",
                 stage, exception.GetType(), status);
-            var reason = exception is DroverApiException apiFailure ? FileWords.RefusalFrom(apiFailure.Refusal) : FileRefusal.None;
+            var reason = exception is DroverApiException apiFailure
+                ? FileWords.RefusalFrom(apiFailure.Refusal)
+                : FileRefusal.None;
             draft.Refused(id, status == (int)HttpStatusCode.RequestEntityTooLarge ? FileRefusal.TooLarge : reason);
         }
 
