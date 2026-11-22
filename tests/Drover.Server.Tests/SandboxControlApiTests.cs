@@ -154,6 +154,100 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
 
     #endregion
 
+    #region Pointer
+
+    [Fact]
+    public async Task A_press_move_release_and_drag_are_accepted_and_run_the_same_commands_a_bot_sends()
+    {
+        var (client, spaceId, botId) = await DesktopBot("dragger");
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await client.Post($"{sandbox}/commands", new SandboxCommandRequest("true"));
+        provider.Commands.Clear();
+
+        var down = await client.Post($"{sandbox}/input", new SandboxInputRequest("down", X: 10, Y: 20, Button: "left"));
+        var move = await client.Post($"{sandbox}/input", new SandboxInputRequest("move", X: 30, Y: 40));
+        var up = await client.Post($"{sandbox}/input", new SandboxInputRequest("up", X: 30, Y: 40, Button: "left"));
+        var drag = await client.Post($"{sandbox}/input", new SandboxInputRequest("drag", X: 1, Y: 2, X2: 300, Y2: 200, Button: "right"));
+
+        new[] { down, move, up, drag }.Select(answer => answer.StatusCode).Should().AllBeEquivalentTo(HttpStatusCode.NoContent);
+        var sent = provider.Commands.Where(command => command.Program == "xdotool").Select(command => command.Arguments.ToArray()).ToList();
+        sent.Should().HaveCount(4);
+        sent[0].Should().Equal(DesktopCommands.MouseDown(10, 20, MouseButton.Left).Arguments);
+        sent[1].Should().Equal(DesktopCommands.MouseMove(30, 40).Arguments);
+        sent[2].Should().Equal(DesktopCommands.MouseUp(MouseButton.Left, 30, 40).Arguments);
+        sent[3].Should().Equal(DesktopCommands.Drag(1, 2, 300, 200, MouseButton.Right).Arguments);
+        (await AuditActions(spaceId)).Count(action => action is "sandbox.input").Should().Be(4);
+    }
+
+    [Fact]
+    public async Task A_button_held_down_is_let_go_of_when_the_sandbox_is_paused()
+    {
+        var (client, spaceId, botId) = await DesktopBot("pauser");
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await client.Post($"{sandbox}/commands", new SandboxCommandRequest("true"));
+        await client.Post($"{sandbox}/input", new SandboxInputRequest("down", X: 10, Y: 20));
+
+        (await client.Post($"{sandbox}/pause")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        provider.Commands.Last(command => command.Program == "xdotool").Arguments.Should().Equal("mouseup", "1");
+    }
+
+    [Theory]
+    [InlineData("down", 1024, 10)]
+    [InlineData("down", 10, -1)]
+    [InlineData("move", 10, 768)]
+    [InlineData("up", -5, 10)]
+    public async Task A_pointer_point_off_the_screen_is_a_bad_request_in_a_plain_sentence(string kind, int x, int y)
+    {
+        var (client, spaceId, botId) = await DesktopBot("offscreen");
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await client.Post($"{sandbox}/commands", new SandboxCommandRequest("true"));
+        provider.Commands.Clear();
+
+        var refused = await client.Post($"{sandbox}/input", new SandboxInputRequest(kind, X: x, Y: y));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Title(refused)).Should().Contain("off the screen");
+        provider.Commands.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_drag_off_the_screen_or_missing_its_end_is_a_bad_request()
+    {
+        var (client, spaceId, botId) = await DesktopBot("badline");
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await client.Post($"{sandbox}/commands", new SandboxCommandRequest("true"));
+        provider.Commands.Clear();
+
+        var off = await client.Post($"{sandbox}/input", new SandboxInputRequest("drag", X: 1, Y: 2, X2: 5000, Y2: 5));
+        var half = await client.Post($"{sandbox}/input", new SandboxInputRequest("drag", X: 1, Y: 2, X2: 5));
+
+        off.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        half.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        provider.Commands.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_pointer_input_needs_the_antiforgery_token_the_right_to_change_the_bot_and_a_bot_in_the_space()
+    {
+        var (client, spaceId, botId) = await DesktopBot("guarded");
+        var member = await SeedMember(spaceId, "pointermember", MembershipRole.Member);
+        var memberClient = await SignIn(member.Email, member.Password);
+        var stranger = await SeedPerson("pointerstranger");
+        var strangerClient = await SignIn(stranger.Email, stranger.Password);
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await client.Post($"{sandbox}/commands", new SandboxCommandRequest("true"));
+        provider.Commands.Clear();
+        var press = new SandboxInputRequest("down", X: 10, Y: 20);
+
+        (await client.PostWithoutToken($"{sandbox}/input", press)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await memberClient.Post($"{sandbox}/input", press)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await strangerClient.Post($"{Space(stranger.SpaceId)}/bots/{botId}/sandbox/input", press)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        provider.Commands.Should().BeEmpty("nothing was pressed, so not even a release was sent");
+    }
+
+    #endregion
+
     #region Helpers
 
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
