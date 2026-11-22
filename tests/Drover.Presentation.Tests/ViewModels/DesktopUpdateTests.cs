@@ -7,6 +7,10 @@ public sealed class DesktopUpdateTests
 
     private static readonly ServiceProvider clients = new ServiceCollection().AddHttpClient().BuildServiceProvider();
 
+    /// <summary>True on a thread only while it runs <see cref="DownloadStop.Complete"/> in a test.</summary>
+    [ThreadStatic]
+    private static bool insideComplete;
+
     /// <summary>The longest any test waits on a gate or a pending task before it fails as stuck.</summary>
     private static readonly TimeSpan gateLimit = TimeSpan.FromSeconds(30);
 
@@ -1642,7 +1646,7 @@ public sealed class DesktopUpdateTests
             Path.Combine(attempt, "package.bin"),
             [1, 2, 3],
             TestContext.Current.CancellationToken);
-        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var stop = new DownloadStop();
         var time = new FakeTimeProvider();
         var wait = TimeSpan.FromSeconds(10);
         var log = new RecordingLogger();
@@ -1660,14 +1664,14 @@ public sealed class DesktopUpdateTests
             // every continuation waits in the queue. So the deadline wins, and the download is complete before the
             // production wait resumes: a later look at the task would wrongly call it in time.
             SynchronizationContext.SetSynchronizationContext(context);
-            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stop, NoVerdict(), wait, time, attempt, log);
             using var download = time.CreateTimer(
-                _ => stopped.SetResult(outcome),
+                _ => stop.Complete(outcome),
                 null,
                 wait,
                 Timeout.InfiniteTimeSpan);
             time.Advance(wait);
-            stopped.Task.IsCompleted.Should().BeTrue("the download stopped at the deadline");
+            stop.Stopped.IsCompleted.Should().BeTrue("the download stopped at the deadline");
             context.RunAll();
             SynchronizationContext.SetSynchronizationContext(previous);
 
@@ -1710,16 +1714,16 @@ public sealed class DesktopUpdateTests
             BoundedPackageDownloader.CleanupProblem,
             new TimeoutException(),
             notRemoved);
-        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var stop = new DownloadStop();
         var time = new FakeTimeProvider();
         var wait = TimeSpan.FromSeconds(10);
         var log = new RecordingLogger();
 
         try
         {
-            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stop, NoVerdict(), wait, time, attempt, log);
             time.Advance(wait - TimeSpan.FromTicks(1));
-            stopped.SetResult(new DownloadOutcome(failure, Cancelled: false, notRemoved));
+            stop.Complete(new DownloadOutcome(failure, Cancelled: false, notRemoved));
             time.Advance(TimeSpan.FromTicks(1));
 
             (await teardown)
@@ -2058,7 +2062,7 @@ public sealed class DesktopUpdateTests
     {
         var root = Directory.CreateTempSubdirectory("drover-busy-").FullName;
         var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
-        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var stop = new DownloadStop();
         var time = new FakeTimeProvider();
         var wait = TimeSpan.FromSeconds(10);
         var log = new RecordingLogger();
@@ -2070,9 +2074,9 @@ public sealed class DesktopUpdateTests
             // The caller's context holds every continuation until the test runs them, as a busy UI thread would. The
             // download stops first, on a worker thread as a real download does, and only then does the deadline pass.
             SynchronizationContext.SetSynchronizationContext(context);
-            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stop, NoVerdict(), wait, time, attempt, log);
             var cancelled = new DownloadOutcome(new OperationCanceledException(), Cancelled: true);
-            var worker = new Thread(() => stopped.SetResult(cancelled));
+            var worker = new Thread(() => stop.Complete(cancelled));
             worker.Start();
             worker.Join(gateLimit).Should().BeTrue("the worker only completes the download's stop");
             time.Advance(wait);
@@ -2099,7 +2103,7 @@ public sealed class DesktopUpdateTests
             Path.Combine(attempt, "package.bin"),
             [1, 2, 3],
             TestContext.Current.CancellationToken);
-        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var stop = new DownloadStop();
         var time = new FakeTimeProvider();
         var wait = TimeSpan.FromSeconds(10);
         var log = new RecordingLogger();
@@ -2107,7 +2111,7 @@ public sealed class DesktopUpdateTests
 
         try
         {
-            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stop, NoVerdict(), wait, time, attempt, log);
             time.Advance(wait);
             (await teardown).Should().BeOfType<TimeoutException>()
                 .Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem);
@@ -2117,7 +2121,7 @@ public sealed class DesktopUpdateTests
                 BoundedPackageDownloader.CleanupProblem,
                 new OperationCanceledException(),
                 held);
-            stopped.SetResult(new DownloadOutcome(failure, Cancelled: false, held));
+            stop.Complete(new DownloadOutcome(failure, Cancelled: false, held));
             await WaitUntil(() => !log.Entries.IsEmpty);
 
             var entry = log.Entries.Should().ContainSingle().Subject;
@@ -2127,6 +2131,114 @@ public sealed class DesktopUpdateTests
             entry.Exception!.Should().BeOfType<AggregateException>()
                 .Which.Flatten().InnerExceptions.Should().Contain(held);
             Directory.Exists(attempt).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_download_decides_it_stopped_in_time_in_the_same_call_that_completes_its_stop()
+    {
+        Func<Exception?> noVerdict = () => null;
+        var outcome = new DownloadOutcome(null, Cancelled: true);
+
+        // Every member is compiled first, so nothing between Complete returning and the checks below gives a deferred
+        // claim time to land: the decision must already be there when Complete returns.
+        var warm = new DownloadStop();
+        warm.Complete(outcome);
+        _ = warm.StoppedInTime.IsCompleted;
+        _ = warm.ClaimDeadline(noVerdict);
+
+        var stop = new DownloadStop();
+        var resumedInside = false;
+
+        // Set only on this thread and only while Complete runs, so only a waiter run inline inside Complete sees it.
+        var awaiter = ResumeAfter(stop.Stopped, () => resumedInside = insideComplete);
+
+        insideComplete = true;
+        stop.Complete(outcome);
+        insideComplete = false;
+        var decidedWhenCompleteReturned = stop.StoppedInTime.IsCompleted;
+        var deadlineClaimed = stop.ClaimDeadline(noVerdict);
+
+        decidedWhenCompleteReturned.Should().BeTrue("the stop is claimed inside Complete, not afterwards");
+        deadlineClaimed.Should().BeFalse("the stop was claimed before Complete returned");
+        (await stop.StoppedInTime).Should().BeTrue();
+        await Within(awaiter, "a waiter on the stop");
+        resumedInside.Should().BeFalse("a waiter on the stop resumes after Complete, never inside the download");
+
+        var late = new DownloadStop();
+        late.ClaimDeadline(() => null).Should().BeTrue();
+        late.Complete(new DownloadOutcome(null, Cancelled: true));
+        (await late.StoppedInTime).Should().BeFalse("the deadline claimed first, so the stop is late");
+        late.Stopped.IsCompleted.Should().BeTrue("the stop still completes after a late decision");
+    }
+
+    [Fact]
+    public async Task A_rejection_given_before_the_deadline_is_returned_with_the_timeout_when_the_stop_is_late()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-early-verdict-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        var stop = new DownloadStop();
+        var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rejection = new InvalidDataException(UpdatePackageTrust.SignatureProblem);
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
+        var log = new RecordingLogger();
+
+        try
+        {
+            var teardown = UpdatePackageTrust.ObserveTeardown(stop, verdict.Task, wait, time, attempt, log);
+
+            // The library rejects the file in time, but the download's own stop is still unwinding at the deadline.
+            verdict.SetException(rejection);
+            time.Advance(wait);
+
+            var result = (await teardown).Should().BeOfType<AggregateException>().Subject;
+            result.Message.Should().StartWith(UpdatePackageTrust.TeardownProblem);
+            result.InnerExceptions.Should().HaveCount(2);
+            result.InnerExceptions[0].Should().BeOfType<TimeoutException>()
+                .Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem);
+            result.InnerExceptions[1].Should().BeSameAs(rejection, "a rejection given before the deadline is returned");
+
+            stop.Complete(new DownloadOutcome(null, Cancelled: false));
+            await WaitUntil(() => !log.Entries.IsEmpty);
+            var entry = log.Entries.Should().ContainSingle().Subject;
+            entry.Exception.Should().BeNull("the rejection was already returned, so it is not reported twice");
+            Directory.Exists(attempt).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task One_download_failure_is_one_cause_and_never_reported_as_a_late_stop()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-one-failure-").FullName;
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
+        var log = new RecordingLogger();
+
+        try
+        {
+            // The library passes the download's failure on unchanged, so the same exception arrives both ways.
+            var failure = new HttpRequestException("Sample: the connection was reset.");
+            var failed = new DownloadOutcome(failure, Cancelled: false);
+            var shared = await InTimeTeardown(root, failed, failure, time, wait, log);
+            shared.Should().BeSameAs(failure, "one failure is one cause, not wrapped and not repeated");
+
+            // Two different failures are both kept, under a message that does not claim the stop was late.
+            var other = new InvalidDataException(UpdatePackageTrust.SignatureProblem);
+            var both = await InTimeTeardown(root, failed, other, time, wait, log);
+            var several = both.Should().BeOfType<AggregateException>().Subject;
+            several.Message.Should().StartWith(UpdatePackageTrust.StopProblem);
+            several.Message.Should().NotContain(UpdatePackageTrust.TeardownProblem);
+            several.InnerExceptions.Should().Equal(failure, other);
+            log.Entries.Should().BeEmpty("a download that stopped in time needs no late report");
         }
         finally
         {
@@ -2383,6 +2495,35 @@ public sealed class DesktopUpdateTests
         {
             throw new Xunit.Sdk.XunitException($"Test harness: {what} did not finish within {gateLimit}.", exception);
         }
+    }
+
+    /// <summary>Runs <paramref name="after"/> once <paramref name="task"/> completed and its awaiter resumed.</summary>
+    private static async Task ResumeAfter(Task task, Action after)
+    {
+        await task;
+        after();
+    }
+
+    /// <summary>
+    /// The teardown result for a download that stops before its deadline, with <paramref name="rejected"/> as the
+    /// update library's verdict, in a fresh attempt inside <paramref name="root"/>.
+    /// </summary>
+    private static async Task<Exception?> InTimeTeardown(
+        string root,
+        DownloadOutcome outcome,
+        Exception rejected,
+        FakeTimeProvider time,
+        TimeSpan wait,
+        ILogger log)
+    {
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        var stop = new DownloadStop();
+        var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var teardown = UpdatePackageTrust.ObserveTeardown(stop, verdict.Task, wait, time, attempt, log);
+        verdict.SetException(rejected);
+        stop.Complete(outcome);
+        time.Advance(wait);
+        return await teardown;
     }
 
     /// <summary>A verdict the update library never gave.</summary>

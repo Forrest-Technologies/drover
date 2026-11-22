@@ -45,6 +45,8 @@ internal static class UpdatePackageTrust
 
     public const string TeardownProblem = "The update download did not stop in time, so its partial file may remain.";
 
+    public const string StopProblem = "The update download failed in more than one way while it stopped.";
+
     public const string SettingProblem = "Drover could not save the update setting.";
 
     /// <summary>The start of the name of each download attempt's own directory.</summary>
@@ -600,7 +602,7 @@ internal static class UpdatePackageTrust
             updater.CancelFileDownload();
             var teardown = downloader is null
                 ? null
-                : await ObserveTeardown(downloader.Stopped, verdict.Task, wait, clock, attempt, logger);
+                : await ObserveTeardown(downloader.Stop, verdict.Task, wait, clock, attempt, logger);
 
             if (teardown is null)
             {
@@ -632,64 +634,61 @@ internal static class UpdatePackageTrust
 
     /// <summary>
     /// After a download ran past its time limit and was cancelled, waits at most <paramref name="wait"/> for
-    /// <paramref name="stopped"/>. The update library checks a finished file inside the download's completion, before
-    /// <paramref name="stopped"/> completes, so once it completes nothing uses the attempt any more. A timed-out
-    /// attempt's path is never returned, so it is never a kept package, and its directory is always removed then,
-    /// whatever the library decided about the file; a directory that cannot be removed is logged. When the download
-    /// stopped in time, returns why it did not stop cleanly, or null. When the deadline won, returns the teardown
-    /// timeout at once and removes and logs the attempt when <paramref name="stopped"/> completes later. Which of the
-    /// two happened is decided once, by <see cref="StoppedWithin"/>. The update library's <paramref name="verdict"/>
-    /// on the file, which it gives before <paramref name="stopped"/> completes, is observed either way: a rejection
-    /// in time is returned with the download's own failure, and a later one is logged.
+    /// <paramref name="stop"/>. The update library checks a finished file inside the download's completion, before the
+    /// stop completes, so once it completes nothing uses the attempt any more. A timed-out attempt's path is never
+    /// returned, so it is never a kept package, and its directory is always removed then, whatever the library decided
+    /// about the file; a directory that cannot be removed is logged.
+    /// <para>
+    /// Whether the download stopped in time is decided once, by <see cref="DownloadStop"/>: the download claims it in
+    /// the same call that completes the stop, and the deadline timer claims the other side. In time, this returns the
+    /// download's failure and the library's rejection, each once, or null. Late, it returns the teardown timeout with
+    /// any rejection the library had given by the deadline, and logs the rest once the download stops.
+    /// </para>
     /// </summary>
     public static async Task<Exception?> ObserveTeardown(
-        Task<DownloadOutcome> stopped,
+        DownloadStop stop,
         Task<string> verdict,
         TimeSpan wait,
         TimeProvider time,
         string attempt,
         ILogger logger)
     {
-        if (!await StoppedWithin(stopped, wait, time))
+        if (!await StoppedWithin(stop, wait, time, () => FaultOf(verdict)))
         {
-            _ = RemoveAfterLateStop(stopped, verdict, attempt, logger);
-            return new TimeoutException(TeardownProblem);
+            var early = stop.VerdictAtDeadline;
+            _ = RemoveAfterLateStop(stop.Stopped, verdict, early, attempt, logger);
+            var timeout = new TimeoutException(TeardownProblem);
+            return early is null ? timeout : new AggregateException(TeardownProblem, timeout, early);
         }
 
-        var outcome = await stopped;
+        var outcome = await stop.Stopped;
         var rejected = FaultOf(verdict);
         RemoveTimedOutAttempt(attempt, outcome, rejected, late: false, logger);
-        List<Exception> causes = [.. FailureOf(outcome), .. rejected is null ? [] : new[] { rejected }];
-        return causes switch
+        return Causes(outcome, rejected) switch
         {
             [] => null,
             [var only] => only,
-            _ => new AggregateException(TeardownProblem, causes),
+            var several => new AggregateException(StopProblem, several),
         };
     }
 
     /// <summary>
-    /// True when <paramref name="stopped"/> completes before <paramref name="wait"/> passes on
-    /// <paramref name="time"/>, false when the time passes first. The answer is whichever of the two settles one
-    /// decision first, taken once; the task is not looked at again afterwards.
+    /// True when <paramref name="stop"/> completes before <paramref name="wait"/> passes on <paramref name="time"/>,
+    /// false when the time passes first. The decision is the one <see cref="DownloadStop"/> records; it is never
+    /// read again from the stop task, and no continuation of the caller's takes part in it.
     /// </summary>
-    public static async Task<bool> StoppedWithin(Task<DownloadOutcome> stopped, TimeSpan wait, TimeProvider time)
+    public static async Task<bool> StoppedWithin(
+        DownloadStop stop,
+        TimeSpan wait,
+        TimeProvider time,
+        Func<Exception?> verdictSoFar)
     {
-        var decided = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var deadline = time.CreateTimer(
-            _ => decided.TrySetResult(false),
+            _ => stop.ClaimDeadline(verdictSoFar),
             null,
             wait,
             Timeout.InfiniteTimeSpan);
-        // The stop side is settled on the thread that completes the download, whatever the caller's synchronization
-        // context is: an await would queue it to a busy caller, or to the thread pool, and let the deadline win a race
-        // it lost. This one continuation is why ContinueWith is used here rather than await.
-        _ = stopped.ContinueWith(
-            _ => decided.TrySetResult(true),
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-        return await decided.Task;
+        return await stop.StoppedInTime;
     }
 
     #endregion
@@ -753,14 +752,18 @@ internal static class UpdatePackageTrust
     }
 
     /// <summary>Removes a timed-out attempt once its download stopped after the deadline, and logs it.</summary>
+    /// <remarks>A rejection already returned to the caller with the timeout is not logged a second time.</remarks>
     private static async Task RemoveAfterLateStop(
         Task<DownloadOutcome> stopped,
         Task<string> verdict,
+        Exception? reported,
         string attempt,
         ILogger logger)
     {
         var outcome = await stopped;
-        RemoveTimedOutAttempt(attempt, outcome, FaultOf(verdict), late: true, logger);
+        var rejected = FaultOf(verdict);
+        var unreported = ReferenceEquals(rejected, reported) ? null : rejected;
+        RemoveTimedOutAttempt(attempt, outcome, unreported, late: true, logger);
     }
 
     private static async Task UnsubscribeWhenStopped(Task<DownloadOutcome> stopped, Action unsubscribe)
@@ -785,9 +788,20 @@ internal static class UpdatePackageTrust
         var several => several,
     };
 
-    /// <summary>What a download's own outcome reports as a failure: never a plain cancellation.</summary>
-    private static Exception[] FailureOf(DownloadOutcome outcome) =>
-        outcome is { Cancelled: false, Error: { } error } ? [error] : [];
+    /// <summary>
+    /// The download's own failure, never a plain cancellation, and the update library's rejection, each once: the
+    /// library passes a download failure on unchanged, so the same exception can arrive both ways.
+    /// </summary>
+    private static List<Exception> Causes(DownloadOutcome outcome, Exception? rejected)
+    {
+        List<Exception> causes = outcome is { Cancelled: false, Error: { } error } ? [error] : [];
+        if (rejected is not null && !causes.Any(cause => ReferenceEquals(cause, rejected)))
+        {
+            causes.Add(rejected);
+        }
+
+        return causes;
+    }
 
     /// <summary>
     /// Removes the directory of a timed-out attempt. A directory that cannot be removed is logged as a warning with
@@ -802,13 +816,14 @@ internal static class UpdatePackageTrust
         ILogger logger)
     {
         var ended = outcome.Finished ? "finished" : outcome.Cancelled ? "was cancelled" : "failed";
-        List<Exception> causes = [.. FailureOf(outcome), .. rejected is null ? [] : new[] { rejected }];
+        var causes = Causes(outcome, rejected);
+        var problem = late ? TeardownProblem : StopProblem;
         var notRemoved = RemoveDirectory(attempt);
 
         if (notRemoved is not null)
         {
             logger.LogWarning(
-                new AggregateException(TeardownProblem, [.. causes, notRemoved]),
+                new AggregateException(problem, [.. causes, notRemoved]),
                 "A timed-out update download in {Attempt} {Ended} and its attempt could not be removed",
                 attempt,
                 ended);
@@ -869,7 +884,7 @@ internal static class UpdatePackageTrust
         TimeProvider time,
         ILogger logger)
     {
-        if (downloader is not null && !await StoppedWithin(downloader.Stopped, wait, time))
+        if (downloader is not null && !await StoppedWithin(downloader.Stop, wait, time, () => null))
         {
             logger.LogWarning("A rejected update download in {Attempt} did not stop, so it is left for now", attempt);
             return;

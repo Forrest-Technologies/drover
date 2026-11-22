@@ -138,11 +138,14 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
     public bool IsDownloading { get; private set; }
 
+    /// <summary>The latest download's stop, which also decides whether a waiter saw it stop in time.</summary>
+    public DownloadStop Stop { get; private set; } = DownloadStop.Completed();
+
     /// <summary>
     /// Completes, with how it ended, when the latest download has closed its file, removed it if it had to, and raised
     /// its completion.
     /// </summary>
-    public Task<DownloadOutcome> Stopped { get; private set; } = Task.FromResult(new DownloadOutcome(null, false));
+    public Task<DownloadOutcome> Stopped => Stop.Stopped;
 
     #endregion
 
@@ -158,8 +161,8 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
     {
         // The token is taken first, so a cancel that arrives once the download is reported as running reaches it.
         var cancellation = cancel.Token;
-        var stopped = new TaskCompletionSource<DownloadOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Stopped = stopped.Task;
+        var stop = new DownloadStop();
+        Stop = stop;
         IsDownloading = true;
         var created = new global::System.Runtime.CompilerServices.StrongBox<bool>();
         var ended = new DownloadOutcome(new InvalidOperationException("The update download did not finish."), false);
@@ -185,7 +188,7 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
         finally
         {
             IsDownloading = false;
-            stopped.TrySetResult(ended);
+            stop.Complete(ended);
         }
     }
 
@@ -329,4 +332,83 @@ internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled
             notRemoved);
 
     public global::System.ComponentModel.AsyncCompletedEventArgs ToEventArgs() => new(Error, Cancelled, null);
+}
+
+
+/// <summary>
+/// How one download stops, and the one decision of whether it stopped before a waiter's deadline. The download claims
+/// "stopped in time" in the same call that completes <see cref="Stopped"/>; a deadline timer claims "late". Whichever
+/// claims first decides, so a download that stopped before the deadline can never be reported late because a
+/// continuation had not run yet. <see cref="Stopped"/> and <see cref="StoppedInTime"/> resume their awaiters
+/// asynchronously, so no waiter's code ever runs inside the download.
+/// </summary>
+internal sealed class DownloadStop
+{
+    #region Private Fields
+
+    private const int Undecided = 0;
+
+    private const int InTime = 1;
+
+    private const int Late = 2;
+
+    private readonly TaskCompletionSource<DownloadOutcome> stopped =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly TaskCompletionSource<bool> decided = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private int state;
+
+    #endregion
+
+    #region Properties
+
+    public Task<DownloadOutcome> Stopped => stopped.Task;
+
+    /// <summary>True when the download stopped before the deadline was claimed; false when the deadline won.</summary>
+    public Task<bool> StoppedInTime => decided.Task;
+
+    /// <summary>The update library's rejection, if it had given one when the deadline was claimed.</summary>
+    public Exception? VerdictAtDeadline { get; private set; }
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>A stop that has already happened, for a downloader that has not started a download.</summary>
+    public static DownloadStop Completed()
+    {
+        var done = new DownloadStop();
+        done.Complete(new(null, Cancelled: false));
+        return done;
+    }
+
+    /// <summary>Claims "stopped in time" if nothing was claimed yet, then completes the stop.</summary>
+    public void Complete(DownloadOutcome outcome)
+    {
+        if (Interlocked.CompareExchange(ref state, InTime, Undecided) == Undecided)
+        {
+            decided.TrySetResult(true);
+        }
+
+        stopped.TrySetResult(outcome);
+    }
+
+    /// <summary>
+    /// Claims "late" if the download has not stopped yet, and records the rejection the update library had given by
+    /// then. Returns whether this claim decided.
+    /// </summary>
+    public bool ClaimDeadline(Func<Exception?> verdictSoFar)
+    {
+        if (Interlocked.CompareExchange(ref state, Late, Undecided) != Undecided)
+        {
+            return false;
+        }
+
+        VerdictAtDeadline = verdictSoFar();
+        decided.TrySetResult(false);
+        return true;
+    }
+
+    #endregion
 }
