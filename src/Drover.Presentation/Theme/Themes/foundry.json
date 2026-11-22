@@ -3,6 +3,7 @@
   "id": "foundry",
   "name": "Foundry",
   "intent": "Warm and heavy, soot and brass, for people who find the default cold.",
+  "group": "expressive",
   "firstMode": "dark",
   "suits": [],
   "type": {
