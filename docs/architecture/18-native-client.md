@@ -147,22 +147,24 @@ preview build or to the checks every pull request runs.
   Android: the picker reports no size, the stream has no length and cannot seek, the app measures it by buffering
   (`UploadFileWithUnverifiedSize`) and sends it with the antiforgery token, to the real upload route. It reads the
   picture back from the server and compares its hash, and it covers a small file, a file at the limit, a file past
-  the limit (the server's refusal must carry a code the app can name), no token, and a cancelled upload.
-- `tests/Drover.Server.Tests/SandboxPointerDragApiTests.cs` sends a drag to the real sandbox input route as the app
-  does (a press, moves, a release, and the whole drag as one request) to a sandbox provider that records the commands
-  it ran. `tests/Shared/PointerEvents.cs` reads those commands as a pointer's events, so a test asserts a down, one or
-  more moves and an up, with no button left held.
+  the limit (the server answers 413 with a sentence that names the limit, which is what the app turns into its words),
+  no token, and a cancelled upload.
+- The sandbox pointer has its own server test, `SandboxPointerDragApiTests`, which arrives with the pointer input
+  route (#797). It sends a drag to the real route as the app does (a press, moves, a release, and the whole drag as one
+  request) to a sandbox provider that records the commands it ran. `tests/Shared/PointerEvents.cs` reads those commands
+  as a pointer's events, so a test asserts a down, one or more moves and an up, with no button left held. The emulator
+  proof below uses the same reader.
 
 **A manual proof on an emulator.** The workflow `.github/workflows/android-proof.yml` runs only when someone starts it
 (Actions, "Android proof", "Run workflow"): never on a push, a pull request or a tag. It runs on a GitHub-hosted
 runner. It proves the branch or tag it is started on and takes no input: choose it under "Use workflow from", or run
 `gh workflow run android-proof.yml --ref <branch>`. The branch must contain the workflow and the harness. GitHub's
-documentation says a `workflow_dispatch` workflow must be on the default branch to be dispatched, and the Actions
-tab lists only workflows whose file is there. The repository already knows this workflow (it is registered under its
-file name), because runs of it were made from the branch that added it, so whether a dispatch with `--ref <branch>`
-is accepted before the file is on `main` is not yet confirmed. The sure way is the file on `main`: once it is there,
-the command above works for every branch. Until then a failed dispatch ("workflow not found" or HTTP 404) means the
-file has not reached `main`, and the proof is not run by pushing a trigger to a branch. Each of the pull requests that fix the
+documentation says a manual workflow is listed and dispatched from the default branch (`main`). Tried for this
+workflow, the dispatch was accepted from a branch while the file was on no default branch: it works once GitHub
+knows the workflow, which it learns from a run of its file (here, runs made from the branch that added it with a
+temporary push trigger). A workflow GitHub has not run yet is not expected to be found (not tried), and the Actions tab lists it only from
+`main`. So the dependable start for a new proof workflow is its file on `main`, for example a small stub there that
+takes a `ref` input and runs the proof for it. Each of the pull requests that fix the
 upload or the touch drag links the run that proves it; without that run the fix is not called fixed.
 
 The run builds the app made for the screen checks (the preview app refuses a test server's certificate, as it must),
