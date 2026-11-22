@@ -19,7 +19,10 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
 
     #region Properties
 
-    /// <summary>The theme the choice names. Night Yard when the app has no theme by that name, as a device that never chose does.</summary>
+    /// <summary>
+    /// The theme the choice names. Night Yard when the app has no theme by that name, as a device that never chose
+    /// does.
+    /// </summary>
     public ThemeFile Theme => BuiltInThemes.Get(Choice.ThemeId) ?? BuiltInThemes.NightYard;
 
     #endregion

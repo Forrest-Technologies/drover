@@ -40,7 +40,8 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode)
         return ReadObject(value, logger) ?? Default;
     }
 
-    public string ToStored() => JsonSerializer.Serialize(new StoredChoice(ThemeId, Mode.ToString().ToLowerInvariant()), stored);
+    public string ToStored() =>
+        JsonSerializer.Serialize(new StoredChoice(ThemeId, Mode.ToString().ToLowerInvariant()), stored);
 
     #endregion
 
@@ -52,7 +53,9 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode)
         {
             var read = JsonSerializer.Deserialize<StoredChoice>(value, stored);
 
-            return read is { ThemeId.Length: > 0 } && Enum.TryParse<ThemeMode>(read.Mode, ignoreCase: true, out var mode) && Enum.IsDefined(mode)
+            return read is { ThemeId.Length: > 0 }
+                && Enum.TryParse<ThemeMode>(read.Mode, ignoreCase: true, out var mode)
+                && Enum.IsDefined(mode)
                 ? new(read.ThemeId, mode)
                 : null;
         }
