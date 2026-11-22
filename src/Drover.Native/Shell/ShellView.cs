@@ -38,6 +38,9 @@ public sealed class ShellView : Grid
 
         theme.Load();
         theme.PropertyChanged += (_, _) => ApplyTheme();
+
+        // A device that follows the person's account takes the theme kept for it each time the person signs in.
+        _ = services.GetRequiredService<ThemeSync>();
         navigator.Navigated += Show;
         ActualThemeChanged += (_, _) => Paint();
         Loaded += (_, _) => DispatcherQueue.TryEnqueue(PlatformShell.Shown);

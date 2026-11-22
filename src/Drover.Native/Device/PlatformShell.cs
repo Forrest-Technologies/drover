@@ -26,7 +26,12 @@ internal static class PlatformShell
         services.GetRequiredService<ServerAddress>().Current is null ? typeof(ConnectPage) : null;
 
     /// <summary>Reads what the device says about pointers and motion, before any control is made.</summary>
-    public static void ReadDevice() => Motion.IsReduced = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+    public static void ReadDevice()
+    {
+        var device = new Windows.UI.ViewManagement.UISettings();
+        Motion.IsReduced = !device.AnimationsEnabled;
+        TextSize.Read(device.TextScaleFactor);
+    }
 
     /// <summary>Opens an address the system asked for, now and whenever another comes, once a server is chosen.</summary>
     public static void Start(Navigator navigator)

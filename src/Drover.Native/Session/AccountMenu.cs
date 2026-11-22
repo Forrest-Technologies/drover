@@ -117,6 +117,8 @@ public sealed class AccountMenu : Grid
             menu.Items.Add(ThemeItem(option));
         }
 
+        menu.Items.Add(Item("Appearance", () => model.Open(Addresses.Appearance)));
+
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
         menu.Items.Add(Item("Notifications", model.OpenNotifications));

@@ -40,6 +40,9 @@ public static class Addresses
 
     public const string Usage = "/usage";
 
+    /// <summary>Where a person chooses how Drover looks for them.</summary>
+    public const string Appearance = "/account/appearance";
+
     #endregion
 
     #region Public Methods
