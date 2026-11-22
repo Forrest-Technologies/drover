@@ -1615,74 +1615,180 @@ public sealed class DesktopUpdateTests
     }
 
     [Theory]
-    [InlineData("not removed", LogLevel.Warning, "could not remove its partial file")]
-    [InlineData("cancelled", LogLevel.Information, "removed its partial file")]
-    [InlineData("transfer failed", LogLevel.Information, "removed its partial file")]
-    [InlineData("finished", LogLevel.Warning, "left its file on disk")]
-    public async Task A_download_that_stops_exactly_at_the_deadline_has_its_actual_outcome_logged(
+    [InlineData("finished", "finished")]
+    [InlineData("cancelled", "was cancelled")]
+    [InlineData("transfer failed", "failed")]
+    [InlineData("cannot be removed", "finished")]
+    public async Task A_download_that_stops_exactly_at_the_deadline_is_late_and_its_attempt_is_removed(
         string ended,
-        LogLevel level,
         string says)
     {
         var outcome = ended switch
         {
-            "not removed" => new DownloadOutcome(
-                new AggregateException(
-                    BoundedPackageDownloader.CleanupProblem,
-                    new OperationCanceledException(),
-                    new IOException("Sample: the file is held.")),
-                Cancelled: false,
-                new IOException("Sample: the file is held.")),
             "cancelled" => new DownloadOutcome(new OperationCanceledException(), Cancelled: true),
             "transfer failed" => new DownloadOutcome(new HttpRequestException("Sample: reset."), Cancelled: false),
             _ => new DownloadOutcome(null, Cancelled: false),
         };
+        var root = Directory.CreateTempSubdirectory("drover-deadline-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        await File.WriteAllBytesAsync(
+            Path.Combine(attempt, "package.bin"),
+            [1, 2, 3],
+            TestContext.Current.CancellationToken);
         var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
         var log = new RecordingLogger();
+        var context = new QueueingContext();
+        var previous = SynchronizationContext.Current;
 
-        // The deadline wins, and the download stops in that same moment: the task is complete before anything else
-        // could look at it. The decision the wait made still holds.
-        var teardown = await UpdatePackageTrust.ObserveTeardown(
-            stopped.Task,
-            () =>
+        if (ended is "cannot be removed")
+        {
+            BlockRemoval(attempt);
+        }
+
+        try
+        {
+            // At the deadline both the timer and the download complete. The timer settles the wait's decision at once;
+            // every continuation waits in the queue. So the deadline wins, and the download is complete before the
+            // production wait resumes: a later look at the task would wrongly call it in time.
+            SynchronizationContext.SetSynchronizationContext(context);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, wait, time, attempt, log);
+            using var download = time.CreateTimer(
+                _ => stopped.SetResult(outcome),
+                null,
+                wait,
+                Timeout.InfiniteTimeSpan);
+            time.Advance(wait);
+            stopped.Task.IsCompleted.Should().BeTrue("the download stopped at the deadline");
+            context.RunAll();
+            SynchronizationContext.SetSynchronizationContext(previous);
+
+            teardown.IsCompleted.Should().BeTrue();
+            (await teardown).Should().BeOfType<TimeoutException>()
+                .Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem, "the deadline won, as the wait decided");
+            await WaitUntil(() => !log.Entries.IsEmpty);
+            var entry = log.Entries.Should().ContainSingle().Subject;
+            entry.Message.Should().Contain(attempt).And.Contain(says);
+            if (ended is "cannot be removed")
             {
-                stopped.SetResult(outcome);
-                return Task.FromResult(false);
-            },
-            "/sample/attempt-1",
-            log);
-
-        teardown.Should().BeOfType<TimeoutException>().Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem);
-        await WaitUntil(() => !log.Entries.IsEmpty);
-        var entry = log.Entries.Should().ContainSingle().Subject;
-        entry.Level.Should().Be(level);
-        entry.Message.Should().Contain(says).And.Contain("/sample/attempt-1");
+                entry.Level.Should().Be(LogLevel.Warning);
+                entry.Exception.Should().BeOfType<AggregateException>()
+                    .Which.InnerExceptions.Should().Contain(exception => IsRemovalFailure(exception));
+                Directory.Exists(attempt)
+                    .Should().BeTrue("the attempt that could not be removed is reported, not hidden");
+            }
+            else
+            {
+                entry.Level.Should().Be(LogLevel.Information);
+                Directory.Exists(attempt)
+                    .Should().BeFalse("a timed-out attempt is never used again, so it is removed whatever happened");
+            }
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            AllowRemovalOf(attempt);
+            Directory.Delete(root, true);
+        }
     }
 
     [Fact]
-    public async Task A_download_that_stops_in_time_reports_its_outcome_to_the_caller_and_logs_nothing()
+    public async Task A_download_that_stops_just_before_the_deadline_is_in_time_and_its_attempt_is_removed()
     {
-        var notRemoved = new IOException("Sample: the file is held.");
+        var root = Directory.CreateTempSubdirectory("drover-in-time-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        var notRemoved = new IOException("Sample: the partial file is held.");
         var failure = new AggregateException(
             BoundedPackageDownloader.CleanupProblem,
             new TimeoutException(),
             notRemoved);
+        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
         var log = new RecordingLogger();
 
-        var failed = await UpdatePackageTrust.ObserveTeardown(
-            Task.FromResult(new DownloadOutcome(failure, Cancelled: false, notRemoved)),
-            () => Task.FromResult(true),
-            "/sample/attempt-2",
-            log);
-        var clean = await UpdatePackageTrust.ObserveTeardown(
-            Task.FromResult(new DownloadOutcome(new OperationCanceledException(), Cancelled: true)),
-            () => Task.FromResult(true),
-            "/sample/attempt-3",
-            log);
+        try
+        {
+            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, wait, time, attempt, log);
+            time.Advance(wait - TimeSpan.FromTicks(1));
+            stopped.SetResult(new DownloadOutcome(failure, Cancelled: false, notRemoved));
+            time.Advance(TimeSpan.FromTicks(1));
 
-        failed.Should().BeSameAs(failure);
-        clean.Should().BeNull();
-        log.Entries.Should().BeEmpty();
+            (await teardown)
+                .Should().BeSameAs(failure, "the download stopped in time, so the caller hears its outcome");
+            Directory.Exists(attempt).Should().BeFalse("a timed-out attempt is removed when it stops in time as well");
+            log.Entries.Should().BeEmpty("an attempt removed in time needs no late report");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_package_rejected_after_the_deadline_won_is_removed_once_the_library_is_done_with_it()
+    {
+        var (publicKey, privateKey) = Key(
+            nameof(A_package_rejected_after_the_deadline_won_is_removed_once_the_library_is_done_with_it));
+        var original = Enumerable.Range(0, 4096).Select(index => (byte)index).ToArray();
+        var tampered = original.ToArray();
+        tampered[^1] ^= 1;
+        await using var feed = await FeedHost.Open();
+        var item = AppCast(
+            "2.0.0",
+            null,
+            $"{feed.Address}package.bin",
+            Sign(original, privateKey),
+            HostOs(),
+            tampered.Length);
+        feed.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey));
+        feed.Add("package.bin", tampered);
+        var root = Path.Combine(Path.GetTempPath(), $"drover-late-reject-{Guid.NewGuid():N}");
+        using var client = Client();
+        using var gate = new ManualResetEventSlim(false);
+        var log = new RecordingLogger();
+
+        try
+        {
+            using var updater = StableUpdater($"{feed.Address}appcast.xml", publicKey, root, client);
+            var offered = await Offered(updater);
+            var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
+            var corrupt = 0;
+            updater.DownloadedFileIsCorrupt += (_, _) => corrupt++;
+
+            // This handler is added before the library's own, so it runs first: the whole package is written, and the
+            // library's signature verdict waits for the gate while the deadline passes.
+            downloader.DownloadFileCompleted += (_, _) => gate.Wait();
+
+            var download = () => UpdatePackageTrust.Download(
+                updater,
+                offered,
+                root,
+                TimeSpan.FromSeconds(1),
+                log,
+                TimeSpan.FromMilliseconds(200));
+
+            var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
+            failure.InnerExceptions.Should().Contain(exception =>
+                exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
+            Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .Should().ContainSingle("the whole package is on disk while the verdict waits");
+
+            gate.Set();
+            await downloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+            await WaitUntil(() => !log.Entries.IsEmpty);
+
+            corrupt.Should().Be(1, "the library rejected the package after the deadline");
+            Directory.EnumerateFileSystemEntries(root)
+                .Should().BeEmpty("the rejected package and its attempt are removed once the library is done with it");
+            log.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Information);
+        }
+        finally
+        {
+            gate.Set();
+            Directory.Delete(root, true);
+        }
     }
 
     [Theory]
@@ -1986,6 +2092,42 @@ public sealed class DesktopUpdateTests
         }
     }
 
+    /// <summary>Makes the entries of <paramref name="directory"/> impossible to remove.</summary>
+    private static void BlockRemoval(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (var file in Directory.EnumerateFiles(directory))
+            {
+                File.SetAttributes(file, FileAttributes.ReadOnly);
+            }
+
+            return;
+        }
+
+        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+    }
+
+    private static void AllowRemovalOf(string directory)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (var file in Directory.EnumerateFiles(directory))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+
+            return;
+        }
+
+        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
     private static bool IsRemovalFailure(Exception exception) =>
         exception is IOException or UnauthorizedAccessException;
 
@@ -2275,6 +2417,35 @@ internal sealed record ServedPackage(
 internal sealed class BlockedFile
 {
     public string? Path { get; set; }
+}
+
+
+/// <summary>
+/// A synchronization context that keeps every continuation posted to it until the test runs them, so a test decides
+/// what has happened before code waiting on it resumes.
+/// </summary>
+file sealed class QueueingContext : SynchronizationContext
+{
+    #region Private Fields
+
+    private readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> queue = [];
+
+    #endregion
+
+    #region Public Methods
+
+    public override void Post(SendOrPostCallback d, object? state) => queue.Enqueue((d, state));
+
+    /// <summary>Runs queued continuations, and any they queue, until none is left.</summary>
+    public void RunAll()
+    {
+        while (queue.TryDequeue(out var next))
+        {
+            next.Callback(next.State);
+        }
+    }
+
+    #endregion
 }
 
 

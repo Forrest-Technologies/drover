@@ -580,12 +580,12 @@ internal static class UpdatePackageTrust
         catch (TimeoutException timeout)
         {
             updater.CancelFileDownload();
-            var wait = teardownLimit ?? TeardownLimit;
             var teardown = downloader is null
                 ? null
                 : await ObserveTeardown(
                     downloader.Stopped,
-                    () => StoppedWithin(downloader.Stopped, wait),
+                    teardownLimit ?? TeardownLimit,
+                    TimeProvider.System,
                     attempt,
                     logger);
 
@@ -614,52 +614,48 @@ internal static class UpdatePackageTrust
     }
 
     /// <summary>
-    /// After a download ran past its time limit and was cancelled: when <paramref name="stoppedInTime"/> says it
+    /// After a download ran past its time limit and was cancelled, waits at most <paramref name="wait"/> for
+    /// <paramref name="stopped"/>. The update library checks a finished file inside the download's completion, before
+    /// <paramref name="stopped"/> completes, so once it completes nothing uses the attempt any more. A timed-out
+    /// attempt's path is never returned, so it is never a kept package, and its directory is always removed then,
+    /// whatever the library decided about the file; a directory that cannot be removed is logged. When the download
     /// stopped in time, returns why it did not stop cleanly, or null. When the deadline won, returns the teardown
-    /// timeout and logs the final outcome of the same <paramref name="stopped"/> task once it arrives, so a cleanup
-    /// failure that comes at or after the deadline is never lost. The decision is the one the wait made, never a later
-    /// look at the task.
+    /// timeout at once and removes and logs the attempt when <paramref name="stopped"/> completes later. Which of the
+    /// two happened is decided once, by <see cref="StoppedWithin"/>.
     /// </summary>
     public static async Task<Exception?> ObserveTeardown(
         Task<DownloadOutcome> stopped,
-        Func<Task<bool>> stoppedInTime,
+        TimeSpan wait,
+        TimeProvider time,
         string attempt,
         ILogger logger)
     {
-        if (await stoppedInTime())
+        if (!await StoppedWithin(stopped, wait, time))
         {
-            var outcome = await stopped;
-            return outcome.Cancelled ? null : outcome.Error;
+            _ = RemoveAfterLateStop(stopped, attempt, logger);
+            return new TimeoutException(TeardownProblem);
         }
 
-        _ = LogLateOutcome(stopped, attempt, logger);
-        return new TimeoutException(TeardownProblem);
+        var outcome = await stopped;
+        RemoveTimedOutAttempt(attempt, outcome, late: false, logger);
+        return outcome.Cancelled ? null : outcome.Error;
     }
 
-    /// <summary>Logs what a download that stopped after its teardown deadline left behind in its attempt.</summary>
-    public static async Task LogLateOutcome(Task<DownloadOutcome> stopped, string attempt, ILogger logger)
+    /// <summary>
+    /// True when <paramref name="stopped"/> completes before <paramref name="wait"/> passes on
+    /// <paramref name="time"/>, false when the time passes first. The answer is whichever of the two settles one
+    /// decision first, taken once; the task is not looked at again afterwards.
+    /// </summary>
+    public static async Task<bool> StoppedWithin(Task<DownloadOutcome> stopped, TimeSpan wait, TimeProvider time)
     {
-        var outcome = await stopped;
-
-        if (outcome.NotRemoved is not null)
-        {
-            logger.LogWarning(
-                outcome.Error,
-                "A timed-out update download in {Attempt} stopped late and could not remove its partial file",
-                attempt);
-        }
-        else if (outcome.Finished)
-        {
-            logger.LogWarning(
-                "A timed-out update download in {Attempt} finished late and left its file on disk",
-                attempt);
-        }
-        else
-        {
-            logger.LogInformation(
-                "A timed-out update download in {Attempt} stopped late and removed its partial file",
-                attempt);
-        }
+        var decided = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var deadline = time.CreateTimer(
+            _ => decided.TrySetResult(false),
+            null,
+            wait,
+            Timeout.InfiniteTimeSpan);
+        _ = DecideWhenStopped(stopped, decided);
+        return await decided.Task;
     }
 
     #endregion
@@ -722,11 +718,62 @@ internal static class UpdatePackageTrust
         activeAttempts.TryRemove(attempt, out _);
     }
 
-    /// <summary>True when <paramref name="stopped"/> completes within <paramref name="wait"/>.</summary>
-    private static async Task<bool> StoppedWithin(Task<DownloadOutcome> stopped, TimeSpan wait)
+    private static async Task DecideWhenStopped(Task<DownloadOutcome> stopped, TaskCompletionSource<bool> decided)
     {
-        await ((Task)stopped.WaitAsync(wait)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        return stopped.IsCompleted;
+        await stopped;
+        decided.TrySetResult(true);
+    }
+
+    /// <summary>Removes a timed-out attempt once its download stopped after the deadline, and logs it.</summary>
+    private static async Task RemoveAfterLateStop(Task<DownloadOutcome> stopped, string attempt, ILogger logger)
+    {
+        var outcome = await stopped;
+        RemoveTimedOutAttempt(attempt, outcome, late: true, logger);
+    }
+
+    /// <summary>
+    /// Removes the directory of a timed-out attempt. Logs a directory that cannot be removed, with why the download
+    /// ended, and logs a late stop that was cleaned up.
+    /// </summary>
+    private static void RemoveTimedOutAttempt(string attempt, DownloadOutcome outcome, bool late, ILogger logger)
+    {
+        var ended = outcome.Finished ? "finished" : outcome.Cancelled ? "was cancelled" : "failed";
+        var notRemoved = RemoveDirectory(attempt);
+
+        if (notRemoved is not null)
+        {
+            var causes = outcome.Error is null ? [notRemoved] : new[] { outcome.Error, notRemoved };
+            logger.LogWarning(
+                new AggregateException(TeardownProblem, causes),
+                "A timed-out update download in {Attempt} {Ended} and its attempt could not be removed",
+                attempt,
+                ended);
+        }
+        else if (late)
+        {
+            logger.LogInformation(
+                "A timed-out update download in {Attempt} {Ended} after its deadline and its attempt was removed",
+                attempt,
+                ended);
+        }
+    }
+
+    /// <summary>Removes a directory and everything in it, and returns why it could not be, if it could not.</summary>
+    private static Exception? RemoveDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
     }
 
     /// <summary>
@@ -740,19 +787,15 @@ internal static class UpdatePackageTrust
         TimeSpan wait,
         ILogger logger)
     {
-        if (downloader is not null && !await StoppedWithin(downloader.Stopped, wait))
+        if (downloader is not null && !await StoppedWithin(downloader.Stopped, wait, TimeProvider.System))
         {
             logger.LogWarning("A rejected update download in {Attempt} did not stop, so it is left for now", attempt);
             return;
         }
 
-        try
+        if (RemoveDirectory(attempt) is { } notRemoved)
         {
-            Directory.Delete(attempt, recursive: true);
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(exception, "A rejected update download in {Attempt} could not be removed", attempt);
+            logger.LogWarning(notRemoved, "A rejected update download in {Attempt} could not be removed", attempt);
         }
     }
 

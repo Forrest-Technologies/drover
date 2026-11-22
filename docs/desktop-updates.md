@@ -46,9 +46,11 @@ Each download has a new directory of its own inside the private update folder, r
 outside Windows; inside the user's local application data on Windows). A retry, or a second check, therefore never
 shares a file with an earlier download that is still stopping. A download that fails, including a package rejected
 for a bad signature, has its attempt directory removed once the update library and the download are done with it, and
-a directory that cannot be removed is logged. If a download that ran past its time limit stops only after the 10
-second wait, the outcome it actually had is logged with its attempt directory: a partial file it could not remove, a
-partial file it removed, or a finished file it left on disk.
+a directory that cannot be removed is logged. A download that ran past its time limit is never used again, so its
+attempt directory is removed once the download and the update library are done with it, whatever the library decided
+about the file. Whether that happened within the 10 second wait is decided once, by whichever comes first. If it came
+later, the caller is told of the timeout at once, and the removal is logged with the attempt and how the download
+ended; a directory that cannot be removed is logged with why.
 
 Each check removes, as far as it can, entries of the update folder last written more than 24 hours earlier, and any
 link it finds there, which is removed and never followed. It never removes an attempt of the same process whose

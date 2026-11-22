@@ -32,6 +32,8 @@ internal sealed class UpdateCheckFlow(
     /// <summary>The update the latest completed check offered, if any.</summary>
     public AppCastItem? Available { get; private set; }
 
+    private bool IsDisposed => Volatile.Read(ref disposed) == 1;
+
     #endregion
 
     #region Public Methods
@@ -128,8 +130,6 @@ internal sealed class UpdateCheckFlow(
     #endregion
 
     #region Private Methods
-
-    private bool IsDisposed => Volatile.Read(ref disposed) == 1;
 
     private bool IsSuperseded(long ticket) => IsDisposed || Interlocked.Read(ref generation) != ticket;
 
