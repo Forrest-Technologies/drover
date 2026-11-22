@@ -56,6 +56,17 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             {
                 await Step("restore sign-in", RestoreSignIn);
             }
+            else if (settings.IsProof)
+            {
+                await Step("launch", Launch);
+                await Step("connect", Connect);
+                await Step("sign in", SignIn);
+                await Step("open a conversation", OpenConversation);
+                await Step("proof 1 chat: send a message and read the reply", SendMessage);
+                await Step("proof 2 upload: attach a picture and send it", AttachPicture);
+                await Step("proof 3 sandbox: open the screen and read its mode line", OpenSandboxScreen);
+                await Step("proof 4 drag: turn on control and wait for the touch drag", ReadyForDrag);
+            }
             else
             {
                 await Step("launch", Launch);
@@ -286,6 +297,71 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 ? list
                 : null);
     }
+
+    // The system's own file picker is another app: the harness chooses the picture there while this step waits, so
+    // the file reaches the conversation the way a person's attached screenshot does.
+    private async Task AttachPicture()
+    {
+        var name = settings.ProofPicture ?? throw new CheckFailedException("no picture was named for the proof");
+        await Type("ComposerField", "Here is the picture.");
+        await Press("ComposerMore");
+        await Press("ComposerAttach");
+        Report($"ui-check wait: choose {name} in the system picker");
+        var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
+
+        // The tray says each file's state in words, and announces it once it is up: "1 file ready to send." A file that
+        // did not go says "Not uploaded", or one of the server's refusals in words.
+        await Until($"{name} to be uploaded", () =>
+        {
+            var said = Words(root).ToList();
+
+            if (said.FirstOrDefault(IsFailure) is { } failure)
+            {
+                throw new CheckFailedException($"the attachment said \"{failure}\"");
+            }
+
+            return said.Any(words => words.Contains("ready to send", StringComparison.Ordinal)) ? root : null;
+        }, TimeSpan.FromSeconds(90));
+
+        await Press("ComposerSend");
+        await Until($"{name} in MessageList", () =>
+            Find("MessageList") is { } list && Words(list).Any(words => words.Contains(name, StringComparison.Ordinal))
+                ? list
+                : null);
+    }
+
+    private async Task OpenSandboxScreen()
+    {
+        var bot = settings.ProofBot ?? throw new CheckFailedException("no bot was named for the proof");
+        ((App)Application.Current).Services.GetRequiredService<Navigator>().NavigateTo($"/bots/{bot}/sandbox");
+        await Shown("SandboxPicture", startPatience);
+        await Until("the view-only mode line", () => WindowSays("View only.") ? window.Content : null);
+    }
+
+    private async Task ReadyForDrag()
+    {
+        if (await Shown("SandboxControl") is not Switch control)
+        {
+            throw new CheckFailedException("SandboxControl is not a switch");
+        }
+
+        control.Value = true;
+        await Until(
+            "the control mode line",
+            () => WindowSays("Clicks and keys go to the sandbox.") ? window.Content : null);
+        Report("ui-check wait: drag the sandbox picture");
+    }
+
+    private bool WindowSays(string words) =>
+        Words(window.Content ?? throw new CheckFailedException("the window has no content"))
+            .Any(said => said.Contains(words, StringComparison.Ordinal));
+
+    private static bool IsFailure(string words) =>
+        words.StartsWith("Not uploaded", StringComparison.Ordinal) || IsRefusal(words);
+
+    private static bool IsRefusal(string words) =>
+        Enum.GetValues<FileRefusal>().Where(refusal => refusal is not FileRefusal.None)
+            .Any(refusal => words == FileWords.Refused(refusal, "Check bot"));
 
     private async Task Back()
     {

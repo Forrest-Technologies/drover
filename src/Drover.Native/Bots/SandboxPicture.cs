@@ -53,6 +53,7 @@ internal sealed class SandboxPicture : UserControl
         PointerCanceled += (_, pointer) => Lifted(pointer, cancelled: true);
         PointerCaptureLost += (_, pointer) => Lifted(pointer, cancelled: true);
         KeyDown += Typed;
+        AutomationProperties.SetAutomationId(this, "SandboxPicture");
         this.WhenShownOrRethemed(Show);
     }
 
