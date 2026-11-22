@@ -1398,6 +1398,30 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_touch_still_queued_when_the_person_moves_to_another_space_is_never_sent_anywhere()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var person = Samples.Session();
+        var otherId = Guid.Parse("00000000-0000-7000-8000-0000000000b2");
+        var other = new SpaceSummary(otherId, "team", "Sample team", "team", "owner");
+        var session = services.GetRequiredService<SessionState>();
+        session.Begin(person with { Spaces = [.. person.Spaces, other] });
+        var gate = server.Hold("POST", $"{sandbox}/input");
+        Screen.Touch([new(ScreenTouchKind.Tap, 0, 0), new(ScreenTouchKind.Tap, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+
+        session.ChooseSpace(other.Id);
+        gate.SetResult();
+        await Screen.TouchesSent();
+
+        Requests("POST", $"{sandbox}/input").Should().HaveCount(1, "only the tap made before the move was sent");
+        server.Requests.Should().NotContain(
+            request => request.Path.Contains(other.Id.ToString(), StringComparison.Ordinal),
+            "a touch made for one space never goes to another");
+    }
+
+    [Fact]
     public async Task Lifting_after_a_long_press_is_said_before_it_happens_and_the_words_go_with_the_finger()
     {
         Answer(Status("running"));

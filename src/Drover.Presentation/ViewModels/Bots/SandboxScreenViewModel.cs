@@ -176,8 +176,10 @@ public sealed partial class SandboxScreenViewModel(
 
     public bool Sending { get; private set; }
 
-    /// <summary>Whether clicks and keys go to the sandbox. Off, the person only looks.</summary>
-    /// <summary>Whether the person drives the screen. Any change starts a new session of touches.</summary>
+    /// <summary>
+    /// Whether clicks and keys go to the sandbox. Off, the person only looks. Any change starts a new session of
+    /// touches.
+    /// </summary>
     public bool Control
     {
         get => control;
@@ -648,13 +650,23 @@ public sealed partial class SandboxScreenViewModel(
     public Task<bool> Scroll(bool up) =>
         Send(new SandboxInputRequest("scroll", Direction: up ? "up" : "down", Amount: 3, X: PointerAt.X, Y: PointerAt.Y));
 
-    /// <summary>Sends one input, then shows the screen it left, so the person sees what it did.</summary>
-    private async Task<bool> Send(SandboxInputRequest input)
+    /// <summary>
+    /// Sends one input, then shows the screen it left, so the person sees what it did. A touch names the space and bot
+    /// it was made for, and is refused when the screen no longer shows them.
+    /// </summary>
+    private async Task<bool> Send(SandboxInputRequest input, TouchTarget? to = null)
     {
         if (!DesktopReady || Sending || (!Control && input.Kind is not "open_terminal"))
         {
             return false;
         }
+
+        if (to is { } target && target != CurrentTarget)
+        {
+            return false;
+        }
+
+        var (space, bot) = to is { } given ? (given.Space, given.Bot) : (SpaceId, BotId);
 
         Sending = true;
         ScreenProblem = null;
@@ -665,7 +677,7 @@ public sealed partial class SandboxScreenViewModel(
 
         try
         {
-            await api.SendBotSandboxInput(SpaceId, BotId, input);
+            await api.SendBotSandboxInput(space, bot, input);
             sent = true;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
@@ -719,10 +731,10 @@ public sealed partial class SandboxScreenViewModel(
         switch (kind)
         {
             case ScreenTouchKind.Tap:
-                Queue(() => ClickAt(at, ClickMode is "right" ? "right" : "left", ClickMode is "double"));
+                Queue(to => ClickAt(to, at, ClickMode is "right" ? "right" : "left", ClickMode is "double"));
                 break;
             case ScreenTouchKind.LongPress:
-                Queue(() => ClickAt(at, "right", twice: false));
+                Queue(to => ClickAt(to, at, "right", twice: false));
                 break;
             case ScreenTouchKind.Press:
                 dragFrom = at;
@@ -755,7 +767,7 @@ public sealed partial class SandboxScreenViewModel(
         if (from != at)
         {
             var drag = new SandboxInputRequest("drag", X: from.X, Y: from.Y, Button: "left", X2: at.X, Y2: at.Y);
-            Queue(() => Send(drag));
+            Queue(to => Send(drag, to));
         }
     }
 
@@ -778,7 +790,7 @@ public sealed partial class SandboxScreenViewModel(
         }
     }
 
-    private async Task<bool> SendWheel()
+    private async Task<bool> SendWheel(TouchTarget to)
     {
         var mine = touchSession;
 
@@ -788,12 +800,13 @@ public sealed partial class SandboxScreenViewModel(
             {
                 var steps = Math.Clamp(wheel, -MaxWheelSteps, MaxWheelSteps);
                 var at = wheelAt;
-                var sent = await Send(new SandboxInputRequest(
+                var scroll = new SandboxInputRequest(
                     "scroll",
                     Direction: steps > 0 ? "up" : "down",
                     Amount: Math.Abs(steps),
                     X: at.X,
-                    Y: at.Y));
+                    Y: at.Y);
+                var sent = await Send(scroll, to);
 
                 // An answer that arrives after the session ended belongs to no count now.
                 if (mine != touchSession)
@@ -821,16 +834,22 @@ public sealed partial class SandboxScreenViewModel(
         }
     }
 
-    private Task<bool> ClickAt((int X, int Y) at, string button, bool twice)
+    private Task<bool> ClickAt(TouchTarget to, (int X, int Y) at, string button, bool twice)
     {
         PointerAt = at;
-        return Send(new SandboxInputRequest("click", X: at.X, Y: at.Y, Button: button, Twice: twice));
+        return Send(new SandboxInputRequest("click", X: at.X, Y: at.Y, Button: button, Twice: twice), to);
     }
 
     // One touch at a time, after the one before has been answered, so a drag never overtakes the tap before it. A touch
     // belongs to the session it was made in. False when it was turned away because too many wait.
-    private bool Queue(Func<Task<bool>> send)
+    private bool Queue(Func<TouchTarget, Task<bool>> send)
     {
+        // A touch is for the space and the bot on the screen when it was made, and only ever goes there.
+        if (session.Space?.Id is not { } space)
+        {
+            return false;
+        }
+
         if (touchesWaiting >= MaxTouchesWaiting)
         {
             ScreenProblem = "The sandbox has not caught up with your touches yet. Wait a moment, then try again.";
@@ -839,11 +858,11 @@ public sealed partial class SandboxScreenViewModel(
         }
 
         touchesWaiting++;
-        touches = After(touches, touchSession, BotId, send);
+        touches = After(touches, touchSession, new(space, BotId), send);
         return true;
     }
 
-    private async Task After(Task before, int session, Guid bot, Func<Task<bool>> send)
+    private async Task After(Task before, int madeIn, TouchTarget to, Func<TouchTarget, Task<bool>> send)
     {
         try
         {
@@ -856,11 +875,11 @@ public sealed partial class SandboxScreenViewModel(
                 await idle.Task;
             }
 
-            // A touch is sent only in the session it was made in, to the bot it was made for, while the person still
-            // drives the screen.
-            if (session == touchSession && bot == BotId && Control)
+            // A touch is sent only in the session it was made in, to the space and bot it was made for, while the
+            // person still drives the screen. Moving to another space or bot drops it.
+            if (madeIn == touchSession && to == CurrentTarget && Control)
             {
-                await send();
+                await send(to);
             }
         }
         catch (Exception exception)
@@ -947,6 +966,16 @@ public sealed partial class SandboxScreenViewModel(
 
     /// <summary>Whatever shows this model reads all of it again: one change can alter many of its sentences.</summary>
     private void Changed() => OnPropertyChanged(string.Empty);
+
+    #endregion
+
+    #region Targets
+
+    // The space and the bot the screen shows now, which a queued touch must still match to be sent.
+    private TouchTarget? CurrentTarget => session.Space?.Id is { } space ? new(space, BotId) : null;
+
+    /// <summary>The space and the bot a touch was made for.</summary>
+    private readonly record struct TouchTarget(Guid Space, Guid Bot);
 
     #endregion
 }
