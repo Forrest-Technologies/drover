@@ -71,6 +71,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool changing;
 
+    private bool taking;
+
     private bool markedOnOpen;
 
     private bool missing;
@@ -336,7 +338,61 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             markedOnOpen = true;
             await MarkSeen();
         }
+
+        await TakeWhatChanged();
     }
+
+    // The conversation learns of a message sent from a notification or another device, or of a run started somewhere
+    // else, only through the screen around it: the server reported the thread as newer than what is shown here. It
+    // reads the messages again and follows the run, and leaves the composer, its draft and its files as they are. A
+    // run it is following itself is left to read the messages when it ends, as before.
+    private async Task TakeWhatChanged()
+    {
+        if (thread is null || ReadOnly || loading || missing || gone || taking || sending || retrying || changing
+            || run is { IsActive: true }
+            || parameters.LatestThread?.Invoke(thread.Id) is not { } latest || !IsNewer(latest))
+        {
+            return;
+        }
+
+        taking = true;
+        try
+        {
+            var said = api.ListMessages(SpaceId, latest.Id, left);
+            var tools = LoadToolHistory(latest.Id, latest.ActiveRunId, left);
+            await Task.WhenAll(said, tools);
+            (stored, history, thread) = (await said, await tools, latest);
+
+            if (latest.ActiveRunId is { } runId)
+            {
+                Watch(runId);
+            }
+
+            await ReportBusy();
+            ShowNewest();
+            await MarkSeen();
+        }
+        catch (OperationCanceledException) when (left.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped taking in a change to thread {ThreadId}", latest.Id);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            // What was shown stays; the next signal, or the app coming back on screen, tries again.
+            logger.LogWarning(exception, "A change to thread {ThreadId} could not be read in the {Screen}", latest.Id,
+                nameof(ConversationViewModel));
+        }
+        finally
+        {
+            taking = false;
+        }
+    }
+
+    // Newer than what is shown: later activity, or a run this conversation is not following that began no earlier.
+    private bool IsNewer(ThreadSummary latest) =>
+        latest.LastActivityAt > thread!.LastActivityAt
+        || (latest.ActiveRunId is { } runId && runId != thread.ActiveRunId
+            && latest.LastActivityAt >= thread.LastActivityAt);
 
     // Past tool calls are shown as their runs' logs left them. Without the log the conversation still reads: each call
     // is then shown as the stored messages tell it.
