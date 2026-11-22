@@ -36,11 +36,14 @@ public sealed class SandboxControlService(
     RunScopes scopes,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
-    ILogger<SandboxControlService> logger)
+    ILogger<SandboxControlService> logger) : IAsyncDisposable
 {
     #region Private Fields
 
     private const string NoProvider = "No sandbox provider is set up on this server. The server's operator adds one.";
+
+    private const string NotPausedWhileHeld =
+        "A mouse button on this screen could not be let go of, so it was not paused. Try again or rebuild it.";
 
     private const string NoSandboxYet = "This bot has no sandbox yet. Run a command in the terminal to start one.";
 
@@ -48,6 +51,8 @@ public sealed class SandboxControlService(
     private static readonly TimeSpan commandLimit = TimeSpan.FromMinutes(5);
 
     private readonly SandboxBroker? broker = brokers.SingleOrDefault();
+
+    private SandboxPointerHolds? heldButtons;
 
     /// <summary>The screenshot being taken of each bot's sandbox, so requests that meet share one provider call.</summary>
     private readonly ConcurrentDictionary<(Guid SpaceId, Guid BotId, bool Wake), Lazy<Task<SandboxScreenshot>>> screens = new();
@@ -70,6 +75,11 @@ public sealed class SandboxControlService(
     /// </summary>
     internal Action? WorkCompleted { get; set; }
 
+    /// <summary>The mouse buttons people hold down, which are always let go of: see <see
+    /// cref="SandboxPointerHolds"/>.</summary>
+    internal SandboxPointerHolds Holds =>
+        LazyInitializer.EnsureInitialized(ref heldButtons, () => new SandboxPointerHolds(time, logger, ReleaseHeld));
+
     #endregion
 
     #region Public Methods
@@ -82,10 +92,24 @@ public sealed class SandboxControlService(
             cancellationToken);
 
     public Task<SandboxControlResult<BotSandboxStatus>> Pause(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
-        Power(spaceId, userId, botId, "sandbox.paused", (sandbox, person) => sandbox.Pause(person, cancellationToken), cancellationToken);
+        Power(
+            spaceId,
+            userId,
+            botId,
+            "sandbox.paused",
+            (sandbox, person, only) => sandbox.Pause(person, cancellationToken, only),
+            ButtonsOnPower.LetGoFirst,
+            cancellationToken);
 
     public Task<SandboxControlResult<BotSandboxStatus>> Resume(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
-        Power(spaceId, userId, botId, "sandbox.resumed", (sandbox, person) => sandbox.Resume(person, cancellationToken), cancellationToken);
+        Power(
+            spaceId,
+            userId,
+            botId,
+            "sandbox.resumed",
+            (sandbox, person, _) => sandbox.Resume(person, cancellationToken),
+            ButtonsOnPower.LetGoAfter,
+            cancellationToken);
 
     public Task<SandboxControlResult<BotSandboxStatus>> Rebuild(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
         Power(
@@ -93,15 +117,23 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.rebuilt",
-            async (sandbox, person) =>
+            async (sandbox, person, only) =>
             {
-                await sandbox.Rebuild(person, cancellationToken);
+                await sandbox.Rebuild(person, cancellationToken, only);
                 return true;
             },
+            ButtonsOnPower.Reset,
             cancellationToken);
 
     public Task<SandboxControlResult<BotSandboxStatus>> TurnOff(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
-        Power(spaceId, userId, botId, "sandbox.turned_off", (sandbox, person) => sandbox.TurnOff(person, cancellationToken), cancellationToken);
+        Power(
+            spaceId,
+            userId,
+            botId,
+            "sandbox.turned_off",
+            (sandbox, person, only) => sandbox.TurnOff(person, cancellationToken, only),
+            ButtonsOnPower.Reset,
+            cancellationToken);
 
     public Task<SandboxControlResult<SandboxScreenshot>> Screen(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
         Screen(spaceId, userId, botId, wake: true, cancellationToken);
@@ -120,36 +152,42 @@ public sealed class SandboxControlService(
             cancellationToken);
 
     /// <summary>
-    /// One click, typed text, key press, or scroll, built by the same <see cref="DesktopCommands"/> a bot's tools use,
-    /// with the same bounds and key list. A paused sandbox is resumed; one not made yet is not made for this.
+    /// One click, typed text, key press, scroll, or pointer action, built by the same <see cref="DesktopCommands"/> a
+    /// bot's tools use, with the same bounds and key list. A paused sandbox is resumed; one not made yet is not made
+    /// for this. A button a pointer action holds down is always let go of: see <see cref="SandboxPointerHolds"/>. The
+    /// <paramref name="sessionId"/> is the session the person is signed in with, which alone keeps a button it pressed
+    /// held by moving.
     /// </summary>
     public async Task<SandboxControlResult<bool>> Input(
         Guid spaceId,
         Guid userId,
         Guid botId,
         SandboxInputRequest input,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? sessionId = null)
     {
-        CommandRequest action;
-        string doing;
+        var (built, problem) = BuildInput(input);
 
-        try
+        if (built is null)
         {
-            (action, doing) = BuildAction(input);
+            return new(false, SandboxControlRefusal.Invalid, problem);
         }
-        catch (BuiltinToolException wrong)
-        {
-            return new(false, SandboxControlRefusal.Invalid, wrong.Message);
-        }
+
+        var (action, doing, pointer) = built;
+        var owner = new PointerOwner(userId, sessionId ?? Guid.Empty);
 
         return await Control(
             spaceId,
             userId,
             botId,
             new Audit("sandbox.input", new JsonObject { ["input"] = input.Kind }),
-            async (sandbox, person) => await sandbox.Act(person, action, doing, create: false, cancellationToken) is not null
-                ? true
-                : throw new BuiltinToolException(NoSandboxYet),
+            async (sandbox, person) => await Act(
+                sandbox,
+                person,
+                action,
+                doing,
+                Through(spaceId, botId, owner, pointer, cancellationToken),
+                cancellationToken),
             cancellationToken);
     }
 
@@ -182,6 +220,9 @@ public sealed class SandboxControlService(
             cancellationToken);
     }
 
+    /// <summary>Lets go of every button a person still holds down, as this server stops.</summary>
+    public ValueTask DisposeAsync() => heldButtons?.DisposeAsync() ?? ValueTask.CompletedTask;
+
     #endregion
 
     #region Acting
@@ -192,10 +233,24 @@ public sealed class SandboxControlService(
         Guid userId,
         Guid botId,
         string action,
-        Func<SandboxBroker, SandboxCaller, Task<bool>> work,
+        Func<SandboxBroker, SandboxCaller, Guid?, Task<bool>> work,
+        ButtonsOnPower buttons,
         CancellationToken cancellationToken)
     {
-        var done = await Control(spaceId, userId, botId, new Audit(action, null), work, cancellationToken, auditWhen: changed => changed);
+        var done = await Control(
+            spaceId,
+            userId,
+            botId,
+            new Audit(action, null),
+            (sandbox, person) => WithHeldButtons(
+                spaceId,
+                sandbox,
+                person,
+                buttons,
+                only => work(sandbox, person, only),
+                cancellationToken),
+            cancellationToken,
+            auditWhen: changed => changed);
 
         return done.Refusal is SandboxControlRefusal.None
             ? await GetStatus(spaceId, userId, botId, cancellationToken)
@@ -324,6 +379,111 @@ public sealed class SandboxControlService(
 
     #endregion
 
+    #region Pointer
+
+    private async Task<bool> Act(
+        SandboxBroker sandbox,
+        SandboxCaller person,
+        CommandRequest action,
+        string doing,
+        Func<Guid, Func<Task>, Task> around,
+        CancellationToken cancellationToken) =>
+        await sandbox.Act(person, action, doing, create: false, cancellationToken, around) is not null
+            ? true
+            : throw new BuiltinToolException(NoSandboxYet);
+
+    /// <summary>
+    /// How an input runs on the sandbox it reaches, which is known only once the sandbox is acquired. A press is noted
+    /// before its command runs, so that a command that fails, is cancelled, or runs out of time halfway still has its
+    /// button let go of; a drag lets go by itself and is noted the same way for when it does not; a move keeps what
+    /// this session holds; a release lets go of what anyone holds; any other input is refused only while a button
+    /// could not be let go of.
+    /// </summary>
+    private Func<Guid, Func<Task>, Task> Through(
+        Guid spaceId,
+        Guid botId,
+        PointerOwner owner,
+        PointerAction? pointer,
+        CancellationToken cancellationToken) =>
+        (sandboxId, run) => pointer switch
+        {
+            null => Holds.Guard(spaceId, sandboxId, run),
+            { Step: PointerStep.Down } => Holds.Press(
+                new PointerPress(spaceId, sandboxId, botId, owner, pointer.Button),
+                staysDown: true,
+                run,
+                cancellationToken),
+            { Step: PointerStep.Drag } => Holds.Press(
+                new PointerPress(spaceId, sandboxId, botId, owner, pointer.Button),
+                staysDown: false,
+                run,
+                cancellationToken),
+            { Step: PointerStep.Move } => Holds.Move(spaceId, sandboxId, owner, run),
+            _ => Holds.Lift(spaceId, sandboxId, pointer.Button, run, cancellationToken),
+        };
+
+    /// <summary>
+    /// Runs a power control with what is held down on the sandbox's display dealt with. Pausing keeps the display as it
+    /// is, so a button still down would be down when it resumes: the pause is refused when one cannot be let go of.
+    /// Resuming lets go of what a pause kept. Rebuilding and turning off destroy the display, which is what resets it,
+    /// so what was held on it is forgotten once that worked.
+    /// </summary>
+    private async Task<bool> WithHeldButtons(
+        Guid spaceId,
+        SandboxBroker sandbox,
+        SandboxCaller person,
+        ButtonsOnPower buttons,
+        Func<Guid?, Task<bool>> work,
+        CancellationToken cancellationToken)
+    {
+        if (await sandbox.CurrentSandbox(person, cancellationToken) is not { } sandboxId)
+        {
+            return await work(null);
+        }
+
+        if (buttons is ButtonsOnPower.LetGoAfter)
+        {
+            var resumed = await work(sandboxId);
+            await Holds.ReleaseAll(spaceId, sandboxId, cancellationToken);
+            return resumed;
+        }
+
+        var done = false;
+        var ran = await Holds.RunWhileReleased(
+            spaceId,
+            sandboxId,
+            required: buttons is ButtonsOnPower.LetGoFirst,
+            async () => done = await work(sandboxId),
+            cancellationToken);
+
+        if (!ran)
+        {
+            throw new BuiltinToolException(NotPausedWhileHeld);
+        }
+
+        if (done && buttons is ButtonsOnPower.Reset)
+        {
+            Holds.Forget(spaceId, sandboxId);
+        }
+
+        return done;
+    }
+
+    /// <summary>Lets go of a button a person held, as the person who pressed it, on the sandbox it was pressed
+    /// on.</summary>
+    private Task<ReleaseOutcome> ReleaseHeld(PointerPress held, CancellationToken cancellationToken)
+    {
+        if (broker is null)
+        {
+            return Task.FromResult(ReleaseOutcome.Gone);
+        }
+
+        var person = new SandboxCaller(scopes.For(held.SpaceId, held.Owner.UserId), held.BotId);
+        return broker.Release(person, held.SandboxId, DesktopCommands.Release([held.Button]), cancellationToken);
+    }
+
+    #endregion
+
     #region Checks
 
     /// <summary>Null when the person may change the bot; otherwise why not. Not a member and no such bot look the same.</summary>
@@ -363,6 +523,23 @@ public sealed class SandboxControlService(
         : command.Any(character => char.IsControl(character) && character is not '\n' and not '\t')
             ? "A command cannot hold control characters other than new lines and tabs."
             : null;
+
+    /// <summary>
+    /// The input as the command to run, built and checked as a bot's would be, or the plain sentence that refuses it.
+    /// </summary>
+    private static (BuiltInput? Built, string? Problem) BuildInput(SandboxInputRequest input)
+    {
+        try
+        {
+            var pointer = input.ToPointerAction();
+            var (action, doing) = pointer is null ? BuildAction(input) : (pointer.Command, pointer.Doing);
+            return (new BuiltInput(action, doing, pointer), null);
+        }
+        catch (BuiltinToolException wrong)
+        {
+            return (null, wrong.Message);
+        }
+    }
 
     /// <summary>The action as a program and its arguments, checked as a bot's would be. A wrong one is refused here.</summary>
     private static (CommandRequest Action, string Doing) BuildAction(SandboxInputRequest input) => input.Kind switch
@@ -478,6 +655,24 @@ public sealed class SandboxControlService(
     #endregion
 
     #region Nested Types
+
+    /// <summary>An input ready to run: its command, what it does, and the pointer action when it is one.</summary>
+    private sealed record BuiltInput(CommandRequest Action, string Doing, PointerAction? Pointer);
+
+    /// <summary>What a power control does about the mouse buttons held down on the sandbox's display.</summary>
+    private enum ButtonsOnPower
+    {
+        /// <summary>Let go of them before the control, and refuse it when that fails: pausing keeps the
+        /// display.</summary>
+        LetGoFirst,
+
+        /// <summary>Let go of what a pause kept, after the control.</summary>
+        LetGoAfter,
+
+        /// <summary>The control destroys the display: let go as far as possible, and forget what was held once it
+        /// worked.</summary>
+        Reset,
+    }
 
     /// <summary>What the audit log records for an action: its name and, at most, which kind of input it was.</summary>
     private sealed record Audit(string Action, JsonObject? About);
