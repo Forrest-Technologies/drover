@@ -14,15 +14,10 @@ on:
         required: true
         type: string
 
-  # TEMPORARY, removed before the pull request is ready: a workflow cannot be dispatched until it is on the default
-  # branch, so this branch's own pushes run it while it is being proved.
-  push:
-    branches: [build/800-android-smoke-gate]
-
 permissions: {}
 
 concurrency:
-  group: android-proof-${{ inputs.ref || github.sha }}
+  group: android-proof-${{ inputs.ref }}
   cancel-in-progress: true
 
 env:
@@ -41,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       # The key and paths are those of native.yml, so a proof run reuses what the pull request build downloaded.
       - name: Cache Android dependency downloads
