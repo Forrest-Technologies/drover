@@ -553,41 +553,54 @@ internal static class UpdatePackageTrust
         string downloadRoot,
         TimeSpan limit,
         ILogger logger,
-        TimeSpan? teardownLimit = null)
+        TimeSpan? teardownLimit = null,
+        TimeProvider? time = null)
     {
-        var downloaded = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Finished(AppCastItem item, string path) => downloaded.TrySetResult(path);
-        void Failed(AppCastItem item, string? path, Exception exception) => downloaded.TrySetException(exception);
-        void Corrupt(AppCastItem item, string path) =>
-            downloaded.TrySetException(new InvalidDataException(SignatureProblem));
-        void Cancelled(AppCastItem item, string path) => downloaded.TrySetCanceled();
-
+        var clock = time ?? TimeProvider.System;
+        var wait = teardownLimit ?? TeardownLimit;
         var downloader = updater.UpdateDownloader as BoundedPackageDownloader;
         var attempt = global::System.IO.Path.GetFullPath(PrepareAttemptDirectory(downloadRoot));
         activeAttempts[attempt] = 0;
         updater.TmpDownloadFilePath = attempt;
+
+        // The update library's verdict on this attempt. Callbacks for any other attempt are ignored.
+        var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Finished(AppCastItem item, string path) => _ = IsInAttempt(path, attempt) && verdict.TrySetResult(path);
+        void Failed(AppCastItem item, string? path, Exception exception) =>
+            _ = IsInAttempt(path, attempt) && verdict.TrySetException(exception);
+        void Corrupt(AppCastItem item, string path) =>
+            _ = IsInAttempt(path, attempt) && verdict.TrySetException(new InvalidDataException(SignatureProblem));
+        void Cancelled(AppCastItem item, string path) => _ = IsInAttempt(path, attempt) && verdict.TrySetCanceled();
+
+        void Unsubscribe()
+        {
+            updater.DownloadFinished -= Finished;
+            updater.DownloadHadError -= Failed;
+            updater.DownloadCanceled -= Cancelled;
+            updater.DownloadedFileIsCorrupt -= Corrupt;
+            updater.DownloadedFileThrewWhileCheckingSignature -= Corrupt;
+        }
 
         updater.DownloadFinished += Finished;
         updater.DownloadHadError += Failed;
         updater.DownloadCanceled += Cancelled;
         updater.DownloadedFileIsCorrupt += Corrupt;
         updater.DownloadedFileThrewWhileCheckingSignature += Corrupt;
+        var timedOut = false;
         try
         {
             await updater.InitAndBeginDownload(item);
-            return await downloaded.Task.WaitAsync(limit);
+            return await verdict.Task.WaitAsync(limit, clock);
         }
         catch (TimeoutException timeout)
         {
+            // The deadline won, so the timeout is the result. The verdict may still arrive while the download stops;
+            // the callbacks stay subscribed until then, and the verdict is reported with the teardown, never lost.
+            timedOut = true;
             updater.CancelFileDownload();
             var teardown = downloader is null
                 ? null
-                : await ObserveTeardown(
-                    downloader.Stopped,
-                    teardownLimit ?? TeardownLimit,
-                    TimeProvider.System,
-                    attempt,
-                    logger);
+                : await ObserveTeardown(downloader.Stopped, verdict.Task, wait, clock, attempt, logger);
 
             if (teardown is null)
             {
@@ -599,16 +612,20 @@ internal static class UpdatePackageTrust
         catch (Exception)
         {
             // A rejected package (a bad signature, a corrupt file) or any other failed download leaves nothing behind.
-            await RemoveRejectedAttempt(attempt, downloader, teardownLimit ?? TeardownLimit, logger);
+            await RemoveRejectedAttempt(attempt, downloader, wait, clock, logger);
             throw;
         }
         finally
         {
-            updater.DownloadFinished -= Finished;
-            updater.DownloadHadError -= Failed;
-            updater.DownloadCanceled -= Cancelled;
-            updater.DownloadedFileIsCorrupt -= Corrupt;
-            updater.DownloadedFileThrewWhileCheckingSignature -= Corrupt;
+            if (timedOut && downloader is not null)
+            {
+                _ = UnsubscribeWhenStopped(downloader.Stopped, Unsubscribe);
+            }
+            else
+            {
+                Unsubscribe();
+            }
+
             _ = ReleaseWhenStopped(attempt, downloader?.Stopped);
         }
     }
@@ -621,10 +638,13 @@ internal static class UpdatePackageTrust
     /// whatever the library decided about the file; a directory that cannot be removed is logged. When the download
     /// stopped in time, returns why it did not stop cleanly, or null. When the deadline won, returns the teardown
     /// timeout at once and removes and logs the attempt when <paramref name="stopped"/> completes later. Which of the
-    /// two happened is decided once, by <see cref="StoppedWithin"/>.
+    /// two happened is decided once, by <see cref="StoppedWithin"/>. The update library's <paramref name="verdict"/>
+    /// on the file, which it gives before <paramref name="stopped"/> completes, is observed either way: a rejection
+    /// in time is returned with the download's own failure, and a later one is logged.
     /// </summary>
     public static async Task<Exception?> ObserveTeardown(
         Task<DownloadOutcome> stopped,
+        Task<string> verdict,
         TimeSpan wait,
         TimeProvider time,
         string attempt,
@@ -632,13 +652,20 @@ internal static class UpdatePackageTrust
     {
         if (!await StoppedWithin(stopped, wait, time))
         {
-            _ = RemoveAfterLateStop(stopped, attempt, logger);
+            _ = RemoveAfterLateStop(stopped, verdict, attempt, logger);
             return new TimeoutException(TeardownProblem);
         }
 
         var outcome = await stopped;
-        RemoveTimedOutAttempt(attempt, outcome, late: false, logger);
-        return outcome.Cancelled ? null : outcome.Error;
+        var rejected = FaultOf(verdict);
+        RemoveTimedOutAttempt(attempt, outcome, rejected, late: false, logger);
+        List<Exception> causes = [.. FailureOf(outcome), .. rejected is null ? [] : new[] { rejected }];
+        return causes switch
+        {
+            [] => null,
+            [var only] => only,
+            _ => new AggregateException(TeardownProblem, causes),
+        };
     }
 
     /// <summary>
@@ -654,7 +681,14 @@ internal static class UpdatePackageTrust
             null,
             wait,
             Timeout.InfiniteTimeSpan);
-        _ = DecideWhenStopped(stopped, decided);
+        // The stop side is settled on the thread that completes the download, whatever the caller's synchronization
+        // context is: an await would queue it to a busy caller, or to the thread pool, and let the deadline win a race
+        // it lost. This one continuation is why ContinueWith is used here rather than await.
+        _ = stopped.ContinueWith(
+            _ => decided.TrySetResult(true),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
         return await decided.Task;
     }
 
@@ -718,40 +752,87 @@ internal static class UpdatePackageTrust
         activeAttempts.TryRemove(attempt, out _);
     }
 
-    private static async Task DecideWhenStopped(Task<DownloadOutcome> stopped, TaskCompletionSource<bool> decided)
-    {
-        await stopped;
-        decided.TrySetResult(true);
-    }
-
     /// <summary>Removes a timed-out attempt once its download stopped after the deadline, and logs it.</summary>
-    private static async Task RemoveAfterLateStop(Task<DownloadOutcome> stopped, string attempt, ILogger logger)
+    private static async Task RemoveAfterLateStop(
+        Task<DownloadOutcome> stopped,
+        Task<string> verdict,
+        string attempt,
+        ILogger logger)
     {
         var outcome = await stopped;
-        RemoveTimedOutAttempt(attempt, outcome, late: true, logger);
+        RemoveTimedOutAttempt(attempt, outcome, FaultOf(verdict), late: true, logger);
     }
 
+    private static async Task UnsubscribeWhenStopped(Task<DownloadOutcome> stopped, Action unsubscribe)
+    {
+        await stopped;
+        unsubscribe();
+    }
+
+    /// <summary>True when the update library's callback is about a file in <paramref name="attempt"/>.</summary>
+    private static bool IsInAttempt(string? path, string attempt)
+    {
+        var separator = global::System.IO.Path.DirectorySeparatorChar;
+        return path is null
+            || global::System.IO.Path.GetFullPath(path).StartsWith($"{attempt}{separator}", StringComparison.Ordinal);
+    }
+
+    /// <summary>The exception a settled verdict failed with, read so it is never an unobserved task fault.</summary>
+    private static Exception? FaultOf(Task<string> verdict) => verdict.Exception switch
+    {
+        null => null,
+        { InnerExceptions: [var only] } => only,
+        var several => several,
+    };
+
+    /// <summary>What a download's own outcome reports as a failure: never a plain cancellation.</summary>
+    private static Exception[] FailureOf(DownloadOutcome outcome) =>
+        outcome is { Cancelled: false, Error: { } error } ? [error] : [];
+
     /// <summary>
-    /// Removes the directory of a timed-out attempt. Logs a directory that cannot be removed, with why the download
-    /// ended, and logs a late stop that was cleaned up.
+    /// Removes the directory of a timed-out attempt. A directory that cannot be removed is logged as a warning with
+    /// every cause. A late stop is logged when its attempt was removed, with any failure the download or the update
+    /// library reported, and says so when a partial file that could not be removed then was removed with the attempt.
     /// </summary>
-    private static void RemoveTimedOutAttempt(string attempt, DownloadOutcome outcome, bool late, ILogger logger)
+    private static void RemoveTimedOutAttempt(
+        string attempt,
+        DownloadOutcome outcome,
+        Exception? rejected,
+        bool late,
+        ILogger logger)
     {
         var ended = outcome.Finished ? "finished" : outcome.Cancelled ? "was cancelled" : "failed";
+        List<Exception> causes = [.. FailureOf(outcome), .. rejected is null ? [] : new[] { rejected }];
         var notRemoved = RemoveDirectory(attempt);
 
         if (notRemoved is not null)
         {
-            var causes = outcome.Error is null ? [notRemoved] : new[] { outcome.Error, notRemoved };
             logger.LogWarning(
-                new AggregateException(TeardownProblem, causes),
+                new AggregateException(TeardownProblem, [.. causes, notRemoved]),
                 "A timed-out update download in {Attempt} {Ended} and its attempt could not be removed",
                 attempt,
                 ended);
+            return;
         }
-        else if (late)
+
+        if (!late)
+        {
+            return;
+        }
+
+        var reported = causes.Count == 0 ? null : new AggregateException(TeardownProblem, causes);
+        if (outcome.NotRemoved is not null)
         {
             logger.LogInformation(
+                reported,
+                "A timed-out update download in {Attempt} {Ended} late; its stuck partial file went with its attempt",
+                attempt,
+                ended);
+        }
+        else
+        {
+            logger.LogInformation(
+                reported,
                 "A timed-out update download in {Attempt} {Ended} after its deadline and its attempt was removed",
                 attempt,
                 ended);
@@ -785,9 +866,10 @@ internal static class UpdatePackageTrust
         string attempt,
         BoundedPackageDownloader? downloader,
         TimeSpan wait,
+        TimeProvider time,
         ILogger logger)
     {
-        if (downloader is not null && !await StoppedWithin(downloader.Stopped, wait, TimeProvider.System))
+        if (downloader is not null && !await StoppedWithin(downloader.Stopped, wait, time))
         {
             logger.LogWarning("A rejected update download in {Attempt} did not stop, so it is left for now", attempt);
             return;

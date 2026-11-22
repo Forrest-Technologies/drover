@@ -1240,8 +1240,8 @@ public sealed class DesktopUpdateTests
         var later = DateTimeOffset.UtcNow.AddDays(2);
 
         // The gate holds the old attempt's teardown: it cannot see its cancellation or remove its file until opened.
-        using var gate = new ManualResetEventSlim(false);
-        oldDownloader.DownloadProgressChanged += (_, _) => Hold(gate);
+        using var gate = new CallbackGate(gateLimit);
+        oldDownloader.DownloadProgressChanged += (_, _) => gate.Hold();
 
         try
         {
@@ -1271,8 +1271,11 @@ public sealed class DesktopUpdateTests
                 TimeSpan.FromSeconds(20),
                 NullLogger.Instance);
 
-            gate.Set();
+            gate.Open();
             await Within(oldDownloader.Stopped, "the old download after its gate opened");
+            gate.Expired.Should().BeFalse("the old attempt was held by the test, not let go by an expired gate");
+            (await oldDownloader.Stopped).Cancelled
+                .Should().BeTrue("the old attempt stopped because its time ran out, after the retry finished");
 
             Path.GetDirectoryName(nextPath).Should().NotBe(Path.GetDirectoryName(oldPath));
             (await File.ReadAllBytesAsync(nextPath, TestContext.Current.CancellationToken))
@@ -1287,7 +1290,7 @@ public sealed class DesktopUpdateTests
         }
         finally
         {
-            gate.Set();
+            gate.Open();
         }
     }
 
@@ -1413,8 +1416,8 @@ public sealed class DesktopUpdateTests
 
         // The gate holds teardown past the deadline. Once it opens, the file is made impossible to remove, so the late
         // outcome is a cleanup failure.
-        using var gate = new ManualResetEventSlim(false);
-        downloader.DownloadProgressChanged += (_, _) => Hold(gate);
+        using var gate = new CallbackGate(gateLimit);
+        downloader.DownloadProgressChanged += (_, _) => gate.Hold();
         var blocked = BlockRemovalOnFirstProgress(updater);
 
         try
@@ -1432,7 +1435,7 @@ public sealed class DesktopUpdateTests
                 exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
             log.Entries.Should().BeEmpty("the download has not stopped yet");
 
-            gate.Set();
+            gate.Open();
             await WaitUntil(() => !log.Entries.IsEmpty);
 
             var entry = log.Entries.Should().ContainSingle().Subject;
@@ -1440,10 +1443,11 @@ public sealed class DesktopUpdateTests
             entry.Message.Should().Contain(Path.GetDirectoryName(blocked.Path), "the attempt is named");
             entry.Exception.Should().BeOfType<AggregateException>()
                 .Which.InnerExceptions.Should().Contain(exception => IsRemovalFailure(exception));
+            gate.Expired.Should().BeFalse("the download was held by the test, not let go by an expired gate");
         }
         finally
         {
-            gate.Set();
+            gate.Open();
             await Within(downloader.Stopped, "the download after its gate opened");
             AllowRemoval(blocked.Path);
         }
@@ -1656,7 +1660,7 @@ public sealed class DesktopUpdateTests
             // every continuation waits in the queue. So the deadline wins, and the download is complete before the
             // production wait resumes: a later look at the task would wrongly call it in time.
             SynchronizationContext.SetSynchronizationContext(context);
-            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, wait, time, attempt, log);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
             using var download = time.CreateTimer(
                 _ => stopped.SetResult(outcome),
                 null,
@@ -1713,7 +1717,7 @@ public sealed class DesktopUpdateTests
 
         try
         {
-            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, wait, time, attempt, log);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
             time.Advance(wait - TimeSpan.FromTicks(1));
             stopped.SetResult(new DownloadOutcome(failure, Cancelled: false, notRemoved));
             time.Advance(TimeSpan.FromTicks(1));
@@ -1749,7 +1753,7 @@ public sealed class DesktopUpdateTests
         feed.Add("package.bin", tampered);
         var root = Path.Combine(Path.GetTempPath(), $"drover-late-reject-{Guid.NewGuid():N}");
         using var client = Client();
-        using var gate = new ManualResetEventSlim(false);
+        using var gate = new CallbackGate(gateLimit);
         var log = new RecordingLogger();
 
         try
@@ -1762,7 +1766,7 @@ public sealed class DesktopUpdateTests
 
             // This handler is added before the library's own, so it runs first: the whole package is written, and the
             // library's signature verdict waits for the gate while the deadline passes.
-            downloader.DownloadFileCompleted += (_, _) => Hold(gate);
+            downloader.DownloadFileCompleted += (_, _) => gate.Hold();
 
             var download = () => UpdatePackageTrust.Download(
                 updater,
@@ -1778,18 +1782,24 @@ public sealed class DesktopUpdateTests
             Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
                 .Should().ContainSingle("the whole package is on disk while the verdict waits");
 
-            gate.Set();
+            gate.Open();
             await Within(downloader.Stopped, "the download after its gate opened");
             await WaitUntil(() => !log.Entries.IsEmpty);
 
             corrupt.Should().Be(1, "the library rejected the package after the deadline");
             Directory.EnumerateFileSystemEntries(root)
                 .Should().BeEmpty("the rejected package and its attempt are removed once the library is done with it");
-            log.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Information);
+            var entry = log.Entries.Should().ContainSingle().Subject;
+            entry.Level.Should().Be(LogLevel.Information);
+            entry.Exception.Should().BeOfType<AggregateException>()
+                .Which.InnerExceptions.Should().ContainSingle(exception =>
+                    exception is InvalidDataException && exception.Message == UpdatePackageTrust.SignatureProblem,
+                    "the late rejection is logged, not lost");
+            gate.Expired.Should().BeFalse("the verdict was held by the test, not let go by an expired gate");
         }
         finally
         {
-            gate.Set();
+            gate.Open();
             Directory.Delete(root, true);
         }
     }
@@ -1905,12 +1915,12 @@ public sealed class DesktopUpdateTests
         using var updater = StableUpdater(served.Feed, served.PublicKey, served.Directory, served.Client);
         var offered = await Offered(updater);
         var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
-        using var gate = new ManualResetEventSlim(false);
+        using var gate = new CallbackGate(gateLimit);
 
         // The download announces its start before its first await. Run on the caller's thread, this handler would
         // block the caller itself, inside the update library, before any time limit had started, and the caller
         // would only go on once the gate gave up. Thread ids are not compared: the pool reuses threads.
-        downloader.DownloadStarted += (_, _, _) => Hold(gate);
+        downloader.DownloadStarted += (_, _, _) => gate.Hold();
 
         try
         {
@@ -1929,11 +1939,11 @@ public sealed class DesktopUpdateTests
                 .BeLessThan(TimeSpan.FromSeconds(10), "the time limit holds while the download is stuck");
             failure.InnerExceptions.Should().Contain(exception =>
                 exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
-            gate.IsSet.Should().BeFalse("the download was still stuck when its timeout was reported");
+            gate.IsOpen.Should().BeFalse("the download was still stuck when its timeout was reported");
         }
         finally
         {
-            gate.Set();
+            gate.Open();
             await Within(downloader.Stopped, "the stuck download after its gate opened");
         }
 
@@ -1943,10 +1953,11 @@ public sealed class DesktopUpdateTests
             || !Directory.EnumerateDirectories(served.Directory).Any());
         Directory.EnumerateFileSystemEntries(served.Directory)
             .Should().BeEmpty("a timed-out attempt is removed once its download stops");
+        gate.Expired.Should().BeFalse("the download was held by the test, not let go by an expired gate");
     }
 
     [Fact]
-    public async Task A_download_that_ends_at_once_never_finishes_on_the_thread_that_started_it()
+    public async Task A_download_that_ends_at_once_does_not_block_the_call_that_started_it()
     {
         using var client = Client();
         using var downloader = new BoundedPackageDownloader(client, 4096);
@@ -1972,7 +1983,155 @@ public sealed class DesktopUpdateTests
             await Within(running, "a download with no address");
         }
 
-        inline.Should().Be(0, "a download's completion never runs on the thread that started it");
+        inline.Should().Be(0, "a download's completion never blocks the call that started it");
+    }
+
+    [Fact]
+    public async Task A_rejection_that_arrives_in_the_teardown_window_is_reported_with_the_timeout()
+    {
+        var (publicKey, privateKey) = Key(
+            nameof(A_rejection_that_arrives_in_the_teardown_window_is_reported_with_the_timeout));
+        var original = Enumerable.Range(0, 4096).Select(index => (byte)index).ToArray();
+        var tampered = original.ToArray();
+        tampered[^1] ^= 1;
+        await using var feed = await FeedHost.Open();
+        var item = AppCast(
+            "2.0.0",
+            null,
+            $"{feed.Address}package.bin",
+            Sign(original, privateKey),
+            HostOs(),
+            tampered.Length);
+        feed.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey));
+        feed.Add("package.bin", tampered);
+        var root = Path.Combine(Path.GetTempPath(), $"drover-window-reject-{Guid.NewGuid():N}");
+        using var client = Client();
+        using var gate = new CallbackGate(gateLimit);
+        var log = new RecordingLogger();
+        var limit = TimeSpan.FromSeconds(1);
+        var teardownLimit = TimeSpan.FromSeconds(10);
+        var time = new SignalingTime(limit);
+
+        try
+        {
+            using var updater = StableUpdater($"{feed.Address}appcast.xml", publicKey, root, client);
+            var offered = await Offered(updater);
+            var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
+            var corrupt = 0;
+            updater.DownloadedFileIsCorrupt += (_, _) => corrupt++;
+
+            // Added before the library's own handler, so it runs first: the whole package is written, and the library's
+            // verdict waits here.
+            downloader.DownloadFileCompleted += (_, _) => gate.Hold();
+
+            var download = UpdatePackageTrust.Download(updater, offered, root, limit, log, teardownLimit, time);
+            await Within(gate.Entered.Task, "the package transfer");
+            await Within(time.DeadlineSet.Task, "the download's time limit");
+
+            // The time limit passes; the teardown wait has ten more seconds that never pass. The verdict is let go
+            // inside that window.
+            time.Advance(limit);
+            gate.Open();
+
+            var failure = (await FluentActions.Awaiting(() => download)
+                .Should().ThrowAsync<AggregateException>()).Which;
+            failure.Message.Should().StartWith(UpdatePackageTrust.TimeoutProblem);
+            failure.InnerExceptions[0].Should().BeOfType<TimeoutException>("the timeout stays the primary result")
+                .Which.Message.Should().NotBe(UpdatePackageTrust.TeardownProblem, "the download stopped in time");
+            failure.InnerExceptions.Should().ContainSingle(exception =>
+                exception is InvalidDataException && exception.Message == UpdatePackageTrust.SignatureProblem,
+                "a rejection inside the teardown window is reported with the timeout, never lost");
+            corrupt.Should().Be(1);
+            Directory.EnumerateFileSystemEntries(root).Should().BeEmpty("the rejected attempt is removed");
+            log.Entries.Should().BeEmpty("the caller heard of the rejection, so nothing needs logging");
+            gate.Expired.Should().BeFalse();
+        }
+        finally
+        {
+            gate.Open();
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_download_that_stops_while_the_caller_is_busy_is_still_in_time()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-busy-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
+        var log = new RecordingLogger();
+        var context = new QueueingContext();
+        var previous = SynchronizationContext.Current;
+
+        try
+        {
+            // The caller's context holds every continuation until the test runs them, as a busy UI thread would. The
+            // download stops first, on a worker thread as a real download does, and only then does the deadline pass.
+            SynchronizationContext.SetSynchronizationContext(context);
+            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
+            var cancelled = new DownloadOutcome(new OperationCanceledException(), Cancelled: true);
+            var worker = new Thread(() => stopped.SetResult(cancelled));
+            worker.Start();
+            worker.Join(gateLimit).Should().BeTrue("the worker only completes the download's stop");
+            time.Advance(wait);
+            context.RunAll();
+            SynchronizationContext.SetSynchronizationContext(previous);
+
+            (await teardown).Should().BeNull("the download stopped before the deadline, so it was in time");
+            Directory.Exists(attempt).Should().BeFalse();
+            log.Entries.Should().BeEmpty("a download in time needs no late report");
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_late_stop_whose_partial_file_was_stuck_keeps_that_failure_when_its_attempt_is_removed()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-stuck-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        await File.WriteAllBytesAsync(
+            Path.Combine(attempt, "package.bin"),
+            [1, 2, 3],
+            TestContext.Current.CancellationToken);
+        var stopped = new TaskCompletionSource<DownloadOutcome>();
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
+        var log = new RecordingLogger();
+        var held = new IOException("Sample: the partial file was held.");
+
+        try
+        {
+            var teardown = UpdatePackageTrust.ObserveTeardown(stopped.Task, NoVerdict(), wait, time, attempt, log);
+            time.Advance(wait);
+            (await teardown).Should().BeOfType<TimeoutException>()
+                .Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem);
+
+            // The download stops late. Its partial file could not be removed then, but by now the attempt can be.
+            var failure = new AggregateException(
+                BoundedPackageDownloader.CleanupProblem,
+                new OperationCanceledException(),
+                held);
+            stopped.SetResult(new DownloadOutcome(failure, Cancelled: false, held));
+            await WaitUntil(() => !log.Entries.IsEmpty);
+
+            var entry = log.Entries.Should().ContainSingle().Subject;
+            entry.Level.Should().Be(LogLevel.Information);
+            entry.Message.Should().Contain(attempt).And.Contain("stuck partial file");
+            entry.Exception.Should().NotBeNull("the earlier failure is kept even though the removal later succeeded");
+            entry.Exception!.Should().BeOfType<AggregateException>()
+                .Which.Flatten().InnerExceptions.Should().Contain(held);
+            Directory.Exists(attempt).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     [Fact]
@@ -2211,18 +2370,6 @@ public sealed class DesktopUpdateTests
     }
 
     /// <summary>
-    /// Blocks a download callback until the test opens <paramref name="gate"/>. A gate never opened fails the callback
-    /// after <see cref="gateLimit"/> with a clear message instead of holding the test run forever.
-    /// </summary>
-    private static void Hold(ManualResetEventSlim gate)
-    {
-        if (!gate.Wait(gateLimit))
-        {
-            throw new TimeoutException($"Test harness: a gate was not opened within {gateLimit}.");
-        }
-    }
-
-    /// <summary>
     /// Awaits <paramref name="task"/>, failing the test with a clear message if it has not finished within
     /// <see cref="gateLimit"/>, so a stuck test fails instead of hanging the run.
     /// </summary>
@@ -2237,6 +2384,9 @@ public sealed class DesktopUpdateTests
             throw new Xunit.Sdk.XunitException($"Test harness: {what} did not finish within {gateLimit}.", exception);
         }
     }
+
+    /// <summary>A verdict the update library never gave.</summary>
+    private static Task<string> NoVerdict() => new TaskCompletionSource<string>().Task;
 
     private static bool IsRemovalFailure(Exception exception) =>
         exception is IOException or UnauthorizedAccessException;
@@ -2520,6 +2670,102 @@ internal sealed record ServedPackage(
             global::System.IO.Directory.Delete(Directory, true);
         }
     }
+}
+
+
+/// <summary>
+/// A gate a download callback waits on until the test opens it. A gate never opened fails its callback after the
+/// limit and records that in <see cref="Expired"/>, so a test can check that it never passed on a gate that gave up.
+/// </summary>
+internal sealed class CallbackGate(TimeSpan limit) : IDisposable
+{
+    #region Private Fields
+
+    private readonly ManualResetEventSlim opened = new(false);
+
+    private volatile bool expired;
+
+    #endregion
+
+    #region Properties
+
+    public bool IsOpen => opened.IsSet;
+
+    public bool Expired => expired;
+
+    /// <summary>Completes the first time a callback reaches the gate.</summary>
+    public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    #endregion
+
+    #region Public Methods
+
+    public void Open() => opened.Set();
+
+    public void Hold()
+    {
+        Entered.TrySetResult();
+        if (!opened.Wait(limit))
+        {
+            expired = true;
+            throw new TimeoutException($"Test harness: a gate was not opened within {limit}.");
+        }
+    }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public void Dispose()
+    {
+        opened.Set();
+        opened.Dispose();
+    }
+
+    #endregion
+}
+
+
+/// <summary>
+/// A fake clock that says when the timer for <paramref name="deadline"/> is created, so a test can pass that deadline
+/// only once something is waiting for it.
+/// </summary>
+internal sealed class SignalingTime(TimeSpan deadline) : TimeProvider
+{
+    #region Private Fields
+
+    private readonly FakeTimeProvider inner = new();
+
+    #endregion
+
+    #region Properties
+
+    public TaskCompletionSource DeadlineSet { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public override long TimestampFrequency => inner.TimestampFrequency;
+
+    #endregion
+
+    #region Public Methods
+
+    public void Advance(TimeSpan by) => inner.Advance(by);
+
+    public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+    public override long GetTimestamp() => inner.GetTimestamp();
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = inner.CreateTimer(callback, state, dueTime, period);
+        if (dueTime == deadline)
+        {
+            DeadlineSet.TrySetResult();
+        }
+
+        return timer;
+    }
+
+    #endregion
 }
 
 

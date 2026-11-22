@@ -35,8 +35,9 @@ checked. The signed feed and its detached signature are each read up to 1 MiB, a
 8 MiB. Each read must finish within 30 seconds. A declared length over the limit is refused before the body is read,
 and a body that runs past it is refused at that point.
 
-A package download runs on the thread pool, never on the thread that started it, so its time limit covers the
-whole transfer even when the response is already buffered and every read completes at once. A package download stops
+A package download runs on the thread pool, so a callback during the download can never block the call that started
+it, and its time limit covers the whole transfer even when the response is already buffered and every read completes
+at once. A package download stops
 at 512 MiB while it streams. A declared length over the limit is refused before the file is
 created. A download that runs past the limit, fails, or is cancelled is stopped and its partial file removed before the
 update library checks its signature. A partial file that cannot be removed is reported together with the reason the
@@ -46,13 +47,15 @@ failed, the timeout and that failure are reported and logged together.
 
 Each download has a new directory of its own inside the private update folder, readable only by the user (mode 0700
 outside Windows; inside the user's local application data on Windows). A retry, or a second check, therefore never
-shares a file with an earlier download that is still stopping. A download that fails, including a package rejected
-for a bad signature, has its attempt directory removed once the update library and the download are done with it, and
-a directory that cannot be removed is logged. A download that ran past its time limit is never used again, so its
-attempt directory is removed once the download and the update library are done with it, whatever the library decided
-about the file. Whether that happened within the 10 second wait is decided once, by whichever comes first. If it came
-later, the caller is told of the timeout at once, and the removal is logged with the attempt and how the download
-ended; a directory that cannot be removed is logged with why.
+shares a file with an earlier download that is still stopping. A download that fails, including a package rejected for
+a bad signature, has its attempt directory removed once the update library and the download are done with it, and a
+directory that cannot be removed is logged. A download that ran past its time limit is never used again. The update
+library's verdict on its file may still arrive while it stops; a rejection that arrives within the 10 second wait is
+reported with the timeout, and one that arrives later is logged. Its attempt directory is removed once the download
+and the update library are done with it, whatever the library decided about the file. Whether that happened within the
+10 second wait is decided once, by whichever comes first. If it came later, the caller is told of the timeout at once,
+and the removal is logged with the attempt and how the download ended; a directory that cannot be removed is logged
+with why.
 
 Each check removes, as far as it can, entries of the update folder last written more than 24 hours earlier, and any
 link it finds there, which is removed and never followed. It never removes an attempt of the same process whose
