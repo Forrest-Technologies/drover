@@ -301,20 +301,18 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         Report($"ui-check wait: choose {name} in the system picker");
         var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
 
+        // The tray says each file's state in words, and announces it once it is up: "1 file ready to send." A file that
+        // did not go says "Not uploaded", or one of the server's refusals in words.
         await Until($"{name} to be uploaded", () =>
         {
-            var status = StatusBeside(root, name);
+            var said = Words(root).ToList();
 
-            // "Uploading" is the chip on its way, and the sentence it is announced in. A sentence that is anything else
-            // is a refusal or a failure; a size is a file that is up.
-            if (status is null || status.StartsWith("Uploading", StringComparison.Ordinal))
+            if (said.FirstOrDefault(words => words.StartsWith("Not uploaded", StringComparison.Ordinal) || IsRefusal(words)) is { } failure)
             {
-                return null;
+                throw new CheckFailedException($"the attachment said \"{failure}\"");
             }
 
-            return status.EndsWith('.')
-                ? throw new CheckFailedException($"the attachment said \"{status}\"")
-                : root;
+            return said.Any(words => words.Contains("ready to send", StringComparison.Ordinal)) ? root : null;
         }, TimeSpan.FromSeconds(90));
 
         await Press("ComposerSend");
@@ -348,13 +346,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         Report("ui-check wait: drag the sandbox picture");
     }
 
-    // The words drawn after a file's name are the state of its chip: its size once it is up, or why it is not.
-    private static string? StatusBeside(DependencyObject root, string name)
-    {
-        var words = Words(root).ToList();
-        var at = words.FindIndex(word => string.Equals(word, name, StringComparison.Ordinal));
-        return at >= 0 && at + 1 < words.Count ? words[at + 1] : null;
-    }
+    private static bool IsRefusal(string words) =>
+        Enum.GetValues<FileRefusal>().Where(refusal => refusal is not FileRefusal.None)
+            .Any(refusal => words == FileWords.Refused(refusal, "Check bot"));
 
     private async Task Back()
     {
