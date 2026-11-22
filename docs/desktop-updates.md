@@ -42,17 +42,36 @@ failed, the timeout and that failure are reported and logged together.
 
 Each download has a new directory of its own inside the private update folder, readable only by the user (mode 0700
 outside Windows; inside the user's local application data on Windows). A retry, or a second check, therefore never
-shares a file with an earlier download that is still stopping. Each check removes earlier attempt directories as far
-as it can, except one whose download has not stopped yet and the one that holds a verified package still shown to the
-person. Turning update checks off or on during a download or install leaves it running and shown.
+shares a file with an earlier download that is still stopping. If a download that ran past its time limit stops only
+after the 10 second wait, its final outcome, including a partial file it could not remove, is logged with its attempt
+directory.
+
+Each check removes, as far as it can, entries of the update folder last written more than 24 hours earlier, and any
+link it finds there, which is removed and never followed. It never removes an attempt of the same process whose
+download has not stopped, or the one that holds a verified package still shown to the person. Another running copy of
+Drover may be using a newer attempt, and no download or installer handoff lasts a day, so the age alone bounds what is
+left behind without a lock shared between copies.
+
+A check that resumes after a newer check began, or after the checks setting changed, does nothing more: it does not
+replace the updater, clean the update folder, or change what is shown. Turning update checks off or on, or failing to
+save that setting, leaves a download or install in progress running and shown.
 
 The package file is created only where nothing exists yet, shared with no one. Every file the update library checks (a
-fresh download, and the file again before the installer starts) is read by a checker that opens it first and then
-checks the open file: it must be a regular file, and outside Windows its device and inode must match the entry the name
-points to, read without following a link. On Windows the open does not follow a reparse point, and the open file must
-not be one. A link, a reparse point, or a name that now points elsewhere is refused. The length comes from the same
-open file, and at most 512 MiB is read from it before the strict Ed25519 check runs. The package is then read again
-through a bounded buffer in the same way, and one that fails any of these checks is never handed to the installer.
+fresh download, and the file again before the installer starts) is refused if its path is a link or reparse point, then
+opened once; the length comes from that open file, and at most 512 MiB is read from it before the strict Ed25519 check
+runs. The package is then read again through a bounded buffer in the same way, and one that fails any of these checks is
+never handed to the installer.
+
+## Threat model
+
+In scope: the release feed, its signature, the release list, and the package delivery endpoint, which may send anything
+of any size or take any time, and an attacker on the network between Drover and them. The signing key, the channel
+filter, the version record, and the size and time limits above are the defenses against them.
+
+Out of scope: another process running as the same user. The update folder sits in that user's application data and is
+private to them, and such a process can already replace the installed app itself, so checks against it would add no
+protection. The link refusal and the exclusive create above are defense in depth, not a guarantee against a process
+that swaps names between a check and an open.
 
 ## Manual run
 

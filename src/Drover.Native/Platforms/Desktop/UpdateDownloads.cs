@@ -229,7 +229,7 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
     /// <summary>
     /// Writes the body to a new file at <paramref name="path"/>. The file is created only if nothing is there, link
-    /// included, shared with no one, and checked on its handle, so the write can never reach another file.
+    /// included, and shared with no one, so the write can never reach another file.
     /// </summary>
     private async Task Save(
         Uri address,
@@ -247,7 +247,7 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
         }
 
         await using var body = await response.Content.ReadAsStreamAsync(cancellation);
-        var handle = PackageFiles.CreateForWrite(path);
+        var handle = UpdatePackageTrust.CreatePackage(path);
         created.Value = true;
         await using var file = new FileStream(handle, FileAccess.Write, 81920, isAsync: true);
         var chunk = new byte[81920];

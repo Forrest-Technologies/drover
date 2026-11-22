@@ -13,12 +13,6 @@ internal static class UpdatePackageTrust
 {
     #region Private Fields
 
-    private const int AtCurrentDirectory = -100;
-
-    private const int DoNotFollowLinks = 0x100;
-
-    private const uint UserIdMask = 0x8;
-
     /// <summary>Attempt directories whose download has not stopped yet. No cleanup ever removes one.</summary>
     private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, byte> activeAttempts =
         new(StringComparer.Ordinal);
@@ -51,8 +45,17 @@ internal static class UpdatePackageTrust
 
     public const string TeardownProblem = "The update download did not stop in time, so its partial file may remain.";
 
+    public const string SettingProblem = "Drover could not save the update setting.";
+
     /// <summary>The start of the name of each download attempt's own directory.</summary>
     public const string AttemptPrefix = "attempt-";
+
+    /// <summary>
+    /// How old an entry of the update folder must be before a check removes it. Another running copy of Drover may
+    /// still be using a newer one, and no download or installer handoff takes this long, so the age bounds what is
+    /// left behind without any lock shared between copies.
+    /// </summary>
+    public static readonly TimeSpan OldAttemptAge = TimeSpan.FromHours(24);
 
     /// <summary>
     /// The longest a download that ran past its time limit is given to stop, close its file, and remove it before the
@@ -199,9 +202,54 @@ internal static class UpdatePackageTrust
     /// </summary>
     public static bool IsWithinLimit(string path, long limit)
     {
-        using var handle = PackageFiles.OpenForRead(path, FileOptions.None);
-        return handle is not null && RandomAccess.GetLength(handle) <= limit;
+        if (IsLinkOrReparsePoint(path))
+        {
+            return false;
+        }
+
+        using var handle = OpenPackage(path, FileOptions.None);
+        return RandomAccess.GetLength(handle) <= limit;
     }
+
+    /// <summary>
+    /// Opens a downloaded package for reading. A link or reparse point at the path is refused first. The length and
+    /// every byte read come from this one handle. A process of the same user that swaps the name between the check and
+    /// the open is outside the threat model (docs/desktop-updates.md).
+    /// </summary>
+    public static Microsoft.Win32.SafeHandles.SafeFileHandle OpenPackage(string path, FileOptions options) =>
+        IsLinkOrReparsePoint(path)
+            ? throw new InvalidDataException(LinkProblem)
+            : File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, options);
+
+    /// <summary>
+    /// Creates a new package file for writing, shared with no one. The create fails if anything, a link included, is
+    /// already at the path, so a write never goes through to another file.
+    /// </summary>
+    public static Microsoft.Win32.SafeHandles.SafeFileHandle CreatePackage(string path) =>
+        File.OpenHandle(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, FileOptions.Asynchronous);
+
+    /// <summary>True when <paramref name="path"/> names a symbolic link or reparse point, even a broken one.</summary>
+    public static bool IsLinkOrReparsePoint(string path)
+    {
+        var info = new FileInfo(path);
+        var attributes = info.Attributes;
+        return info.LinkTarget is not null
+            || (attributes != (FileAttributes)(-1) && attributes.HasFlag(FileAttributes.ReparsePoint));
+    }
+
+    /// <summary>The problem shown for a failed check or install: why data was refused, or a general reason.</summary>
+    public static string ProblemFor(Exception exception) => exception is InvalidDataException
+        ? exception.Message
+        : "Drover could not check or install the update. Try again when this device is online.";
+
+    /// <summary>
+    /// The state after the checks setting could not be saved. A download or install in progress is left as it is;
+    /// anything else shows why the setting did not change.
+    /// </summary>
+    public static DesktopUpdateState AfterSettingNotSaved(DesktopUpdateState state) =>
+        state.Phase is DesktopUpdatePhase.Downloading or DesktopUpdatePhase.Installing
+            ? state
+            : state with { Phase = DesktopUpdatePhase.Failed, Problem = SettingProblem };
 
     /// <summary>
     /// The state after the checks setting changes. A download or install in progress keeps its phase, so no new
@@ -231,11 +279,12 @@ internal static class UpdatePackageTrust
     }
 
     /// <summary>
-    /// Removes, as far as it can, every earlier attempt directory and stray file in <paramref name="root"/>, except
-    /// the attempt directory that holds <paramref name="keep"/>. A link is removed, never what it points to. Returns
-    /// what could not be removed, so the caller can log it.
+    /// Removes, as far as it can, entries of <paramref name="root"/> last written more than <see cref="OldAttemptAge"/>
+    /// before <paramref name="now"/>, and any link, which is removed and never followed. It never removes an attempt
+    /// of this process whose download has not stopped, or the attempt that holds <paramref name="keep"/>. Returns what
+    /// could not be removed, so the caller can log it.
     /// </summary>
-    public static List<Exception> RemoveOldAttempts(string root, string? keep)
+    public static List<Exception> RemoveOldAttempts(string root, string? keep, DateTimeOffset now)
     {
         List<Exception> problems = [];
 
@@ -253,6 +302,11 @@ internal static class UpdatePackageTrust
             var full = global::System.IO.Path.GetFullPath(entry);
 
             if (string.Equals(full, kept, StringComparison.Ordinal) || activeAttempts.ContainsKey(full))
+            {
+                continue;
+            }
+
+            if (!IsLinkOrReparsePoint(entry) && now - File.GetLastWriteTimeUtc(entry) <= OldAttemptAge)
             {
                 continue;
             }
@@ -285,12 +339,12 @@ internal static class UpdatePackageTrust
             return path;
         }
 
-        // An existing directory keeps its mode. A shared or foreign directory is refused, not repaired.
+        // An existing directory keeps its mode. A shared directory is refused, not repaired.
         Directory.CreateDirectory(path, privateMode);
         var mode = File.GetUnixFileMode(path);
         var shared = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
             | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
-        if ((mode & privateMode) != privateMode || (mode & shared) != 0 || !OwnedByCurrentUser(path))
+        if ((mode & privateMode) != privateMode || (mode & shared) != 0)
         {
             throw new InvalidOperationException("The update download directory is not private.");
         }
@@ -409,8 +463,7 @@ internal static class UpdatePackageTrust
     /// </summary>
     public static async Task<byte[]?> ReadPackageFile(string path, long limit)
     {
-        var handle = PackageFiles.OpenForRead(path, FileOptions.Asynchronous)
-            ?? throw new InvalidDataException(LinkProblem);
+        var handle = OpenPackage(path, FileOptions.Asynchronous);
         await using var file = new FileStream(handle, FileAccess.Read, 81920, isAsync: true);
         return await ReadPackage(file, limit);
     }
@@ -479,13 +532,16 @@ internal static class UpdatePackageTrust
     /// <paramref name="downloadRoot"/>, and returns the verified file. A download that runs past
     /// <paramref name="limit"/> is cancelled. Its timeout is reported once the download has stopped, waiting at most
     /// <paramref name="teardownLimit"/>, or <see cref="TeardownLimit"/>, for that. If it did not stop in time, or
-    /// stopping failed, the timeout and that failure are reported together.
+    /// stopping failed, the timeout and that failure are reported together. A download that stops only after that
+    /// wait has its final outcome logged to <paramref name="logger"/> with its attempt directory, so a late cleanup
+    /// failure is never lost.
     /// </summary>
     public static async Task<string> Download(
         SparkleUpdater updater,
         AppCastItem item,
         string downloadRoot,
         TimeSpan limit,
+        ILogger logger,
         TimeSpan? teardownLimit = null)
     {
         var downloaded = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -499,6 +555,7 @@ internal static class UpdatePackageTrust
         var attempt = global::System.IO.Path.GetFullPath(PrepareAttemptDirectory(downloadRoot));
         activeAttempts[attempt] = 0;
         updater.TmpDownloadFilePath = attempt;
+        var stoppedLate = false;
 
         updater.DownloadFinished += Finished;
         updater.DownloadHadError += Failed;
@@ -514,6 +571,7 @@ internal static class UpdatePackageTrust
         {
             updater.CancelFileDownload();
             var teardown = await Teardown(downloader, teardownLimit ?? TeardownLimit);
+            stoppedLate = downloader is not null && !downloader.Stopped.IsCompleted;
 
             if (teardown is null)
             {
@@ -529,7 +587,7 @@ internal static class UpdatePackageTrust
             updater.DownloadCanceled -= Cancelled;
             updater.DownloadedFileIsCorrupt -= Corrupt;
             updater.DownloadedFileThrewWhileCheckingSignature -= Corrupt;
-            _ = ReleaseWhenStopped(attempt, downloader?.Stopped);
+            _ = ReleaseWhenStopped(attempt, downloader?.Stopped, stoppedLate ? logger : null);
         }
     }
 
@@ -552,15 +610,6 @@ internal static class UpdatePackageTrust
         {
             return exception;
         }
-    }
-
-    /// <summary>True when <paramref name="path"/> names a symbolic link or reparse point, even a broken one.</summary>
-    private static bool IsLinkOrReparsePoint(string path)
-    {
-        var info = new FileInfo(path);
-        var attributes = info.Attributes;
-        return info.LinkTarget is not null
-            || (attributes != (FileAttributes)(-1) && attributes.HasFlag(FileAttributes.ReparsePoint));
     }
 
     /// <summary>Removes one entry of the download directory. A link is removed, never what it points to.</summary>
@@ -592,17 +641,34 @@ internal static class UpdatePackageTrust
     }
 
     /// <summary>
-    /// Lets cleanup remove <paramref name="attempt"/> once its download has stopped, however long that takes. The
+    /// Lets cleanup remove <paramref name="attempt"/> once its download has stopped, however long that takes. When the
+    /// caller stopped waiting before then, <paramref name="lateLog"/> receives the final outcome with the attempt. The
     /// download task never fails, so this never throws.
     /// </summary>
-    private static async Task ReleaseWhenStopped(string attempt, Task<DownloadOutcome>? stopped)
+    private static async Task ReleaseWhenStopped(
+        string attempt,
+        Task<DownloadOutcome>? stopped,
+        ILogger? lateLog)
     {
-        if (stopped is not null)
+        var outcome = stopped is null ? new DownloadOutcome(null, false) : await stopped;
+        activeAttempts.TryRemove(attempt, out _);
+
+        if (lateLog is null)
         {
-            await stopped;
+            return;
         }
 
-        activeAttempts.TryRemove(attempt, out _);
+        if (outcome.Cancelled || outcome.Error is null)
+        {
+            lateLog.LogInformation("A timed-out update download in {Attempt} stopped late and cleaned up", attempt);
+        }
+        else
+        {
+            lateLog.LogWarning(
+                outcome.Error,
+                "A timed-out update download in {Attempt} stopped late and did not clean up",
+                attempt);
+        }
     }
 
     /// <summary>
@@ -627,55 +693,6 @@ internal static class UpdatePackageTrust
         var outcome = await stopped;
         return outcome.Cancelled ? null : outcome.Error;
     }
-
-    private static bool OwnedByCurrentUser(string path) => Owner(path) == CurrentUser();
-
-    private static uint Owner(string path)
-    {
-        // libc writes the whole status record. 256 bytes covers the macOS and Linux records.
-        var buffer = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(256);
-        try
-        {
-            var read = OperatingSystem.IsLinux()
-                ? LinuxOwner(path, buffer)
-                : DarwinOwner(path, buffer);
-            if (read != 0)
-            {
-                throw new InvalidOperationException("The update download directory could not be checked.");
-            }
-
-            // macOS stat.st_uid is at 16. Linux statx.stx_uid is at 20.
-            var offset = OperatingSystem.IsLinux() ? 20 : 16;
-            return (uint)global::System.Runtime.InteropServices.Marshal.ReadInt32(buffer, offset);
-        }
-        finally
-        {
-            global::System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
-        }
-    }
-
-    private static int DarwinOwner(string path, nint buffer) => DarwinStat(path, buffer);
-
-    private static int LinuxOwner(string path, nint buffer) =>
-        LinuxStatX(AtCurrentDirectory, path, DoNotFollowLinks, UserIdMask, buffer);
-
-    private static uint CurrentUser() => CurrentEffectiveUser();
-
-    [global::System.Runtime.InteropServices.DllImport("libc", EntryPoint = "geteuid")]
-    private static extern uint CurrentEffectiveUser();
-
-    [global::System.Runtime.InteropServices.DllImport("libc", EntryPoint = "stat")]
-    private static extern int DarwinStat(
-        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string path,
-        nint buffer);
-
-    [global::System.Runtime.InteropServices.DllImport("libc", EntryPoint = "statx")]
-    private static extern int LinuxStatX(
-        int directory,
-        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string path,
-        int flags,
-        uint mask,
-        nint buffer);
 
     #endregion
 }
@@ -755,8 +772,13 @@ internal sealed class BoundedFileVerifier(NetSparkleUpdater.Interfaces.ISignatur
 
     public ValidationResult VerifySignatureOfFile(string signature, string binaryPath)
     {
-        using var handle = PackageFiles.OpenForRead(binaryPath, FileOptions.None);
-        var package = handle is null ? null : UpdatePackageTrust.ReadPackage(handle, limit);
+        if (UpdatePackageTrust.IsLinkOrReparsePoint(binaryPath))
+        {
+            return ValidationResult.Invalid;
+        }
+
+        using var handle = UpdatePackageTrust.OpenPackage(binaryPath, FileOptions.None);
+        var package = UpdatePackageTrust.ReadPackage(handle, limit);
         return package is null ? ValidationResult.Invalid : inner.VerifySignature(signature, package);
     }
 

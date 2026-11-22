@@ -222,7 +222,12 @@ public sealed class DesktopUpdateTests
         var started = false;
         var act = async () =>
         {
-            var path = await UpdatePackageTrust.Download(updater, item, directory, TimeSpan.FromSeconds(20));
+            var path = await UpdatePackageTrust.Download(
+            updater,
+            item,
+            directory,
+            TimeSpan.FromSeconds(20),
+            NullLogger.Instance);
             var package = await File.ReadAllBytesAsync(path);
             var decision = UpdatePackageTrust.Decide(publicKey, item.DownloadSignature, package, UpdateHost.Windows, path, new(true, true));
             if (decision.StartInstaller)
@@ -268,7 +273,12 @@ public sealed class DesktopUpdateTests
         result.Status.Should().Be(UpdateStatus.UpdateAvailable);
         var item = result.Updates.Should().ContainSingle().Subject;
         item.Version.Should().Be("2.0.0-preview.2");
-        var path = await UpdatePackageTrust.Download(updater, item, directory, TimeSpan.FromSeconds(20));
+        var path = await UpdatePackageTrust.Download(
+            updater,
+            item,
+            directory,
+            TimeSpan.FromSeconds(20),
+            NullLogger.Instance);
         (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).Should().Equal(package);
         updater.RelaunchAfterUpdate.Should().BeTrue();
 
@@ -1012,7 +1022,8 @@ public sealed class DesktopUpdateTests
             updater,
             offered,
             served.Directory,
-            TimeSpan.FromSeconds(20));
+            TimeSpan.FromSeconds(20),
+            NullLogger.Instance);
 
         if (overLimit == 0)
         {
@@ -1069,7 +1080,12 @@ public sealed class DesktopUpdateTests
 
         try
         {
-            var path = await UpdatePackageTrust.Download(updater, offered, served.Directory, TimeSpan.FromSeconds(20));
+            var path = await UpdatePackageTrust.Download(
+                updater,
+                offered,
+                served.Directory,
+                TimeSpan.FromSeconds(20),
+                NullLogger.Instance);
 
             path.Should().NotBe(leftPath, "each download has a new directory of its own");
             Path.GetFileName(Path.GetDirectoryName(path)).Should().StartWith(UpdatePackageTrust.AttemptPrefix);
@@ -1106,7 +1122,8 @@ public sealed class DesktopUpdateTests
                 updater,
                 offered,
                 served.Directory,
-                TimeSpan.FromSeconds(20));
+                TimeSpan.FromSeconds(20),
+                NullLogger.Instance);
 
             var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
             failure.Message.Should().StartWith(BoundedPackageDownloader.CleanupProblem);
@@ -1141,7 +1158,8 @@ public sealed class DesktopUpdateTests
                 updater,
                 offered,
                 served.Directory,
-                TimeSpan.FromSeconds(1));
+                TimeSpan.FromSeconds(1),
+                NullLogger.Instance);
 
             var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
             failure.Message.Should().StartWith(UpdatePackageTrust.TimeoutProblem);
@@ -1177,7 +1195,8 @@ public sealed class DesktopUpdateTests
             updater,
             offered,
             served.Directory,
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            NullLogger.Instance);
 
         await download.Should().ThrowExactlyAsync<TimeoutException>("a clean stop adds nothing to the timeout");
         progressed.Task.IsCompleted.Should().BeTrue("part of the package was written before the time ran out");
@@ -1207,8 +1226,9 @@ public sealed class DesktopUpdateTests
         using var old = StableUpdater(stalled.Feed, stalled.PublicKey, stalled.Directory, stalled.Client);
         var oldOffer = await Offered(old);
         var oldDownloader = old.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
-        string? oldPath = null;
+        var oldPath = default(string);
         old.DownloadStarted += (_, path) => oldPath = path;
+        var later = DateTimeOffset.UtcNow.AddDays(2);
 
         // The gate holds the old attempt's teardown: it cannot see its cancellation or remove its file until opened.
         using var gate = new ManualResetEventSlim(false);
@@ -1221,6 +1241,7 @@ public sealed class DesktopUpdateTests
                 oldOffer,
                 stalled.Directory,
                 TimeSpan.FromSeconds(1),
+                NullLogger.Instance,
                 TimeSpan.FromMilliseconds(200));
 
             var failure = (await first.Should().ThrowAsync<AggregateException>()).Which;
@@ -1228,7 +1249,7 @@ public sealed class DesktopUpdateTests
             failure.InnerExceptions.Should().Contain(exception =>
                 exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
             oldDownloader.Stopped.IsCompleted.Should().BeFalse("the old attempt is still held past the deadline");
-            UpdatePackageTrust.RemoveOldAttempts(stalled.Directory, null);
+            UpdatePackageTrust.RemoveOldAttempts(stalled.Directory, null, later);
             Directory.Exists(Path.GetDirectoryName(oldPath))
                 .Should().BeTrue("a check never removes the directory of an attempt that is still stopping");
 
@@ -1238,7 +1259,8 @@ public sealed class DesktopUpdateTests
                 next,
                 nextOffer,
                 stalled.Directory,
-                TimeSpan.FromSeconds(20));
+                TimeSpan.FromSeconds(20),
+                NullLogger.Instance);
 
             gate.Set();
             await oldDownloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
@@ -1249,7 +1271,7 @@ public sealed class DesktopUpdateTests
             File.Exists(oldPath).Should().BeFalse("the old attempt removed only its own file");
             await WaitUntil(() =>
             {
-                UpdatePackageTrust.RemoveOldAttempts(stalled.Directory, nextPath);
+                UpdatePackageTrust.RemoveOldAttempts(stalled.Directory, nextPath, later);
                 return !Directory.Exists(Path.GetDirectoryName(oldPath));
             });
             File.Exists(nextPath).Should().BeTrue("once stopped, the old attempt is cleaned up and the kept one stays");
@@ -1261,15 +1283,18 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
-    public async Task Earlier_attempts_and_stray_files_are_removed_and_the_kept_package_stays()
+    public async Task Only_entries_older_than_a_day_are_removed_and_the_kept_package_stays()
     {
         var root = Directory.CreateTempSubdirectory("drover-attempts-").FullName;
         var outside = Directory.CreateTempSubdirectory("drover-outside-").FullName;
+        var now = DateTimeOffset.UtcNow;
+        var twoDaysAgo = now.AddDays(-2).UtcDateTime;
 
         try
         {
             var kept = UpdatePackageTrust.PrepareAttemptDirectory(root);
             var old = UpdatePackageTrust.PrepareAttemptDirectory(root);
+            var young = UpdatePackageTrust.PrepareAttemptDirectory(root);
             old.Should().NotBe(kept);
             if (!OperatingSystem.IsWindows())
             {
@@ -1280,19 +1305,24 @@ public sealed class DesktopUpdateTests
             }
 
             var keptPackage = Path.Combine(kept, "package.bin");
+            var stray = Path.Combine(root, "package.bin");
             var outsideFile = Path.Combine(outside, "keep.bin");
-            await File.WriteAllBytesAsync(keptPackage, [1, 2, 3], TestContext.Current.CancellationToken);
-            await File.WriteAllBytesAsync(Path.Combine(old, "package.bin"), [4], TestContext.Current.CancellationToken);
-            await File.WriteAllBytesAsync(
-                Path.Combine(root, "package.bin"),
-                [5],
-                TestContext.Current.CancellationToken);
-            await File.WriteAllBytesAsync(outsideFile, [6], TestContext.Current.CancellationToken);
+            var cancellation = TestContext.Current.CancellationToken;
+            await File.WriteAllBytesAsync(keptPackage, [1, 2, 3], cancellation);
+            await File.WriteAllBytesAsync(Path.Combine(old, "package.bin"), [4], cancellation);
+            await File.WriteAllBytesAsync(Path.Combine(young, "package.bin"), [5], cancellation);
+            await File.WriteAllBytesAsync(stray, [6], cancellation);
+            await File.WriteAllBytesAsync(outsideFile, [7], cancellation);
+            Directory.SetLastWriteTimeUtc(kept, twoDaysAgo);
+            Directory.SetLastWriteTimeUtc(old, twoDaysAgo);
+            File.SetLastWriteTimeUtc(stray, twoDaysAgo);
 
-            var problems = UpdatePackageTrust.RemoveOldAttempts(root, keptPackage);
+            var problems = UpdatePackageTrust.RemoveOldAttempts(root, keptPackage, now);
 
             problems.Should().BeEmpty();
-            Directory.EnumerateFileSystemEntries(root).Should().Equal(kept);
+            Directory.EnumerateFileSystemEntries(root).Should().BeEquivalentTo(
+                [kept, young],
+                "an attempt a day old or newer may belong to another running copy, and the kept one is shown");
             File.Exists(keptPackage).Should().BeTrue("the verified package still shown to the person is kept");
             File.Exists(outsideFile).Should().BeTrue("a link is removed, not what it points to");
         }
@@ -1324,51 +1354,163 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
-    public async Task A_package_handle_is_refused_when_its_name_is_a_link_or_now_names_another_file()
+    public async Task A_link_is_never_read_and_nothing_is_written_through_one()
     {
-        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(1, 2, 0x81A4)).Should().BeTrue();
-        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(1, 3, 0x81A4)).Should().BeFalse("another inode");
-        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(4, 2, 0x81A4)).Should().BeFalse("another device");
-        PackageFiles.IsSameRegularFile(new(1, 2, 0x81A4), new(1, 2, 0xA1FF)).Should().BeFalse("the name is a link");
-
         if (OperatingSystem.IsWindows())
         {
             // Creating a symbolic link needs a privilege a Windows test run does not have. CI runs this on Linux.
             return;
         }
 
-        var directory = Directory.CreateTempSubdirectory("drover-handles-").FullName;
+        var directory = Directory.CreateTempSubdirectory("drover-links-").FullName;
         var path = Path.Combine(directory, "package.bin");
-        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+        var link = Path.Combine(directory, "link.bin");
+        byte[] content = [1, 2, 3];
+        await File.WriteAllBytesAsync(path, content, TestContext.Current.CancellationToken);
+        File.CreateSymbolicLink(link, path);
 
         try
         {
-            var opened = PackageFiles.OpenForRead(path, FileOptions.None);
-            opened.Should().NotBeNull("a regular file opened by its own name is accepted");
-            opened!.Dispose();
+            var read = () => UpdatePackageTrust.ReadPackageFile(link, 1024);
+            await read.Should().ThrowAsync<InvalidDataException>().WithMessage(UpdatePackageTrust.LinkProblem);
+            UpdatePackageTrust.IsWithinLimit(link, 1024).Should().BeFalse("a link is never measured as a package");
 
-            var link = Path.Combine(directory, "link.bin");
-            File.CreateSymbolicLink(link, path);
-            PackageFiles.OpenForRead(link, FileOptions.None)
-                .Should().BeNull("a handle opened through a link is refused");
-            var create = () => PackageFiles.CreateForWrite(link);
-            create.Should().Throw<IOException>("nothing is created where a link already is");
+            var throughLink = () => UpdatePackageTrust.CreatePackage(link);
+            throughLink.Should().Throw<IOException>("nothing is created where a link already is");
+            var overFile = () => UpdatePackageTrust.CreatePackage(path);
+            overFile.Should().Throw<IOException>("an existing file is never replaced");
 
-            using var original = File.OpenHandle(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
-            PackageFiles.NamesOpenedFile(original, path).Should().BeTrue();
-            File.Move(path, Path.Combine(directory, "moved.bin"));
-            await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
-            PackageFiles.NamesOpenedFile(original, path)
-                .Should().BeFalse("the name now points at another file than the one that was opened");
+            (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken))
+                .Should().Equal(content, "the file a link points to is never written");
+            (await UpdatePackageTrust.ReadPackageFile(path, 1024)).Should().Equal(content);
         }
         finally
         {
             Directory.Delete(directory, true);
         }
+    }
+
+    [Fact]
+    public async Task A_download_that_stops_after_the_deadline_has_its_late_cleanup_failure_logged()
+    {
+        await using var served = await ServedPackage(
+            nameof(A_download_that_stops_after_the_deadline_has_its_late_cleanup_failure_logged),
+            streamed: true,
+            stalls: true);
+        using var updater = StableUpdater(served.Feed, served.PublicKey, served.Directory, served.Client);
+        var offered = await Offered(updater);
+        var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
+        var log = new RecordingLogger();
+
+        // The gate holds teardown past the deadline. Once it opens, the file is made impossible to remove, so the late
+        // outcome is a cleanup failure.
+        using var gate = new ManualResetEventSlim(false);
+        downloader.DownloadProgressChanged += (_, _) => gate.Wait();
+        var blocked = BlockRemovalOnFirstProgress(updater);
+
+        try
+        {
+            var download = () => UpdatePackageTrust.Download(
+                updater,
+                offered,
+                served.Directory,
+                TimeSpan.FromSeconds(1),
+                log,
+                TimeSpan.FromMilliseconds(200));
+
+            var failure = (await download.Should().ThrowAsync<AggregateException>()).Which;
+            failure.InnerExceptions.Should().Contain(exception =>
+                exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
+            log.Entries.Should().BeEmpty("the download has not stopped yet");
+
+            gate.Set();
+            await WaitUntil(() => !log.Entries.IsEmpty);
+
+            var entry = log.Entries.Should().ContainSingle().Subject;
+            entry.Level.Should().Be(LogLevel.Warning);
+            entry.Message.Should().Contain(Path.GetDirectoryName(blocked.Path), "the attempt is named");
+            entry.Exception.Should().BeOfType<AggregateException>()
+                .Which.InnerExceptions.Should().Contain(exception => IsRemovalFailure(exception));
+        }
+        finally
+        {
+            gate.Set();
+            await downloader.Stopped.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+            AllowRemoval(blocked.Path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_check_that_resumes_after_a_newer_check_began_changes_nothing(bool olderFails)
+    {
+        using var probe = new FlowProbe(new MemorySettings(), new DesktopUpdateState(true, true));
+
+        var older = probe.Flow.Check(reportFailure: true);
+        probe.State.Phase.Should().Be(DesktopUpdatePhase.Checking);
+        probe.Flow.SetChecks(false);
+        probe.Flow.SetChecks(true);
+        probe.Feeds.Should().HaveCount(2, "turning checks back on starts a newer check");
+        probe.Feeds[1].SetException(new InvalidDataException("Sample: no feed."));
+        await WaitUntil(() => probe.State.Phase is DesktopUpdatePhase.Idle);
+        var settled = probe.State;
+        var changes = probe.Changes;
+
+        if (olderFails)
+        {
+            probe.Feeds[0].SetException(new InvalidDataException("Sample: the older feed failed."));
+        }
+        else
+        {
+            probe.Feeds[0].SetResult("https://example.invalid/appcast.xml");
+        }
+
+        await older;
+
+        probe.Builds.Should().Be(0, "a superseded check never replaces the updater");
+        probe.Sweeps.Should().Be(0, "a superseded check never clears old downloads");
+        probe.Changes.Should().Be(changes, "a superseded check never changes what is shown");
+        probe.State.Should().Be(settled);
+    }
+
+    [Fact]
+    public async Task A_check_that_resumes_after_the_setting_changed_leaves_a_download_alone()
+    {
+        using var probe = new FlowProbe(new MemorySettings(), new DesktopUpdateState(true, true));
+
+        var older = probe.Flow.Check(reportFailure: true);
+        probe.Flow.SetChecks(false);
+        probe.State = probe.State with { ChecksEnabled = true, Phase = DesktopUpdatePhase.Downloading };
+        var changes = probe.Changes;
+
+        probe.Feeds[0].SetResult("https://example.invalid/appcast.xml");
+        await older;
+
+        probe.Builds.Should().Be(0);
+        probe.Sweeps.Should().Be(0);
+        probe.Changes.Should().Be(changes);
+        probe.State.Phase.Should().Be(DesktopUpdatePhase.Downloading);
+    }
+
+    [Theory]
+    [InlineData(DesktopUpdatePhase.Downloading, DesktopUpdatePhase.Downloading, null)]
+    [InlineData(DesktopUpdatePhase.Installing, DesktopUpdatePhase.Installing, null)]
+    [InlineData(DesktopUpdatePhase.Available, DesktopUpdatePhase.Failed, UpdatePackageTrust.SettingProblem)]
+    public void A_setting_that_cannot_be_saved_never_ends_a_download_or_install(
+        DesktopUpdatePhase before,
+        DesktopUpdatePhase after,
+        string? problem)
+    {
+        var settings = new ReadOnlySettings(new MemorySettings());
+        using var probe = new FlowProbe(settings, new DesktopUpdateState(true, true, before, "2.0.0"));
+
+        probe.Flow.SetChecks(false);
+
+        probe.State.Phase.Should().Be(after);
+        probe.State.Problem.Should().Be(problem);
+        probe.State.ChecksEnabled.Should().BeTrue("the setting did not change");
+        probe.Feeds.Should().BeEmpty();
     }
 
     [Fact]
@@ -1380,7 +1522,7 @@ public sealed class DesktopUpdateTests
         using var client = Client();
         using var downloader = new BoundedPackageDownloader(client, 4096);
         var progressed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        global::System.ComponentModel.AsyncCompletedEventArgs? completed = null;
+        var completed = default(global::System.ComponentModel.AsyncCompletedEventArgs);
         downloader.DownloadProgressChanged += (_, _) => progressed.TrySetResult();
         downloader.DownloadFileCompleted += (_, args) => completed = args;
 
@@ -1497,7 +1639,7 @@ public sealed class DesktopUpdateTests
     private static BlockedFile BlockRemovalOnFirstProgress(SparkleUpdater updater)
     {
         var blocked = new BlockedFile();
-        string? started = null;
+        var started = default(string);
         updater.DownloadStarted += (_, path) => started = path;
         updater.DownloadMadeProgress += (_, _, _) =>
         {
@@ -1808,6 +1950,106 @@ internal sealed class BlockedFile
 {
     public string? Path { get; set; }
 }
+
+
+/// <summary>An update check flow with feeds the test completes, and counts of what the flow did.</summary>
+file sealed class FlowProbe : IDisposable
+{
+    #region Constructors
+
+    public FlowProbe(IDeviceSettings settings, DesktopUpdateState state)
+    {
+        State = state;
+        Flow = new(
+            settings,
+            "stable",
+            NextFeed,
+            BuildUpdater,
+            () => Sweeps++,
+            () => State,
+            Change,
+            NullLogger.Instance);
+    }
+
+    #endregion
+
+    #region Properties
+
+    public UpdateCheckFlow Flow { get; }
+
+    public DesktopUpdateState State { get; set; }
+
+    public List<TaskCompletionSource<string>> Feeds { get; } = [];
+
+    public int Changes { get; private set; }
+
+    public int Builds { get; private set; }
+
+    public int Sweeps { get; private set; }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public void Dispose() => Flow.Dispose();
+
+    #endregion
+
+    #region Private Methods
+
+    private Task<string> NextFeed()
+    {
+        var feed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Feeds.Add(feed);
+        return feed.Task;
+    }
+
+    private SparkleUpdater BuildUpdater(string feed)
+    {
+        Builds++;
+        throw new InvalidOperationException($"Sample: this test builds no updater for {feed}.");
+    }
+
+    private void Change(DesktopUpdateState state)
+    {
+        State = state;
+        Changes++;
+    }
+
+    #endregion
+}
+
+
+/// <summary>A logger that keeps every entry written to it.</summary>
+file sealed class RecordingLogger : ILogger
+{
+    #region Properties
+
+    public ConcurrentBag<LogEntry> Entries { get; } = [];
+
+    #endregion
+
+    #region Interface Implementations
+
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter) =>
+        Entries.Add(new(logLevel, formatter(state, exception), exception));
+
+    #endregion
+}
+
+
+/// <summary>One entry a <see cref="RecordingLogger"/> kept.</summary>
+file sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 
 
 /// <summary>What the verifier saw at one file check.</summary>
