@@ -73,6 +73,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool taking;
 
+    // True from the moment a run is being watched until the watch has read what the run left, so a change reported
+    // meanwhile is never taken in under it.
+    private bool following;
+
     private bool markedOnOpen;
 
     private bool missing;
@@ -349,7 +353,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     private async Task TakeWhatChanged()
     {
         if (thread is null || ReadOnly || loading || missing || gone || taking || sending || retrying || changing
-            || run is { IsActive: true }
+            || following || run is { IsActive: true }
             || parameters.LatestThread?.Invoke(thread.Id) is not { } latest || !IsNewer(latest))
         {
             return;
@@ -388,11 +392,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Newer than what is shown: later activity, or a run this conversation is not following that began no earlier.
-    private bool IsNewer(ThreadSummary latest) =>
-        latest.LastActivityAt > thread!.LastActivityAt
-        || (latest.ActiveRunId is { } runId && runId != thread.ActiveRunId
-            && latest.LastActivityAt >= thread.LastActivityAt);
+    // Newer than what is shown: later activity. A summary read before what is shown, or an equal one, is no change.
+    private bool IsNewer(ThreadSummary latest) => latest.LastActivityAt > thread!.LastActivityAt;
 
     // Past tool calls are shown as their runs' logs left them. Without the log the conversation still reads: each call
     // is then shown as the stored messages tell it.
@@ -993,6 +994,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         history = history.With(run);
         run = RunView.Start(runId);
         watch = new();
+        following = true;
         _ = WatchUntilDone(thread!.Id, runId, watch.Token);
     }
 
@@ -1042,6 +1044,14 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
             (run, reconnecting, problem) = (null, null, $"Drover lost track of this reply. {Failures.Sentence(exception)} Reload the page to see how it ended.");
+        }
+        finally
+        {
+            // A watch that was replaced, or ended because the person left, leaves the flag to whoever did that.
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                following = false;
+            }
         }
 
         await ReportBusy();

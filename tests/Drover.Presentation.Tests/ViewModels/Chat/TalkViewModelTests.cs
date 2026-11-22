@@ -367,6 +367,33 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await own.End();
     }
 
+    [Fact]
+    public async Task A_change_reported_as_the_followed_run_is_stopped_does_not_start_following_it_again()
+    {
+        var own = RunStarts();
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+        await Until(() => RunWatched().Should().BeTrue());
+        await own.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await Until(() => MainPane.Working.Should().BeTrue());
+
+        // The server says what the stop and the signal for it left: newer activity, the run still named.
+        Main(Thread(runId) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(5) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}").Should().NotBeEmpty());
+        await own.Send(Event(2, RunEventTypes.RunCancelled, new RunStatusChanged("cancelled", null, null, 1, null)));
+        await own.End();
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() => MainPane.Working
+            .Should().BeFalse("the run was stopped, and what was reported does not bring it back"));
+        Server.Addresses.Count(address => address.StartsWith($"GET {Space}/runs/{runId}/events",
+            StringComparison.Ordinal))
+            .Should().Be(1, "the run is not followed a second time");
+    }
+
     #endregion
 
     #region Opening
