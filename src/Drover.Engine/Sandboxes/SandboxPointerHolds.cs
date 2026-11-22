@@ -1,5 +1,12 @@
 namespace Drover.Engine.Sandboxes;
 
+/// <summary>
+/// What a press read before it acquired its sandbox: the power counter, and when. A sample too old for the power
+/// controls to be remembered is refused, so a press can never be admitted on a record that has been forgotten.
+/// </summary>
+internal readonly record struct PowerSample(int Epoch, DateTimeOffset At);
+
+
 /// <summary>The session of a person that pressed a button, which alone may keep it held.</summary>
 internal sealed record PointerOwner(Guid UserId, Guid SessionId);
 
@@ -81,7 +88,7 @@ internal sealed class SandboxPointerHolds(
     /// cancelled after the provider acted. A control on another sandbox or in another space changes the number and
     /// nothing else, so one tenant's activity never ends another's press or drag.
     /// </summary>
-    public int PowerEpoch => Volatile.Read(ref powerEpoch);
+    public PowerSample PowerEpoch => new(Volatile.Read(ref powerEpoch), time.GetUtcNow());
 
     /// <summary>How long a held button may go without a move from the session that pressed it.</summary>
     public static TimeSpan Limit => limit;
@@ -104,7 +111,7 @@ internal sealed class SandboxPointerHolds(
         bool staysDown,
         Func<Task> run,
         CancellationToken cancellationToken,
-        int? epoch = null)
+        PowerSample? epoch = null)
     {
         RefuseWhenStopping();
         var screen = Enter(press.SpaceId, press.SandboxId);
@@ -324,8 +331,10 @@ internal sealed class SandboxPointerHolds(
                     return false;
                 }
 
-                // The guarded transition begins here, inside the gate: a control that was cancelled while it waited,
-                // or refused because a button could not be let go of, ran nothing and invalidates nothing.
+                // The guarded transition begins here, inside the gate: a control that was cancelled while it waited
+                // or while it let go of a button, or refused because a button could not be let go of, ran nothing
+                // and invalidates nothing.
+                cancellationToken.ThrowIfCancellationRequested();
                 MarkPower(spaceId, sandboxId);
                 acted = true;
                 await work();
@@ -363,15 +372,22 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
-    private PressRecord Register(Screen screen, PointerPress press, int? epoch)
+    private PressRecord Register(Screen screen, PointerPress press, PowerSample? epoch)
     {
         RefuseWhenStopping();
 
         lock (sync)
         {
-            if (epoch is { } sampled
+            if (epoch is { } sampled && time.GetUtcNow() - sampled.At > powerMemory)
+            {
+                // The marks a press that old could need may be forgotten, so it cannot be told nothing happened.
+                throw new BuiltinToolException(
+                    "This waited too long to be sure the sandbox was unchanged, so nothing was pressed. Try again.");
+            }
+
+            if (epoch is { } read
                 && powered.TryGetValue((press.SpaceId, press.SandboxId), out var power)
-                && power.Epoch > sampled)
+                && power.Epoch > read.Epoch)
             {
                 throw new BuiltinToolException(
                     "The sandbox was paused or replaced while this waited, so nothing was pressed. Try again.");
@@ -441,7 +457,17 @@ internal sealed class SandboxPointerHolds(
         }
 
         using var bound = new CancellationTokenSource(limit, time);
-        await ReleaseHeld(screen, held, bound.Token);
+
+        try
+        {
+            await ReleaseHeld(screen, held, bound.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogError(
+                "A press that ended as the server stopped could not be let go of within {Seconds} seconds",
+                limit.TotalSeconds);
+        }
     }
 
     private void Renew(Guid spaceId, Guid sandboxId, PointerOwner owner)
@@ -482,6 +508,11 @@ internal sealed class SandboxPointerHolds(
 
                 return true;
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller ended the request: that is not a failure of the release, which is tried again.
+            throw;
         }
         catch (Exception failure)
         {

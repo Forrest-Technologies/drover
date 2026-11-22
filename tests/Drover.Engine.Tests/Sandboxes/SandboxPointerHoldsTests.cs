@@ -538,6 +538,78 @@ public sealed class SandboxPointerHoldsTests
     }
 
     [Fact]
+    public async Task A_press_that_read_the_number_longer_ago_than_the_marks_are_kept_is_refused()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+        world.Clock.Advance(TimeSpan.FromMinutes(16));
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+        var ran = false;
+
+        var press = () => world.Holds.Press(
+            world.Press(),
+            staysDown: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token,
+            before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*waited too long*");
+        ran.Should().BeFalse("the mark that would have refused it was forgotten, so its age refuses it instead");
+    }
+
+    [Fact]
+    public async Task A_mark_is_still_kept_for_a_press_whose_number_is_younger_than_the_memory()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+        world.Clock.Advance(TimeSpan.FromMinutes(14));
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
+    [Fact]
+    public async Task A_power_control_cancelled_as_the_last_release_succeeded_ran_nothing_and_leaves_a_press_valid()
+    {
+        using var cancelled = new CancellationTokenSource();
+        var world = new World();
+        await world.Holds.Press(world.Press(World.Owner(1), button: MouseButton.Right), staysDown: true, World.Nothing,
+            World.Token);
+        var before = world.Holds.PowerEpoch;
+        world.Behaviour = async (_, _) =>
+        {
+            await cancelled.CancelAsync();
+            return ReleaseOutcome.Released;
+        };
+        var ran = false;
+
+        var control = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            cancelled.Token);
+
+        await control.Should().ThrowAsync<OperationCanceledException>();
+        ran.Should().BeFalse("the request ended before the power control began");
+        await world.Holds.Press(world.Press(World.Owner(1)), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
     public async Task A_power_control_that_ran_on_this_sandbox_still_ends_a_press_that_read_the_number_before_it()
     {
         var world = new World();

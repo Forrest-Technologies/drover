@@ -415,7 +415,7 @@ public sealed class SandboxControlService(
         Guid botId,
         PointerOwner owner,
         PointerAction? pointer,
-        int epoch,
+        PowerSample epoch,
         CancellationToken cancellationToken) =>
         (sandboxId, run) => pointer switch
         {
