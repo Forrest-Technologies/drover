@@ -35,8 +35,11 @@ internal sealed class SandboxPicture : UserControl
     // The time of each pointer event, read by the gesture, which keeps no clock of its own.
     private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
 
-    // Fires once when a still finger has rested long enough that lifting it right-clicks, so the screen can say so.
-    private readonly DispatcherTimer longPress = new() { Interval = ScreenGesture.LongPressTime };
+    // Waits once, while a still finger rests, to say that lifting it now right-clicks. Nothing repeats. Each wait is
+    // numbered; a finger that lifts or a second finger moves the number on, so an older wait says nothing.
+    private int rest;
+
+    private bool resting;
 
     private bool pressedByMouse;
 
@@ -65,7 +68,6 @@ internal sealed class SandboxPicture : UserControl
         KeyDown += Typed;
         LostFocus += (_, _) => LetGo();
         Unloaded += (_, _) => LetGo();
-        longPress.Tick += (_, _) => SayLongPress();
         this.WhenShownOrRethemed(Show);
     }
 
@@ -313,16 +315,17 @@ internal sealed class SandboxPicture : UserControl
 
     private void WatchForLongPress()
     {
-        if (model.Control && !pressedByMouse && gesture.IsActive && !longPress.IsEnabled)
+        if (model.Control && !pressedByMouse && gesture.IsActive && !resting)
         {
-            longPress.Start();
+            resting = true;
+            _ = SayLongPressAfterRest(++rest);
         }
     }
 
-    private void SayLongPress()
+    private async Task SayLongPressAfterRest(int wait)
     {
-        longPress.Stop();
-        if (gesture.IsLongPress(Now))
+        await Task.Delay(ScreenGesture.LongPressTime);
+        if (resting && wait == rest && gesture.IsLongPress(Now))
         {
             model.LongPressReady(true);
         }
@@ -330,7 +333,8 @@ internal sealed class SandboxPicture : UserControl
 
     private void CalmLongPress()
     {
-        longPress.Stop();
+        resting = false;
+        rest++;
         if (model.TouchWords == SandboxScreenViewModel.LongPressWords)
         {
             model.LongPressReady(false);
