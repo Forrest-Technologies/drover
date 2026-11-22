@@ -98,11 +98,13 @@ public sealed class SandboxScreen : StackPanel
         BuildTyping();
         BuildKeys();
 
-        foreach (var part in new UIElement[]
-        {
+        UIElement[] parts =
+        [
             controlBar, controlWords, working, screenNote, wake, zoom, picture, touchHelp, progress, problem, options,
             typeForm, typeHint, keys, scroll,
-        })
+        ];
+
+        foreach (var part in parts)
         {
             Children.Add(part);
         }

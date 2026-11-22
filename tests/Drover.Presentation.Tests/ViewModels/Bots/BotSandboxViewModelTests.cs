@@ -1260,8 +1260,104 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
 
         Screen.TouchWords.Should().BeNull();
         Screen.ControlWords.Should().StartWith("View only.");
-        await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
+        await Screen.TouchesSent();
         Requests("POST", $"{sandbox}/input").Should().BeEmpty("the person no longer drives the screen");
+    }
+
+    [Fact]
+    public async Task A_scroll_answered_after_control_went_off_and_on_does_not_change_the_new_sessions_wheel()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+        Screen.Touch([new(ScreenTouchKind.ScrollDown, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+
+        Screen.SetControl(false);
+        Screen.SetControl(true);
+        Screen.Touch([new(ScreenTouchKind.ScrollUp, 164, 123)], 328, 246);
+        gate.SetResult();
+        await Screen.TouchesSent();
+
+        Sent<SandboxInputRequest>($"{sandbox}/input").Should().Equal(
+            new SandboxInputRequest("scroll", Direction: "down", Amount: 1, X: 512, Y: 384),
+            new SandboxInputRequest("scroll", Direction: "up", Amount: 1, X: 512, Y: 384));
+    }
+
+    [Fact]
+    public async Task A_touch_queued_before_control_went_off_is_not_sent_when_it_comes_back_on()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+        Screen.Touch([new(ScreenTouchKind.Tap, 0, 0), new(ScreenTouchKind.Tap, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+
+        Screen.SetControl(false);
+        Screen.SetControl(true);
+        gate.SetResult();
+        await Screen.TouchesSent();
+
+        Sent<SandboxInputRequest>($"{sandbox}/input")
+            .Should().ContainSingle("the second tap was made in a session that ended")
+            .Which.X.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_scroll_turned_away_because_too_many_wait_leaves_the_wheel_ready_for_the_next()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+        var most = SandboxScreenViewModel.MaxTouchesWaiting;
+        Screen.Touch([.. Enumerable.Repeat(new ScreenTouch(ScreenTouchKind.Tap, 0, 0), most)], 328, 246);
+
+        Screen.Touch([new(ScreenTouchKind.ScrollDown, 164, 123)], 328, 246);
+        gate.SetResult();
+        await Screen.TouchesSent();
+        Screen.Touch([new(ScreenTouchKind.ScrollDown, 164, 123)], 328, 246);
+        await Screen.TouchesSent();
+
+        Sent<SandboxInputRequest>($"{sandbox}/input")[^1].Should().Be(
+            new SandboxInputRequest("scroll", Direction: "down", Amount: 1, X: 512, Y: 384));
+        Sent<SandboxInputRequest>($"{sandbox}/input").Should().HaveCount(most + 1, "the refused step was not kept");
+    }
+
+    [Fact]
+    public async Task A_touch_waits_for_a_key_on_its_way_however_long_it_takes_and_is_never_dropped()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        var gate = server.Hold("POST", $"{sandbox}/input");
+        var key = Screen.Press(["enter"]);
+        Screen.Touch([new(ScreenTouchKind.Tap, 164, 123)], 328, 246);
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().HaveCount(1));
+
+        gate.SetResult();
+        await key;
+        await Screen.TouchesSent();
+
+        Sent<SandboxInputRequest>($"{sandbox}/input").Select(input => input.Kind).Should().Equal("key", "click");
+    }
+
+    [Fact]
+    public async Task A_failure_nobody_expected_ends_that_touch_only_and_the_next_ones_still_go()
+    {
+        Answer(Status("running"));
+        await OpenInControl();
+        server.Fail("POST", $"{sandbox}/input", new InvalidOperationException("Sample: an unexpected failure."));
+
+        Screen.Touch([new(ScreenTouchKind.Tap, 0, 0)], 328, 246);
+        await Screen.TouchesSent();
+        Screen.ScreenProblem.Should().Be("A touch could not be sent to the sandbox. Try it again.");
+        Screen.Sending.Should().BeFalse("the screen takes input again");
+
+        server.Answer("POST", $"{sandbox}/input", HttpStatusCode.NoContent);
+        Screen.Touch([new(ScreenTouchKind.Tap, 164, 123)], 328, 246);
+        await Screen.TouchesSent();
+
+        Requests("POST", $"{sandbox}/input").Should().HaveCount(2);
+        Screen.ScreenProblem.Should().BeNull();
     }
 
     [Fact]
