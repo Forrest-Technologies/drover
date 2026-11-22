@@ -57,7 +57,7 @@ public sealed class RoutineRowView : Grid
     public RoutineRowView(RoutinesSectionViewModel part, BotScheduleResponse schedule)
     {
         (this.part, this.schedule) = (part, schedule);
-        frame.Cut = Tokens.Number("DvCut");
+        frame.Role = FacetRole.Frame;
         frame.Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace3"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace4"));
         this.WhenShownOrRethemed(() => (frame.Fill, frame.Edge) = (Tokens.Brush(this, "DvBg2"), Tokens.Brush(this, "DvLine")));
         Children.Add(frame);

@@ -29,6 +29,10 @@ internal static class SampleTheme
 
     public const int Duration = 286;
 
+    public const int YardStep = 24;
+
+    public const double CharacterLine = 3;
+
     public static ThemeFile Value { get; } = Make();
 
     #endregion
@@ -48,9 +52,19 @@ internal static class SampleTheme
             Intent = "A sample made for the screen checks.",
             Type = night.Type with { Scale = [12, 13, BaseSize, 17, 21, 29] },
             Density = night.Density with { Spacing = 1.2, Row = new(RowPointer, RowTouch), ComposerLines = 6 },
-            Shape = night.Shape with { Cut = new(ControlCut, FrameCut), Line = 2 },
-            Surfaces = night.Surfaces with { Texture = YardTexture.Grid, YardStrength = 0.4, YardStep = 24 },
-            Motion = night.Motion with { Scale = 1.3, Bloom = Bloom, Breath = 3380, Travel = 1690, TravelLine = 3 },
+            Shape = night.Shape with
+            {
+                Corners = CornerLanguage.Ticked,
+                Cut = new(ControlCut, FrameCut),
+                Registration = true,
+                ControlRadius = 0,
+                CardRadius = 0,
+                SheetRadius = 0,
+                Line = 2,
+            },
+            Surfaces = night.Surfaces with { Texture = YardTexture.Grid, YardStrength = 0.4, YardStep = YardStep },
+            Motion = night.Motion with { Scale = 1.3, Bloom = Bloom, Breath = 3380, Travel = 1690, Live = LiveStyle.Fade, TravelLine = 3 },
+            Characters = night.Characters with { Facet = 0.12, Line = CharacterLine, Visor = VisorStyle.Outlined },
             Dark = night.Dark with { Colors = colors },
         };
     }

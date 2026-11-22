@@ -158,17 +158,26 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         theme.Choose(new ThemeChoice(SampleTheme.Id, ThemeMode.Dark));
-        var sample = await UntilSeen("the open screen made again from the sample theme", seen => seen.RowMinimum == Row(sample: true));
+        var sample = await UntilSeen("the open screen made again from the sample theme", seen =>
+            seen.RowMinimum == Row(sample: true) && seen.Corners == CornerLanguage.Ticked);
 
         // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not required to be gone.
         Expect(sample.TextSizes.Contains(SampleTheme.BaseSize), "type: the base step of the scale");
         Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
-        Expect(sample.FrameCut == SampleTheme.FrameCut, "shape: the cut of a frame");
+        Expect(sample.FrameCut == SampleTheme.FrameCut, "shape: the size of a frame's corner");
+        Expect(sample.Corners == CornerLanguage.Ticked, "shape: the corner language of the frames");
         Expect(sample.Bloom == SampleTheme.Bloom && sample.Duration == SampleTheme.Duration, "motion: bloom and the duration scale");
+        Expect(Motion.Fades || Motion.IsReduced, "motion: a live state fades instead of looping");
+
+        // The yard is drawn only where the screen is wide enough to show the working area, so it is read when it was drawn.
+        Expect(sample.Yard.Step == 0 || sample.Yard == (YardTexture.Grid, SampleTheme.YardStep), "surfaces: the yard texture and step");
+        Expect(sample.CharacterLine == SampleTheme.CharacterLine, "characters: the part line weight");
         Expect(sample.Ember != before.Ember, "color: the accent repaints");
 
         theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
-        var back = await UntilSeen("the open screen made again from Night Yard", seen => seen.RowMinimum == before.RowMinimum && seen.FrameCut == before.FrameCut && !seen.TextSizes.Contains(SampleTheme.BaseSize));
+        var back = await UntilSeen("the open screen made again from Night Yard", seen =>
+            seen.RowMinimum == before.RowMinimum && seen.Corners == before.Corners
+            && !seen.TextSizes.Contains(SampleTheme.BaseSize));
         Expect(back == before, "Night Yard is exactly what it was before");
     }
 
@@ -184,7 +193,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             var last = Observe();
             var sizes = last is null ? string.Empty : string.Join(", ", last.TextSizes.Order());
             throw new CheckFailedException(
-                $"{failure.Message}; last seen: {(last is null ? "no crew row" : $"row {last.RowMinimum}, frame {last.FrameCut}, space {last.Space}, text sizes {sizes}")}",
+                $"{failure.Message}; last seen: {(last is null ? "no crew row" : $"row {last.RowMinimum}, corners {last.Corners}, frame {last.FrameCut}, space {last.Space}, text sizes {sizes}")}",
                 failure);
         }
     }
@@ -204,11 +213,13 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         var sizes = roots.OfType<TextBlock>().Select(block => block.FontSize).ToHashSet();
-        var cuts = roots.OfType<Facet>().Select(facet => facet.Cut).ToList();
+        var frames = roots.OfType<Facet>().ToList();
+        var yard = roots.OfType<Yard>().FirstOrDefault()?.Drawn ?? default;
 
         return new(
-            row.MinHeight, sizes, Tokens.Number("DvSpace4"), cuts.Count == 0 ? 0 : cuts.Max(), Tokens.Number("DvBloomIon"),
-            Tokens.Number("DvDur2"), Tokens.Color(row, "DvEmber"));
+            row.MinHeight, sizes, Tokens.Number("DvSpace4"), frames.Count == 0 ? 0 : frames.Max(frame => frame.DrawnSize),
+            frames.Count == 0 ? CornerLanguage.Faceted : frames[0].DrawnCorners, Tokens.Number("DvBloomIon"), Tokens.Number("DvDur2"),
+            yard, Tokens.Number("DvCharacterLine"), Tokens.Color(row, "DvEmber"));
     }
 
     private void Expect(bool holds, string what)
@@ -620,11 +631,21 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     /// sizes is not part of equality, because which texts are on screen depends on what has loaded.
     /// </summary>
     private sealed record Seen(
-        double RowMinimum, HashSet<double> TextSizes, double Space, double FrameCut, double Bloom, double Duration, Color Ember)
+        double RowMinimum,
+        HashSet<double> TextSizes,
+        double Space,
+        double FrameCut,
+        CornerLanguage Corners,
+        double Bloom,
+        double Duration,
+        (YardTexture Texture, double Step) Yard,
+        double CharacterLine,
+        Color Ember)
     {
         public bool Equals(Seen? other) =>
             other is not null && RowMinimum == other.RowMinimum && Space == other.Space
-            && FrameCut == other.FrameCut && Bloom == other.Bloom && Duration == other.Duration && Ember == other.Ember;
+            && FrameCut == other.FrameCut && Corners == other.Corners && Bloom == other.Bloom && Duration == other.Duration
+            && CharacterLine == other.CharacterLine && Ember == other.Ember;
 
         public override int GetHashCode() => HashCode.Combine(RowMinimum, Space, FrameCut, Bloom, Duration, Ember);
     }

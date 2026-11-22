@@ -24,7 +24,7 @@ public sealed class BotChoiceButton : Pressable
     protected override void Paint()
     {
         var frame = (Facet)Frame!;
-        frame.Cut = Tokens.Number("DvCut");
+        frame.Role = FacetRole.Frame;
         frame.Fill = Tokens.Brush(this, IsHovered ? "DvBg2" : "DvBg1");
         frame.Edge = Tokens.Brush(this, "DvLine");
         frame.Ring = HasKeyboardFocus ? Tokens.Brush(this, "DvEmber") : null;

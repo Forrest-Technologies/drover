@@ -159,7 +159,7 @@ public sealed class MessageList : Grid
 
     private void BuildThinking()
     {
-        thinkingPlate.Cut = Tokens.Number("DvCutS");
+        thinkingPlate.Role = FacetRole.Control;
         thinkingPlate.Padding = new(Tokens.Number("DvSpace1"));
         thinkingPlate.VerticalAlignment = VerticalAlignment.Top;
         thinkingPlate.Children.Add(thinkingHead);

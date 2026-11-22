@@ -36,7 +36,7 @@ public sealed class Button : Pressable
         var (fill, edge, ink) = Colors();
         var frame = (Facet)Frame!;
 
-        frame.Cut = Tokens.Number("DvCutS");
+        frame.Role = FacetRole.Control;
         frame.Fill = Tokens.Brush(this, fill);
         frame.Edge = Tokens.Brush(this, edge);
         frame.Ring = HasKeyboardFocus ? Tokens.Brush(this, Kind is ButtonKind.Primary ? "DvOnAccent" : "DvEmber") : null;

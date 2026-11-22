@@ -438,6 +438,9 @@ public sealed class MarkdownView : StackPanel
         paragraph.FontSize = Tokens.Number(size);
         paragraph.Foreground = Tokens.Brush(this, ink);
 
+        // Conversation text is set in the theme's reading face, and its headings in the heading face.
+        paragraph.FontFamily = heading ? Tokens.FontHeading : Tokens.FontReading;
+
         if (heading)
         {
             paragraph.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"];

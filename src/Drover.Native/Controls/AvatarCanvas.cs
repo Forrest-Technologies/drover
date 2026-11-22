@@ -9,12 +9,12 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
     private const int SmallestSizeWithDetail = 24;
 
-    private const float LineWidth = 2.5f;
-
     private const double Dim = 0.35;
 
-    // One lighter face, at 8 percent, so the head reads as cut, not flat.
-    private const byte FacetAlpha = 20;
+    // An outlined visor's edge: its width on the 64 unit grid, and its strength.
+    private const float EdgeWidth = 1.6f;
+
+    private const byte EdgeAlpha = 230;
 
     // The visor's light at 45 percent while a tool runs, so the bar crossing it stands out.
     private const byte DimmedAlpha = 115;
@@ -50,7 +50,7 @@ internal sealed class AvatarCanvas : SKCanvasElement
     {
         IsHitTestVisible = false;
         AutomationProperties.SetAccessibilityView(this, AccessibilityView.Raw);
-        clock.Tick += (_, _) => Invalidate();
+        clock.Tick += (_, _) => Tick();
     }
 
     #endregion
@@ -61,8 +61,9 @@ internal sealed class AvatarCanvas : SKCanvasElement
     {
         (look, hue, size, state) = (character, hueStep, edge, doing);
 
-        // Only a live state moves, and only while motion is wanted. Nothing loops at rest.
-        if (state is AvatarState.Thinking or AvatarState.Tool && !Motion.IsReduced)
+        // Only a live state moves, and only while motion is wanted. Nothing loops at rest. A theme that fades its
+        // states gives thinking one fade up and holds a running tool still.
+        if (Motion.Loops && state is AvatarState.Thinking or AvatarState.Tool || (Motion.Fades && state is AvatarState.Thinking))
         {
             elapsed.Start();
             clock.Start();
@@ -84,6 +85,16 @@ internal sealed class AvatarCanvas : SKCanvasElement
     #endregion
 
     #region Drawing
+
+    // A fading theme has one fade to draw, and the clock ends with it.
+    private void Tick()
+    {
+        Invalidate();
+        if (Motion.Fades && elapsed.Elapsed >= Motion.FadeTime)
+        {
+            StopMoving();
+        }
+    }
 
     protected override void RenderOverride(SKCanvas canvas, Size area)
     {
@@ -110,7 +121,7 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
         canvas.Save();
         canvas.ClipPath(headOutline, SKClipOperation.Intersect, antialias: true);
-        using (var facet = new SKPaint { Color = onHead.ToSkia().WithAlpha(FacetAlpha) })
+        using (var facet = new SKPaint { Color = onHead.ToSkia().WithAlpha((byte)Math.Round(Tokens.Number("DvCharacterFacet") * byte.MaxValue)) })
         {
             canvas.DrawRect(0, 0, Grid / 2, Grid, facet);
         }
@@ -132,7 +143,7 @@ internal sealed class AvatarCanvas : SKCanvasElement
             switch (shape.Class)
             {
                 case "dv-character-line":
-                    ShapePainter.Stroke(canvas, shape, color, LineWidth, round: true);
+                    ShapePainter.Stroke(canvas, shape, color, (float)Tokens.Number("DvCharacterLine"), round: true);
                     break;
                 case "dv-character-dot":
                     ShapePainter.Fill(canvas, shape, dotColor);
@@ -177,7 +188,21 @@ internal sealed class AvatarCanvas : SKCanvasElement
                 break;
         }
 
+        if (ThemeTokens.Current.Characters.Visor is VisorStyle.Outlined)
+        {
+            DrawEdge(canvas, band);
+        }
+
         canvas.Restore();
+    }
+
+    // A theme without bloom draws the visor's edge so it reads without light: lit while the bot works, pale at rest.
+    private void DrawEdge(SKCanvas canvas, SKPath band)
+    {
+        var working = state is AvatarState.Thinking or AvatarState.Writing or AvatarState.Tool;
+        var edge = Tokens.Color(this, working ? "DvVisorLit" : "DvOnHead").ToSkia();
+        using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = EdgeWidth, Color = edge.WithAlpha(EdgeAlpha), IsAntialias = true };
+        canvas.DrawPath(band, stroke);
     }
 
     // A slow breath between dim and full, eased at both ends. Fully lit with reduced motion.
@@ -188,6 +213,11 @@ internal sealed class AvatarCanvas : SKCanvasElement
             return 1;
         }
 
+        if (Motion.Fades)
+        {
+            return Dim + ((1 - Dim) * Math.Min(1, elapsed.Elapsed.TotalMilliseconds / Motion.FadeTime.TotalMilliseconds));
+        }
+
         var turn = elapsed.Elapsed.TotalMilliseconds / Tokens.Number("DvDurBreath") % 1;
         return Dim + ((1 - Dim) * (0.5 - (0.5 * Math.Cos(turn * 2 * Math.PI))));
     }
@@ -195,7 +225,7 @@ internal sealed class AvatarCanvas : SKCanvasElement
     // The bar's place on its way across. It holds still, on the visor, with reduced motion.
     private float Sweep()
     {
-        if (Motion.IsReduced)
+        if (!Motion.Loops)
         {
             return SweepAtRest;
         }

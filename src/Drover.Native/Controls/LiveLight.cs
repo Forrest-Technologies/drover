@@ -83,6 +83,12 @@ public sealed class LiveLight : SKCanvasElement
         }
 
         var time = elapsed.Elapsed.TotalMilliseconds;
+        if (State is LiveState.Thinking && Motion.Fades)
+        {
+            // One fade up to fully lit, then still: a theme that fades its states never loops them.
+            return Dim + ((1 - Dim) * Math.Min(1, time / Motion.FadeTime.TotalMilliseconds));
+        }
+
         if (State is LiveState.Thinking)
         {
             var turn = time / Tokens.Number("DvDurBreath") % 1;
@@ -106,10 +112,12 @@ public sealed class LiveLight : SKCanvasElement
         Invalidate();
     }
 
-    // The pulse ends after two beats, and its clock ends with it. Only thinking goes on, for as long as it lasts.
+    // The pulse ends after two beats, and its clock ends with it. Only thinking goes on, for as long as it lasts,
+    // and in a theme that fades its states it ends with its one fade.
     private void Tick()
     {
-        if (State is LiveState.Passing && elapsed.Elapsed.TotalMilliseconds >= 2 * Tokens.Number("DvDur3"))
+        var time = elapsed.Elapsed.TotalMilliseconds;
+        if ((State is LiveState.Passing && time >= 2 * Tokens.Number("DvDur3")) || (State is LiveState.Thinking && Motion.Fades && time >= Motion.FadeTime.TotalMilliseconds))
         {
             clock.Stop();
         }

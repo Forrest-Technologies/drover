@@ -31,7 +31,7 @@ public sealed class EmptyState : Grid
         column.Children.Add(cause);
         column.Children.Add(link);
         column.Children.Add(button);
-        frame.Cut = Tokens.Number("DvCut");
+        frame.Role = FacetRole.Frame;
         frame.Padding = new(Tokens.Number("DvSpace5"));
         frame.Children.Add(column);
         Children.Add(frame);
