@@ -93,6 +93,7 @@ public static class DiagnosticEntry
     // A value is kept only when its kind cannot hold text. Strings, ids and anything else are left out.
     private static string? Plain(object? value) => value switch
     {
+        Type type when type.GetType() == typeof(Exception).GetType() && typeof(Exception).IsAssignableFrom(type) => type.Name,
         bool flag => flag ? "true" : "false",
         Enum choice when Enum.IsDefined(choice.GetType(), choice) => choice.ToString(),
         byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal =>

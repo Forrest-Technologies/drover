@@ -1408,6 +1408,20 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_size_refusal_without_a_problem_document_explains_the_failed_upload()
+    {
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/threads/{threadId}/files", HttpStatusCode.RequestEntityTooLarge);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Attach(() => MainPane, new SamplePickedFile("screen.png", "one", sizeKnown: false));
+
+        await Until(() => Status(MainPane).Should().Equal("Larger than this server takes."));
+        MainPane.Composer.CanSend.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task An_upload_that_fails_with_no_reason_from_the_server_says_so_and_holds_the_message()
     {
         AttachmentsAllowed();
