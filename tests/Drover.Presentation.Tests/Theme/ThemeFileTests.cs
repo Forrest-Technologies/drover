@@ -77,6 +77,16 @@ public sealed class ThemeFileTests
     }
 
     [Fact]
+    public void Every_theme_is_in_a_group_and_the_group_is_one_of_the_two_the_format_has()
+    {
+        BuiltInThemes.NightYard.Group.Should().Be(ThemeGroup.Expressive);
+        OneProblem(Edit(night => night["group"] = "loud")).Should().Contain("group");
+        OneProblem(Edit(night => night.AsObject().Remove("group"))).Should().Contain("'group'");
+        ThemeFileReader.Read(Edit(night => night["group"] = "professional"), "night-yard")
+            .Group.Should().Be(ThemeGroup.Professional);
+    }
+
+    [Fact]
     public void A_whole_number_must_be_written_whole() =>
         OneProblem(Edit(night => night["shape"]!["line"] = 1.5)).Should().Contain("shape.line");
 

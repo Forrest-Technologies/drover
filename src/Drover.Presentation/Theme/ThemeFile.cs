@@ -8,6 +8,16 @@ public enum CornerLanguage
     Ticked,
 }
 
+/// <summary>Where the Appearance page lists a theme. It groups and changes no token and no bound.</summary>
+public enum ThemeGroup
+{
+    /// <summary>A look with a character of its own.</summary>
+    Expressive,
+
+    /// <summary>A restrained look for work settings.</summary>
+    Professional,
+}
+
 /// <summary>The texture of the working area.</summary>
 public enum YardTexture
 {
@@ -112,6 +122,7 @@ public sealed record ThemeFile(
     string Id,
     string Name,
     string Intent,
+    ThemeGroup Group,
     ColorMode FirstMode,
     IReadOnlyList<DeviceRequest> Suits,
     ThemeType Type,
