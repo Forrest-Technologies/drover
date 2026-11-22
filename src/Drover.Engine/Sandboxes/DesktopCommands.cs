@@ -79,8 +79,11 @@ public static class DesktopCommands
 
     public const int MaxScrollClicks = 20;
 
-    /// <summary>How many points a drag passes between its press and its release, so a window manager sees it move.</summary>
+    /// <summary>How many points a drag passes between its press and its release, so a window manager sees it.</summary>
     public const int DragSteps = 8;
+
+    /// <summary>The longest letting go of held buttons may take, whatever it waits on.</summary>
+    public static TimeSpan ReleaseLimit => releaseLimit;
 
     /// <summary>The display every desktop command draws on, also set in the sandbox's environment when it is made.</summary>
     public static IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string> { ["DISPLAY"] = ":0" };
@@ -139,7 +142,7 @@ public static class DesktopCommands
     {
         if (x.HasValue != y.HasValue)
         {
-            throw new BuiltinToolException("Give both x and y to let go at a point, or neither to let go where the pointer is.");
+            throw new BuiltinToolException("Give both x and y to let go at a point, or neither to let go where it is.");
         }
 
         string[] move = [];
@@ -179,14 +182,26 @@ public static class DesktopCommands
     {
         CheckPoint(fromX, fromY);
         CheckPoint(toX, toY);
-        List<string> arguments = ["xdotool", "mousemove", Number(fromX), Number(fromY), "mousedown", ButtonNumber(button), "sleep", DragPause];
+        List<string> arguments =
+        [
+            "xdotool",
+            "mousemove",
+            Number(fromX),
+            Number(fromY),
+            "mousedown",
+            ButtonNumber(button),
+            "sleep",
+            DragPause,
+        ];
 
         for (var step = 1; step <= DragSteps; step++)
         {
-            arguments.AddRange(["mousemove", Number(Between(fromX, toX, step)), Number(Between(fromY, toY, step)), "sleep", DragPause]);
+            var (x, y) = (Between(fromX, toX, step), Between(fromY, toY, step));
+            arguments.AddRange(["mousemove", Number(x), Number(y), "sleep", DragPause]);
         }
 
-        arguments.AddRange(["mousemove", Number(toX), Number(toY), "sleep", DragPause, "mouseup", ButtonNumber(button)]);
+        arguments.AddRange(["mousemove", Number(toX), Number(toY), "sleep", DragPause]);
+        arguments.AddRange(["mouseup", ButtonNumber(button)]);
         return Command([.. arguments]);
     }
 

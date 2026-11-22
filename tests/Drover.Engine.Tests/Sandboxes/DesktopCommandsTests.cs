@@ -128,7 +128,8 @@ public sealed class DesktopCommandsTests
     [InlineData(MouseButton.Left, "1")]
     [InlineData(MouseButton.Right, "3")]
     [InlineData(MouseButton.Middle, "2")]
-    public void A_press_moves_to_the_point_and_holds_the_button_down_in_one_xdotool_run(MouseButton button, string number)
+    public void A_press_moves_to_the_point_and_holds_the_button_down_in_one_xdotool_run(MouseButton button,
+        string number)
     {
         var command = DesktopCommands.MouseDown(10, 20, button);
 
@@ -173,7 +174,8 @@ public sealed class DesktopCommandsTests
         command.Program.Should().Be("xdotool");
         command.Arguments.Take(5).Should().Equal("mousemove", "100", "200", "mousedown", "1");
         command.Arguments.TakeLast(2).Should().Equal("mouseup", "1");
-        command.Arguments.Skip(5).Where(argument => argument == "mousemove").Should().HaveCount(DesktopCommands.DragSteps + 1);
+        command.Arguments.Skip(5).Where(argument => argument == "mousemove")
+            .Should().HaveCount(DesktopCommands.DragSteps + 1);
         command.Arguments.Should().ContainInOrder("mousemove", "500", "600", "sleep", "mouseup");
         command.Arguments.Count(argument => argument == "mousedown").Should().Be(1);
         command.Arguments.Count(argument => argument == "mouseup").Should().Be(1);
@@ -187,11 +189,13 @@ public sealed class DesktopCommandsTests
         var points = command.Arguments
             .Select((argument, index) => (argument, index))
             .Where(item => item.argument == "mousemove")
-            .Select(item => (X: int.Parse(command.Arguments[item.index + 1], CultureInfo.InvariantCulture), Y: int.Parse(command.Arguments[item.index + 2], CultureInfo.InvariantCulture)))
+            .Select(item => (X: int.Parse(command.Arguments[item.index + 1], CultureInfo.InvariantCulture),
+                Y: int.Parse(command.Arguments[item.index + 2], CultureInfo.InvariantCulture)))
             .ToList();
 
         points.Should().HaveCount(DesktopCommands.DragSteps + 2);
-        points.Should().OnlyContain(point => point.X >= 0 && point.X < DesktopCommands.ScreenWidth && point.Y >= 0 && point.Y < DesktopCommands.ScreenHeight);
+        points.Should().OnlyContain(point => point.X >= 0 && point.X < DesktopCommands.ScreenWidth && point.Y >= 0
+            && point.Y < DesktopCommands.ScreenHeight);
         points[0].Should().Be((0, 767));
         points[^1].Should().Be((1023, 0));
         points.Select(point => point.X).Should().BeInAscendingOrder();
@@ -213,17 +217,23 @@ public sealed class DesktopCommandsTests
     [InlineData(0, 768)]
     public void A_pointer_point_off_the_screen_is_refused_in_a_plain_sentence(int x, int y)
     {
-        ((Func<CommandRequest>)(() => DesktopCommands.MouseDown(x, y, MouseButton.Left))).Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
-        ((Func<CommandRequest>)(() => DesktopCommands.MouseMove(x, y))).Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
-        ((Func<CommandRequest>)(() => DesktopCommands.MouseUp(MouseButton.Left, x, y))).Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
-        ((Func<CommandRequest>)(() => DesktopCommands.Drag(x, y, 5, 5, MouseButton.Left))).Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
-        ((Func<CommandRequest>)(() => DesktopCommands.Drag(5, 5, x, y, MouseButton.Left))).Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseDown(x, y, MouseButton.Left)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseMove(x, y)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseUp(MouseButton.Left, x, y)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.Drag(x, y, 5, 5, MouseButton.Left)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.Drag(5, 5, x, y, MouseButton.Left)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
     }
 
     [Fact]
     public void A_release_with_half_a_point_is_refused()
     {
-        ((Func<CommandRequest>)(() => DesktopCommands.MouseUp(MouseButton.Left, 10, null))).Should().Throw<BuiltinToolException>();
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseUp(MouseButton.Left, 10, null)))
+            .Should().Throw<BuiltinToolException>();
     }
 
     #endregion

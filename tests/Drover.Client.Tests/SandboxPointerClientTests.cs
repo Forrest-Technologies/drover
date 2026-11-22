@@ -25,7 +25,8 @@ public sealed class SandboxPointerClientTests
 
         server.Paths.Should().OnlyContain(path => path == $"/api/spaces/{spaceId}/bots/{botId}/sandbox/input");
         server.Methods.Should().OnlyContain(method => method == HttpMethod.Post);
-        server.Bodies.Select(body => JsonSerializer.Deserialize<SandboxInputRequest>(body, JsonSerializerOptions.Web)).Should().Equal(
+        server.Bodies.Select(body => JsonSerializer.Deserialize<SandboxInputRequest>(body, JsonSerializerOptions.Web))
+            .Should().Equal(
             new SandboxInputRequest("down", X: 10, Y: 20, Button: "right"),
             new SandboxInputRequest("move", X: 30, Y: 40),
             new SandboxInputRequest("up", X: 50, Y: 60, Button: "middle"),
@@ -39,7 +40,8 @@ public sealed class SandboxPointerClientTests
 
     // The banned constructor guards outbound calls in the product. This client reaches only the recording handler.
 #pragma warning disable RS0030
-    private static HttpClient Http(HttpMessageHandler handler) => new(handler) { BaseAddress = new Uri("https://drover.test/") };
+    private static HttpClient Http(HttpMessageHandler handler) =>
+        new(handler) { BaseAddress = new Uri("https://drover.test/") };
 #pragma warning restore RS0030
 
     #endregion
@@ -60,13 +62,21 @@ public sealed class SandboxPointerClientTests
 
         #region Protected Methods
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
         {
             Methods.Add(request.Method);
             Paths.Add(request.RequestUri?.PathAndQuery);
-            Bodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
+            Bodies.Add(request.Content is null ? string.Empty : await Read(request.Content, cancellationToken));
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
+
+        #endregion
+
+        #region Private Methods
+
+        private static Task<string> Read(HttpContent content, CancellationToken cancellationToken) =>
+            content.ReadAsStringAsync(cancellationToken);
 
         #endregion
     }

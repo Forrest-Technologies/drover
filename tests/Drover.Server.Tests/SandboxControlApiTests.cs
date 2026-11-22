@@ -167,10 +167,15 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         var down = await client.Post($"{sandbox}/input", new SandboxInputRequest("down", X: 10, Y: 20, Button: "left"));
         var move = await client.Post($"{sandbox}/input", new SandboxInputRequest("move", X: 30, Y: 40));
         var up = await client.Post($"{sandbox}/input", new SandboxInputRequest("up", X: 30, Y: 40, Button: "left"));
-        var drag = await client.Post($"{sandbox}/input", new SandboxInputRequest("drag", X: 1, Y: 2, X2: 300, Y2: 200, Button: "right"));
+        var drag = await client.Post($"{sandbox}/input", new SandboxInputRequest("drag", X: 1, Y: 2, X2: 300, Y2: 200,
+            Button: "right"));
 
-        new[] { down, move, up, drag }.Select(answer => answer.StatusCode).Should().AllBeEquivalentTo(HttpStatusCode.NoContent);
-        var sent = provider.Commands.Where(command => command.Program == "xdotool").Select(command => command.Arguments.ToArray()).ToList();
+        new[] { down, move, up, drag }.Select(answer => answer.StatusCode)
+            .Should().AllBeEquivalentTo(HttpStatusCode.NoContent);
+        var sent = provider.Commands
+            .Where(command => command.Program == "xdotool")
+            .Select(command => command.Arguments.ToArray())
+            .ToList();
         sent.Should().HaveCount(4);
         sent[0].Should().Equal(DesktopCommands.MouseDown(10, 20, MouseButton.Left).Arguments);
         sent[1].Should().Equal(DesktopCommands.MouseMove(30, 40).Arguments);
@@ -242,7 +247,8 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
 
         (await client.PostWithoutToken($"{sandbox}/input", press)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await memberClient.Post($"{sandbox}/input", press)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await strangerClient.Post($"{Space(stranger.SpaceId)}/bots/{botId}/sandbox/input", press)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await strangerClient.Post($"{Space(stranger.SpaceId)}/bots/{botId}/sandbox/input", press)).StatusCode
+            .Should().Be(HttpStatusCode.NotFound);
         provider.Commands.Should().BeEmpty("nothing was pressed, so not even a release was sent");
     }
 
