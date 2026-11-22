@@ -110,6 +110,11 @@ const exhaustedPicture = {
     id: '0196f1a0-0000-7000-8000-00000000000c', name: 'sample-retry-exhausted.png',
     contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
 };
+const concurrentPictures = Array.from({ length: 4 }, (_, index) => ({
+    id: `0196f1a0-0000-7000-8000-${String(index + 13).padStart(12, '0')}`,
+    name: `sample-concurrent-${index + 1}.png`,
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+}));
 const exchangedFiles = [
     {
         file: panelFile, threadId: thread.id, messageId: messages[0].id,
@@ -124,6 +129,7 @@ const exchangedFiles = [
 const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
 const sampleImageAddress = 'https://preview-image.example.test/sample.png';
 messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
+messages[0].parts.push(...concurrentPictures.map(file => ({ kind: 'file', fileId: file.id, file })));
 messages[0].parts.push({ kind: 'file', fileId: retryPicture.id, file: retryPicture });
 messages[0].parts.push({ kind: 'file', fileId: exhaustedPicture.id, file: exhaustedPicture });
 const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
@@ -230,6 +236,10 @@ try {
             let previewRequests = 0;
             let retryPictureRequests = 0;
             let exhaustedPictureRequests = 0;
+            let concurrentPictureRequests = 0;
+            let activeConcurrentPictureRequests = 0;
+            let maxConcurrentPictureRequests = 0;
+            const heldConcurrentPictures = [];
             // The file card in the conversation and in the Files panel reads the same preview path as the panel's
             // Preview toggle, so the answer is chosen by the step under test, not by the order of the requests.
             let panelPreviewBroken = false;
@@ -412,6 +422,16 @@ try {
                     exhaustedPictureRequests++;
                     body = { refusal: 3 };
                 }
+                else if (concurrentPictures.some(file => address.endsWith(`/files/${file.id}/native-preview`))) {
+                    concurrentPictureRequests++;
+                    activeConcurrentPictureRequests++;
+                    maxConcurrentPictureRequests = Math.max(
+                        maxConcurrentPictureRequests,
+                        activeConcurrentPictureRequests);
+                    await new Promise(resolve => heldConcurrentPictures.push(resolve));
+                    activeConcurrentPictureRequests--;
+                    body = { image: samplePng };
+                }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
                     body = {
@@ -527,6 +547,30 @@ try {
                 if (name === 'conversation') {
                     await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).waitFor({ state: 'attached' });
                     await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached' });
+                    const firstPictureDeadline = Date.now() + 10000;
+                    while (concurrentPictureRequests < 2 && Date.now() < firstPictureDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    await page.evaluate(() => new Promise(resolve =>
+                        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                    assert.equal(concurrentPictureRequests, 2,
+                        'Only two conversation pictures should read from the server together.');
+                    heldConcurrentPictures.splice(0).forEach(release => release());
+                    const backlogDeadline = Date.now() + 10000;
+                    while (concurrentPictureRequests < concurrentPictures.length && Date.now() < backlogDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(concurrentPictureRequests, concurrentPictures.length,
+                        'The queued conversation pictures should start after the first pair finishes.');
+                    assert.equal(activeConcurrentPictureRequests, 2,
+                        'The drained picture backlog should keep both request slots busy.');
+                    assert.equal(maxConcurrentPictureRequests, 2,
+                        'The picture request limit should hold while the backlog drains.');
+                    heldConcurrentPictures.splice(0).forEach(release => release());
+                    for (const file of concurrentPictures) {
+                        await page.locator(`[role="img"][aria-label="${file.name}"]`)
+                            .waitFor({ state: 'attached', timeout: 10000 });
+                    }
                     const retryDeadline = Date.now() + 10000;
                     while (retryPictureRequests < 2 && Date.now() < retryDeadline) {
                         await new Promise(resolve => setTimeout(resolve, 50));

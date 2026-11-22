@@ -11,6 +11,8 @@ public sealed class FileCard : Grid
 
     private const int MaxPictureAttempts = 2;
 
+    private static readonly SemaphoreSlim pictureReadSlots = new(NativeFilePreview.MaxPicturesPerUser);
+
     private readonly FileCardViewModel model;
 
     private readonly Batch batch;
@@ -177,6 +179,7 @@ public sealed class FileCard : Grid
 
         Unloaded += async (_, _) =>
         {
+            ClearPicture();
             previewSurface.Clear();
             await model.ClosePreview();
         };
@@ -353,18 +356,19 @@ public sealed class FileCard : Grid
     {
         try
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var preview = await api.ReadNativePreview(file.Href, timeout.Token);
-            if (preview.Refusal is NativePreviewRefusal.TooComplex
+            var result = await ReadPicture(file, generation);
+            if (!result.Current)
+            {
+                return;
+            }
+
+            if (result.Retry
                 && await RetryPicture(file, generation, attempt))
             {
                 return;
             }
 
-            var bitmap = preview is { Refusal: null, Image: { } bytes }
-                ? NativeFilePreviewControl.DecodePicture(bytes, timeout.Token)
-                : null;
-            FinishPicture(file, generation, bitmap);
+            FinishPicture(file, generation, result.Source);
         }
         catch (OperationCanceledException exception)
         {
@@ -382,6 +386,32 @@ public sealed class FileCard : Grid
         {
             Log.For<FileCard>().LogWarning(exception, "A picture in the conversation could not be read");
             FinishPicture(file, generation, source: null);
+        }
+    }
+
+    private async Task<(
+        Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? Source,
+        bool Current,
+        bool Retry)> ReadPicture(SharedFile file, int generation)
+    {
+        await pictureReadSlots.WaitAsync();
+        try
+        {
+            if (!IsCurrentPicture(file, generation))
+            {
+                return (null, Current: false, Retry: false);
+            }
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var preview = await api.ReadNativePreview(file.Href, timeout.Token);
+            var source = preview is { Refusal: null, Image: { } bytes }
+                ? NativeFilePreviewControl.DecodePicture(bytes, timeout.Token)
+                : null;
+            return (source, Current: true, Retry: preview.Refusal is NativePreviewRefusal.TooComplex);
+        }
+        finally
+        {
+            pictureReadSlots.Release();
         }
     }
 
