@@ -48,20 +48,6 @@ public sealed class ThemeFileTests
             .BeNull("a theme joins the app when the issue that ships it embeds its file");
     }
 
-    [Theory]
-    [MemberData(nameof(ThemeIds))]
-    public void Every_theme_of_the_first_batch_is_in_the_expressive_group(string id) =>
-        ThemeFileReader.Read(File.ReadAllText(Path.Combine(Repository.ThemeFolder, $"{id}.json")), id)
-            .Group.Should().Be(ThemeGroup.Expressive);
-
-    [Fact]
-    public void A_group_is_expressive_or_professional_and_nothing_else()
-    {
-        ProblemsOf(Edit(night => night["group"] = "playful")).Should().ContainSingle().Which.Should().Contain("group");
-        ProblemsOf(Edit(night => night.AsObject().Remove("group")))
-            .Should().ContainSingle().Which.Should().Contain("group");
-    }
-
     [Fact]
     public void A_file_with_a_key_the_format_does_not_have_is_refused() =>
         OneProblem(Edit(night => night["motion"]!["glow"] = 3)).Should().Contain("motion").And.Contain("glow");
@@ -88,6 +74,22 @@ public sealed class ThemeFileTests
         OneProblem(Edit(night => night["type"]!["scale"] = new JsonArray(12, 13, 17, 16, 20, 28)))
             .Should().Contain("type.scale");
         OneProblem(Edit(night => night["motion"]!["bloom"] = 9)).Should().Contain("motion.bloom");
+    }
+
+    [Theory]
+    [MemberData(nameof(ThemeIds))]
+    public void Every_theme_of_the_first_batch_is_in_the_expressive_group(string id) =>
+        ThemeFileReader.Read(File.ReadAllText(Path.Combine(Repository.ThemeFolder, $"{id}.json")), id)
+            .Group.Should().Be(ThemeGroup.Expressive);
+
+    [Fact]
+    public void Every_theme_is_in_a_group_and_the_group_is_one_of_the_two_the_format_has()
+    {
+        BuiltInThemes.NightYard.Group.Should().Be(ThemeGroup.Expressive);
+        OneProblem(Edit(night => night["group"] = "loud")).Should().Contain("group");
+        OneProblem(Edit(night => night.AsObject().Remove("group"))).Should().Contain("'group'");
+        ThemeFileReader.Read(Edit(night => night["group"] = "professional"), "night-yard")
+            .Group.Should().Be(ThemeGroup.Professional);
     }
 
     [Fact]

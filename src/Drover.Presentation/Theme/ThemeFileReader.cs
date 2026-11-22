@@ -75,8 +75,8 @@ public static partial class ThemeFileReader
             var top = Keys(
                 root,
                 "the file",
-                "format", "id", "name", "intent", "group", "firstMode", "suits", "type", "density", "shape",
-                "surfaces", "motion", "characters", "dark", "light");
+                "format", "id", "name", "intent", "group", "firstMode", "suits", "type", "density", "shape", "surfaces",
+                "motion", "characters", "dark", "light");
             if (top is null)
             {
                 return null;
