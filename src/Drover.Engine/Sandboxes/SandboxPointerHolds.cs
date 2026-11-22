@@ -196,6 +196,23 @@ internal sealed class SandboxPointerHolds(
         }
     }
 
+    /// <summary>
+    /// Completes when every release the time limit has started has ended, whether it let go or failed and set its
+    /// limit again. A test that moves the clock uses it, so that the clock never moves under a release that is running.
+    /// Not used outside tests.
+    /// </summary>
+    internal Task Quiet()
+    {
+        Task[] running;
+
+        lock (sync)
+        {
+            running = [.. expiring];
+        }
+
+        return Task.WhenAll(running);
+    }
+
     /// <summary>The sandbox was destroyed, which let go of everything on its display: its holds go.</summary>
     public void Forget(Guid spaceId, Guid sandboxId)
     {

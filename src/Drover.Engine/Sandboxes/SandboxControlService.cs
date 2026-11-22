@@ -77,7 +77,7 @@ public sealed class SandboxControlService(
 
     /// <summary>The mouse buttons people hold down, which are always let go of: see <see
     /// cref="SandboxPointerHolds"/>.</summary>
-    private SandboxPointerHolds Holds =>
+    internal SandboxPointerHolds Holds =>
         LazyInitializer.EnsureInitialized(ref heldButtons, () => new SandboxPointerHolds(time, logger, ReleaseHeld));
 
     #endregion
