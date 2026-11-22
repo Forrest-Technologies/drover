@@ -8,7 +8,7 @@ public enum PointerKind
     Up,
 }
 
-/// <summary>One pointer event in a sandbox: the button it names (a number, as the desktop tool does) and where it was.</summary>
+/// <summary>One pointer event in a sandbox: the button it names (a number, as the tool does) and where.</summary>
 public sealed record PointerEvent(PointerKind Kind, int X, int Y, string? Button);
 
 /// <summary>
@@ -19,7 +19,7 @@ public static class PointerEvents
 {
     #region Public Methods
 
-    /// <summary>The pointer events the commands carry, in order. A click's own move and press are left to the click.</summary>
+    /// <summary>The pointer events the commands carry, in order. A click's own move and press are not events.</summary>
     public static List<PointerEvent> Of(IEnumerable<CommandRequest> commands) =>
         [.. commands.Where(command => command.Program is "xdotool").SelectMany(Events)];
 
@@ -57,7 +57,8 @@ public static class PointerEvents
             switch (arguments[index])
             {
                 case "mousemove":
-                    (x, y) = (int.Parse(arguments[index + 1], CultureInfo.InvariantCulture), int.Parse(arguments[index + 2], CultureInfo.InvariantCulture));
+                    x = int.Parse(arguments[index + 1], CultureInfo.InvariantCulture);
+                    y = int.Parse(arguments[index + 2], CultureInfo.InvariantCulture);
 
                     if (!(index + 3 < arguments.Count && arguments[index + 3] is "mousedown" or "mouseup" or "click"))
                     {
