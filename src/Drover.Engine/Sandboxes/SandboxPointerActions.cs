@@ -44,25 +44,28 @@ internal static class SandboxPointerActions
             "down" => new(
                 PointerStep.Down,
                 button,
-                DesktopCommands.MouseDown(input.X ?? throw Needs("a press", "x and y"), input.Y ?? throw Needs("a press", "x and y"), button),
+                DesktopCommands.MouseDown(Needed(input.X, "A press"), Needed(input.Y, "A press"), button),
                 "press the button there"),
             "move" => new(
                 PointerStep.Move,
                 button,
-                DesktopCommands.MouseMove(input.X ?? throw Needs("a move", "x and y"), input.Y ?? throw Needs("a move", "x and y")),
+                DesktopCommands.MouseMove(Needed(input.X, "A move"), Needed(input.Y, "A move")),
                 "move the pointer"),
-            "up" => new(PointerStep.Up, button, DesktopCommands.MouseUp(button, input.X, input.Y), "let go of the button"),
-            "drag" => new(
+            "up" => new(
+                PointerStep.Up,
+                button,
+                DesktopCommands.MouseUp(button, input.X, input.Y),
+                "let go of the button"),
+            _ => new(
                 PointerStep.Drag,
                 button,
                 DesktopCommands.Drag(
-                    input.X ?? throw Needs("a drag", "x, y, x2 and y2"),
-                    input.Y ?? throw Needs("a drag", "x, y, x2 and y2"),
-                    input.X2 ?? throw Needs("a drag", "x, y, x2 and y2"),
-                    input.Y2 ?? throw Needs("a drag", "x, y, x2 and y2"),
+                    Needed(input.X, "A drag"),
+                    Needed(input.Y, "A drag"),
+                    Needed(input.X2, "A drag"),
+                    Needed(input.Y2, "A drag"),
                     button),
                 "drag there"),
-            _ => null,
         };
     }
 
@@ -70,7 +73,11 @@ internal static class SandboxPointerActions
 
     #region Private Methods
 
-    private static BuiltinToolException Needs(string action, string values) => new($"{action} needs {values}.");
+    private const string DragNeeds = "A drag needs x, y, x2 and y2.";
+
+    /// <summary>The number the action needs, or the sentence that says what it needs.</summary>
+    private static int Needed(int? value, string action) =>
+        value ?? throw new BuiltinToolException(action is "A drag" ? DragNeeds : $"{action} needs x and y.");
 
     /// <summary>Left, right or middle, left when none is named. Anything else is refused.</summary>
     private static MouseButton ButtonOf(string? name)
@@ -80,7 +87,10 @@ internal static class SandboxPointerActions
             return MouseButton.Left;
         }
 
-        return Enum.GetNames<MouseButton>().FirstOrDefault(known => string.Equals(known, name, StringComparison.OrdinalIgnoreCase)) is { } found
+        var found = Enum.GetNames<MouseButton>()
+            .FirstOrDefault(known => string.Equals(known, name, StringComparison.OrdinalIgnoreCase));
+
+        return found is not null
             ? Enum.Parse<MouseButton>(found)
             : throw new BuiltinToolException($"{name} is not one of: left, right, middle.");
     }
