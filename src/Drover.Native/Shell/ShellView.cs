@@ -84,7 +84,11 @@ public sealed class ShellView : Grid
 
         if (rebuild)
         {
+            // A frame does not navigate to the page and parameter it already shows, so it passes through a blank
+            // page. Neither stop is kept in the back stack.
+            frame.Navigate(typeof(Page), null, new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo());
             frame.Navigate(screen, match, new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo());
+            frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
             frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
         }
         else if (kind is NavigationKind.Travel && frame.CanGoBack && AddressOf(frame.BackStack[^1]) == match.Address)

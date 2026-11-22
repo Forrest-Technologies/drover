@@ -158,8 +158,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         theme.Choose(new ThemeChoice(SampleTheme.Id, ThemeMode.Dark));
-        var sample = await Until("the open screen made again from the sample theme", () =>
-            Observe() is { } seen && seen.RowMinimum == Row(sample: true) ? seen : null);
+        var sample = await UntilSeen("the open screen made again from the sample theme", seen => seen.RowMinimum == Row(sample: true));
 
         Expect(sample.TextSizes.Contains(SampleTheme.BaseSize) && !sample.TextSizes.Contains(14), "type: the base step of the scale");
         Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
@@ -168,9 +167,25 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         Expect(sample.Ember != before.Ember, "color: the accent repaints");
 
         theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
-        var back = await Until("the open screen made again from Night Yard", () =>
-            Observe() is { } seen && seen.RowMinimum == before.RowMinimum && seen.FrameCut == before.FrameCut ? seen : null);
+        var back = await UntilSeen("the open screen made again from Night Yard", seen => seen.RowMinimum == before.RowMinimum && seen.FrameCut == before.FrameCut);
         Expect(back == before, "Night Yard is exactly what it was before");
+    }
+
+    // Waits for the open screen to show what is asked, and says what it showed last when it never does.
+    private async Task<Seen> UntilSeen(string what, Func<Seen, bool> holds)
+    {
+        try
+        {
+            return await Until(what, () => Observe() is { } seen && holds(seen) ? seen : null);
+        }
+        catch (CheckFailedException failure)
+        {
+            var last = Observe();
+            var sizes = last is null ? string.Empty : string.Join(", ", last.TextSizes.Order());
+            throw new CheckFailedException(
+                $"{failure.Message}; last seen: {(last is null ? "no crew row" : $"row {last.RowMinimum}, frame {last.FrameCut}, space {last.Space}, text sizes {sizes}")}",
+                failure);
+        }
     }
 
     private async Task<Seen> Observed(double row, string what) =>
