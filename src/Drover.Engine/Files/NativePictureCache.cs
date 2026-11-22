@@ -8,11 +8,9 @@ public sealed class NativePictureCache(ILogger<NativePictureCache> logger, TimeP
     private readonly MemoryCache copies = new(new MemoryCacheOptions { SizeLimit = 16 * 1024 * 1024 });
     private readonly MemoryCache starts = new(new MemoryCacheOptions());
     private readonly Lock admission = new();
-    private readonly Dictionary<Guid, int> users = [];
-    private readonly Dictionary<Guid, int> spaces = [];
+    private readonly List<PictureRequest> requests = [];
     private readonly SemaphoreSlim buffers = new(3, 3);
     private readonly SemaphoreSlim decoding = new(1, 1);
-    private int pending;
 
     #endregion
 
@@ -32,7 +30,7 @@ public sealed class NativePictureCache(ILogger<NativePictureCache> logger, TimeP
             return existing;
         }
 
-        if (!TryAdmit(userId, file.SpaceId))
+        if (Admit(userId, file.SpaceId) is not { } request)
         {
             logger.LogDebug("Picture preview admission refused for {FileId}", file.Id);
             return new(Refusal: NativePreviewRefusal.TooComplex);
@@ -40,15 +38,22 @@ public sealed class NativePictureCache(ILogger<NativePictureCache> logger, TimeP
 
         try
         {
+            if (!await request.WaitForTurn(time, logger, cancellationToken))
+            {
+                return new(Refusal: NativePreviewRefusal.TooComplex);
+            }
+
             return await CreateCopy(found, key, cancellationToken);
         }
         finally
         {
             lock (admission)
             {
-                Release(users, userId);
-                Release(spaces, file.SpaceId);
-                pending--;
+                requests.Remove(request);
+                foreach (var waiting in requests)
+                {
+                    StartIfAvailable(waiting);
+                }
             }
         }
     }
@@ -69,45 +74,55 @@ public sealed class NativePictureCache(ILogger<NativePictureCache> logger, TimeP
 
     #region Private Methods
 
-    private bool TryAdmit(Guid userId, Guid spaceId)
+    private PictureRequest? Admit(Guid userId, Guid spaceId)
     {
         lock (admission)
         {
-            var userCount = users.GetValueOrDefault(userId);
-            var spaceCount = spaces.GetValueOrDefault(spaceId);
-            if (pending >= NativeFilePreview.MaxPendingPictures || userCount >= NativeFilePreview.MaxPicturesPerUser
-                || spaceCount >= NativeFilePreview.MaxPicturesPerSpace)
+            if (requests.Count >= NativeFilePreview.MaxPendingPictures
+                || requests.Count(request => request.UserId == userId) >= NativeFilePreview.MaxPendingPicturesPerUser
+                || requests.Count(request => request.SpaceId == spaceId) >= NativeFilePreview.MaxPendingPicturesPerSpace
+                || !TryChargeStart(userId))
             {
-                return false;
+                return null;
             }
 
-            var now = time.GetUtcNow();
-            var window = TimeSpan.FromMinutes(1);
-            var recent = starts.Get<Queue<DateTimeOffset>>(userId) ?? new Queue<DateTimeOffset>();
-            while (recent.TryPeek(out var oldest) && now - oldest >= window)
-            {
-                recent.Dequeue();
-            }
-
-            if (recent.Count >= NativeFilePreview.MaxPicturePreviewsPerUserPerMinute)
-            {
-                return false;
-            }
-
-            recent.Enqueue(now);
-            starts.Set(userId, recent, window);
-            users[userId] = userCount + 1;
-            spaces[spaceId] = spaceCount + 1;
-            pending++;
-            return true;
+            var request = new PictureRequest(userId, spaceId);
+            requests.Add(request);
+            StartIfAvailable(request);
+            return request;
         }
     }
 
-    private static void Release(Dictionary<Guid, int> counts, Guid key)
+    private bool TryChargeStart(Guid userId)
     {
-        if (--counts[key] == 0)
+        var now = time.GetUtcNow();
+        var window = TimeSpan.FromMinutes(1);
+        var recent = starts.Get<Queue<DateTimeOffset>>(userId) ?? new();
+        while (recent.TryPeek(out var oldest) && now - oldest >= window)
         {
-            counts.Remove(key);
+            recent.Dequeue();
+        }
+
+        if (recent.Count >= NativeFilePreview.MaxPicturePreviewsPerUserPerMinute)
+        {
+            return false;
+        }
+
+        recent.Enqueue(now);
+        starts.Set(userId, recent, window);
+        return true;
+    }
+
+    // Under the admission lock, consider older requests first and let other members use free capacity.
+    private void StartIfAvailable(PictureRequest request)
+    {
+        if (!request.Started
+            && requests.Count(other => other.Started && other.UserId == request.UserId)
+                < NativeFilePreview.MaxPicturesPerUser
+            && requests.Count(other => other.Started && other.SpaceId == request.SpaceId)
+                < NativeFilePreview.MaxPicturesPerSpace)
+        {
+            request.Start();
         }
     }
 
@@ -181,6 +196,49 @@ public sealed class NativePictureCache(ILogger<NativePictureCache> logger, TimeP
         {
             decoding.Release();
         }
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class PictureRequest(Guid userId, Guid spaceId)
+    {
+        #region Private Fields
+
+        private readonly TaskCompletionSource turn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        #endregion
+
+        #region Properties
+
+        public Guid UserId { get; } = userId;
+
+        public Guid SpaceId { get; } = spaceId;
+
+        public bool Started => turn.Task.IsCompleted;
+
+        #endregion
+
+        #region Public Methods
+
+        public void Start() => turn.SetResult();
+
+        public async Task<bool> WaitForTurn(TimeProvider time, ILogger logger, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await turn.Task.WaitAsync(TimeSpan.FromSeconds(8), time, cancellationToken);
+                return true;
+            }
+            catch (TimeoutException)
+            {
+                logger.LogDebug("Picture preview admission timed out for space {SpaceId}", SpaceId);
+                return false;
+            }
+        }
+
+        #endregion
     }
 
     #endregion

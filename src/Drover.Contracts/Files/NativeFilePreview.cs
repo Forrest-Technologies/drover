@@ -23,7 +23,11 @@ public sealed record NativeFilePreview(
 
     public const int MaxPicturesPerSpace = 8;
 
-    public const int MaxPicturePreviewsPerUserPerMinute = 32;
+    public const int MaxPendingPicturesPerUser = 12;
+
+    public const int MaxPendingPicturesPerSpace = 20;
+
+    public const int MaxPicturePreviewsPerUserPerMinute = 200;
 
     public const int MaxTextBytes = 16 * 1024;
 

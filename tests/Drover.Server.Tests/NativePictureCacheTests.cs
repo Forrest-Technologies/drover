@@ -79,9 +79,64 @@ public sealed class NativePictureCacheTests
         Assert.Equal(NativePreviewRefusal.Malformed, available.Refusal);
     }
 
+    [Fact]
+    public async Task Six_cold_pictures_wait_for_member_capacity_and_all_get_read()
+    {
+        using var cache = Create(NullLogger<NativePictureCache>.Instance);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var user = Guid.NewGuid();
+        var space = Guid.NewGuid();
+        var streams = Enumerable.Range(0, 6).Select(_ => new GatedStream(release.Task)).ToArray();
+        var requests = streams.Select(stream => Read(cache, Download(space, stream), user)).ToArray();
+        try
+        {
+            await streams[1].Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(2, streams.Count(stream => stream.Entered.Task.IsCompleted));
+            Assert.All(requests, request => Assert.False(request.IsCompleted));
+        }
+        finally
+        {
+            release.SetResult();
+            await Task.WhenAll(requests);
+            foreach (var stream in streams)
+            {
+                await stream.DisposeAsync();
+            }
+        }
+
+        Assert.All(streams, stream => Assert.True(stream.Entered.Task.IsCompleted));
+    }
+
+    [Fact]
+    public async Task Cancelling_a_queued_request_releases_its_place_without_reading_it()
+    {
+        using var cache = Create(NullLogger<NativePictureCache>.Instance);
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var space = Guid.NewGuid();
+        var member = Guid.NewGuid();
+        await using var first = new GatedStream(release.Task);
+        await using var second = new GatedStream(release.Task);
+        await using var abandoned = new GatedStream(release.Task);
+        var readers = Task.WhenAll(
+            Read(cache, Download(space, first), member), Read(cache, Download(space, second), member));
+        try
+        {
+            var queued = cache.Read(Download(space, abandoned), member, cancelled.Token);
+            await cancelled.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued);
+            Assert.False(abandoned.Entered.Task.IsCompleted);
+        }
+        finally
+        {
+            release.SetResult();
+            await readers;
+        }
+    }
+
     [Theory]
-    [InlineData(true, 2)]
-    [InlineData(false, 8)]
+    [InlineData(true, NativeFilePreview.MaxPendingPicturesPerUser)]
+    [InlineData(false, NativeFilePreview.MaxPendingPicturesPerSpace)]
     public async Task An_admission_limit_leaves_capacity_for_other_members(bool sameUser, int limit)
     {
         using var cache = Create(NullLogger<NativePictureCache>.Instance);
