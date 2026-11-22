@@ -213,7 +213,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         var sizes = roots.OfType<TextBlock>().Select(block => block.FontSize).ToHashSet();
-        var frames = roots.OfType<Facet>().ToList();
+        // A frame that has not been drawn yet, because it is not on screen, says nothing about the theme.
+        var frames = roots.OfType<Facet>().Where(frame => frame.DrawnSize > 0).ToList();
         var yard = roots.OfType<Yard>().FirstOrDefault()?.Drawn ?? default;
 
         return new(
