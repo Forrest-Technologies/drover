@@ -94,7 +94,7 @@ public static class ThemeTokens
             var key = TokenNames.Of(token);
             if (fontWeightTokens.Contains(token))
             {
-                Tokens.Dictionary[key] = new FontWeight((ushort)value);
+                Tokens.Dictionary[key] = new Windows.UI.Text.FontWeight((ushort)value);
             }
             else
             {
