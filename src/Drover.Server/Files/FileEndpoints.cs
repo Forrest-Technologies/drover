@@ -159,6 +159,7 @@ public static class FileEndpoints
         Guid fileId,
         HttpContext context,
         FileService files,
+        NativePictureCache pictures,
         TimeProvider time)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
@@ -171,6 +172,11 @@ public static class FileEndpoints
 
         await using var content = found.Content;
         context.Response.Headers.CacheControl = "no-store";
+        if (FileInspector.KindOf(found.File.ContentType) is FileKind.Image)
+        {
+            return TypedResults.Ok(await pictures.Read(found, timeout.Token));
+        }
+
         var access = context.GetSpaceAccess();
         return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
     }

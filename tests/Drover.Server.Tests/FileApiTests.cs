@@ -205,6 +205,61 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
         saved.Content.Headers.ContentDisposition!.DispositionType.Should().Be("attachment");
     }
 
+    [Theory]
+    [InlineData(PreviewPictureCase.CameraJpeg)]
+    [InlineData(PreviewPictureCase.PhoneScreenshot)]
+    [InlineData(PreviewPictureCase.ByteHeavyPng)]
+    [InlineData(PreviewPictureCase.Webp)]
+    [InlineData(PreviewPictureCase.AnimatedGif)]
+    public async Task Large_phone_pictures_have_bounded_decodable_previews_without_changing_the_originals(
+        PreviewPictureCase pictureCase)
+    {
+        var (name, original, width, height) = Picture(pictureCase);
+        var (client, spaceId, threadId, botId) = await Conversation($"picture-{pictureCase}");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, name, new ByteArrayContent(original));
+        var sent = await client.Post(
+            $"{Space(spaceId)}/threads/{threadId}/messages",
+            new SendMessageRequest(null, FileIds: [file.Id]));
+
+        (file.Kind, file.Width, file.Height).Should().Be((FileKinds.Image, width, height));
+        sent.StatusCode.Should().Be(HttpStatusCode.Accepted, await sent.Content.ReadAsStringAsync(Token));
+        if (pictureCase is PreviewPictureCase.CameraJpeg or PreviewPictureCase.PhoneScreenshot)
+        {
+            ((long)width * height).Should().BeGreaterThan(NativeFilePreview.MaxImagePixels);
+        }
+
+        if (pictureCase is PreviewPictureCase.CameraJpeg or PreviewPictureCase.ByteHeavyPng)
+        {
+            original.Length.Should().BeGreaterThan(2 * 1024 * 1024);
+        }
+
+        await PreviewIsBoundedAndOriginalIsIntact(client, spaceId, file, original, width, height);
+        if (pictureCase is PreviewPictureCase.PhoneScreenshot)
+        {
+            await WarmPreviewDoesNotBroadenAccess(client, spaceId, file.Id);
+        }
+    }
+
+    [Fact]
+    public async Task Image_dimensions_above_the_decoder_budget_are_refused_before_decoding()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("oversized-image");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(
+            client,
+            spaceId,
+            threadId,
+            "huge.png",
+            new ByteArrayContent(PngHeader(20_000, 20_000)));
+
+        var preview = await Read<NativeFilePreview>(
+            await client.Get($"{Space(spaceId)}/files/{file.Id}/native-preview"));
+
+        preview.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        preview.Image.Should().BeNull();
+    }
+
     [Fact]
     public async Task Html_is_served_as_plain_text_and_anything_else_as_an_attachment_of_no_type()
     {
@@ -429,8 +484,136 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     private static byte[] PngHeader(int width, int height) =>
     [
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, .. "IHDR"u8,
-        0, 0, 0, (byte)width, 0, 0, 0, (byte)height, 8, 6, 0, 0, 0,
+        (byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width,
+        (byte)(height >> 24), (byte)(height >> 16), (byte)(height >> 8), (byte)height,
+        8, 6, 0, 0, 0,
     ];
+
+    private static byte[] Png(int width, int height, bool noise)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        Fill(bitmap, noise);
+        return Encode(bitmap, SKEncodedImageFormat.Png, quality: 100);
+    }
+
+    private static byte[] Jpeg(int width, int height)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Opaque);
+        Fill(bitmap, noise: true);
+        return Encode(bitmap, SKEncodedImageFormat.Jpeg, quality: 80);
+    }
+
+    private static byte[] Webp(int width, int height)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        Fill(bitmap, noise: false);
+        return Encode(bitmap, SKEncodedImageFormat.Webp, quality: 90);
+    }
+
+    private static void Fill(SKBitmap bitmap, bool noise)
+    {
+        if (!noise)
+        {
+            bitmap.Erase(SKColors.CornflowerBlue);
+            return;
+        }
+
+        var pixels = new SKColor[bitmap.Width * bitmap.Height];
+        var value = 0x12345678u;
+        for (var index = 0; index < pixels.Length; index++)
+        {
+            value = (1664525u * value) + 1013904223u;
+            pixels[index] = new((byte)value, (byte)(value >> 8), (byte)(value >> 16));
+        }
+
+        bitmap.Pixels = pixels;
+    }
+
+    private static byte[] Encode(SKBitmap bitmap, SKEncodedImageFormat format, int quality)
+    {
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, quality)
+            ?? throw new InvalidOperationException("Skia did not encode the test image.");
+        return data.ToArray();
+    }
+
+    // A three-by-two animation. Frame one is blue and frame two is red.
+    private static byte[] AnimatedGif() => Convert.FromBase64String("""
+        R0lGODlhAwACAIEAAGSV7QAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQA
+        CgAAACwAAAAAAwACAAAIBgABCBwYEAAh+QQBCgABACwAAAAAAwACAIH/AAAAAAAA
+        AAAAAAAIBgABCBwYEAA7
+        """);
+
+    private static (string Name, byte[] Content, int Width, int Height) Picture(PreviewPictureCase pictureCase) =>
+        pictureCase switch
+        {
+            PreviewPictureCase.CameraJpeg => ("camera.jpg", Jpeg(4000, 3000), 4000, 3000),
+            PreviewPictureCase.PhoneScreenshot => ("phone-screenshot.png", Png(1344, 2992, noise: false), 1344, 2992),
+            PreviewPictureCase.ByteHeavyPng => ("large-screenshot.png", Png(1080, 2400, noise: true), 1080, 2400),
+            PreviewPictureCase.AnimatedGif => ("motion.gif", AnimatedGif(), 3, 2),
+            PreviewPictureCase.Webp => ("camera.webp", Webp(640, 480), 640, 480),
+            _ => throw new ArgumentOutOfRangeException(nameof(pictureCase), pictureCase, null),
+        };
+
+    private static async Task PreviewIsBoundedAndOriginalIsIntact(
+        ApiClient client,
+        Guid spaceId,
+        FileResponse file,
+        byte[] original,
+        int originalWidth,
+        int originalHeight)
+    {
+        var address = $"{Space(spaceId)}/files/{file.Id}";
+        var previewResponse = await client.Get($"{address}/native-preview");
+        var preview = await Read<NativeFilePreview>(previewResponse);
+
+        preview.Refusal.Should().BeNull();
+        preview.Image.Should().NotBeNull().And.HaveCountLessThanOrEqualTo(NativeFilePreview.MaxImageBytes);
+        var bytes = preview.Image!;
+        var inspector = new FileInspector();
+        inspector.Append(bytes);
+        var facts = inspector.Finish(string.Empty);
+        facts.Kind.Should().Be(FileKind.Image);
+        facts.Width.Should().NotBeNull();
+        facts.Height.Should().NotBeNull();
+        var previewWidth = facts.Width!.Value;
+        var previewHeight = facts.Height!.Value;
+        previewWidth.Should().BePositive();
+        previewHeight.Should().BePositive();
+        ((long)previewWidth * previewHeight)
+            .Should().BeLessThanOrEqualTo(NativeFilePreview.MaxImagePixels);
+        using var bitmap = SKBitmap.Decode(bytes);
+        bitmap.Should().NotBeNull("the native client must be able to decode the preview response");
+        ((long)bitmap!.Width * bitmap.Height).Should().BeLessThanOrEqualTo(NativeFilePreview.MaxImagePixels);
+        Math.Max(bitmap.Width, bitmap.Height).Should().Be(Math.Min(480, Math.Max(originalWidth, originalHeight)));
+        Math.Abs(((long)bitmap.Width * originalHeight) - ((long)bitmap.Height * originalWidth))
+            .Should().BeLessThanOrEqualTo(
+                Math.Max(originalWidth, originalHeight),
+                "only pixel rounding may change the aspect ratio");
+        if (file.Name is "phone-screenshot.png" or "camera.webp" or "motion.gif")
+        {
+            var pixel = bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
+            pixel.Red.Should().BeInRange((byte)92, (byte)108);
+            pixel.Green.Should().BeInRange((byte)141, (byte)157);
+            pixel.Blue.Should().BeInRange((byte)229, byte.MaxValue);
+        }
+
+        (await (await client.Get(address)).Content.ReadAsByteArrayAsync(Token)).Should().Equal(original);
+    }
+
+    private async Task WarmPreviewDoesNotBroadenAccess(ApiClient owner, Guid spaceId, Guid fileId)
+    {
+        var address = $"{Space(spaceId)}/files/{fileId}/native-preview";
+        (await Read<NativeFilePreview>(await owner.Get(address))).Image.Should().NotBeNull("the cache is warm");
+        var member = await SeedMember(spaceId, $"member-{Guid.NewGuid():N}", MembershipRole.Admin);
+        var memberClient = await SignIn(member.Email, member.Password);
+        var (stranger, strangerSpace, _, _) = await Conversation($"stranger-{Guid.NewGuid():N}");
+
+        (await memberClient.Get(address)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await stranger.Get(address)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await stranger.Get($"{Space(strangerSpace)}/files/{fileId}/native-preview"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 
     private static void ShouldBeSafe(HttpResponseMessage response)
     {
@@ -488,6 +671,15 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     #endregion
 
     #region Nested Types
+
+    public enum PreviewPictureCase
+    {
+        CameraJpeg,
+        PhoneScreenshot,
+        ByteHeavyPng,
+        Webp,
+        AnimatedGif,
+    }
 
     /// <summary>Reports on the caller's thread, so a test reads every report as soon as the call returns.</summary>
     private sealed class SynchronousProgress(Action<long> report) : IProgress<long>

@@ -116,6 +116,7 @@ global using Microsoft.Net.Http.Headers;
 global using ModelContextProtocol.AspNetCore;
 global using ModelContextProtocol.Server;
 global using Npgsql;
+global using SkiaSharp;
 global using Testcontainers.PostgreSql;
 global using Xunit;
 global using YamlDotNet.RepresentationModel;
