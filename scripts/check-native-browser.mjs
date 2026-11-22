@@ -102,6 +102,14 @@ const panelFile = {
     id: '0196f1a0-0000-7000-8000-000000000008', name: 'sample-panel.png',
     contentType: 'image/png', kind: 'image', size: 80,
 };
+const retryPicture = {
+    id: '0196f1a0-0000-7000-8000-00000000000b', name: 'sample-retry.png',
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+};
+const exhaustedPicture = {
+    id: '0196f1a0-0000-7000-8000-00000000000c', name: 'sample-retry-exhausted.png',
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+};
 const exchangedFiles = [
     {
         file: panelFile, threadId: thread.id, messageId: messages[0].id,
@@ -116,6 +124,8 @@ const exchangedFiles = [
 const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
 const sampleImageAddress = 'https://preview-image.example.test/sample.png';
 messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
+messages[0].parts.push({ kind: 'file', fileId: retryPicture.id, file: retryPicture });
+messages[0].parts.push({ kind: 'file', fileId: exhaustedPicture.id, file: exhaustedPicture });
 const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
 const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
@@ -218,6 +228,8 @@ try {
                 await route.abort();
             });
             let previewRequests = 0;
+            let retryPictureRequests = 0;
+            let exhaustedPictureRequests = 0;
             // The file card in the conversation and in the Files panel reads the same preview path as the panel's
             // Preview toggle, so the answer is chosen by the step under test, not by the order of the requests.
             let panelPreviewBroken = false;
@@ -392,6 +404,14 @@ try {
                 else if (address.endsWith(`/files/${panelFile.id}/native-preview`)) {
                     body = { image: panelPreviewBroken ? 'iVBORw0KGgo=' : samplePng };
                 }
+                else if (address.endsWith(`/files/${retryPicture.id}/native-preview`)) {
+                    retryPictureRequests++;
+                    body = retryPictureRequests === 1 ? { refusal: 3 } : { image: samplePng };
+                }
+                else if (address.endsWith(`/files/${exhaustedPicture.id}/native-preview`)) {
+                    exhaustedPictureRequests++;
+                    body = { refusal: 3 };
+                }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
                     body = {
@@ -507,6 +527,20 @@ try {
                 if (name === 'conversation') {
                     await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).waitFor({ state: 'attached' });
                     await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached' });
+                    const retryDeadline = Date.now() + 10000;
+                    while (retryPictureRequests < 2 && Date.now() < retryDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(retryPictureRequests, 2, 'A busy picture preview should be retried once.');
+                    await page.locator('[role="img"][aria-label="sample-retry.png"]')
+                        .waitFor({ state: 'attached', timeout: 10000 });
+                    const exhaustedDeadline = Date.now() + 10000;
+                    while (exhaustedPictureRequests < 2 && Date.now() < exhaustedDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(exhaustedPictureRequests, 2, 'A busy picture preview should retry only once.');
+                    await shown(page, 'This picture could not be shown.')
+                        .waitFor({ state: 'attached', timeout: 10000 });
                 }
                 if (name === 'share-empty') {
                     await page.getByText('Nothing is waiting to be shared. Share text or a file to Drover from another app.', { exact: true })

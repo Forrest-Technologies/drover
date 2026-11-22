@@ -9,6 +9,10 @@ public sealed class FileCard : Grid
 {
     #region Private Fields
 
+    private const int MaxPictureAttempts = 2;
+
+    private static readonly TimeSpan pictureRetryDelay = TimeSpan.FromMilliseconds(500);
+
     private readonly FileCardViewModel model;
 
     private readonly Batch batch;
@@ -306,7 +310,7 @@ public sealed class FileCard : Grid
             loadedPicture = model.File.Id;
             pictureSource = null;
             pictureFailed = false;
-            LoadPicture(model.File, pictureGeneration);
+            LoadPicture(model.File, pictureGeneration, attempt: 1);
         }
 
         image.Source = pictureSource;
@@ -347,33 +351,75 @@ public sealed class FileCard : Grid
     }
 
     // The server checks who asks for a file, so the picture is read through the same client every request uses.
-    private async void LoadPicture(SharedFile file, int generation)
+    private async void LoadPicture(SharedFile file, int generation, int attempt)
     {
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
             var preview = await api.ReadNativePreview(file.Href, timeout.Token);
+            if (preview.Refusal is NativePreviewRefusal.TooComplex
+                && await RetryPicture(file, generation, attempt))
+            {
+                return;
+            }
+
             var bitmap = preview is { Refusal: null, Image: { } bytes }
                 ? NativeFilePreviewControl.DecodePicture(bytes, timeout.Token)
                 : null;
-            if (generation == pictureGeneration && loadedPicture == file.Id && model.File.Id == file.Id)
+            FinishPicture(file, generation, bitmap);
+        }
+        catch (OperationCanceledException exception)
+        {
+            Log.For<FileCard>().LogDebug(
+                "A picture preview timed out on attempt {Attempt} with {ExceptionType}",
+                attempt,
+                exception.GetType().Name);
+            if (!await RetryPicture(file, generation, attempt))
             {
-                pictureSource = bitmap;
-                pictureFailed = bitmap is null;
-                batch.Draw();
+                FinishPicture(file, generation, source: null);
             }
         }
-        catch (Exception exception) when (Failures.IsReportable(exception) || exception is OperationCanceledException or ArgumentException or IOException or InvalidOperationException)
+        catch (Exception exception) when (Failures.IsReportable(exception)
+            || exception is ArgumentException or IOException or InvalidOperationException)
         {
             Log.For<FileCard>().LogWarning(exception, "A picture in the conversation could not be read");
-            if (generation == pictureGeneration && loadedPicture == file.Id && model.File.Id == file.Id)
-            {
-                pictureSource = null;
-                pictureFailed = true;
-                batch.Draw();
-            }
+            FinishPicture(file, generation, source: null);
         }
     }
+
+    private async Task<bool> RetryPicture(SharedFile file, int generation, int attempt)
+    {
+        if (attempt >= MaxPictureAttempts || !IsCurrentPicture(file, generation))
+        {
+            return false;
+        }
+
+        await Task.Delay(pictureRetryDelay);
+        if (IsCurrentPicture(file, generation))
+        {
+            LoadPicture(file, generation, attempt + 1);
+        }
+
+        return true;
+    }
+
+    private void FinishPicture(
+        SharedFile file,
+        int generation,
+        Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? source)
+    {
+        if (!IsCurrentPicture(file, generation))
+        {
+            return;
+        }
+
+        pictureSource = source;
+        pictureFailed = source is null;
+        batch.Draw();
+    }
+
+    private bool IsCurrentPicture(SharedFile file, int generation) =>
+        generation == pictureGeneration && loadedPicture == file.Id && model.File.Id == file.Id;
 
     private void ClearPicture()
     {
