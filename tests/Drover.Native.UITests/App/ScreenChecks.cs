@@ -168,7 +168,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         Expect(sample.Ember != before.Ember, "color: the accent repaints");
 
         theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
-        var back = await UntilSeen("the open screen made again from Night Yard", seen => seen.RowMinimum == before.RowMinimum && seen.FrameCut == before.FrameCut);
+        var back = await UntilSeen("the open screen made again from Night Yard", seen => seen.RowMinimum == before.RowMinimum && seen.FrameCut == before.FrameCut && !seen.TextSizes.Contains(SampleTheme.BaseSize));
         Expect(back == before, "Night Yard is exactly what it was before");
     }
 
@@ -615,12 +615,15 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private sealed class CheckFailedException(string message, Exception? inner = null) : Exception(message, inner);
 
-    /// <summary>What a check read off the open screen: one value from each group the theme changes at run time.</summary>
+    /// <summary>
+    /// What a check read off the open screen: one value from each group the theme changes at run time. The set of text
+    /// sizes is not part of equality, because which texts are on screen depends on what has loaded.
+    /// </summary>
     private sealed record Seen(
         double RowMinimum, HashSet<double> TextSizes, double Space, double FrameCut, double Bloom, double Duration, Color Ember)
     {
         public bool Equals(Seen? other) =>
-            other is not null && RowMinimum == other.RowMinimum && TextSizes.SetEquals(other.TextSizes) && Space == other.Space
+            other is not null && RowMinimum == other.RowMinimum && Space == other.Space
             && FrameCut == other.FrameCut && Bloom == other.Bloom && Duration == other.Duration && Ember == other.Ember;
 
         public override int GetHashCode() => HashCode.Combine(RowMinimum, Space, FrameCut, Bloom, Duration, Ember);
