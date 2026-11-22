@@ -343,10 +343,12 @@ public sealed class ScreenGesture
     // Fingers moving up bring what is below into view, as a page does under a finger: the wheel turns down.
     private ScreenZoom? Scroll((double X, double Y, double Spread) now)
     {
-        // A centre or a distance that overflowed is not a movement of the fingers: it turns nothing.
+        // A distance that overflowed is not a movement of the fingers: it turns nothing, and the scroll goes on from
+        // where the fingers are now, so the next movement counts as usual.
         var travel = now.Y - last.Y;
         if (!double.IsFinite(travel) || !double.IsFinite(now.X) || !double.IsFinite(scrolled + travel))
         {
+            (last, scrolled) = ((now.X, now.Y), 0);
             return null;
         }
 

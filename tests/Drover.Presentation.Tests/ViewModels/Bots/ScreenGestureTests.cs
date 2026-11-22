@@ -429,8 +429,13 @@ public sealed class ScreenGestureTests
 
         Press(1, 100, 100, enlarged);
         gesture.Move(1, 60, 100, width, height, Ms(50)).Should().BeNull();
+        Sent().Should().BeEmpty("a move over a frame of no valid size is not a drag or a pan");
+        gesture.IsDragging.Should().BeFalse();
+
         gesture.Up(1, at: Ms(60));
-        Sent().Should().OnlyContain(touch => double.IsFinite(touch.X) && double.IsFinite(touch.Y));
+        Sent().Should().Equal(
+            [new ScreenTouch(ScreenTouchKind.Tap, 100, 100)],
+            "the finger never moved as far as the gesture knows, so it lifts as a tap where it went down");
     }
 
     // Two fingers that move together, at places so far out that adding them overflows a number.
@@ -451,8 +456,9 @@ public sealed class ScreenGestureTests
         {
             var at = y + ((toY - y) * step / 10);
             gesture.Move(1, firstX, at, Width, Height, Ms(20 + step));
+            handed.AddRange(Sent().Should().HaveCountLessThanOrEqualTo(ScreenGesture.MaxStepsPerMove).And.Subject);
             gesture.Move(2, secondX, at, Width, Height, Ms(20 + step));
-            handed.AddRange(Sent().Should().HaveCountLessThanOrEqualTo(2 * ScreenGesture.MaxStepsPerMove).And.Subject);
+            handed.AddRange(Sent().Should().HaveCountLessThanOrEqualTo(ScreenGesture.MaxStepsPerMove).And.Subject);
         }
 
         gesture.Up(2, at: Ms(40));
@@ -468,11 +474,34 @@ public sealed class ScreenGestureTests
     {
         Press(1, 150, 1.7e308);
         gesture.Down(2, 250, 1.7e308, ScreenZoom.Fit, at: Ms(10));
-        gesture.Move(1, 150, 1.6e308, Width, Height, Ms(20));
-        gesture.Move(2, 250, 1.6e308, Width, Height, Ms(30));
 
-        Sent().Should().HaveCountLessThanOrEqualTo(2 * ScreenGesture.MaxStepsPerMove)
+        gesture.Move(1, 150, 1.6e308, Width, Height, Ms(20));
+        Sent().Should().HaveCountLessThanOrEqualTo(ScreenGesture.MaxStepsPerMove);
+        gesture.Move(2, 250, 1.6e308, Width, Height, Ms(30));
+        Sent().Should().HaveCountLessThanOrEqualTo(ScreenGesture.MaxStepsPerMove)
             .And.OnlyContain(touch => double.IsFinite(touch.X) && double.IsFinite(touch.Y));
+    }
+
+    // The fingers are so far apart that their spread overflows, so no change of it reads as a pinch. Both go from
+    // the top of what a number holds to the bottom before they count as a scroll, so the move that commits to it
+    // measures a distance of minus infinity: the one place the guard can be reached.
+    [Fact]
+    public void A_scroll_whose_distance_overflows_turns_nothing_and_goes_on_from_where_the_fingers_are()
+    {
+        Press(1, -1.7e308, 1.7e308);
+        gesture.Down(2, 1.7e308, 1.7e308, ScreenZoom.Fit, at: Ms(10));
+        gesture.Move(1, -1.7e308, -1.7e308, Width, Height, Ms(20)).Should().BeNull();
+        gesture.IsScrolling.Should().BeFalse("one finger alone is not a scroll yet");
+        Sent().Should().BeEmpty();
+
+        gesture.Move(2, 1.7e308, -1.7e308, Width, Height, Ms(30)).Should().BeNull();
+
+        gesture.IsScrolling.Should().BeTrue("both fingers moved the same way");
+        Sent().Should().BeEmpty("a distance of minus infinity turns the wheel not at all");
+
+        gesture.Move(1, -1.7e308, -100, Width, Height, Ms(40)).Should().BeNull();
+        Sent().Should().HaveCount(ScreenGesture.MaxStepsPerMove, "the scroll goes on from where the fingers were")
+            .And.OnlyContain(touch => touch.Kind == ScreenTouchKind.ScrollUp && double.IsFinite(touch.X));
     }
 
     [Fact]
