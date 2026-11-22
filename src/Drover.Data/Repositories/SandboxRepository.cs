@@ -38,6 +38,20 @@ public sealed class SandboxRepository(DroverDbContext db)
     public async Task<Sandbox?> GetSandboxForUpdate(Guid id, CancellationToken cancellationToken) =>
         (await db.Sandboxes.FromSql($"SELECT * FROM sandboxes WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault();
 
+    /// <summary>
+    /// Takes this sandbox out of use if it is still live: it becomes <see cref="SandboxState.Retiring"/>, to be
+    /// destroyed from <paramref name="retireAfter"/>. False when it is not live, such as when it was already retired.
+    /// </summary>
+    public async Task<bool> RetireLive(Guid id, DateTimeOffset retireAfter, CancellationToken cancellationToken) =>
+        await db.Sandboxes
+            .Where(sandbox => sandbox.Id == id
+                && (sandbox.State == SandboxState.Creating || sandbox.State == SandboxState.Running
+                    || sandbox.State == SandboxState.Paused))
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(sandbox => sandbox.State,
+                    SandboxState.Retiring).SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
+                cancellationToken) > 0;
+
     public void Add(Sandbox sandbox) => db.Sandboxes.Add(sandbox);
 
     /// <summary>

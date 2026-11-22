@@ -1253,10 +1253,11 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task A_press_waits_for_a_pause_that_is_under_way_on_the_same_sandbox()
+    public async Task A_press_that_waits_for_a_pause_is_refused_after_it_and_never_reaches_the_paused_display()
     {
         var pausing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atTheGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = DesktopProvider();
         await using var world = await ControlWorld(provider, desktop: true);
         var control = Control(world);
@@ -1267,6 +1268,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             pausing.TrySetResult();
             await finish.Task.WaitAsync(cancellationToken);
         };
+        control.Holds.PressWaiting = () => atTheGate.TrySetResult();
 
         var pause = control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
         await pausing.Task.WaitAsync(RunWorld.Token);
@@ -1276,14 +1278,55 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             world.BotId,
             new("down", X: 7, Y: 8, Button: "right"),
             RunWorld.Token);
-        await Task.WhenAny(press, Task.Delay(TimeSpan.FromMilliseconds(500), RunWorld.Token));
-
+        await atTheGate.Task.WaitAsync(RunWorld.Token);
         Pointer(provider).Select(arguments => arguments.Contains("mousedown")).Should().Equal(
             [true, false],
             "only the first press, and its release, reached the display while the pause was under way");
         finish.SetResult();
-        (await pause).Refusal.Should().Be(SandboxControlRefusal.None);
-        await Record.ExceptionAsync(() => press);
+
+        var paused = await pause;
+        var pressed = await press;
+
+        paused.Refusal.Should().Be(SandboxControlRefusal.None);
+        provider.Pauses.Should().ContainSingle();
+        pressed.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        pressed.Problem.Should().Contain("paused or replaced");
+        Pointer(provider).Select(arguments => arguments.Contains("mousedown")).Should().Equal(
+            [true, false],
+            "the press that waited sent nothing to the paused display");
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+        (await Outcomes(world)).Should().BeEquivalentTo(
+            ["done", "done", "refused"],
+            "the first press, the pause and the refused press each wrote one row, in the order they ended");
+    }
+
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("turn off")]
+    [InlineData("rebuild")]
+    public async Task A_power_control_acts_only_on_the_sandbox_it_was_made_ready_for(string power)
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var other = Guid.CreateVersion7();
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        var person = new SandboxCaller(world.Hosts[^1].Services.GetRequiredService<RunScopes>().For(world.SpaceId,
+            world.UserId), world.BotId);
+
+        var act = power switch
+        {
+            "pause" => () => broker.Pause(person, RunWorld.Token, other),
+            "turn off" => () => broker.TurnOff(person, RunWorld.Token, other),
+            _ => (Func<Task>)(async () => await broker.Rebuild(person, RunWorld.Token, other)),
+        };
+
+        await act.Should().ThrowAsync<BuiltinToolException>().WithMessage("*changed while this was under way*");
+        provider.Pauses.Should().BeEmpty();
+        provider.Destroys.Should().BeEmpty();
+        provider.Created.Should().Be(1, "nothing was replaced");
+        (await broker.CurrentSandbox(person, RunWorld.Token)).Should().NotBeNull("the sandbox is still live");
     }
 
     #endregion
