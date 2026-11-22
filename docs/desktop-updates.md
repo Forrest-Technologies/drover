@@ -34,11 +34,19 @@ checked. The signed feed and its detached signature are each read up to 1 MiB, a
 and a body that runs past it is refused at that point.
 
 A package download stops at 512 MiB while it streams. A declared length over the limit is refused before the file is
-created. A download that runs past the limit, fails, is cancelled, or runs past its time limit is stopped and its
-partial file removed before the update library checks its signature. A file already in the download folder that is
-over the limit is removed before the library reads it. The downloaded package is then read through a bounded buffer:
-one over 512 MiB, or one replaced by something larger after the download, is refused before it is read, and is never
-handed to the installer.
+created. A download that runs past the limit, fails, or is cancelled is stopped and its partial file removed before the
+update library checks its signature. A partial file that cannot be removed is reported together with the reason the
+download stopped. A download that runs past its time limit is cancelled, and the timeout is reported only once the
+download has closed and removed its file, waiting at most 10 seconds for that.
+
+Every file the update library checks (one already in the download folder, a fresh download, and the file again before
+the installer starts) is read by a checker that opens it once, takes its length from that open file, and reads at most
+512 MiB from it before the strict Ed25519 check runs. A link or reparse point is refused and never read. Before a
+download starts, a link, a reparse point, or a file over the limit already at the download path is removed, so the
+library never reads it; removing a link leaves the file it pointed to alone. The download folder is private to the
+user, and every check is made on the open file, so a name changed after a check cannot change what is read. The
+package is then read again through a bounded buffer: one over 512 MiB, or one replaced by something larger or by a
+link after the download, is refused before it is read, and is never handed to the installer.
 
 ## Manual run
 

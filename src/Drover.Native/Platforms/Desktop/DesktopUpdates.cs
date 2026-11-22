@@ -193,30 +193,11 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             return $"https://github.com/Forrest-Technologies/drover/releases/latest/download/{assetName}";
         }
 
-        var list = await UpdateReads.Read(
+        return await UpdatePackageTrust.FindPreviewFeed(
             releases,
             PreviewReleases,
-            UpdateReads.ReleaseListLimit,
+            assetName,
             UpdateReads.ReadDeadline);
-        using var document = JsonDocument.Parse(list);
-
-        foreach (var release in document.RootElement.EnumerateArray())
-        {
-            if (!release.GetProperty("prerelease").GetBoolean())
-            {
-                continue;
-            }
-
-            foreach (var asset in release.GetProperty("assets").EnumerateArray())
-            {
-                if (asset.GetProperty("name").GetString() == assetName)
-                {
-                    return UpdatePackageTrust.RequireReleaseDownload(asset.GetProperty("browser_download_url").GetString());
-                }
-            }
-        }
-
-        throw new InvalidDataException("No signed preview feed is published yet.");
     }
 
     private static string FeedAssetName(string version)

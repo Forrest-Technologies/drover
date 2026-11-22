@@ -118,7 +118,8 @@ internal sealed class BoundedFeedDownloader(HttpClient client, long limit, TimeS
 /// Downloads an update package for the update library, never writing more than <paramref name="limit"/> bytes. A
 /// declared length over the limit is refused before the file is created. A body that runs past the limit, a failure,
 /// or a cancellation stops the download and removes the partial file before the library is told, so the library
-/// never checks the signature of a file over the limit.
+/// never checks the signature of a file over the limit. Every download ends with exactly one completion, and a
+/// partial file that could not be removed is reported in it beside the reason the download stopped.
 /// </summary>
 internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
     : NetSparkleUpdater.Interfaces.IUpdateDownloader, IDisposable
@@ -131,9 +132,16 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
     #region Properties
 
+    public const string CleanupProblem = "The update download stopped and its partial file could not be removed.";
+
     public long Limit => limit;
 
     public bool IsDownloading { get; private set; }
+
+    /// <summary>
+    /// Completes when the latest download has closed its file, removed it if it had to, and raised its completion.
+    /// </summary>
+    public Task Stopped { get; private set; } = Task.CompletedTask;
 
     #endregion
 
@@ -149,20 +157,22 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
     {
         // The token is taken first, so a cancel that arrives once the download is reported as running reaches it.
         var cancellation = cancel.Token;
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Stopped = stopped.Task;
         IsDownloading = true;
-        var outcome = await Attempt(uri, downloadFilePath, cancellation);
-        IsDownloading = false;
-        var error = outcome.Error;
 
-        if (outcome.Cancelled || error is not null)
+        try
         {
-            var notRemoved = Remove(downloadFilePath);
-            error ??= notRemoved;
+            var outcome = await Attempt(uri, downloadFilePath, cancellation);
+            var ended = outcome.Error is null ? outcome : outcome.AfterCleanup(Remove(downloadFilePath));
+            IsDownloading = false;
+            DownloadFileCompleted?.Invoke(this, ended.ToEventArgs());
         }
-
-        DownloadFileCompleted?.Invoke(
-            this,
-            new global::System.ComponentModel.AsyncCompletedEventArgs(error, outcome.Cancelled, null));
+        finally
+        {
+            IsDownloading = false;
+            stopped.TrySetResult();
+        }
     }
 
     public void CancelDownload()
@@ -186,7 +196,7 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
     #region Private Methods
 
-    /// <summary>Runs one download and reports how it ended. It never throws; the library hears through its event.</summary>
+    /// <summary>Runs one download and says how it ended. It never throws: the event carries the outcome.</summary>
     private async Task<DownloadOutcome> Attempt(Uri? uri, string path, CancellationToken cancellation)
     {
         try
@@ -217,12 +227,18 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
             throw new InvalidDataException(UpdatePackageTrust.TooLargeProblem);
         }
 
+        // A link left at the destination would send the write to wherever it points.
+        if (UpdatePackageTrust.IsLinkOrReparsePoint(path))
+        {
+            throw new InvalidDataException(UpdatePackageTrust.LinkProblem);
+        }
+
         await using var body = await response.Content.ReadAsStreamAsync(cancellation);
         await using var file = new FileStream(
             path,
             FileMode.Create,
             FileAccess.Write,
-            FileShare.None,
+            FileShare.Read,
             81920,
             useAsync: true);
         var chunk = new byte[81920];
@@ -257,7 +273,10 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
             new NetSparkleUpdater.Events.ItemDownloadProgressEventArgs(percent, this, written, total));
     }
 
-    /// <summary>Removes a partial download. A file that cannot be removed is reported, never left silently.</summary>
+    /// <summary>
+    /// Removes a partial download and returns why it could not be removed, whatever kind of failure that was, so the
+    /// completion is always raised and always carries it.
+    /// </summary>
     private static Exception? Remove(string path)
     {
         try
@@ -265,7 +284,7 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
             File.Delete(path);
             return null;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception)
         {
             return exception;
         }
@@ -276,4 +295,16 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
 
 /// <summary>How one package download ended.</summary>
-internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled);
+internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled)
+{
+    /// <summary>
+    /// The outcome once the partial file was removed, or could not be. A file that could not be removed is a failure
+    /// that carries both causes, even for a cancelled download, because the library reports no error for a
+    /// cancellation and the left file would otherwise go unreported.
+    /// </summary>
+    public DownloadOutcome AfterCleanup(Exception? notRemoved) => notRemoved is null || Error is null
+        ? this
+        : new(new AggregateException(BoundedPackageDownloader.CleanupProblem, Error, notRemoved), Cancelled: false);
+
+    public global::System.ComponentModel.AsyncCompletedEventArgs ToEventArgs() => new(Error, Cancelled, null);
+}

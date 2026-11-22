@@ -41,6 +41,14 @@ internal static class UpdatePackageTrust
 
     public const string StaleProblem = "This signed feed is older than one this installation has already verified.";
 
+    public const string LinkProblem = "The downloaded update is a link, so Drover does not read it.";
+
+    /// <summary>
+    /// The longest a download that ran past its time limit is given to stop, close its file, and remove it before the
+    /// timeout is reported. A download that has not stopped by then is reported anyway, so this wait cannot hang.
+    /// </summary>
+    public static readonly TimeSpan TeardownLimit = TimeSpan.FromSeconds(10);
+
     /// <summary>The setting that holds the newest verified feed version for one release channel.</summary>
     public static string FeedSettingName(string channel) => $"drover-update-feed-{channel}";
 
@@ -133,7 +141,8 @@ internal static class UpdatePackageTrust
     /// <summary>
     /// The updater for one check. Every entry from another release channel is removed before the library chooses an
     /// update, so it never reaches the version record or the installer. The feed, its signature, and the package are
-    /// read through <paramref name="client"/> with fixed byte limits.
+    /// read through <paramref name="client"/> with fixed byte limits, and every file the library checks is read
+    /// through <see cref="BoundedFileVerifier"/>, so no package over <paramref name="packageLimit"/> is read whole.
     /// </summary>
     public static SparkleUpdater CreateUpdater(
         string feed,
@@ -141,12 +150,17 @@ internal static class UpdatePackageTrust
         string referenceAssembly,
         string downloadDirectory,
         string installedVersion,
-        HttpClient client)
+        HttpClient client,
+        long packageLimit = PackageLimit)
     {
-        var built = new SparkleUpdater(feed, CreateVerifier(publicKey), referenceAssembly)
+        var verifier = new BoundedFileVerifier(CreateVerifier(publicKey), packageLimit);
+        var built = new SparkleUpdater(feed, verifier, referenceAssembly)
         {
-            AppCastDataDownloader = new BoundedFeedDownloader(client, UpdateReads.FeedLimit, UpdateReads.ReadDeadline),
-            UpdateDownloader = new BoundedPackageDownloader(client, PackageLimit),
+            AppCastDataDownloader = new BoundedFeedDownloader(
+                client,
+                UpdateReads.FeedLimit,
+                UpdateReads.ReadDeadline),
+            UpdateDownloader = new BoundedPackageDownloader(client, packageLimit),
             CheckServerFileName = false,
             RelaunchAfterUpdate = true,
             ShouldKillParentProcessWhenStartingInstaller = true,
@@ -162,20 +176,60 @@ internal static class UpdatePackageTrust
     /// The newest update a check found that belongs to <paramref name="channel"/>, or null. The filter has already
     /// removed every other channel; this holds the version record to the same rule if it ever did not.
     /// </summary>
-    public static AppCastItem? Offer(UpdateInfo result, string channel) => result.Status is UpdateStatus.UpdateAvailable
-        ? result.Updates.FirstOrDefault(item => ReleaseChannelFilter.IsOnChannel(item, channel))
-        : null;
+    public static AppCastItem? Offer(UpdateInfo result, string channel) =>
+        result.Status is UpdateStatus.UpdateAvailable
+            ? result.Updates.FirstOrDefault(item => ReleaseChannelFilter.IsOnChannel(item, channel))
+            : null;
 
     /// <summary>
-    /// Removes a file already at <paramref name="path"/> that is over <paramref name="limit"/>, so the library does not
-    /// read it to check its signature before it downloads again.
+    /// Removes what is already at <paramref name="path"/> when it is a link, a reparse point, or a file over
+    /// <paramref name="limit"/>, so the library never reads it to check a signature. A link is removed, never the file
+    /// it points to. The size is the size of the opened file, not of the name.
     /// </summary>
-    public static void RemoveOversizedDownload(string? path, long limit)
+    public static void ClearCachedDownload(string? path, long limit)
     {
-        if (path is not null && File.Exists(path) && new FileInfo(path).Length > limit)
+        if (path is null || !IsPresent(path))
+        {
+            return;
+        }
+
+        if (IsLinkOrReparsePoint(path) || !IsWithinLimit(path, limit))
         {
             File.Delete(path);
         }
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> is a plain file no larger than <paramref name="limit"/>, measured on the
+    /// opened file.
+    /// </summary>
+    public static bool IsWithinLimit(string path, long limit)
+    {
+        if (IsLinkOrReparsePoint(path))
+        {
+            return false;
+        }
+
+        using var handle = OpenPackage(path, FileOptions.None);
+        return RandomAccess.GetLength(handle) <= limit;
+    }
+
+    /// <summary>
+    /// Opens a downloaded package for reading. A link or reparse point is refused. The length and every byte read
+    /// afterwards come from this one handle, so a name changed after the check cannot change what is measured.
+    /// </summary>
+    public static Microsoft.Win32.SafeHandles.SafeFileHandle OpenPackage(string path, FileOptions options) =>
+        IsLinkOrReparsePoint(path)
+            ? throw new InvalidDataException(LinkProblem)
+            : File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, options);
+
+    /// <summary>True when <paramref name="path"/> names a symbolic link or reparse point, even a broken one.</summary>
+    public static bool IsLinkOrReparsePoint(string path)
+    {
+        var info = new FileInfo(path);
+        var attributes = info.Attributes;
+        return info.LinkTarget is not null
+            || (attributes != (FileAttributes)(-1) && attributes.HasFlag(FileAttributes.ReparsePoint));
     }
 
     public static string DownloadDirectory() => global::System.IO.Path.Combine(
@@ -185,7 +239,7 @@ internal static class UpdatePackageTrust
 
     public static string PrepareDownloadDirectory(string path)
     {
-        if (IsLink(path))
+        if (IsLinkOrReparsePoint(path))
         {
             throw new InvalidOperationException("The update download directory is a link.");
         }
@@ -222,6 +276,39 @@ internal static class UpdatePackageTrust
         }
 
         return address;
+    }
+
+    /// <summary>
+    /// The address of the signed preview feed named <paramref name="assetName"/> in the release list at
+    /// <paramref name="releases"/>. The list is read through <see cref="UpdateReads.Read"/>, at most
+    /// <see cref="UpdateReads.ReleaseListLimit"/> bytes within <paramref name="deadline"/>.
+    /// </summary>
+    public static async Task<string> FindPreviewFeed(
+        HttpClient client,
+        string releases,
+        string assetName,
+        TimeSpan deadline)
+    {
+        var list = await UpdateReads.Read(client, releases, UpdateReads.ReleaseListLimit, deadline);
+        using var document = JsonDocument.Parse(list);
+
+        foreach (var release in document.RootElement.EnumerateArray())
+        {
+            if (!release.GetProperty("prerelease").GetBoolean())
+            {
+                continue;
+            }
+
+            foreach (var asset in release.GetProperty("assets").EnumerateArray())
+            {
+                if (asset.GetProperty("name").GetString() == assetName)
+                {
+                    return RequireReleaseDownload(asset.GetProperty("browser_download_url").GetString());
+                }
+            }
+        }
+
+        throw new InvalidDataException("No signed preview feed is published yet.");
     }
 
     public static DesktopUpdateState AfterCheck(
@@ -282,11 +369,48 @@ internal static class UpdatePackageTrust
         return stream.ReadByte() >= 0 ? null : package;
     }
 
-    /// <summary>The package at <paramref name="path"/> through <see cref="ReadPackage"/>, or null when it is over the limit.</summary>
+    /// <summary>
+    /// The package at <paramref name="path"/>, read through one opened handle by
+    /// <see cref="ReadPackage(Stream, long)"/>, or null when it is over the limit. A link is refused.
+    /// </summary>
     public static async Task<byte[]?> ReadPackageFile(string path, long limit)
     {
-        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var handle = OpenPackage(path, FileOptions.Asynchronous);
+        await using var file = new FileStream(handle, FileAccess.Read, 81920, isAsync: true);
         return await ReadPackage(file, limit);
+    }
+
+    /// <summary>
+    /// The same bounded read as <see cref="ReadPackage(Stream, long)"/>, on an opened handle, for a caller that cannot
+    /// wait asynchronously. The length is read from the handle once and sizes the buffer; a file that grew since is
+    /// refused after one more byte.
+    /// </summary>
+    public static byte[]? ReadPackage(Microsoft.Win32.SafeHandles.SafeFileHandle handle, long limit)
+    {
+        var length = RandomAccess.GetLength(handle);
+
+        if (length > limit)
+        {
+            return null;
+        }
+
+        var package = new byte[length];
+        var read = 0;
+
+        while (read < package.Length)
+        {
+            var count = RandomAccess.Read(handle, package.AsSpan(read), read);
+
+            if (count == 0)
+            {
+                return package[..read];
+            }
+
+            read += count;
+        }
+
+        var extra = new byte[1];
+        return RandomAccess.Read(handle, extra, read) > 0 ? null : package;
     }
 
     public static DownloadDecision Decide(
@@ -320,13 +444,16 @@ internal static class UpdatePackageTrust
         var downloaded = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Finished(AppCastItem item, string path) => downloaded.TrySetResult(path);
         void Failed(AppCastItem item, string? path, Exception exception) => downloaded.TrySetException(exception);
-        void Corrupt(AppCastItem item, string path) => downloaded.TrySetException(new InvalidDataException(SignatureProblem));
+        void Corrupt(AppCastItem item, string path) =>
+            downloaded.TrySetException(new InvalidDataException(SignatureProblem));
+        void Cancelled(AppCastItem item, string path) => downloaded.TrySetCanceled();
 
-        var packageLimit = (updater.UpdateDownloader as BoundedPackageDownloader)?.Limit ?? PackageLimit;
-        RemoveOversizedDownload(await updater.GetDownloadPathForAppCastItem(item), packageLimit);
+        var downloader = updater.UpdateDownloader as BoundedPackageDownloader;
+        ClearCachedDownload(await updater.GetDownloadPathForAppCastItem(item), downloader?.Limit ?? PackageLimit);
 
         updater.DownloadFinished += Finished;
         updater.DownloadHadError += Failed;
+        updater.DownloadCanceled += Cancelled;
         updater.DownloadedFileIsCorrupt += Corrupt;
         updater.DownloadedFileThrewWhileCheckingSignature += Corrupt;
         try
@@ -336,14 +463,17 @@ internal static class UpdatePackageTrust
         }
         catch (TimeoutException)
         {
-            // The download is stopped, and its partial file removed, rather than left running past the limit.
+            // The download is stopped, and the timeout is reported only once it has closed and removed its file, so
+            // a retry never meets a file the old download still holds. The wait is bounded.
             updater.CancelFileDownload();
+            await WaitForTeardown(downloader);
             throw;
         }
         finally
         {
             updater.DownloadFinished -= Finished;
             updater.DownloadHadError -= Failed;
+            updater.DownloadCanceled -= Cancelled;
             updater.DownloadedFileIsCorrupt -= Corrupt;
             updater.DownloadedFileThrewWhileCheckingSignature -= Corrupt;
         }
@@ -370,10 +500,20 @@ internal static class UpdatePackageTrust
         }
     }
 
-    private static bool IsLink(string path) =>
-        global::System.IO.Path.Exists(path)
-        && (File.ResolveLinkTarget(path, returnFinalTarget: false) is not null
-            || Directory.ResolveLinkTarget(path, returnFinalTarget: false) is not null);
+    private static bool IsPresent(string path) =>
+        global::System.IO.Path.Exists(path) || new FileInfo(path).LinkTarget is not null;
+
+    /// <summary>
+    /// Waits, at most <see cref="TeardownLimit"/>, for the download to stop. A download that does not stop in time is
+    /// not waited for further; the caller reports its timeout either way.
+    /// </summary>
+    private static async Task WaitForTeardown(BoundedPackageDownloader? downloader)
+    {
+        if (downloader is not null)
+        {
+            await downloader.Stopped.WaitAsync(TeardownLimit).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
 
     private static bool OwnedByCurrentUser(string path) => Owner(path) == CurrentUser();
 
@@ -456,6 +596,60 @@ internal sealed class ReleaseChannelFilter(string channel) : NetSparkleUpdater.I
         items
             .Where(item => IsOnChannel(item, channel) && SemVerLike.Parse(item.Version).CompareTo(installed) > 0)
             .OrderByDescending(item => item.SemVerLikeVersion);
+
+    #endregion
+}
+
+
+/// <summary>
+/// Checks a file's signature for the update library with the strict Ed25519 checker, reading the file through one
+/// opened handle and at most <paramref name="limit"/> bytes. The library checks a file in three places (a file already
+/// downloaded, a fresh download, and again before the installer starts); every one of them comes here. A link, a
+/// reparse point, or a file over the limit is invalid and is not read.
+/// </summary>
+internal sealed class BoundedFileVerifier(NetSparkleUpdater.Interfaces.ISignatureVerifier inner, long limit)
+    : NetSparkleUpdater.Interfaces.ISignatureVerifier
+{
+    #region Properties
+
+    public long Limit => limit;
+
+    /// <summary>Always the checker's strict mode. A request to change it is refused.</summary>
+    public SecurityMode SecurityMode
+    {
+        get => inner.SecurityMode;
+        set
+        {
+            if (value != inner.SecurityMode)
+            {
+                throw new NotSupportedException("Drover checks update signatures only in strict mode.");
+            }
+        }
+    }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public bool HasValidKeyInformation() => inner.HasValidKeyInformation();
+
+    public ValidationResult VerifySignature(string signature, byte[] dataToVerify) =>
+        inner.VerifySignature(signature, dataToVerify);
+
+    public ValidationResult VerifySignatureOfString(string signature, string data) =>
+        inner.VerifySignatureOfString(signature, data);
+
+    public ValidationResult VerifySignatureOfFile(string signature, string binaryPath)
+    {
+        if (UpdatePackageTrust.IsLinkOrReparsePoint(binaryPath))
+        {
+            return ValidationResult.Invalid;
+        }
+
+        using var handle = UpdatePackageTrust.OpenPackage(binaryPath, FileOptions.None);
+        var package = UpdatePackageTrust.ReadPackage(handle, limit);
+        return package is null ? ValidationResult.Invalid : inner.VerifySignature(signature, package);
+    }
 
     #endregion
 }
