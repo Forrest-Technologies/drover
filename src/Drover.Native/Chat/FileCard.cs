@@ -11,8 +11,6 @@ public sealed class FileCard : Grid
 
     private const int MaxPictureAttempts = 2;
 
-    private static readonly TimeSpan pictureRetryDelay = TimeSpan.FromMilliseconds(500);
-
     private readonly FileCardViewModel model;
 
     private readonly Batch batch;
@@ -394,7 +392,7 @@ public sealed class FileCard : Grid
             return false;
         }
 
-        await Task.Delay(pictureRetryDelay);
+        await Task.Delay(TimeSpan.FromMilliseconds(Tokens.Number("DvDur3")));
         if (IsCurrentPicture(file, generation))
         {
             LoadPicture(file, generation, attempt + 1);
