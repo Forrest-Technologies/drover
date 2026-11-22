@@ -305,12 +305,16 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         {
             var status = StatusBeside(root, name);
 
-            if (status is not null && (status.StartsWith("Not uploaded", StringComparison.Ordinal) || status.EndsWith('.')))
+            // "Uploading" is the chip on its way, and the sentence it is announced in. A sentence that is anything else
+            // is a refusal or a failure; a size is a file that is up.
+            if (status is null || status.StartsWith("Uploading", StringComparison.Ordinal))
             {
-                throw new CheckFailedException($"the attachment said \"{status}\"");
+                return null;
             }
 
-            return status is { Length: > 0 } && !status.StartsWith("Uploading", StringComparison.Ordinal) ? root : null;
+            return status.EndsWith('.')
+                ? throw new CheckFailedException($"the attachment said \"{status}\"")
+                : root;
         }, TimeSpan.FromSeconds(90));
 
         await Press("ComposerSend");
