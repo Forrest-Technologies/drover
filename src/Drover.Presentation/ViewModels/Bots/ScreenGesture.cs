@@ -106,7 +106,7 @@ public sealed class ScreenGesture
     public void Down(uint id, double x, double y, ScreenZoom shown, bool inControl = false, TimeSpan at = default)
     {
         // A second down for a finger that is already down changes nothing, nor does a place that is not a number.
-        if (pointers.ContainsKey(id) || !double.IsFinite(x) || !double.IsFinite(y))
+        if (pointers.ContainsKey(id) || !IsPlace(x) || !IsPlace(y))
         {
             return;
         }
@@ -136,7 +136,7 @@ public sealed class ScreenGesture
     /// </summary>
     public ScreenZoom? Move(uint id, double x, double y, double width, double height, TimeSpan at = default)
     {
-        if (!pointers.ContainsKey(id) || width <= 0 || height <= 0 || !double.IsFinite(x) || !double.IsFinite(y))
+        if (!pointers.ContainsKey(id) || !IsSize(width) || !IsSize(height) || !IsPlace(x) || !IsPlace(y))
         {
             return null;
         }
@@ -343,7 +343,14 @@ public sealed class ScreenGesture
     // Fingers moving up bring what is below into view, as a page does under a finger: the wheel turns down.
     private ScreenZoom? Scroll((double X, double Y, double Spread) now)
     {
-        scrolled += now.Y - last.Y;
+        // A centre or a distance that overflowed is not a movement of the fingers: it turns nothing.
+        var travel = now.Y - last.Y;
+        if (!double.IsFinite(travel) || !double.IsFinite(now.X) || !double.IsFinite(scrolled + travel))
+        {
+            return null;
+        }
+
+        scrolled += travel;
         last = (now.X, now.Y);
 
         // One move sends at most the steps the server takes in one scroll; a jump beyond that is dropped, not queued.
@@ -413,17 +420,25 @@ public sealed class ScreenGesture
 
     #region View
 
-    private ScreenZoom Pan((double X, double Y, double Spread) now, bool pinching, double width, double height)
+    private ScreenZoom? Pan((double X, double Y, double Spread) now, bool pinching, double width, double height)
     {
         moved = true;
         var stretch = pinching ? now.Spread / start.Spread : 1;
         var scale = Math.Clamp(from.Scale * stretch, 1, ScreenZoom.MaxScale);
         var (fromX, fromY) = (start.X / width, start.Y / height);
         var (toX, toY) = (now.X / width, now.Y / height);
-        view = new(
+        var next = new ScreenZoom(
             scale,
             Math.Clamp(toX - ((fromX - from.X) / from.Scale * scale), 1 - scale, 0),
             Math.Clamp(toY - ((fromY - from.Y) / from.Scale * scale), 1 - scale, 0));
+
+        // A view worked out from places that overflowed is not shown: the view stays as it was.
+        if (!double.IsFinite(next.Scale) || !double.IsFinite(next.X) || !double.IsFinite(next.Y))
+        {
+            return null;
+        }
+
+        view = next;
         return view;
     }
 
@@ -438,6 +453,11 @@ public sealed class ScreenGesture
         }
     }
 
+    // A frame size is a number above zero that a number can hold; NaN and infinity are not.
+    private static bool IsSize(double length) => double.IsFinite(length) && length > 0;
+
+    private static bool IsPlace(double offset) => double.IsFinite(offset);
+
     private double Travel((double X, double Y, double Spread) now) =>
         Math.Sqrt(Math.Pow(now.X - start.X, 2) + Math.Pow(now.Y - start.Y, 2));
 
@@ -448,7 +468,12 @@ public sealed class ScreenGesture
         var spread = points.Count > 1
             ? Math.Sqrt(Math.Pow(points[0].X - points[1].X, 2) + Math.Pow(points[0].Y - points[1].Y, 2))
             : 1;
-        return (points.Average(point => point.X), points.Average(point => point.Y), spread > 0 ? spread : 1);
+
+        // Each place is halved before adding, so two places a number can hold give a centre it can hold too.
+        var centre = points.Count > 1
+            ? ((points[0].X / 2) + (points[1].X / 2), (points[0].Y / 2) + (points[1].Y / 2))
+            : points[0];
+        return (centre.Item1, centre.Item2, spread > 0 ? spread : 1);
     }
 
     #endregion

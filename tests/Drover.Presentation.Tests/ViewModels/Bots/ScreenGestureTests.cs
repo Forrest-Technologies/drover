@@ -414,6 +414,82 @@ public sealed class ScreenGestureTests
             new ScreenTouch(ScreenTouchKind.Release, 160, 100));
     }
 
+    [Theory]
+    [InlineData(double.NaN, 300)]
+    [InlineData(400, double.NaN)]
+    [InlineData(double.PositiveInfinity, 300)]
+    [InlineData(400, double.PositiveInfinity)]
+    public void A_frame_whose_size_is_not_a_number_moves_no_view_and_sends_nothing(double width, double height)
+    {
+        gesture.Down(1, 200, 150, enlarged, at: Ms(0));
+        gesture.Move(1, 160, 150, width, height, Ms(50)).Should().BeNull();
+        gesture.Up(1, at: Ms(60)).View.Should().Match<ScreenZoom?>(
+            view => view == null || view == enlarged,
+            "the view is kept as it was, never made invalid");
+
+        Press(1, 100, 100, enlarged);
+        gesture.Move(1, 60, 100, width, height, Ms(50)).Should().BeNull();
+        gesture.Up(1, at: Ms(60));
+        Sent().Should().OnlyContain(touch => double.IsFinite(touch.X) && double.IsFinite(touch.Y));
+    }
+
+    // Two fingers that move together, at places so far out that adding them overflows a number.
+    [Theory]
+    [InlineData(1.7e308, 1.6e308, 200, 100)]
+    [InlineData(-1.7e308, -1.6e308, 200, 260)]
+    public void Fingers_at_the_edge_of_what_a_number_holds_send_only_finite_places_and_at_most_one_scroll_a_move(
+        double firstX,
+        double secondX,
+        double y,
+        double toY)
+    {
+        Press(1, firstX, y);
+        gesture.Down(2, secondX, y, ScreenZoom.Fit, at: Ms(10));
+        List<ScreenTouch> handed = [];
+
+        for (var step = 1; step <= 10; step++)
+        {
+            var at = y + ((toY - y) * step / 10);
+            gesture.Move(1, firstX, at, Width, Height, Ms(20 + step));
+            gesture.Move(2, secondX, at, Width, Height, Ms(20 + step));
+            handed.AddRange(Sent().Should().HaveCountLessThanOrEqualTo(2 * ScreenGesture.MaxStepsPerMove).And.Subject);
+        }
+
+        gesture.Up(2, at: Ms(40));
+        gesture.Up(1, at: Ms(50));
+        handed.AddRange(Sent());
+
+        handed.Should().NotBeEmpty("the fingers moved together far enough to scroll")
+            .And.OnlyContain(touch => double.IsFinite(touch.X) && double.IsFinite(touch.Y));
+    }
+
+    [Fact]
+    public void Fingers_whose_centre_moves_by_more_than_a_number_holds_turn_the_wheel_at_most_one_scroll_a_move()
+    {
+        Press(1, 150, 1.7e308);
+        gesture.Down(2, 250, 1.7e308, ScreenZoom.Fit, at: Ms(10));
+        gesture.Move(1, 150, 1.6e308, Width, Height, Ms(20));
+        gesture.Move(2, 250, 1.6e308, Width, Height, Ms(30));
+
+        Sent().Should().HaveCountLessThanOrEqualTo(2 * ScreenGesture.MaxStepsPerMove)
+            .And.OnlyContain(touch => double.IsFinite(touch.X) && double.IsFinite(touch.Y));
+    }
+
+    [Fact]
+    public void A_pinch_whose_spread_overflows_keeps_the_view_valid()
+    {
+        gesture.Down(1, -1.7e308, 150, ScreenZoom.Fit, at: Ms(0));
+        gesture.Down(2, 1.7e308, 150, ScreenZoom.Fit, at: Ms(10));
+
+        var shown = gesture.Move(2, 1.6e308, 150, Width, Height, Ms(20));
+
+        shown.Should().Match<ScreenZoom?>(view => view == null
+            || (double.IsFinite(view.Value.Scale) && double.IsFinite(view.Value.X) && double.IsFinite(view.Value.Y)));
+        gesture.Up(2, at: Ms(30));
+        gesture.Up(1, at: Ms(40)).View.Should().Match<ScreenZoom?>(view => view == null
+            || (double.IsFinite(view.Value.Scale) && double.IsFinite(view.Value.X) && double.IsFinite(view.Value.Y)));
+    }
+
     [Fact]
     public void A_place_that_is_not_a_number_is_ignored()
     {
