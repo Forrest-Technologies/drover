@@ -22,6 +22,9 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
     private static readonly TimeSpan dragPatience = TimeSpan.FromSeconds(60);
 
+    // A drag that works reaches the sandbox within a second or two of the lift; this is the bound on waiting for one that does not.
+    private static readonly TimeSpan releasePatience = TimeSpan.FromSeconds(10);
+
     private static readonly TimeSpan poll = TimeSpan.FromSeconds(1);
 
     private readonly List<(string Step, bool Passed, string Detail)> verdicts = [];
@@ -214,7 +217,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
     {
         var watch = Stopwatch.StartNew();
 
-        while (watch.Elapsed < dragPatience && !PointerEvents.Of(sandbox.Commands).Any(pointer => pointer.Kind is PointerKind.Up))
+        while (watch.Elapsed < releasePatience && !PointerEvents.Of(sandbox.Commands).Any(pointer => pointer.Kind is PointerKind.Up))
         {
             await Task.Delay(poll);
         }

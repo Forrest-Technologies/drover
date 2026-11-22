@@ -72,17 +72,18 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
     }
 
     [Fact]
-    public async Task A_picture_past_the_limit_is_refused_with_a_cause_the_person_can_be_told()
+    public async Task A_picture_past_the_limit_is_refused_with_the_status_and_the_sentence_the_app_names_it_by()
     {
         var (client, spaceId, threadId) = await Conversation("large");
         await using var content = new ContentStream(Picture(FileLimit + 1));
 
-        // The client's own bound is looser than the server's, so it is the server that refuses.
+        // The client's own bound is looser than the server's, so it is the server that refuses. The app names this
+        // refusal from the status, so the status and a sentence that names the limit are what is held here.
         var refused = () => Api(client).UploadFileWithUnverifiedSize(spaceId, threadId, "large.png", content, FileLimit * 4, cancellationToken: Token);
 
         var failure = (await refused.Should().ThrowAsync<DroverApiException>()).Which;
         failure.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
-        failure.Refusal.Should().Be(FileRefusals.TooLarge);
+        failure.Message.Should().Contain("64 KB", "the sentence names the limit the server takes");
     }
 
     [Fact]

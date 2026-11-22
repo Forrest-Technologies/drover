@@ -76,6 +76,7 @@ public sealed class SandboxPointerDragApiTests(PostgresServer postgres) : Server
         var refused = await client.Post(input, new { kind = "down", x = 5000, y = 10 });
 
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Token)).Should().Contain("off the screen", "the refusal is for the point, not for an unknown kind of input");
         Pointer().Skip(before).Should().BeEmpty();
     }
 
