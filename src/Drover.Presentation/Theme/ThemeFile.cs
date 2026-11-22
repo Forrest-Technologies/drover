@@ -39,6 +39,16 @@ public enum HeadingFace
 }
 
 /// <summary>A request a device can make, which a theme is suggested for.</summary>
+/// <summary>Where a theme is listed among the others. Grouping only: it changes no token and no bound.</summary>
+public enum ThemeGroup
+{
+    /// <summary>A look with a character of its own.</summary>
+    Expressive,
+
+    /// <summary>A restrained look for work settings.</summary>
+    Professional,
+}
+
 public enum DeviceRequest
 {
     LargeText,
@@ -103,6 +113,7 @@ public sealed record ThemeFile(
     string Id,
     string Name,
     string Intent,
+    ThemeGroup Group,
     ColorMode FirstMode,
     IReadOnlyList<DeviceRequest> Suits,
     ThemeType Type,

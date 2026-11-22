@@ -62,7 +62,7 @@ public static partial class ThemeFileReader
 
         public ThemeFile? ReadFile(JsonElement root, string? expectedId)
         {
-            var top = Keys(root, "the file", "format", "id", "name", "intent", "firstMode", "suits", "type", "density", "shape", "surfaces", "motion", "characters", "dark", "light");
+            var top = Keys(root, "the file", "format", "id", "name", "intent", "group", "firstMode", "suits", "type", "density", "shape", "surfaces", "motion", "characters", "dark", "light");
             if (top is null)
             {
                 return null;
@@ -77,6 +77,7 @@ public static partial class ThemeFileReader
 
             var name = Text(top, "name", "name", 1, 40);
             var intent = Text(top, "intent", "intent", 1, 120);
+            var group = Choice(top, "group", "group", new Dictionary<string, ThemeGroup> { ["expressive"] = ThemeGroup.Expressive, ["professional"] = ThemeGroup.Professional });
             var firstMode = Choice(top, "firstMode", "firstMode", new Dictionary<string, ColorMode> { ["dark"] = ColorMode.Dark, ["light"] = ColorMode.Light });
 
             var before = Problems.Count;
@@ -90,7 +91,7 @@ public static partial class ThemeFileReader
             }
 
             return new(
-                id, name, intent, firstMode, Suits(top), ReadType(top), ReadDensity(top), ReadShape(top), ReadSurfaces(top),
+                id, name, intent, group, firstMode, Suits(top), ReadType(top), ReadDensity(top), ReadShape(top), ReadSurfaces(top),
                 motion, characters, ReadMode(top, "dark"), ReadMode(top, "light"));
         }
 

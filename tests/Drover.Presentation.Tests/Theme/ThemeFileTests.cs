@@ -42,6 +42,19 @@ public sealed class ThemeFileTests
         BuiltInThemes.Get("signal-room").Should().BeNull("a theme joins the app when the issue that ships it embeds its file");
     }
 
+    [Theory]
+    [MemberData(nameof(ThemeIds))]
+    public void Every_theme_of_the_first_batch_is_in_the_expressive_group(string id) =>
+        ThemeFileReader.Read(File.ReadAllText(Path.Combine(Repository.ThemeFolder, $"{id}.json")), id)
+            .Group.Should().Be(ThemeGroup.Expressive);
+
+    [Fact]
+    public void A_group_is_expressive_or_professional_and_nothing_else()
+    {
+        ProblemsOf(Edit(night => night["group"] = "playful")).Should().ContainSingle().Which.Should().Contain("group");
+        ProblemsOf(Edit(night => night.AsObject().Remove("group"))).Should().ContainSingle().Which.Should().Contain("group");
+    }
+
     [Fact]
     public void A_file_with_a_key_the_format_does_not_have_is_refused()
     {
