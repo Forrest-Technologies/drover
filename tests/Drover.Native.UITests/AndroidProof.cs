@@ -1,11 +1,11 @@
 namespace Drover.Native.UITests;
 
 /// <summary>
-/// The manual proof of the Android basics, on the one emulator adb sees: the app installed on it is the build made for
-/// the checks, and it talks to the test server of this run. The app's own steps send a message, attach a picture and
-/// open the sandbox screen; this class does what the app cannot do from inside: it chooses the picture in the
-/// system's file picker, drags a finger over the sandbox picture with real touch events, and then asks the server what
-/// reached it. Each of the four things prints one pass or fail line. Everything a failure needs is kept in the
+/// The manual proof of the Android basics, on the one emulator adb sees: the app installed on it is the build made
+/// for the checks, and it talks to the test server of this run. The app's own steps send a message, attach a picture
+/// and open the sandbox screen; this class does what the app cannot do from inside: it chooses the picture in the
+/// system's file picker, drags a finger over the sandbox picture with real touch events, and then asks the server
+/// what reached it. Each of the four things prints one pass or fail line. Everything a failure needs is kept in the
 /// artifacts folder: a screenshot, the device log, the last screen the harness read, and a recording of the run.
 /// </summary>
 internal sealed class AndroidProof(ILogger logger, string artifacts)
@@ -22,7 +22,8 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
     private static readonly TimeSpan dragPatience = TimeSpan.FromSeconds(60);
 
-    // A drag that works reaches the sandbox within a second or two of the lift; this is the bound on waiting for one that does not.
+    // A drag that works reaches the sandbox within a second or two of the lift; this is the bound on waiting for
+    // one that does not.
     private static readonly TimeSpan releasePatience = TimeSpan.FromSeconds(10);
 
     private static readonly TimeSpan poll = TimeSpan.FromSeconds(1);
@@ -35,7 +36,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
     #region Properties
 
-    /// <summary>The name of the picture the proof attaches. The app is told it and looks for it in the conversation.</summary>
+    /// <summary>The name of the picture the proof attaches. The app looks for it in the conversation.</summary>
     public const string PictureName = "drover-proof.png";
 
     #endregion
@@ -57,7 +58,15 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         await File.WriteAllBytesAsync(local, attachment);
         await AndroidApp.Adb(serial, "reverse", $"tcp:{port}", $"tcp:{port}");
         await AndroidApp.Adb(serial, "push", local, $"/sdcard/Download/{PictureName}");
-        await AndroidApp.Adb(serial, "shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file:///sdcard/Download/{PictureName}");
+        await AndroidApp.Adb(
+            serial,
+            "shell",
+            "am",
+            "broadcast",
+            "-a",
+            "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d",
+            $"file:///sdcard/Download/{PictureName}");
         using var recording = StartRecording(serial);
 
         try
@@ -83,8 +92,8 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
     #region Driving
 
-    // Reads the app's report until it says it is done or has failed. When it says it is waiting for something only the
-    // harness can do, the harness does it: choosing the picture in the picker, and the drag.
+    // Reads the app's report until it says it is done or has failed. When it says it is waiting for something only
+    // the harness can do, the harness does it: choosing the picture in the picker, and the drag.
     private async Task<IReadOnlyList<string>> Drive(string serial, string runId, MemorySandboxProvider sandbox)
     {
         var watch = Stopwatch.StartNew();
@@ -147,7 +156,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
                 continue;
             }
 
-            if (chosen && nodes.FirstOrDefault(node => node.Text is "Open" or "Select" or "OPEN" or "SELECT") is { } confirm)
+            if (chosen && nodes.FirstOrDefault(IsConfirm) is { } confirm)
             {
                 await Tap(serial, confirm);
                 return;
@@ -170,7 +179,9 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
             await Task.Delay(poll);
         }
 
-        logger.LogError("The picker never offered {Picture}; the last screen read is kept as the-last-screen.xml", PictureName);
+        logger.LogError(
+            "The picker never offered {Picture}; the last screen read is kept as the-last-screen.xml",
+            PictureName);
     }
 
     // A finger goes down on the sandbox picture, holds, moves across it, and lifts: real touch events from the system,
@@ -183,9 +194,10 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         {
             var nodes = await Screen(serial);
 
-            if (nodes.FirstOrDefault(node => node.Description.Contains("Click or tap the desktop", StringComparison.Ordinal)) is { } picture)
+            if (nodes.FirstOrDefault(IsSandboxPicture) is { } picture)
             {
-                var (left, top, width, height) = (picture.Left, picture.Top, picture.Right - picture.Left, picture.Bottom - picture.Top);
+                var (left, top) = (picture.Left, picture.Top);
+                var (width, height) = (picture.Right - picture.Left, picture.Bottom - picture.Top);
                 var (screenWidth, screenHeight) = (nodes.Max(node => node.Right), nodes.Max(node => node.Bottom));
 
                 // The device reports only what is on screen, so a picture that is not all there is cut short. It is
@@ -193,15 +205,38 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
                 // the picture cannot take it.
                 if (height < width * 0.7 || picture.Bottom > screenHeight * 0.88)
                 {
-                    await AndroidApp.Adb(serial, "shell", "input", "swipe", "8", $"{screenHeight * 7 / 10}", "8", $"{screenHeight * 4 / 10}", "500");
+                    await AndroidApp.Adb(
+                        serial,
+                        "shell",
+                        "input",
+                        "swipe",
+                        "8",
+                        $"{screenHeight * 7 / 10}",
+                        "8",
+                        $"{screenHeight * 4 / 10}",
+                        "500");
                     await Task.Delay(poll);
                     continue;
                 }
 
                 var (fromX, fromY) = (left + (width * 44 / 100), top + (height * 22 / 100));
                 var (toX, toY) = (left + (width * 64 / 100), top + (height * 48 / 100));
-                logger.LogInformation("Dragging from {FromX},{FromY} to {ToX},{ToY} over the sandbox picture", fromX, fromY, toX, toY);
-                await AndroidApp.Adb(serial, "shell", "input", "draganddrop", $"{fromX}", $"{fromY}", $"{toX}", $"{toY}", "1500");
+                logger.LogInformation(
+                    "Dragging from {FromX},{FromY} to {ToX},{ToY} over the sandbox picture",
+                    fromX,
+                    fromY,
+                    toX,
+                    toY);
+                await AndroidApp.Adb(
+                    serial,
+                    "shell",
+                    "input",
+                    "draganddrop",
+                    $"{fromX}",
+                    $"{fromY}",
+                    $"{toX}",
+                    $"{toY}",
+                    "1500");
                 await WaitForRelease(sandbox);
                 return;
             }
@@ -209,7 +244,9 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
             await Task.Delay(poll);
         }
 
-        logger.LogError("The sandbox picture in control mode was not on the screen after {Seconds} seconds", dragPatience.TotalSeconds);
+        logger.LogError(
+            "The sandbox picture in control mode was not on the screen after {Seconds} seconds",
+            dragPatience.TotalSeconds);
     }
 
     // The server is asked what it received, so the wait ends when the release has arrived, or after a bound.
@@ -217,7 +254,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
     {
         var watch = Stopwatch.StartNew();
 
-        while (watch.Elapsed < releasePatience && !PointerEvents.Of(sandbox.Commands).Any(pointer => pointer.Kind is PointerKind.Up))
+        while (watch.Elapsed < releasePatience && !PointerEvents.Of(sandbox.Commands).Any(IsRelease))
         {
             await Task.Delay(poll);
         }
@@ -227,58 +264,108 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
     #region Judging
 
-    private async Task Judge(CheckAccount account, MemorySandboxProvider sandbox, byte[] attachment, IReadOnlyList<string> lines)
+    private async Task Judge(
+        CheckAccount account,
+        MemorySandboxProvider sandbox,
+        byte[] attachment,
+        IReadOnlyList<string> lines)
     {
         Say(1, "chat: a message is sent and the bot's reply arrives", InApp(lines, 1));
-        var stored = await account.StoredFile(PictureName);
-        var uploaded = InApp(lines, 2);
-        Say(2, "upload: the picture is attached and sent, and the server stored the same bytes", uploaded.Passed
-            ? stored is null
-                ? (false, $"the app said the picture went, but the server holds no file named {PictureName}")
-                : Convert.ToHexStringLower(SHA256.HashData(stored)) == Convert.ToHexStringLower(SHA256.HashData(attachment))
-                    ? (true, $"{attachment.Length} bytes sent, the same {stored.Length} bytes stored, sha256 {Convert.ToHexStringLower(SHA256.HashData(stored))[..16]}")
-                    : (false, $"{attachment.Length} bytes were sent but the server stored {stored.Length} bytes that differ")
-            : uploaded);
+        Say(
+            2,
+            "upload: the picture is attached and sent, and the server stored the same bytes",
+            await JudgeUpload(account, attachment, InApp(lines, 2)));
         var opened = InApp(lines, 3);
-        Say(3, "sandbox: the screen opens with its picture and its mode line", opened.Passed && sandbox.Commands.Any(command => command.Program is "scrot")
-            ? (true, "the picture was asked for and the mode line was shown")
-            : (false, opened.Passed ? "the sandbox was never asked for its picture" : opened.Detail));
-        var events = PointerEvents.Of(sandbox.Commands).ToArray();
-        var held = PointerEvents.Held(events);
-        var dragged = InApp(lines, 4);
-        Say(4, "drag: a finger drag on the sandbox picture reaches the sandbox as a down, moves and an up",
-            dragged.Passed && events is [{ Kind: PointerKind.Down }, .. { Length: >= 1 } moves, { Kind: PointerKind.Up }]
-                && moves.All(pointer => pointer.Kind is PointerKind.Move) && held.Count is 0
-                ? (true, $"down at {events[0].X},{events[0].Y}, {moves.Length} moves, up at {events[^1].X},{events[^1].Y}, no button left held")
-                : (false, dragged.Passed
-                    ? $"the sandbox recorded {Describe(events)}; a drag is a down, one or more moves and an up, and nothing left held"
-                    : dragged.Detail));
+        Say(
+            3,
+            "sandbox: the screen opens with its picture and its mode line",
+            opened.Passed && sandbox.Commands.Any(command => command.Program is "scrot")
+                ? (true, "the picture was asked for and the mode line was shown")
+                : (false, opened.Passed ? "the sandbox was never asked for its picture" : opened.Detail));
+        Say(
+            4,
+            "drag: a finger drag on the sandbox picture reaches the sandbox as a down, moves and an up",
+            JudgeDrag([.. PointerEvents.Of(sandbox.Commands)], InApp(lines, 4)));
     }
 
-    private static string Describe(PointerEvent[] events) =>
-        events.Length is 0
-            ? "no pointer events"
-            : $"{string.Join(", ", events.Select(pointer => pointer.Kind.ToString().ToLowerInvariant()))}{(PointerEvents.Held(events).Count > 0 ? " with a button still held" : string.Empty)}";
+    private static async Task<(bool Passed, string Detail)> JudgeUpload(
+        CheckAccount account,
+        byte[] attachment,
+        (bool Passed, string Detail) app)
+    {
+        if (!app.Passed)
+        {
+            return app;
+        }
+
+        if (await account.StoredFile(PictureName) is not { } stored)
+        {
+            return (false, $"the app said the picture went, but the server holds no file named {PictureName}");
+        }
+
+        var sent = Convert.ToHexStringLower(SHA256.HashData(attachment));
+        var kept = Convert.ToHexStringLower(SHA256.HashData(stored));
+        return sent == kept
+            ? (true, $"{attachment.Length} bytes sent, the same {stored.Length} bytes stored, sha256 {kept[..16]}")
+            : (false, $"{attachment.Length} bytes were sent but the server stored {stored.Length} bytes that differ");
+    }
+
+    private static (bool Passed, string Detail) JudgeDrag(PointerEvent[] events, (bool Passed, string Detail) app)
+    {
+        if (!app.Passed)
+        {
+            return app;
+        }
+
+        var held = PointerEvents.Held(events);
+
+        if (events is [{ Kind: PointerKind.Down } down, .. { Length: >= 1 } moves, { Kind: PointerKind.Up } up]
+            && moves.All(pointer => pointer.Kind is PointerKind.Move) && held.Count is 0)
+        {
+            return (true, $"down at {down.X},{down.Y}, {moves.Length} moves, up at {up.X},{up.Y}, no button left held");
+        }
+
+        return (false, $"the sandbox recorded {Describe(events, held)}; a drag is a down, one or more moves and an up");
+    }
+
+    private static string Describe(PointerEvent[] events, List<string> held)
+    {
+        if (events.Length is 0)
+        {
+            return "no pointer events";
+        }
+
+        var kinds = string.Join(", ", events.Select(pointer => pointer.Kind.ToString().ToLowerInvariant()));
+        return held.Count > 0 ? $"{kinds} with a button still held" : kinds;
+    }
 
     // What the app said of one of its four steps: it passed, it failed and said why, or it never got there.
     private static (bool Passed, string Detail) InApp(IReadOnlyList<string> lines, int number)
     {
         var prefix = $"proof {number} ";
 
-        if (lines.FirstOrDefault(line => line.StartsWith($"ui-check pass: {prefix}", StringComparison.Ordinal)) is { } pass)
+        var pass = $"ui-check pass: {prefix}";
+        var fail = $"ui-check fail: {prefix}";
+
+        if (lines.FirstOrDefault(line => line.StartsWith(pass, StringComparison.Ordinal)) is { } passed)
         {
-            return (true, pass["ui-check pass: ".Length..]);
+            return (true, passed["ui-check pass: ".Length..]);
         }
 
-        return lines.FirstOrDefault(line => line.StartsWith($"ui-check fail: {prefix}", StringComparison.Ordinal)) is { } fail
-            ? (false, fail["ui-check fail: ".Length..])
+        return lines.FirstOrDefault(line => line.StartsWith(fail, StringComparison.Ordinal)) is { } failed
+            ? (false, failed["ui-check fail: ".Length..])
             : (false, "the app never reached this step");
     }
 
     private void Say(int number, string what, (bool Passed, string Detail) verdict)
     {
         verdicts.Add(($"{number}/4 {what}", verdict.Passed, verdict.Detail));
-        logger.LogInformation("PROOF {Verdict} {Number}/4 {What}: {Detail}", verdict.Passed ? "PASS" : "FAIL", number, what, verdict.Detail);
+        logger.LogInformation(
+            "PROOF {Verdict} {Number}/4 {What}: {Detail}",
+            verdict.Passed ? "PASS" : "FAIL",
+            number,
+            what,
+            verdict.Detail);
     }
 
     #endregion
@@ -301,14 +388,32 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         }
     }
 
+    private static bool IsConfirm(ScreenNode node) => node.Text is "Open" or "Select" or "OPEN" or "SELECT";
+
+    private static bool IsSandboxPicture(ScreenNode node) =>
+        node.Description.Contains("Click or tap the desktop", StringComparison.Ordinal);
+
+    private static bool IsRelease(PointerEvent pointer) => pointer.Kind is PointerKind.Up;
+
     private static async Task Tap(string serial, ScreenNode node) =>
-        await AndroidApp.Adb(serial, "shell", "input", "tap", $"{(node.Left + node.Right) / 2}", $"{(node.Top + node.Bottom) / 2}");
+        await AndroidApp.Adb(
+            serial,
+            "shell",
+            "input",
+            "tap",
+            $"{(node.Left + node.Right) / 2}",
+            $"{(node.Top + node.Bottom) / 2}");
 
     private static Process StartRecording(string serial)
     {
         var start = new ProcessStartInfo("adb") { RedirectStandardOutput = true, RedirectStandardError = true };
 
-        foreach (var argument in new[] { "-s", serial, "shell", "screenrecord", "--time-limit", "180", "--size", "540x1200", DeviceRecording })
+        string[] arguments =
+        [
+            "-s", serial, "shell", "screenrecord", "--time-limit", "180", "--size", "540x1200", DeviceRecording,
+        ];
+
+        foreach (var argument in arguments)
         {
             start.ArgumentList.Add(argument);
         }
@@ -324,7 +429,9 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         {
             var shot = new ProcessStartInfo("adb") { RedirectStandardOutput = true };
 
-            foreach (var argument in new[] { "-s", serial, "exec-out", "screencap", "-p" })
+            string[] arguments = ["-s", serial, "exec-out", "screencap", "-p"];
+
+            foreach (var argument in arguments)
             {
                 shot.ArgumentList.Add(argument);
             }
@@ -336,11 +443,16 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         });
         await Keep("the device log", async () =>
         {
-            await File.WriteAllTextAsync(Path.Combine(artifacts, "logcat-tail.txt"), await AndroidApp.Adb(serial, "logcat", "-d", "-v", "epoch", "-t", "4000"));
+            var tail = await AndroidApp.Adb(serial, "logcat", "-d", "-v", "epoch", "-t", "4000");
+            await File.WriteAllTextAsync(Path.Combine(artifacts, "logcat-tail.txt"), tail);
             var tagged = await AndroidApp.Adb(serial, "logcat", "-d", "-v", "epoch", "-s", $"{AndroidApp.Tag}:*");
-            await File.WriteAllLinesAsync(Path.Combine(artifacts, "app-report.txt"), AndroidCheckGuard.TagLogsForRun(tagged, runId, AndroidApp.Tag));
+            await File.WriteAllLinesAsync(
+                Path.Combine(artifacts, "app-report.txt"),
+                AndroidCheckGuard.TagLogsForRun(tagged, runId, AndroidApp.Tag));
         });
-        await Keep("the last screen read", () => File.WriteAllTextAsync(Path.Combine(artifacts, "the-last-screen.xml"), lastScreen));
+        await Keep(
+            "the last screen read",
+            () => File.WriteAllTextAsync(Path.Combine(artifacts, "the-last-screen.xml"), lastScreen));
         await Keep("the screen recording", async () =>
         {
             await AndroidApp.Adb(serial, "shell", "pkill", "-INT", "screenrecord");
@@ -356,7 +468,8 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         {
             await keep();
         }
-        catch (Exception failure) when (failure is InvalidOperationException or IOException or OperationCanceledException)
+        catch (Exception failure)
+            when (failure is InvalidOperationException or IOException or OperationCanceledException)
         {
             logger.LogWarning(failure, "Could not keep {What}", what);
         }
@@ -367,13 +480,23 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
     #region Nested Types
 
     /// <summary>One element of the screen the device's accessibility service reports, with its box in pixels.</summary>
-    private sealed record ScreenNode(string Package, string Text, string Description, int Left, int Top, int Right, int Bottom)
+    private sealed record ScreenNode(
+        string Package,
+        string Text,
+        string Description,
+        int Left,
+        int Top,
+        int Right,
+        int Bottom)
     {
         public static ScreenNode From(XElement node)
         {
-            var box = System.Text.RegularExpressions.Regex.Matches(node.Attribute("bounds")?.Value ?? string.Empty, @"\d+")
-                .Select(number => int.Parse(number.Value, CultureInfo.InvariantCulture))
-                .ToArray();
+            var bounds = node.Attribute("bounds")?.Value ?? string.Empty;
+            int[] box =
+            [
+                .. System.Text.RegularExpressions.Regex.Matches(bounds, @"\d+")
+                    .Select(number => int.Parse(number.Value, CultureInfo.InvariantCulture)),
+            ];
 
             return new ScreenNode(
                 node.Attribute("package")?.Value ?? string.Empty,

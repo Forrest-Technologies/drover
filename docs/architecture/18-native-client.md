@@ -149,8 +149,8 @@ preview build or to the checks every pull request runs.
   picture back from the server and compares its hash, and it covers a small file, a file at the limit, a file past
   the limit (the server answers 413 with a sentence that names the limit, which is what the app turns into its words),
   no token, and a cancelled upload.
-- The sandbox pointer has its own server test, `SandboxPointerDragApiTests`, which arrives with the pointer input
-  route (#797). It sends a drag to the real route as the app does (a press, moves, a release, and the whole drag as one
+- The sandbox pointer has its own server test, `SandboxPointerDragApiTests`, which lives with the pointer input
+  route (#797, in the pull request that stacks on it) and needs that route to pass. It sends a drag to the real route as the app does (a press, moves, a release, and the whole drag as one
   request) to a sandbox provider that records the commands it ran. `tests/Shared/PointerEvents.cs` reads those commands
   as a pointer's events, so a test asserts a down, one or more moves and an up, with no button left held. The emulator
   proof below uses the same reader.
@@ -165,7 +165,9 @@ knows the workflow, which it learns from a run of its file (here, runs made from
 temporary push trigger). A workflow GitHub has not run yet is not expected to be found (not tried), and the Actions tab lists it only from
 `main`. So the dependable start for a new proof workflow is its file on `main`, for example a small stub there that
 takes a `ref` input and runs the proof for it. Each of the pull requests that fix the
-upload or the touch drag links the run that proves it; without that run the fix is not called fixed.
+upload or the touch drag links the run that proves it; without that run the fix is not called fixed. The drag
+step needs the pointer input route (#797) and the touch model on the picture (#798) in the build, so on a base that
+has neither it is expected to fail while the other three pass.
 
 The run builds the app made for the screen checks (the preview app refuses a test server's certificate, as it must),
 starts an emulator (`system-images;android-35;default;x86_64`) and waits for `sys.boot_completed`, starts the real

@@ -307,7 +307,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         {
             var said = Words(root).ToList();
 
-            if (said.FirstOrDefault(words => words.StartsWith("Not uploaded", StringComparison.Ordinal) || IsRefusal(words)) is { } failure)
+            if (said.FirstOrDefault(IsFailure) is { } failure)
             {
                 throw new CheckFailedException($"the attachment said \"{failure}\"");
             }
@@ -317,7 +317,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         await Press("ComposerSend");
         await Until($"{name} in MessageList", () =>
-            Find("MessageList") is { } list && Words(list).Any(words => words.Contains(name, StringComparison.Ordinal)) ? list : null);
+            Find("MessageList") is { } list && Words(list).Any(words => words.Contains(name, StringComparison.Ordinal))
+                ? list
+                : null);
     }
 
     private async Task OpenSandboxScreen()
@@ -325,10 +327,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var bot = settings.ProofBot ?? throw new CheckFailedException("no bot was named for the proof");
         ((App)Application.Current).Services.GetRequiredService<Navigator>().NavigateTo($"/bots/{bot}/sandbox");
         await Shown("SandboxPicture", startPatience);
-        await Until("the view-only mode line", () =>
-            Words(window.Content ?? throw new CheckFailedException("the window has no content")).Any(words => words.Contains("View only.", StringComparison.Ordinal))
-                ? window.Content
-                : null);
+        await Until("the view-only mode line", () => WindowSays("View only.") ? window.Content : null);
     }
 
     private async Task ReadyForDrag()
@@ -339,12 +338,18 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         control.Value = true;
-        await Until("the control mode line", () =>
-            Words(window.Content ?? throw new CheckFailedException("the window has no content")).Any(words => words.Contains("Clicks and keys go to the sandbox.", StringComparison.Ordinal))
-                ? window.Content
-                : null);
+        await Until(
+            "the control mode line",
+            () => WindowSays("Clicks and keys go to the sandbox.") ? window.Content : null);
         Report("ui-check wait: drag the sandbox picture");
     }
+
+    private bool WindowSays(string words) =>
+        Words(window.Content ?? throw new CheckFailedException("the window has no content"))
+            .Any(said => said.Contains(words, StringComparison.Ordinal));
+
+    private static bool IsFailure(string words) =>
+        words.StartsWith("Not uploaded", StringComparison.Ordinal) || IsRefusal(words);
 
     private static bool IsRefusal(string words) =>
         Enum.GetValues<FileRefusal>().Where(refusal => refusal is not FileRefusal.None)

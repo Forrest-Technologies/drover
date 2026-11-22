@@ -6,7 +6,11 @@ namespace Drover.Native.UITests;
 /// through the real engine with no network. Given a sandbox provider, which records what it is asked to do, bots can
 /// have a desktop sandbox too, as the Android proof needs.
 /// </summary>
-internal sealed class CheckServer(TestDatabase database, X509Certificate2 certificate, string folder, MemorySandboxProvider? sandbox = null)
+internal sealed class CheckServer(
+    TestDatabase database,
+    X509Certificate2 certificate,
+    string folder,
+    MemorySandboxProvider? sandbox = null)
     : WebApplicationFactory<global::Program>
 {
     #region Private Fields

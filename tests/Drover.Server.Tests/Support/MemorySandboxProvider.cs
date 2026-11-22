@@ -28,7 +28,7 @@ public sealed class MemorySandboxProvider : ISandboxProvider
     /// <summary>The first eight bytes of a PNG, then its header: a 1024 by 768 picture as far as its size goes.</summary>
     public static byte[] Picture { get; } = MakePicture();
 
-    /// <summary>What a screenshot command writes: the header-only picture unless a run that must draw it sets a real one.</summary>
+    /// <summary>What a screenshot command writes: the header-only picture unless a run sets a drawn one.</summary>
     public byte[] Screen { get; set; } = Picture;
 
     /// <summary>When set, a command fails at the provider after it started, as a refusal the person still attempted.</summary>

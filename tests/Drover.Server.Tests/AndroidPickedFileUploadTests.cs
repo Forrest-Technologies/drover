@@ -2,9 +2,10 @@ namespace Drover.Server.Tests;
 
 /// <summary>
 /// A file picked on Android reaches the real upload route the way the app sends it: the picker reports no size, the
-/// content stream cannot seek or tell its length, the app measures it by buffering (<c>UploadFileWithUnverifiedSize</c>)
-/// and sends it with the antiforgery header. Each test makes a picture, uploads it, and reads it back from the server
-/// to compare its hash, so a screenshot that "uploads" but arrives changed or empty fails too.
+/// content stream cannot seek or tell its length, the app measures it by buffering
+/// (<c>UploadFileWithUnverifiedSize</c>) and sends it with the antiforgery header. Each test makes a picture,
+/// uploads it, and reads it back from the server to compare its hash, so a screenshot that "uploads" but arrives
+/// changed or empty fails too.
 /// </summary>
 public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : ServerTestBase(postgres)
 {
@@ -20,7 +21,8 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
 
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
     {
-        [$"Drover:Policy:Rules:{nameof(DeploymentPolicy.MaxFileBytes)}"] = FileLimit.ToString(CultureInfo.InvariantCulture),
+        [$"Drover:Policy:Rules:{nameof(DeploymentPolicy.MaxFileBytes)}"] =
+            FileLimit.ToString(CultureInfo.InvariantCulture),
     };
 
     #endregion
@@ -47,7 +49,8 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
         await using var content = new ContentStream(picture);
         List<long> reported = [];
 
-        var file = await api.UploadFileWithUnverifiedSize(spaceId, threadId, "screenshot.png", content, FileLimit, new SynchronousProgress(reported.Add), Token);
+        var file = await api.UploadFileWithUnverifiedSize(
+            spaceId, threadId, "screenshot.png", content, FileLimit, new SynchronousProgress(reported.Add), Token);
 
         file.Size.Should().Be(size);
         file.Kind.Should().Be(FileKinds.Image);
@@ -64,11 +67,14 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
         await using var withToken = new ContentStream(picture);
         await using var withoutToken = new ContentStream(picture);
 
-        var sent = await Api(client).UploadFileWithUnverifiedSize(spaceId, threadId, "a.png", withToken, FileLimit, cancellationToken: Token);
-        var refused = () => new DroverApi(NewRelay(client)).UploadFileWithUnverifiedSize(spaceId, threadId, "b.png", withoutToken, FileLimit, cancellationToken: Token);
+        var sent = await Api(client).UploadFileWithUnverifiedSize(
+            spaceId, threadId, "a.png", withToken, FileLimit, cancellationToken: Token);
+        var refused = () => new DroverApi(NewRelay(client)).UploadFileWithUnverifiedSize(
+            spaceId, threadId, "b.png", withoutToken, FileLimit, cancellationToken: Token);
 
         sent.Size.Should().Be(picture.Length);
-        (await refused.Should().ThrowAsync<DroverApiException>()).Which.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var failure = (await refused.Should().ThrowAsync<DroverApiException>()).Which;
+        failure.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -79,7 +85,8 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
 
         // The client's own bound is looser than the server's, so it is the server that refuses. The app names this
         // refusal from the status, so the status and a sentence that names the limit are what is held here.
-        var refused = () => Api(client).UploadFileWithUnverifiedSize(spaceId, threadId, "large.png", content, FileLimit * 4, cancellationToken: Token);
+        var refused = () => Api(client).UploadFileWithUnverifiedSize(
+            spaceId, threadId, "large.png", content, FileLimit * 4, cancellationToken: Token);
 
         var failure = (await refused.Should().ThrowAsync<DroverApiException>()).Which;
         failure.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
@@ -92,7 +99,8 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
         var (client, spaceId, threadId) = await Conversation("bound");
         await using var content = new ContentStream(Picture(FileLimit + 1));
 
-        var refused = () => Api(client).UploadFileWithUnverifiedSize(spaceId, threadId, "large.png", content, FileLimit, cancellationToken: Token);
+        var refused = () => Api(client).UploadFileWithUnverifiedSize(
+            spaceId, threadId, "large.png", content, FileLimit, cancellationToken: Token);
 
         (await refused.Should().ThrowAsync<DroverApiException>()).Which.Refusal.Should().Be(FileRefusals.TooLarge);
     }
@@ -105,7 +113,8 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        var cancel = () => Api(client).UploadFileWithUnverifiedSize(spaceId, threadId, "c.png", content, FileLimit, cancellationToken: cancelled.Token);
+        var cancel = () => Api(client).UploadFileWithUnverifiedSize(
+            spaceId, threadId, "c.png", content, FileLimit, cancellationToken: cancelled.Token);
 
         await cancel.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -118,7 +127,7 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
 
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
 
-    /// <summary>A picture of this many bytes: a PNG signature and header, then bytes that are not repeated runs.</summary>
+    /// <summary>A picture of this many bytes: a PNG signature and header, then bytes that do not repeat.</summary>
     private static byte[] Picture(int size)
     {
         byte[] header =
@@ -151,15 +160,19 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
         (await client.SignIn(person.Email, person.Password)).EnsureSuccessStatusCode();
         var connection = await Read<ModelConnectionSummary>(await client.Post(
             $"{Space(person.SpaceId)}/model-connections",
-            new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted")));
+            new CreateModelConnectionRequest(
+                ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted")));
         await MarkAsReadingPictures(person, connection.Id);
-        var bot = await Read<BotSummary>(await client.Post($"{Space(person.SpaceId)}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null)));
+        var bot = await Read<BotSummary>(await client.Post(
+            $"{Space(person.SpaceId)}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null)));
         var thread = await Read<ThreadSummary>(await client.Put($"{Space(person.SpaceId)}/bots/{bot.Id}/main-thread"));
         return (client, person.SpaceId, thread.Id);
     }
 
-    // A picture has nowhere to go when the bot's model cannot read pictures, so the bot's model is marked as one that can.
-    private async Task MarkAsReadingPictures((string Email, string Password, Guid UserId, Guid SpaceId) person, Guid connectionId)
+    // A picture has nowhere to go when the bot's model cannot read pictures, so the model is marked as one that can.
+    private async Task MarkAsReadingPictures(
+        (string Email, string Password, Guid UserId, Guid SpaceId) person,
+        Guid connectionId)
     {
         await using var scope = Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(person.SpaceId, person.UserId);

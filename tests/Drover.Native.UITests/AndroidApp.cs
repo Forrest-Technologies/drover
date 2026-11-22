@@ -31,7 +31,11 @@ internal sealed class AndroidApp : IAppUnderCheck
         var activity = (await Adb(serial, "shell", "cmd", "package", "resolve-activity", "--brief", Package))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
         string[] start = ["shell", "am", "start", "-W", "-n", activity];
-        await Adb(serial, [.. start, .. settings.SelectMany(setting => new[] { "--es", setting.Key, $"'{setting.Value}'" })]);
+        string[] extras = [.. settings.SelectMany(setting => (string[])["--es", setting.Key, $"'{setting.Value}'"])];
+
+        // The extras carry the test account's password, which the device's error text may repeat, so a failure here
+        // says only that it failed.
+        await AdbWithheld(serial, [.. start, .. extras]);
     }
 
     public static async Task<string> ChooseDevice()
@@ -55,28 +59,14 @@ internal sealed class AndroidApp : IAppUnderCheck
         return Adb(command);
     }
 
-    public static async Task<string> Adb(params string[] arguments)
-    {
-        var start = new ProcessStartInfo("adb") { RedirectStandardOutput = true, RedirectStandardError = true };
+    public static Task<string> Adb(params string[] arguments) => Run(arguments, withhold: false);
 
-        foreach (var argument in arguments)
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        using var adb = Process.Start(start) ?? throw new InvalidOperationException("adb did not start.");
-        var output = adb.StandardOutput.ReadToEndAsync();
-        var error = adb.StandardError.ReadToEndAsync();
-        await adb.WaitForExitAsync();
-
-        if (adb.ExitCode != 0)
-        {
-            // The command, without the settings it carried: they hold the test account's password.
-            throw new InvalidOperationException($"adb {string.Join(' ', arguments.Take(4))} failed: {await error}");
-        }
-
-        return await output;
-    }
+    /// <summary>
+    /// Runs adb for a command whose arguments hold a secret. A failure is reported without the device's error text,
+    /// which can repeat the arguments, so the harness log that is published cannot carry the secret.
+    /// </summary>
+    public static Task<string> AdbWithheld(string serial, params string[] arguments) =>
+        Run(["-s", serial, .. arguments], withhold: true);
 
     #endregion
 
@@ -113,6 +103,31 @@ internal sealed class AndroidApp : IAppUnderCheck
     #endregion
 
     #region Private Methods
+
+    private static async Task<string> Run(string[] arguments, bool withhold)
+    {
+        var start = new ProcessStartInfo("adb") { RedirectStandardOutput = true, RedirectStandardError = true };
+
+        foreach (var argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var adb = Process.Start(start) ?? throw new InvalidOperationException("adb did not start.");
+        var output = adb.StandardOutput.ReadToEndAsync();
+        var error = adb.StandardError.ReadToEndAsync();
+        await adb.WaitForExitAsync();
+
+        if (adb.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                withhold
+                    ? $"adb {arguments[2]} {arguments[3]} failed with exit code {adb.ExitCode}; its output is withheld."
+                    : $"adb {string.Join(' ', arguments.Take(4))} failed: {await error}");
+        }
+
+        return await output;
+    }
 
     private static async Task<IReadOnlyList<string>> ReadReport(string serial, string runId)
     {

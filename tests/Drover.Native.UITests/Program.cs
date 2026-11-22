@@ -43,7 +43,8 @@ internal static class Program
         if (Target(args, folder) is not { } app)
         {
             logger.LogError(
-                "Name the app to check: desktop <path to Drover.Native.dll>, android, android-proof <folder>, or ios <app> <device>");
+                "Name the app to check: desktop <path to Drover.Native.dll>, android, android-proof <folder>, "
+                + "or ios <app> <device>");
             return 2;
         }
 
@@ -96,7 +97,7 @@ internal static class Program
         var account = await CheckAccount.Create(server, certificate, desktop: true);
         logger.LogInformation("The test server is at {Origin}; starting the app", server.Origin);
 
-        return await new AndroidProof(logger, artifacts).Run(account, sandbox, ProofImages.Attachment(), new Dictionary<string, string>
+        var settings = new Dictionary<string, string>
         {
             ["DROVER_UI_CHECK_SERVER"] = server.Origin.AbsoluteUri,
             ["DROVER_UI_CHECK_EMAIL"] = account.Email,
@@ -106,7 +107,9 @@ internal static class Program
             ["DROVER_UI_CHECK_RUN"] = Guid.NewGuid().ToString("N"),
             ["DROVER_UI_CHECK_PROOF_PICTURE"] = AndroidProof.PictureName,
             ["DROVER_UI_CHECK_PROOF_BOT"] = account.BotId.ToString(),
-        });
+        };
+
+        return await new AndroidProof(logger, artifacts).Run(account, sandbox, ProofImages.Attachment(), settings);
     }
 
     private static async Task<IReadOnlyList<string>> Check(IAppUnderCheck app, string folder, ILogger logger)

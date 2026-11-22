@@ -50,7 +50,7 @@ internal sealed record CheckSettings(
     public bool ChecksRestart =>
         string.Equals(Value(RestartName), "true", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The manual Android proof asked for: the picture to attach and the bot whose sandbox screen is opened.</summary>
+    /// <summary>The manual Android proof asked for: the picture to attach and the bot whose sandbox to open.</summary>
     public bool IsProof => ProofPicture is not null && ProofBot is not null;
 
     #endregion
@@ -88,7 +88,16 @@ internal sealed record CheckSettings(
         }
 
         var bot = Guid.TryParse(Value(ProofBotName), out var proofBot) ? proofBot : (Guid?)null;
-        return new(origin, email, password, certificate, reply, Value(ReportName), Value(RunIdName), Value(ProofPictureName), bot);
+        return new(
+            origin,
+            email,
+            password,
+            certificate,
+            reply,
+            Value(ReportName),
+            Value(RunIdName),
+            Value(ProofPictureName),
+            bot);
     }
 
     private static string? Value(string name)

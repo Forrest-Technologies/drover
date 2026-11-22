@@ -9,7 +9,11 @@ internal static class ProofImages
     #region Public Methods
 
     /// <summary>A 640 by 400 picture with stripes, as a phone's screenshot has many colors.</summary>
-    public static byte[] Attachment() => Png(640, 400, (x, y) => ((byte)((x * 255 / 640) ^ (y & 0x3F)), (byte)(y * 255 / 400), (byte)(((x / 40) + (y / 40)) % 2 == 0 ? 220 : 60)));
+    public static byte[] Attachment() => Png(640, 400, (x, y) =>
+        (
+            (byte)((x * 255 / 640) ^ (y & 0x3F)),
+            (byte)(y * 255 / 400),
+            (byte)(((x / 40) + (y / 40)) % 2 == 0 ? 220 : 60)));
 
     /// <summary>The sandbox's screen, 1024 by 768: a dark desktop and one window with a title bar.</summary>
     public static byte[] Screen() => Png(1024, 768, (x, y) =>
@@ -41,7 +45,7 @@ internal static class ProofImages
 
         using var compressed = new MemoryStream();
 
-        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, leaveOpen: true))
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
         {
             zlib.Write(raw);
         }

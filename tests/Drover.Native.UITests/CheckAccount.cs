@@ -45,9 +45,13 @@ internal sealed class CheckAccount
     /// Makes the account and its bot. A <paramref name="desktop"/> bot also has a sandbox with a screen, started, and a
     /// model that reads pictures, for the Android proof.
     /// </summary>
-    public static async Task<CheckAccount> Create(CheckServer server, X509Certificate2 certificate, bool desktop = false)
+    public static async Task<CheckAccount> Create(
+        CheckServer server,
+        X509Certificate2 certificate,
+        bool desktop = false)
     {
-        var account = new CheckAccount("screen-checks@example.test", $"pw-{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}", server.Origin, certificate);
+        var password = $"pw-{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}";
+        var account = new CheckAccount("screen-checks@example.test", password, server.Origin, certificate);
         var cookies = new CookieContainer();
         using var http = Connect(server.Origin, certificate, cookies);
         var session = await Send<SessionResponse>(http, cookies, "/api/setup",
@@ -55,15 +59,24 @@ internal sealed class CheckAccount
         var space = $"/api/spaces/{session.Spaces[0].Id}";
         var connection = await Send<ModelConnectionSummary>(http, cookies, $"{space}/model-connections",
             new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted"));
-        var bot = await Send<BotSummary>(http, cookies, $"{space}/bots", new CreateBotRequest("Check bot", "Answer briefly.", connection.Id, null));
+        var bot = await Send<BotSummary>(
+            http,
+            cookies,
+            $"{space}/bots",
+            new CreateBotRequest("Check bot", "Answer briefly.", connection.Id, null));
         account.SpaceId = session.Spaces[0].Id;
         account.BotId = bot.Id;
 
         if (desktop)
         {
             await MarkAsReadingPictures(server, session, connection.Id);
-            await Put(http, cookies, $"{space}/bots/{bot.Id}/definition",
-                new UpdateBotRequest(null, null, null, null, null, null, null, null, null, "private", new SandboxSettingsBody("off", [], null, Desktop: true), null, null));
+            var sandbox = new SandboxSettingsBody("off", [], null, Desktop: true);
+            await Put(
+                http,
+                cookies,
+                $"{space}/bots/{bot.Id}/definition",
+                new UpdateBotRequest(
+                    null, null, null, null, null, null, null, null, null, "private", sandbox, null, null));
             // The first request for the screen starts the sandbox, so the app finds it running.
             await Send<object>(http, cookies, $"{space}/bots/{bot.Id}/sandbox/screen", null);
         }
@@ -71,7 +84,7 @@ internal sealed class CheckAccount
         return account;
     }
 
-    /// <summary>Waits until the server says it is ready, with a bound, and says what it last saw when it is not.</summary>
+    /// <summary>Waits until the server says it is ready, within a bound, and says what it last saw if not.</summary>
     public static async Task WaitUntilReady(CheckServer server, X509Certificate2 certificate, ILogger logger)
     {
         using var http = Connect(server.Origin, certificate, new CookieContainer());
@@ -104,7 +117,7 @@ internal sealed class CheckAccount
         throw new InvalidOperationException($"The test server was not ready after 60 seconds: {last}.", failure);
     }
 
-    /// <summary>The bytes the server stored for the file the bot's conversations hold under this name, or null.</summary>
+    /// <summary>The bytes the server stored for the bot's file of this name, or null when it holds none.</summary>
     public async Task<byte[]?> StoredFile(string name)
     {
         var cookies = new CookieContainer();
@@ -141,13 +154,17 @@ internal sealed class CheckAccount
 
     private static async Task Put(HttpClient http, CookieContainer cookies, string path, object body)
     {
-        var request = new HttpRequestMessage(HttpMethod.Put, path) { Content = JsonContent.Create(body, body.GetType()) };
+        var request = new HttpRequestMessage(HttpMethod.Put, path)
+        {
+            Content = JsonContent.Create(body, body.GetType()),
+        };
         request.Headers.Add("X-XSRF-TOKEN", await Token(http, cookies));
         var response = await http.SendAsync(request);
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"PUT {path} returned {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var reason = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"PUT {path} returned {(int)response.StatusCode}: {reason}");
         }
     }
 
@@ -159,7 +176,8 @@ internal sealed class CheckAccount
     {
         await using var scope = server.Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(session.Spaces[0].Id, session.UserId);
-        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(CancellationToken.None);
+        var scoped = scope.ServiceProvider.GetRequiredService<TenantScope>();
+        await using var work = await scoped.Begin(CancellationToken.None);
         var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
         db.ModelCatalog.Add(new ModelCatalogEntry
         {
@@ -193,7 +211,8 @@ internal sealed class CheckAccount
 
         return typeof(T) == typeof(object)
             ? default!
-            : await response.Content.ReadFromJsonAsync<T>() ?? throw new InvalidOperationException($"POST {path} returned no body.");
+            : await response.Content.ReadFromJsonAsync<T>()
+                ?? throw new InvalidOperationException($"POST {path} returned no body.");
     }
 
     private static async Task<string> Token(HttpClient http, CookieContainer cookies)
