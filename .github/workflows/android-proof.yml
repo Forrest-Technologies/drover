@@ -6,18 +6,15 @@ name: Android proof
 # build, so neither is made slower by it. It runs on a GitHub-hosted runner and never on a self-hosted one.
 # A pull request that fixes one of these links the artifact of a run of this workflow; see
 # docs/architecture/18-native-client.md, "Android proof".
+# The proof runs the branch or tag it is started on (Run workflow, "Use workflow from", or `gh workflow run
+# android-proof.yml --ref <branch>`), and checks out exactly that commit. There is no input that names another ref.
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Branch, tag or commit to build and prove. A pull request is refs/pull/<number>/head.'
-        required: true
-        type: string
 
 permissions: {}
 
 concurrency:
-  group: android-proof-${{ inputs.ref }}
+  group: android-proof-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,7 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
       # The key and paths are those of native.yml, so a proof run reuses what the pull request build downloaded.
       - name: Cache Android dependency downloads
@@ -125,12 +121,10 @@ jobs:
           {
             echo '## Android proof'
             echo
-            echo "Built from \`${INPUT_REF}\` at \`$(git rev-parse HEAD)\`."
+            echo "Built from \`${GITHUB_REF_NAME}\` at \`$(git rev-parse HEAD)\`."
             echo
             cat artifacts/android-proof/proof-summary.md || echo 'The proof did not get as far as a verdict. See the artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
-        env:
-          INPUT_REF: ${{ inputs.ref }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
