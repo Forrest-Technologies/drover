@@ -22,6 +22,12 @@ public sealed class ShareInbox
 
     #region Properties
 
+    /// <summary>
+    /// The one inbox of the process. On a cold start Android can receive a share through services made before the
+    /// interface has a window; the container the interface builds when it starts must read that same share.
+    /// </summary>
+    public static ShareInbox Process { get; } = new();
+
     /// <summary>The share nobody has taken yet.</summary>
     public SharedDraft? Waiting
     {
