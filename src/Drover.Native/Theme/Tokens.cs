@@ -27,6 +27,12 @@ public static class Tokens
 
     public static FontFamily FontMono => (FontFamily)Dictionary["DvFontMono"];
 
+    /// <summary>The face of conversation text: the interface face unless the theme names a reading face.</summary>
+    public static FontFamily FontReading => (FontFamily)Dictionary["DvFontReading"];
+
+    /// <summary>The face that sets headings: the interface face, or the machine face in a theme that says so.</summary>
+    public static FontFamily FontHeading => (FontFamily)Dictionary["DvFontHeading"];
+
     #endregion
 
     #region Public Methods

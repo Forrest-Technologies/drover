@@ -40,7 +40,7 @@ public sealed class TextArea : StackPanel
         placeholder.IsHitTestVisible = false;
         AutomationProperties.SetAccessibilityView(placeholder, AccessibilityView.Raw);
         ScrollViewer.SetVerticalScrollBarVisibility(input, ScrollBarVisibility.Auto);
-        frame.Cut = Tokens.Number("DvCutS");
+        frame.Role = FacetRole.Control;
         frame.Children.Add(input);
         frame.Children.Add(placeholder);
         Children.Add(label);

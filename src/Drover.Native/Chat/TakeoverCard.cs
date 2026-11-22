@@ -69,7 +69,7 @@ public sealed class TakeoverCard : Grid
         column.Children.Add(decline);
         column.Children.Add(problem);
 
-        frame.Cut = Tokens.Number("DvCut");
+        frame.Role = FacetRole.Frame;
         frame.Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace3"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace4"));
         frame.Children.Add(column);
         AutomationProperties.SetLabeledBy(frame, title);
