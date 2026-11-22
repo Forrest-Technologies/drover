@@ -632,8 +632,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
         var result = await control.Input(world.SpaceId, world.UserId, world.BotId, new("drag", X: 10, Y: 20, X2: 600,
             Y2: 500), RunWorld.Token);
-        clock.Advance(SandboxPointerHolds.Limit * 2);
-        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        await Advance(clock, control, SandboxPointerHolds.Limit * 2);
 
         result.Refusal.Should().Be(SandboxControlRefusal.None);
         Pointer(provider).Should().ContainSingle().Which.Should().Equal(DesktopCommands.Drag(10, 20, 600, 500,
@@ -745,12 +744,10 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await StartDesktop(world, control, provider);
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
 
-        clock.Advance(SandboxPointerHolds.Limit - TimeSpan.FromSeconds(1));
-        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        await Advance(clock, control, SandboxPointerHolds.Limit - TimeSpan.FromSeconds(1));
         Pointer(provider).Should().ContainSingle("the button is still held within its time");
 
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await Eventually(() => Pointer(provider).Count is 2);
+        await Advance(clock, control, TimeSpan.FromSeconds(1));
 
         Pointer(provider)[1].Should().Equal("mouseup", "1");
     }
@@ -765,14 +762,12 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await StartDesktop(world, control, provider);
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
 
-        clock.Advance(TimeSpan.FromSeconds(9));
+        await Advance(clock, control, TimeSpan.FromSeconds(9));
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("move", X: 50, Y: 60), RunWorld.Token);
-        clock.Advance(TimeSpan.FromSeconds(9));
-        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        await Advance(clock, control, TimeSpan.FromSeconds(9));
         Pointer(provider).Should().HaveCount(2, "the press and the move, with nothing let go of yet");
 
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await Eventually(() => Pointer(provider).Count is 3);
+        await Advance(clock, control, TimeSpan.FromSeconds(1));
 
         Pointer(provider)[2].Should().Equal("mouseup", "1");
     }
@@ -788,8 +783,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("up"), RunWorld.Token);
 
-        clock.Advance(SandboxPointerHolds.Limit * 3);
-        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        await Advance(clock, control, SandboxPointerHolds.Limit * 3);
 
         Pointer(provider).Should().HaveCount(2);
     }
@@ -857,13 +851,11 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await StartDesktop(world, control, provider);
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
 
-        await Eventually(() =>
-        {
-            clock.Advance(SandboxPointerHolds.Limit);
-            return Pointer(provider).Count >= 3;
-        });
-        clock.Advance(SandboxPointerHolds.Limit * 3);
-        await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+        await Advance(clock, control, SandboxPointerHolds.Limit);
+        Pointer(provider).Should().HaveCount(2, "the first release failed");
+        await Advance(clock, control, SandboxPointerHolds.Limit);
+        Pointer(provider).Should().HaveCount(3, "the second try worked");
+        await Advance(clock, control, SandboxPointerHolds.Limit * 3);
 
         Pointer(provider).Should().HaveCount(3, "the second release worked, so nothing is held any more");
     }
@@ -1046,12 +1038,12 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         var press = new SandboxInputRequest("down", X: 5, Y: 6);
         await control.Input(world.SpaceId, world.UserId, world.BotId, press, RunWorld.Token, pressing);
 
-        clock.Advance(TimeSpan.FromSeconds(9));
+        await Advance(clock, control, TimeSpan.FromSeconds(9));
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("move", X: 50, Y: 60), RunWorld.Token,
             another);
-        clock.Advance(TimeSpan.FromSeconds(1));
+        await Advance(clock, control, TimeSpan.FromSeconds(1));
 
-        await Eventually(() => Pointer(provider).Count is 3);
+        Pointer(provider).Should().HaveCount(3);
         Pointer(provider)[^1].Should().Equal("mouseup", "1");
     }
 
@@ -1089,16 +1081,13 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
         await SetSandboxRow(world, row => row.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1));
 
-        await AdvanceTimes(clock, 3);
+        await AdvanceTimes(clock, control, 3);
         Pointer(provider)
             .Should().ContainSingle("a sandbox the provider paused cannot be reached, which is not a release");
         await SetSandboxRow(world, row => row.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10));
-        await Eventually(() =>
-        {
-            clock.Advance(SandboxPointerHolds.Limit);
-            return Pointer(provider).Count is 2;
-        });
+        await Advance(clock, control, SandboxPointerHolds.Limit);
 
+        Pointer(provider).Should().HaveCount(2);
         Pointer(provider)[1].Should().Equal("mouseup", "1");
     }
 
@@ -1113,9 +1102,9 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
         await SetSandboxRow(world, row => row.State = SandboxState.Destroyed);
 
-        await AdvanceTimes(clock, 1);
+        await AdvanceTimes(clock, control, 1);
         await SetSandboxRow(world, row => row.State = SandboxState.Running);
-        await AdvanceTimes(clock, 3);
+        await AdvanceTimes(clock, control, 3);
 
         Pointer(provider)
             .Should().ContainSingle("the sandbox was confirmed destroyed, so nothing is left to let go of");
@@ -1138,7 +1127,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
         provider.Created.Should().Be(2);
 
-        await AdvanceTimes(clock, 3);
+        await AdvanceTimes(clock, control, 3);
 
         provider.Commands.Where(command => command.Arguments.Contains("mouseup")).Should().BeEmpty();
     }
@@ -1161,12 +1150,11 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await running.Task.WaitAsync(RunWorld.Token);
         Pointer(provider).Should().HaveCount(2);
 
-        await Eventually(() =>
-        {
-            clock.Advance(DesktopCommands.ReleaseLimit);
-            return Pointer(provider).Count is 3;
-        });
+        await Advance(clock, control, DesktopCommands.ReleaseLimit);
+        Pointer(provider).Should().HaveCount(2, "the deadline ended the release that hung");
+        await Advance(clock, control, SandboxPointerHolds.Limit);
 
+        Pointer(provider).Should().HaveCount(3);
         Pointer(provider)[2].Should().Equal("mouseup", "1");
     }
 
@@ -1181,12 +1169,17 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await StartDesktop(world, control, provider);
         await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
 
-        await Eventually(() =>
+        for (var attempt = 0; attempt < 6; attempt++)
         {
-            clock.Advance(SandboxPointerHolds.Limit);
-            return Pointer(provider).Count(arguments => arguments.Contains("mouseup")) is 6;
-        });
-        var click = await RefusedClick(world, control);
+            await Advance(clock, control, SandboxPointerHolds.Limit);
+        }
+
+        var click = await control.Input(
+            world.SpaceId,
+            world.UserId,
+            world.BotId,
+            new("click", X: 1, Y: 1),
+            RunWorld.Token);
         var move = await control.Input(world.SpaceId, world.UserId, world.BotId, new("move", X: 7, Y: 8),
             RunWorld.Token);
         var typed = await control.Input(world.SpaceId, world.UserId, world.BotId, new("key", Keys: ["enter"]),
@@ -1674,42 +1667,22 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             return true;
         });
 
-    private static async Task AdvanceTimes(FakeTimeProvider clock, int times)
+    /// <summary>
+    /// Moves the clock and waits until every release that the move started has ended. The clock never moves under a
+    /// release that is running, since a release has its own deadline on the same clock.
+    /// </summary>
+    private static async Task Advance(FakeTimeProvider clock, SandboxControlService control, TimeSpan by)
+    {
+        clock.Advance(by);
+        await control.Holds.Quiet();
+    }
+
+    private static async Task AdvanceTimes(FakeTimeProvider clock, SandboxControlService control, int times)
     {
         for (var time = 0; time < times; time++)
         {
-            clock.Advance(SandboxPointerHolds.Limit);
-            await Task.Delay(TimeSpan.FromMilliseconds(250), RunWorld.Token);
+            await Advance(clock, control, SandboxPointerHolds.Limit);
         }
-    }
-
-    /// <summary>A click, tried until the screen refuses it, as it does once a release has failed too often.</summary>
-    private static async Task<SandboxControlResult<bool>> RefusedClick(RunWorld world, SandboxControlService control)
-    {
-        var until = DateTimeOffset.UtcNow.AddSeconds(10);
-        var click = new SandboxInputRequest("click", X: 1, Y: 1);
-        var result = await control.Input(world.SpaceId, world.UserId, world.BotId, click, RunWorld.Token);
-
-        while (result.Refusal is SandboxControlRefusal.None && DateTimeOffset.UtcNow < until)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(20), RunWorld.Token);
-            result = await control.Input(world.SpaceId, world.UserId, world.BotId, click, RunWorld.Token);
-        }
-
-        return result;
-    }
-
-    /// <summary>Waits, for up to ten seconds, until what a background release does has happened.</summary>
-    private static async Task Eventually(Func<bool> done)
-    {
-        var until = DateTimeOffset.UtcNow.AddSeconds(10);
-
-        while (!done() && DateTimeOffset.UtcNow < until)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(20), RunWorld.Token);
-        }
-
-        done().Should().BeTrue("the work should have happened within ten seconds");
     }
 
     /// <summary>
