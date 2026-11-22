@@ -161,7 +161,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var sample = await UntilSeen("the open screen made again from the sample theme", seen =>
             seen.RowMinimum == Row(sample: true) && seen.Corners == CornerLanguage.Ticked);
 
-        Expect(sample.TextSizes.Contains(SampleTheme.BaseSize) && !sample.TextSizes.Contains(14), "type: the base step of the scale");
+        // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not required to be gone.
+        Expect(sample.TextSizes.Contains(SampleTheme.BaseSize), "type: the base step of the scale");
         Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
         Expect(sample.FrameCut == SampleTheme.FrameCut, "shape: the size of a frame's corner");
         Expect(sample.Corners == CornerLanguage.Ticked, "shape: the corner language of the frames");
@@ -175,7 +176,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
         var back = await UntilSeen("the open screen made again from Night Yard", seen =>
-            seen.RowMinimum == before.RowMinimum && seen.Corners == before.Corners);
+            seen.RowMinimum == before.RowMinimum && seen.Corners == before.Corners
+            && !seen.TextSizes.Contains(SampleTheme.BaseSize));
         Expect(back == before, "Night Yard is exactly what it was before");
     }
 
@@ -625,7 +627,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private sealed class CheckFailedException(string message, Exception? inner = null) : Exception(message, inner);
 
-    /// <summary>What a check read off the open screen: one value from each group the theme changes at run time.</summary>
+    /// <summary>
+    /// What a check read off the open screen: one value from each group the theme changes at run time. The set of text
+    /// sizes is not part of equality, because which texts are on screen depends on what has loaded.
+    /// </summary>
     private sealed record Seen(
         double RowMinimum,
         HashSet<double> TextSizes,
@@ -639,7 +644,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         Color Ember)
     {
         public bool Equals(Seen? other) =>
-            other is not null && RowMinimum == other.RowMinimum && TextSizes.SetEquals(other.TextSizes) && Space == other.Space
+            other is not null && RowMinimum == other.RowMinimum && Space == other.Space
             && FrameCut == other.FrameCut && Corners == other.Corners && Bloom == other.Bloom && Duration == other.Duration
             && CharacterLine == other.CharacterLine && Ember == other.Ember;
 
