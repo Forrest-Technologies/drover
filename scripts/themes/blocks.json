@@ -1,0 +1,12 @@
+{
+  "night-yard": {"surface": "bg-2", "line": 1, "padding": 3, "machineSize": 13, "outputLines": 12, "wrap": false, "highlighting": "weight"},
+  "signal-room": {"surface": "bg-2", "line": 1, "padding": 2, "machineSize": 12, "outputLines": 16, "wrap": false, "highlighting": "weight"},
+  "paper-ledger": {"surface": "bg-2", "line": 1, "padding": 4, "machineSize": 14, "outputLines": 12, "wrap": true, "highlighting": "quiet",
+    "dark": {"code-quoted": "#7E996D", "code-comment": "#998D7F"}, "light": {"code-quoted": "#556F45", "code-comment": "#6E6757"}},
+  "workbench": {"surface": "bg-2", "line": 2, "padding": 3, "machineSize": 14, "outputLines": 10, "wrap": true, "highlighting": "weight"},
+  "blueprint": {"surface": "bg-1", "line": 1, "padding": 3, "machineSize": 13, "outputLines": 16, "wrap": false, "highlighting": "quiet",
+    "dark": {"code-quoted": "#7A9A70", "code-comment": "#86909F"}, "light": {"code-quoted": "#51734E", "code-comment": "#616B79"}},
+  "quiet-hours": {"surface": "bg-2", "line": 1, "padding": 3, "machineSize": 13, "outputLines": 12, "wrap": false, "highlighting": "weight"},
+  "foundry": {"surface": "bg-2", "line": 1, "padding": 3, "machineSize": 13, "outputLines": 12, "wrap": false, "highlighting": "quiet",
+    "dark": {"code-quoted": "#80986B", "code-comment": "#9B8C80"}, "light": {"code-quoted": "#546A3F", "code-comment": "#6C6355"}}
+}
