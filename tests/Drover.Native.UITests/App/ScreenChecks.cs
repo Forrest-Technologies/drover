@@ -158,17 +158,26 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         theme.Choose(new ThemeChoice(SampleTheme.Id, ThemeMode.Dark));
-        var sample = await UntilSeen("the open screen made again from the sample theme", seen => seen.RowMinimum == Row(sample: true));
+        var sample = await UntilSeen(
+            "the open screen made again from the sample theme",
+            seen => seen.RowMinimum == Row(sample: true));
 
-        // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not required to be gone.
+        // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not
+        // required to be gone.
         Expect(sample.TextSizes.Contains(SampleTheme.BaseSize), "type: the base step of the scale");
         Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
         Expect(sample.FrameCut == SampleTheme.FrameCut, "shape: the cut of a frame");
-        Expect(sample.Bloom == SampleTheme.Bloom && sample.Duration == SampleTheme.Duration, "motion: bloom and the duration scale");
+        Expect(
+            sample.Bloom == SampleTheme.Bloom && sample.Duration == SampleTheme.Duration,
+            "motion: bloom and the duration scale");
         Expect(sample.Ember != before.Ember, "color: the accent repaints");
 
         theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
-        var back = await UntilSeen("the open screen made again from Night Yard", seen => seen.RowMinimum == before.RowMinimum && seen.FrameCut == before.FrameCut && !seen.TextSizes.Contains(SampleTheme.BaseSize));
+        var back = await UntilSeen(
+            "the open screen made again from Night Yard",
+            seen => seen.RowMinimum == before.RowMinimum
+                && seen.FrameCut == before.FrameCut
+                && !seen.TextSizes.Contains(SampleTheme.BaseSize));
         Expect(back == before, "Night Yard is exactly what it was before");
     }
 
@@ -183,9 +192,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         {
             var last = Observe();
             var sizes = last is null ? string.Empty : string.Join(", ", last.TextSizes.Order());
-            throw new CheckFailedException(
-                $"{failure.Message}; last seen: {(last is null ? "no crew row" : $"row {last.RowMinimum}, frame {last.FrameCut}, space {last.Space}, text sizes {sizes}")}",
-                failure);
+            var seen = last is null
+                ? "no crew row"
+                : $"row {last.RowMinimum}, frame {last.FrameCut}, space {last.Space}, text sizes {sizes}";
+            throw new CheckFailedException($"{failure.Message}; last seen: {seen}", failure);
         }
     }
 
@@ -207,8 +217,13 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var cuts = roots.OfType<Facet>().Select(facet => facet.Cut).ToList();
 
         return new(
-            row.MinHeight, sizes, Tokens.Number("DvSpace4"), cuts.Count == 0 ? 0 : cuts.Max(), Tokens.Number("DvBloomIon"),
-            Tokens.Number("DvDur2"), Tokens.Color(row, "DvEmber"));
+            row.MinHeight,
+            sizes,
+            Tokens.Number("DvSpace4"),
+            cuts.Count == 0 ? 0 : cuts.Max(),
+            Tokens.Number("DvBloomIon"),
+            Tokens.Number("DvDur2"),
+            Tokens.Color(row, "DvEmber"));
     }
 
     private void Expect(bool holds, string what)
@@ -620,7 +635,13 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     /// sizes is not part of equality, because which texts are on screen depends on what has loaded.
     /// </summary>
     private sealed record Seen(
-        double RowMinimum, HashSet<double> TextSizes, double Space, double FrameCut, double Bloom, double Duration, Color Ember)
+        double RowMinimum,
+        HashSet<double> TextSizes,
+        double Space,
+        double FrameCut,
+        double Bloom,
+        double Duration,
+        Color Ember)
     {
         public bool Equals(Seen? other) =>
             other is not null && RowMinimum == other.RowMinimum && Space == other.Space
