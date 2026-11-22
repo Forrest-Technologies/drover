@@ -148,7 +148,9 @@ preview build or to the checks every pull request runs.
   (`UploadFileWithUnverifiedSize`) and sends it with the antiforgery token, to the real upload route. It reads the
   picture back from the server and compares its hash, and it covers a small file, a file at the limit, a file past
   the limit (the server answers 413 with a sentence that names the limit, which is what the app turns into its words),
-  no token, and a cancelled upload.
+  no token, and a cancelled upload. These guard the path that works today. They do not cover a server that cannot
+  write its file store or the words the chip shows; those belong to the #799 fix, which carries its own failing-before
+  tests.
 - The sandbox pointer has its own server test, `SandboxPointerDragApiTests`, which lives with the pointer input
   route (#797, in the pull request that stacks on it) and needs that route to pass. It sends a drag to the real route as the app does (a press, moves, a release, and the whole drag as one
   request) to a sandbox provider that records the commands it ran. `tests/Shared/PointerEvents.cs` reads those commands
