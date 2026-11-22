@@ -33,6 +33,11 @@ The project builds and hosts no images. `db` and the .NET base images are pulled
 
 `init` creates these three files. The application generates a temporary setup code and logs it when there are no users. Each password file is written once and left alone on later starts, so `docker compose down` then `up` keeps the same secrets. The Data Protection key ring lives on a separate volume, `drover-keys`. The runtime mounts only `drover-app-secrets`, containing a copy of the app password readable by uid 1654. It never mounts the bootstrap or owner secrets. Existing secret permissions are corrected on each start without rotating values. Volumes: `drover-db`, `drover-secrets`, `drover-app-secrets`, `drover-keys`, `drover-files`.
 
+The image defaults `Files__Path` to `/var/lib/drover/files`. Compose mounts a named volume there. Other deployments
+must provide a persistent writable mount. At startup the server creates the configured directory if needed, then
+writes and removes a private probe file. A failed write logs `Files directory not writable: <path>`. The server
+continues serving requests and reports storage failures to the uploader.
+
 ### Database initialization and application startup
 
 1. The one-shot `database-init` command waits for database health, then calls `DatabaseBootstrap` as the PostgreSQL superuser to create or reconcile the roles and grants in the existing `postgres` database.

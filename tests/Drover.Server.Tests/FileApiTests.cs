@@ -39,6 +39,67 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     #region Uploading And Sending
 
     [Fact]
+    public async Task A_native_bearer_uploads_a_picture_without_an_antiforgery_cookie_until_its_access_expires()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        using var exchange = await client.Post("/api/native/session");
+        exchange.EnsureSuccessStatusCode();
+        var session = await exchange.Content.ReadFromJsonAsync<JsonElement>(Token);
+        using var http = NewRelay(NewClient());
+        http.DefaultRequestHeaders.Authorization = new("Bearer", session.GetProperty("accessToken").GetString());
+        var api = new DroverApi(http);
+        var png = PngHeader(3, 2);
+        using var source = new MemoryStream(png);
+
+        var stored = await api.UploadFileWithUnverifiedSize(spaceId, threadId, "dot.png", source,
+            DeploymentPolicy.SelfHostedMaxFileBytes, cancellationToken: Token);
+        stored.Size.Should().Be(png.Length);
+        stored.Kind.Should().Be(FileKinds.Image);
+
+        Time.Advance(TimeSpan.FromMinutes(11));
+        source.Position = 0;
+        var expired = () => api.UploadFileWithUnverifiedSize(spaceId, threadId, "dot.png", source,
+            DeploymentPolicy.SelfHostedMaxFileBytes, cancellationToken: Token);
+        var refusal = (await expired.Should().ThrowAsync<DroverApiException>()).Which;
+        refusal.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task An_unwritable_store_reports_the_directory_at_startup_and_a_safe_upload_problem()
+    {
+        var root = DroverFactory.FilesPath(KeyRingPath);
+        await File.WriteAllTextAsync(root, string.Empty, Token);
+        try
+        {
+            var (client, spaceId, threadId, _) = await Conversation("alice");
+            var diagnostic = $"Files directory not writable: {root}";
+            Logs.Entries.Should().ContainSingle(entry =>
+                entry.Level == LogLevel.Error && entry.Text.TrimEnd() == diagnostic);
+            var name = $"private-{Guid.NewGuid():N}.txt";
+            var words = $"private-{Guid.NewGuid():N}";
+            using var http = NewRelay(client);
+            var api = new DroverApi(http) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
+            using var body = new MemoryStream(Encoding.UTF8.GetBytes(words));
+            var upload = () => api.UploadFile(spaceId, threadId, name, body, body.Length, cancellationToken: Token);
+
+            var failure = (await upload.Should().ThrowAsync<DroverApiException>()).Which;
+            failure.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+            failure.Refusal.Should().Be("storage_unavailable");
+            failure.Message.Should().Be("The server could not store this file. Contact the server administrator.");
+            var warning = Logs.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Warning
+                && entry.Text.StartsWith("The file store could not save an upload", StringComparison.Ordinal)).Which;
+            warning.Text.TrimEnd().Should().MatchRegex(
+                @"^The file store could not save an upload \(\w+Exception, result -?\d+\)$");
+            Logs.AllText().Should().NotContain(name).And.NotContain(words);
+        }
+        finally
+        {
+            File.Delete(root);
+        }
+    }
+
+    [Fact]
     public async Task A_person_uploads_a_text_file_and_sends_it_with_a_message()
     {
         var (client, spaceId, threadId, _) = await Conversation("alice");

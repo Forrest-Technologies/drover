@@ -773,9 +773,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             }
         }));
 
+        var stage = UploadStage.Open;
         try
         {
             await using var content = await file.OpenRead(maxBytes, left);
+            stage = UploadStage.Transfer;
             var uploaded = file.Size is 0
                 ? await api.UploadFileWithUnverifiedSize(SpaceId, threadId, file.Name, content, maxBytes, progress, left)
                 : await api.UploadFile(SpaceId, threadId, file.Name, content, file.Size, progress, left);
@@ -784,13 +786,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             // send, so this removal goes ahead even after leaving.
             if (!draft.Uploaded(id, uploaded))
             {
+                stage = UploadStage.Remove;
                 await api.RemoveFile(SpaceId, uploaded.Id, CancellationToken.None);
             }
-        }
-        catch (DroverApiException exception) when (exception.Refusal is not null)
-        {
-            logger.LogInformation(exception, "The server refused a file: {Refusal}", exception.Refusal);
-            draft.Refused(id, FileWords.RefusalFrom(exception.Refusal));
         }
         catch (OperationCanceledException) when (left.IsCancellationRequested)
         {
@@ -799,10 +797,19 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
-            // Whatever stopped it (the network, the server, the time limit, the file going away), the chip says it
-            // was not uploaded and how to go on, and the message is held until it is taken off.
-            logger.LogWarning(exception, "A file could not be uploaded in the {Screen}", nameof(ConversationViewModel));
-            draft.Failed(id);
+            var status = exception switch
+            {
+                DroverApiException refused => (int?)refused.StatusCode,
+                HttpRequestException transport => (int?)transport.StatusCode,
+                _ => null,
+            };
+            logger.LogWarning(
+                "Attachment failed during {Stage} with {ExceptionType} (cause {CauseType}, HTTP {StatusCode})",
+                stage, exception.GetType(), exception.InnerException?.GetBaseException().GetType(), status);
+            var reason = exception is DroverApiException apiFailure
+                ? FileWords.RefusalFrom(apiFailure.Refusal)
+                : FileRefusal.None;
+            draft.Refused(id, status == (int)HttpStatusCode.RequestEntityTooLarge ? FileRefusal.TooLarge : reason);
         }
 
         Changed();
@@ -1154,6 +1161,13 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     #endregion
 
     #region Nested Types
+
+    private enum UploadStage
+    {
+        Open,
+        Transfer,
+        Remove,
+    }
 
     private sealed class SentSoFar(Action<long> heard) : IProgress<long>
     {
