@@ -34,7 +34,6 @@ public sealed class SandboxPointerDragApiTests(PostgresServer postgres) : Server
     public async Task A_drag_sent_as_down_moves_and_up_reaches_the_sandbox_in_that_order_and_ends_with_the_button_released()
     {
         var (client, input) = await DesktopBot("dragger");
-        await client.Post(input, new { kind = "click", x = 5, y = 5 });
         var before = Pointer().Count;
 
         (await client.Post(input, new { kind = "down", x = 100, y = 120 })).StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -100,6 +99,9 @@ public sealed class SandboxPointerDragApiTests(PostgresServer postgres) : Server
             $"{space}/bots/{bot.Id}/definition",
             new UpdateBotRequest(null, null, null, null, null, null, null, null, null, "private", new SandboxSettingsBody("off", [], null, Desktop: true), null, null));
         saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Token));
+
+        // The screen's first picture starts the sandbox, as the app's does, so the input has a sandbox to reach.
+        (await client.Post($"{space}/bots/{bot.Id}/sandbox/screen")).StatusCode.Should().Be(HttpStatusCode.OK);
         return (client, $"{space}/bots/{bot.Id}/sandbox/input");
     }
 
