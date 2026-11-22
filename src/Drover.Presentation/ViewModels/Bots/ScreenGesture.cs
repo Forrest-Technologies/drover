@@ -16,12 +16,26 @@ namespace Drover.Presentation.ViewModels.Bots;
 /// releases the button and ends the gesture. Nothing clicks after a drag, a scroll or a pinch. What goes to the
 /// sandbox is collected and handed over by <see cref="TakeInput"/>.
 /// </para>
+/// <para>
+/// Only the first two fingers down count: their centre and their spread move the view and turn the wheel. A third
+/// finger in control ends what two were doing. A finger the system cancels while others stay ends the gesture's
+/// effects too: nothing more is sent and the view moves no further.
+/// </para>
 /// </summary>
 public sealed class ScreenGesture
 {
     #region Private Fields
 
     private readonly Dictionary<uint, (double X, double Y)> pointers = [];
+
+    // The fingers in the order they went down. The first two are the ones that count.
+    private readonly List<uint> order = [];
+
+    // Where each counted finger was when the gesture last changed shape, so a scroll can see both fingers move.
+    private readonly Dictionary<uint, (double X, double Y)> starts = [];
+
+    // A finger was cancelled while others stayed: nothing the rest do changes the view or reaches the sandbox.
+    private bool frozen;
 
     private readonly List<ScreenTouch> input = [];
 
@@ -60,6 +74,9 @@ public sealed class ScreenGesture
     /// <summary>How much two fingers' spread must change, as a share of where it started, to be a pinch.</summary>
     public const double PinchShare = 0.12;
 
+    /// <summary>The most wheel steps one move of the fingers sends, the most the server takes in one scroll.</summary>
+    public const int MaxStepsPerMove = 20;
+
     /// <summary>
     /// How long a finger rests before a move drags instead of panning an enlarged picture. Long enough that a quick
     /// swipe still pans, short enough that a deliberate press and drag never waits.
@@ -88,13 +105,20 @@ public sealed class ScreenGesture
     /// </summary>
     public void Down(uint id, double x, double y, ScreenZoom shown, bool inControl = false, TimeSpan at = default)
     {
+        // A second down for a finger that is already down changes nothing, nor does a place that is not a number.
+        if (pointers.ContainsKey(id) || !double.IsFinite(x) || !double.IsFinite(y))
+        {
+            return;
+        }
+
         if (pointers.Count == 0)
         {
-            (moved, pinched, view, control) = (false, false, shown, inControl);
+            (moved, pinched, view, control, frozen) = (false, false, shown, inControl, false);
             (phase, downAt, pressedAt, last, scrolled) = (TouchPhase.Pressed, at, (x, y), (x, y), 0);
         }
 
         pointers[id] = (x, y);
+        order.Add(id);
         pinched |= pointers.Count > 1;
 
         if (control && pointers.Count > 1)
@@ -112,12 +136,17 @@ public sealed class ScreenGesture
     /// </summary>
     public ScreenZoom? Move(uint id, double x, double y, double width, double height, TimeSpan at = default)
     {
-        if (!pointers.ContainsKey(id) || width <= 0 || height <= 0)
+        if (!pointers.ContainsKey(id) || width <= 0 || height <= 0 || !double.IsFinite(x) || !double.IsFinite(y))
         {
             return null;
         }
 
         pointers[id] = (x, y);
+        if (frozen)
+        {
+            return null;
+        }
+
         return control ? MoveInControl(x, y, width, height, at) : MoveWatching(width, height);
     }
 
@@ -132,8 +161,14 @@ public sealed class ScreenGesture
             return default;
         }
 
+        order.Remove(id);
         if (pointers.Count > 0)
         {
+            if (cancelled)
+            {
+                Freeze();
+            }
+
             FingerLifted();
             Rebase();
             return default;
@@ -157,11 +192,18 @@ public sealed class ScreenGesture
     {
         var released = EndDrag();
         pointers.Clear();
+        order.Clear();
         phase = TouchPhase.None;
         return released;
     }
 
-    /// <summary>What the gesture sends to the sandbox since it was last asked, in order, at places on the frame.</summary>
+    /// <summary>
+    /// What the gesture sends to the sandbox since it was last asked, in order, at places on the frame. A
+    /// <see cref="ScreenTouchKind.Press"/> may be handed over before its release: the gesture then always hands over
+    /// exactly one <see cref="ScreenTouchKind.Release"/> for it, when the finger lifts, is cancelled, or is joined by
+    /// another, or when the caller calls <see cref="Release"/>. A caller that stops asking calls <see cref="Release"/>
+    /// first and takes what it gives.
+    /// </summary>
     public IReadOnlyList<ScreenTouch> TakeInput()
     {
         List<ScreenTouch> taken = [.. input];
@@ -286,7 +328,9 @@ public sealed class ScreenGesture
             return Pan(now, pinching: true, width, height);
         }
 
-        if (Math.Abs(now.Y - start.Y) < TapSlop)
+        // A scroll needs both fingers to have moved the same way: one finger alone moving first may be the start of a
+        // pinch, and the other finger has not had its say yet.
+        if (!BothMovedTogether())
         {
             return null;
         }
@@ -302,14 +346,44 @@ public sealed class ScreenGesture
         scrolled += now.Y - last.Y;
         last = (now.X, now.Y);
 
-        while (Math.Abs(scrolled) >= ScrollStep)
+        // One move sends at most the steps the server takes in one scroll; a jump beyond that is dropped, not queued.
+        var due = Math.Truncate(scrolled / ScrollStep);
+        var steps = (int)Math.Clamp(due, -MaxStepsPerMove, MaxStepsPerMove);
+        var kind = steps < 0 ? ScreenTouchKind.ScrollDown : ScreenTouchKind.ScrollUp;
+        for (var step = 0; step < Math.Abs(steps); step++)
         {
-            var down = scrolled < 0;
-            input.Add(new(down ? ScreenTouchKind.ScrollDown : ScreenTouchKind.ScrollUp, now.X, now.Y));
-            scrolled += down ? ScrollStep : -ScrollStep;
+            input.Add(new(kind, now.X, now.Y));
         }
 
+        scrolled = steps == due ? scrolled - (steps * ScrollStep) : 0;
         return null;
+    }
+
+    private bool BothMovedTogether()
+    {
+        if (order.Count < 2
+            || !starts.TryGetValue(order[0], out var firstFrom)
+            || !starts.TryGetValue(order[1], out var secondFrom))
+        {
+            return false;
+        }
+
+        var first = pointers[order[0]].Y - firstFrom.Y;
+        var second = pointers[order[1]].Y - secondFrom.Y;
+        var enough = TapSlop / 2;
+
+        return Math.Sign(first) == Math.Sign(second) && Math.Abs(first) >= enough && Math.Abs(second) >= enough;
+    }
+
+    // A cancelled finger while others stay: a held drag is let go of, and the rest of the gesture does nothing.
+    private void Freeze()
+    {
+        frozen = true;
+        if (control)
+        {
+            EndDrag();
+            phase = TouchPhase.Spent;
+        }
     }
 
     private ScreenZoom? Drag(double x, double y)
@@ -357,14 +431,20 @@ public sealed class ScreenGesture
     {
         from = view;
         start = Centre();
+        starts.Clear();
+        foreach (var id in order.Take(2))
+        {
+            starts[id] = pointers[id];
+        }
     }
 
     private double Travel((double X, double Y, double Spread) now) =>
         Math.Sqrt(Math.Pow(now.X - start.X, 2) + Math.Pow(now.Y - start.Y, 2));
 
+    // The place between the first two fingers down, and how far apart they are. Fingers after them do not count.
     private (double X, double Y, double Spread) Centre()
     {
-        var points = pointers.Values.ToList();
+        List<(double X, double Y)> points = [.. order.Take(2).Select(id => pointers[id])];
         var spread = points.Count > 1
             ? Math.Sqrt(Math.Pow(points[0].X - points[1].X, 2) + Math.Pow(points[0].Y - points[1].Y, 2))
             : 1;
