@@ -702,7 +702,7 @@ try {
                     const drawn = {
                         pdf: 'Sample PDF page one summary.',
                         diagram: 'Diagram node Upload file',
-                        limit: 'Preview limits are 16 KiB for text, 1 MiB and 4 million pixels for pictures, and 1 MiB and 10 pages for PDF files. Download the file to keep it.',
+                        limit: 'This file exceeds the preview limits. Download the original to keep it.',
                         error: 'Could not show the preview. Download the file to keep it.',
                         malformed: 'This file contains invalid preview data. Download it to keep it.',
                         unsupported: 'This file format has no native preview. Download it to keep it.',

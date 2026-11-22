@@ -112,6 +112,7 @@ global using Microsoft.Extensions.Hosting;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Logging.Abstractions;
 global using Microsoft.Extensions.Options;
+global using Microsoft.Extensions.Time.Testing;
 global using Microsoft.Net.Http.Headers;
 global using ModelContextProtocol.AspNetCore;
 global using ModelContextProtocol.Server;

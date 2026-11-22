@@ -134,6 +134,79 @@ public sealed class NativePictureCacheTests
         }
     }
 
+    [Fact]
+    public async Task A_queue_deadline_frees_the_waiters_place_and_the_remaining_requests_drain()
+    {
+        var time = new FakeTimeProvider();
+        using var cache = new NativePictureCache(NullLogger<NativePictureCache>.Instance, time);
+        var member = Guid.NewGuid();
+        var space = Guid.NewGuid();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var streams = Enumerable.Range(0, NativeFilePreview.MaxPendingPicturesPerUser + 1)
+            .Select(_ => new GatedStream(release.Task)).ToArray();
+        var requests = streams.Take(3).Select(stream => Read(cache, Download(space, stream), member)).ToList();
+        try
+        {
+            Assert.True(streams[0].Entered.Task.IsCompleted);
+            Assert.True(streams[1].Entered.Task.IsCompleted);
+            time.Advance(TimeSpan.FromSeconds(7));
+            Assert.False(requests[2].IsCompleted);
+            time.Advance(TimeSpan.FromSeconds(1));
+            var expired = await requests[2].WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            Assert.Equal(NativePreviewRefusal.TooComplex, expired.Refusal);
+            Assert.False(streams[2].Entered.Task.IsCompleted);
+
+            foreach (var stream in streams.Skip(3))
+            {
+                requests.Add(Read(cache, Download(space, stream), member));
+            }
+
+            Assert.False(requests[^1].IsCompleted);
+        }
+        finally
+        {
+            release.SetResult();
+            await Task.WhenAll(requests);
+            foreach (var stream in streams)
+            {
+                await stream.DisposeAsync();
+            }
+        }
+
+        Assert.False(streams[2].Entered.Task.IsCompleted);
+        Assert.All(streams.Skip(3), stream => Assert.True(stream.Entered.Task.IsCompleted));
+    }
+
+    [Fact]
+    public async Task The_global_limit_refuses_the_next_member_in_a_fresh_space_without_reading()
+    {
+        using var cache = new NativePictureCache(NullLogger<NativePictureCache>.Instance, new FakeTimeProvider());
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Assert.Equal(32, NativeFilePreview.MaxPendingPictures);
+        var streams = Enumerable.Range(0, NativeFilePreview.MaxPendingPictures + 1)
+            .Select(_ => new GatedStream(release.Task)).ToArray();
+        var requests = streams.Select(stream => Read(cache, Download(Guid.NewGuid(), stream), Guid.NewGuid()))
+            .ToArray();
+        try
+        {
+            Assert.All(requests[..^1], request => Assert.False(request.IsCompleted));
+            Assert.True(requests[^1].IsCompletedSuccessfully);
+            Assert.Equal(NativePreviewRefusal.TooComplex, (await requests[^1]).Refusal);
+            Assert.False(streams[^1].Entered.Task.IsCompleted);
+        }
+        finally
+        {
+            release.SetResult();
+            await Task.WhenAll(requests);
+            foreach (var stream in streams)
+            {
+                await stream.DisposeAsync();
+            }
+        }
+
+        Assert.All(streams[..^1], stream => Assert.True(stream.Entered.Task.IsCompleted));
+    }
+
     [Theory]
     [InlineData(true, NativeFilePreview.MaxPendingPicturesPerUser)]
     [InlineData(false, NativeFilePreview.MaxPendingPicturesPerSpace)]
