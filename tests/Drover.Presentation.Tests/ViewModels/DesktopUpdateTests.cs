@@ -2030,7 +2030,7 @@ public sealed class DesktopUpdateTests
 
             var download = UpdatePackageTrust.Download(updater, offered, root, limit, log, teardownLimit, time);
             await Within(gate.Entered.Task, "the package transfer");
-            await Within(time.DeadlineSet.Task, "the download's time limit");
+            await Within(time.Created(limit), "the download's time limit");
 
             // The time limit passes; the teardown wait has ten more seconds that never pass. The verdict is let go
             // inside that window.
@@ -2053,6 +2053,87 @@ public sealed class DesktopUpdateTests
         finally
         {
             gate.Open();
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_rejection_given_before_a_late_stop_is_returned_with_the_timeout_through_the_downloader()
+    {
+        var (publicKey, privateKey) = Key(
+            nameof(A_rejection_given_before_a_late_stop_is_returned_with_the_timeout_through_the_downloader));
+        var original = Enumerable.Range(0, 4096).Select(index => (byte)index).ToArray();
+        var tampered = original.ToArray();
+        tampered[^1] ^= 1;
+        await using var feed = await FeedHost.Open();
+        var item = AppCast(
+            "2.0.0",
+            null,
+            $"{feed.Address}package.bin",
+            Sign(original, privateKey),
+            HostOs(),
+            tampered.Length);
+        feed.AddFeed("appcast.xml", SignedFeed(Wrap(item), privateKey));
+        feed.Add("package.bin", tampered);
+        var root = Path.Combine(Path.GetTempPath(), $"drover-late-stop-{Guid.NewGuid():N}");
+        using var client = Client();
+        using var beforeVerdict = new CallbackGate(gateLimit);
+        using var afterVerdict = new CallbackGate(gateLimit);
+        var log = new RecordingLogger();
+        var limit = TimeSpan.FromSeconds(1);
+        var teardownLimit = TimeSpan.FromSeconds(10);
+        var time = new SignalingTime(limit, teardownLimit);
+
+        try
+        {
+            using var updater = StableUpdater($"{feed.Address}appcast.xml", publicKey, root, client);
+            var offered = await Offered(updater);
+            var downloader = updater.UpdateDownloader.Should().BeOfType<BoundedPackageDownloader>().Subject;
+
+            // One gate runs before the library's verdict, the other after it. The second is added once the library
+            // has subscribed, so the stop is still held after the verdict is published.
+            downloader.DownloadFileCompleted += (_, _) => beforeVerdict.Hold();
+            var added = 0;
+            downloader.DownloadStarted += (_, _, _) =>
+            {
+                if (Interlocked.Exchange(ref added, 1) == 0)
+                {
+                    downloader.DownloadFileCompleted += (_, _) => afterVerdict.Hold();
+                }
+            };
+
+            var download = UpdatePackageTrust.Download(updater, offered, root, limit, log, teardownLimit, time);
+            await Within(beforeVerdict.Entered.Task, "the package transfer");
+            await Within(time.Created(limit), "the download's time limit");
+            time.Advance(limit);
+            await Within(time.Created(teardownLimit), "the teardown wait");
+
+            // The library rejects the file inside the teardown window; the download's stop is then held past it.
+            beforeVerdict.Open();
+            await Within(afterVerdict.Entered.Task, "the library's verdict");
+            time.Advance(teardownLimit);
+
+            var failure = (await FluentActions.Awaiting(() => download)
+                .Should().ThrowAsync<AggregateException>()).Which;
+            failure.Flatten().InnerExceptions.Should().ContainSingle(exception =>
+                exception is InvalidDataException && exception.Message == UpdatePackageTrust.SignatureProblem,
+                "the rejection published before the late claim is returned with the timeout");
+            failure.Flatten().InnerExceptions.Should().Contain(exception =>
+                exception is TimeoutException && exception.Message == UpdatePackageTrust.TeardownProblem);
+
+            afterVerdict.Open();
+            await Within(downloader.Stopped, "the download after its gate opened");
+            await WaitUntil(() => !log.Entries.IsEmpty);
+            log.Entries.Should().ContainSingle()
+                .Which.Exception.Should().BeNull("the rejection was already returned, so it is not logged again");
+            Directory.EnumerateFileSystemEntries(root).Should().BeEmpty("the timed-out attempt is removed");
+            beforeVerdict.Expired.Should().BeFalse();
+            afterVerdict.Expired.Should().BeFalse();
+        }
+        finally
+        {
+            beforeVerdict.Open();
+            afterVerdict.Open();
             Directory.Delete(root, true);
         }
     }
@@ -2141,39 +2222,158 @@ public sealed class DesktopUpdateTests
     [Fact]
     public async Task A_download_decides_it_stopped_in_time_in_the_same_call_that_completes_its_stop()
     {
-        Func<Exception?> noVerdict = () => null;
-        var outcome = new DownloadOutcome(null, Cancelled: true);
+        var decisionInsideComplete = StopDecision.Undecided;
+        var stoppedBeforeClaimReturned = true;
+        var claimedInsideComplete = false;
 
-        // Every member is compiled first, so nothing between Complete returning and the checks below gives a deferred
-        // claim time to land: the decision must already be there when Complete returns.
-        var warm = new DownloadStop();
-        warm.Complete(outcome);
-        _ = warm.StoppedInTime.IsCompleted;
-        _ = warm.ClaimDeadline(noVerdict);
-
-        var stop = new DownloadStop();
-        var resumedInside = false;
+        // The hook runs inside Complete, right after its claim, so the decision is read with no window at all.
+        var stop = new DownloadStop(claimed =>
+        {
+            decisionInsideComplete = claimed.Decision;
+            stoppedBeforeClaimReturned = claimed.Stopped.IsCompleted;
+            claimedInsideComplete = insideComplete;
+        });
+        var resumedInsideStop = false;
+        var resumedInsideDecision = false;
 
         // Set only on this thread and only while Complete runs, so only a waiter run inline inside Complete sees it.
-        var awaiter = ResumeAfter(stop.Stopped, () => resumedInside = insideComplete);
+        var stoppedWaiter = ResumeAfter(stop.Stopped, () => resumedInsideStop = insideComplete);
+        var decisionWaiter = ResumeAfter(stop.StoppedInTime, () => resumedInsideDecision = insideComplete);
 
         insideComplete = true;
-        stop.Complete(outcome);
+        stop.Complete(new DownloadOutcome(null, Cancelled: true));
         insideComplete = false;
-        var decidedWhenCompleteReturned = stop.StoppedInTime.IsCompleted;
-        var deadlineClaimed = stop.ClaimDeadline(noVerdict);
 
-        decidedWhenCompleteReturned.Should().BeTrue("the stop is claimed inside Complete, not afterwards");
-        deadlineClaimed.Should().BeFalse("the stop was claimed before Complete returned");
+        decisionInsideComplete.Should().Be(StopDecision.InTime, "the stop is claimed inside Complete");
+        claimedInsideComplete.Should().BeTrue("the claim is made on the thread running Complete, not deferred");
+        stoppedBeforeClaimReturned.Should().BeFalse("the claim is made before the stop is published");
+        stop.ClaimDeadline().Should().BeFalse("the stop was claimed before Complete returned");
         (await stop.StoppedInTime).Should().BeTrue();
-        await Within(awaiter, "a waiter on the stop");
-        resumedInside.Should().BeFalse("a waiter on the stop resumes after Complete, never inside the download");
+        await Within(stoppedWaiter, "a waiter on the stop");
+        await Within(decisionWaiter, "a waiter on the decision");
+        resumedInsideStop.Should().BeFalse("a waiter on the stop resumes after Complete, never inside it");
+        resumedInsideDecision.Should().BeFalse("a waiter on the decision resumes after Complete, never inside it");
 
         var late = new DownloadStop();
-        late.ClaimDeadline(() => null).Should().BeTrue();
+        late.ClaimDeadline().Should().BeTrue();
         late.Complete(new DownloadOutcome(null, Cancelled: true));
         (await late.StoppedInTime).Should().BeFalse("the deadline claimed first, so the stop is late");
         late.Stopped.IsCompleted.Should().BeTrue("the stop still completes after a late decision");
+    }
+
+    [Fact]
+    public async Task A_rejection_published_after_the_deadline_is_claimed_goes_to_the_late_report()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-after-claim-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rejection = new InvalidDataException(UpdatePackageTrust.SignatureProblem);
+        var publishedAfterClaim = true;
+
+        // The hook runs inside the deadline timer's callback, after its claim and before the callback finishes: the
+        // update library rejects the file at exactly that moment.
+        var stop = new DownloadStop(claimed =>
+        {
+            if (claimed.Decision is StopDecision.Late)
+            {
+                verdict.SetException(rejection);
+                publishedAfterClaim = claimed.PublishVerdict(rejection);
+            }
+        });
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
+        var log = new RecordingLogger();
+
+        try
+        {
+            var teardown = UpdatePackageTrust.ObserveTeardown(stop, verdict.Task, wait, time, attempt, log);
+            time.Advance(wait);
+
+            publishedAfterClaim.Should().BeFalse("a rejection after the claim is refused by the decided stop");
+            (await teardown).Should().BeOfType<TimeoutException>("only what came before the claim joins the timeout")
+                .Which.Message.Should().Be(UpdatePackageTrust.TeardownProblem);
+
+            stop.Complete(new DownloadOutcome(null, Cancelled: false));
+            await WaitUntil(() => !log.Entries.IsEmpty);
+            log.Entries.Should().ContainSingle().Which.Exception.Should().BeOfType<AggregateException>()
+                .Which.InnerExceptions.Should().ContainSingle()
+                .Which.Should().BeSameAs(rejection, "the rejection after the claim is reported late, not lost");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_failure_already_returned_with_the_timeout_is_not_logged_again_when_the_stop_ends()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-shared-late-").FullName;
+        var log = new RecordingLogger();
+
+        try
+        {
+            // The library passes the download's own failure on unchanged before the deadline, so the stop later ends
+            // with that same exception.
+            var failure = new HttpRequestException("Sample: the connection was reset.");
+            var shared = await LateStop(root, failure, new DownloadOutcome(failure, Cancelled: false), log);
+            shared.Should().BeOfType<AggregateException>().Which.InnerExceptions.Should().Contain(failure);
+            shared.Should().BeOfType<AggregateException>().Which.InnerExceptions.Should().HaveCount(2);
+            var sharedEntry = log.Entries.Should().ContainSingle().Subject;
+            sharedEntry.Exception.Should().BeNull("the only failure was already returned, so nothing is logged again");
+
+            // A rejection returned with the timeout and a distinct download failure: only the distinct one is logged.
+            log.Entries.Clear();
+            var rejection = new InvalidDataException(UpdatePackageTrust.SignatureProblem);
+            var distinct = new IOException("Sample: the transfer failed.");
+            await LateStop(root, rejection, new DownloadOutcome(distinct, Cancelled: false), log);
+            var distinctEntry = log.Entries.Should().ContainSingle().Subject;
+            var logged = distinctEntry.Exception.Should().BeOfType<AggregateException>().Subject.InnerExceptions;
+            logged.Should().ContainSingle().Which.Should().BeSameAs(distinct, "a distinct failure is still reported");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task A_clean_stop_whose_attempt_cannot_be_removed_logs_only_the_removal()
+    {
+        var root = Directory.CreateTempSubdirectory("drover-clean-removal-").FullName;
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        await File.WriteAllBytesAsync(
+            Path.Combine(attempt, "package.bin"),
+            [1, 2, 3],
+            TestContext.Current.CancellationToken);
+        var stop = new DownloadStop();
+        var time = new FakeTimeProvider();
+        var log = new RecordingLogger();
+        BlockRemoval(attempt);
+
+        try
+        {
+            var teardown = UpdatePackageTrust.ObserveTeardown(
+                stop,
+                NoVerdict(),
+                TimeSpan.FromSeconds(10),
+                time,
+                attempt,
+                log);
+            stop.Complete(new DownloadOutcome(new OperationCanceledException(), Cancelled: true));
+
+            (await teardown).Should().BeNull("the download stopped in time and cleanly");
+            var entry = log.Entries.Should().ContainSingle().Subject;
+            entry.Level.Should().Be(LogLevel.Warning);
+            var logged = entry.Exception.Should().BeOfType<AggregateException>().Subject;
+            logged.Message.Should().StartWith(UpdatePackageTrust.RemovalProblem, "only the removal failed");
+            IsRemovalFailure(logged.InnerExceptions.Should().ContainSingle().Subject).Should().BeTrue();
+        }
+        finally
+        {
+            AllowRemovalOf(attempt);
+            Directory.Delete(root, true);
+        }
     }
 
     [Fact]
@@ -2194,6 +2394,7 @@ public sealed class DesktopUpdateTests
 
             // The library rejects the file in time, but the download's own stop is still unwinding at the deadline.
             verdict.SetException(rejection);
+            stop.PublishVerdict(rejection).Should().BeTrue("nothing is decided yet");
             time.Advance(wait);
 
             var result = (await teardown).Should().BeOfType<AggregateException>().Subject;
@@ -2524,6 +2725,31 @@ public sealed class DesktopUpdateTests
         stop.Complete(outcome);
         time.Advance(wait);
         return await teardown;
+    }
+
+    /// <summary>
+    /// A download that the library rejects with <paramref name="early"/> before the deadline, then stops late with
+    /// <paramref name="outcome"/>. Returns what the caller was told, once the late report has been logged.
+    /// </summary>
+    private static async Task<Exception?> LateStop(
+        string root,
+        Exception early,
+        DownloadOutcome outcome,
+        RecordingLogger log)
+    {
+        var attempt = UpdatePackageTrust.PrepareAttemptDirectory(root);
+        var stop = new DownloadStop();
+        var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new FakeTimeProvider();
+        var wait = TimeSpan.FromSeconds(10);
+        var teardown = UpdatePackageTrust.ObserveTeardown(stop, verdict.Task, wait, time, attempt, log);
+        verdict.SetException(early);
+        stop.PublishVerdict(early).Should().BeTrue();
+        time.Advance(wait);
+        var told = await teardown;
+        stop.Complete(outcome);
+        await WaitUntil(() => !log.Entries.IsEmpty);
+        return told;
     }
 
     /// <summary>A verdict the update library never gave.</summary>
@@ -2868,26 +3094,31 @@ internal sealed class CallbackGate(TimeSpan limit) : IDisposable
 
 
 /// <summary>
-/// A fake clock that says when the timer for <paramref name="deadline"/> is created, so a test can pass that deadline
-/// only once something is waiting for it.
+/// A fake clock that says when a timer for each of <paramref name="deadlines"/> is created, so a test can pass a
+/// deadline only once something is waiting for it.
 /// </summary>
-internal sealed class SignalingTime(TimeSpan deadline) : TimeProvider
+internal sealed class SignalingTime(params TimeSpan[] deadlines) : TimeProvider
 {
     #region Private Fields
 
     private readonly FakeTimeProvider inner = new();
 
+    private readonly Dictionary<TimeSpan, TaskCompletionSource> created = deadlines.ToDictionary(
+        deadline => deadline,
+        _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
     #endregion
 
     #region Properties
-
-    public TaskCompletionSource DeadlineSet { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public override long TimestampFrequency => inner.TimestampFrequency;
 
     #endregion
 
     #region Public Methods
+
+    /// <summary>Completes once a timer due after <paramref name="deadline"/> has been created.</summary>
+    public Task Created(TimeSpan deadline) => created[deadline].Task;
 
     public void Advance(TimeSpan by) => inner.Advance(by);
 
@@ -2898,9 +3129,9 @@ internal sealed class SignalingTime(TimeSpan deadline) : TimeProvider
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         var timer = inner.CreateTimer(callback, state, dueTime, period);
-        if (dueTime == deadline)
+        if (created.TryGetValue(dueTime, out var signal))
         {
-            DeadlineSet.TrySetResult();
+            signal.TrySetResult();
         }
 
         return timer;
@@ -3035,7 +3266,7 @@ file sealed class FlowProbe : IDisposable
 
 
 /// <summary>A logger that keeps every entry written to it.</summary>
-file sealed class RecordingLogger : ILogger
+internal sealed class RecordingLogger : ILogger
 {
     #region Properties
 
@@ -3063,7 +3294,7 @@ file sealed class RecordingLogger : ILogger
 
 
 /// <summary>One entry a <see cref="RecordingLogger"/> kept.</summary>
-file sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
+internal sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 
 
 /// <summary>What the verifier saw at one file check.</summary>

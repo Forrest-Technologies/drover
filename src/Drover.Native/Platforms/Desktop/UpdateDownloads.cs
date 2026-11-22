@@ -128,6 +128,9 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
 
     private CancellationTokenSource cancel = new();
 
+    /// <summary>The stop of the download whose completion is being raised in this flow, while it is raised.</summary>
+    private readonly AsyncLocal<DownloadStop?> completing = new();
+
     #endregion
 
     #region Properties
@@ -183,7 +186,17 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
                 ? outcome
                 : outcome.AfterCleanup(Remove(downloadFilePath));
             IsDownloading = false;
-            DownloadFileCompleted?.Invoke(this, ended.ToEventArgs());
+            // The update library gives its verdict on the file inside this call, so a verdict published now belongs to
+            // this download's stop, even if another download has started on this downloader meanwhile.
+            completing.Value = stop;
+            try
+            {
+                DownloadFileCompleted?.Invoke(this, ended.ToEventArgs());
+            }
+            finally
+            {
+                completing.Value = null;
+            }
         }
         finally
         {
@@ -199,6 +212,12 @@ internal sealed class BoundedPackageDownloader(HttpClient client, long limit)
         var running = Interlocked.Exchange(ref cancel, new());
         running.Cancel();
     }
+
+    /// <summary>
+    /// Publishes the update library's rejection to the stop of the download whose completion is being raised. Returns
+    /// false when no completion is being raised in this flow, or that stop is already decided.
+    /// </summary>
+    public bool PublishVerdict(Exception rejection) => completing.Value?.PublishVerdict(rejection) ?? false;
 
     /// <summary>The file name comes from the download address. The server is never asked for one.</summary>
     public Task<string?> RetrieveDestinationFileNameAsync(AppCastItem item) => Task.FromResult<string?>(null);
@@ -335,29 +354,37 @@ internal readonly record struct DownloadOutcome(Exception? Error, bool Cancelled
 }
 
 
+/// <summary>Whether a download stopped before a waiter's deadline.</summary>
+internal enum StopDecision
+{
+    Undecided,
+    InTime,
+    Late,
+}
+
+
+/// <summary>The decision about one stop and the update library's rejection, read and changed only together.</summary>
+internal sealed record StopState(StopDecision Decision, Exception? Verdict);
+
+
 /// <summary>
-/// How one download stops, and the one decision of whether it stopped before a waiter's deadline. The download claims
-/// "stopped in time" in the same call that completes <see cref="Stopped"/>; a deadline timer claims "late". Whichever
-/// claims first decides, so a download that stopped before the deadline can never be reported late because a
-/// continuation had not run yet. <see cref="Stopped"/> and <see cref="StoppedInTime"/> resume their awaiters
-/// asynchronously, so no waiter's code ever runs inside the download.
+/// How one download stops, and the one decision of whether it stopped before a waiter's deadline. The decision and the
+/// update library's rejection live in one immutable <see cref="StopState"/>, changed only by compare-and-exchange, so
+/// they can never interleave. The download claims "stopped in time" in the same call that completes
+/// <see cref="Stopped"/>; a deadline timer claims "late" and takes the rejection published by that same instant. A
+/// rejection published afterwards is refused here and goes to the late report. <see cref="Stopped"/> and
+/// <see cref="StoppedInTime"/> resume their awaiters asynchronously, so no waiter's code ever runs inside a claim.
 /// </summary>
-internal sealed class DownloadStop
+internal sealed class DownloadStop(Action<DownloadStop>? afterClaim = null)
 {
     #region Private Fields
-
-    private const int Undecided = 0;
-
-    private const int InTime = 1;
-
-    private const int Late = 2;
 
     private readonly TaskCompletionSource<DownloadOutcome> stopped =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private readonly TaskCompletionSource<bool> decided = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private int state;
+    private StopState state = new(StopDecision.Undecided, null);
 
     #endregion
 
@@ -368,8 +395,12 @@ internal sealed class DownloadStop
     /// <summary>True when the download stopped before the deadline was claimed; false when the deadline won.</summary>
     public Task<bool> StoppedInTime => decided.Task;
 
-    /// <summary>The update library's rejection, if it had given one when the deadline was claimed.</summary>
-    public Exception? VerdictAtDeadline { get; private set; }
+    public StopDecision Decision => Volatile.Read(ref state).Decision;
+
+    /// <summary>The rejection the update library had published when the deadline won, if any.</summary>
+    public Exception? VerdictAtDeadline => Volatile.Read(ref state) is { Decision: StopDecision.Late } late
+        ? late.Verdict
+        : null;
 
     #endregion
 
@@ -383,11 +414,39 @@ internal sealed class DownloadStop
         return done;
     }
 
+    /// <summary>
+    /// Records the update library's rejection while nothing is decided yet. Returns false once the stop is decided:
+    /// the rejection then belongs to the late report, not to the decision. The first rejection is kept.
+    /// </summary>
+    public bool PublishVerdict(Exception rejection)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref state);
+            if (current.Decision is not StopDecision.Undecided)
+            {
+                return false;
+            }
+
+            if (current.Verdict is not null)
+            {
+                return true;
+            }
+
+            var published = current with { Verdict = rejection };
+            if (ReferenceEquals(Interlocked.CompareExchange(ref state, published, current), current))
+            {
+                return true;
+            }
+        }
+    }
+
     /// <summary>Claims "stopped in time" if nothing was claimed yet, then completes the stop.</summary>
     public void Complete(DownloadOutcome outcome)
     {
-        if (Interlocked.CompareExchange(ref state, InTime, Undecided) == Undecided)
+        if (Claim(StopDecision.InTime) is not null)
         {
+            afterClaim?.Invoke(this);
             decided.TrySetResult(true);
         }
 
@@ -395,19 +454,42 @@ internal sealed class DownloadStop
     }
 
     /// <summary>
-    /// Claims "late" if the download has not stopped yet, and records the rejection the update library had given by
-    /// then. Returns whether this claim decided.
+    /// Claims "late" if the download has not stopped yet, taking the rejection published by this instant in the same
+    /// exchange. Returns whether this claim decided.
     /// </summary>
-    public bool ClaimDeadline(Func<Exception?> verdictSoFar)
+    public bool ClaimDeadline()
     {
-        if (Interlocked.CompareExchange(ref state, Late, Undecided) != Undecided)
+        if (Claim(StopDecision.Late) is null)
         {
             return false;
         }
 
-        VerdictAtDeadline = verdictSoFar();
+        afterClaim?.Invoke(this);
         decided.TrySetResult(false);
         return true;
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>Moves an undecided state to <paramref name="decision"/> with its rejection; null if decided.</summary>
+    private StopState? Claim(StopDecision decision)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref state);
+            if (current.Decision is not StopDecision.Undecided)
+            {
+                return null;
+            }
+
+            var claimed = current with { Decision = decision };
+            if (ReferenceEquals(Interlocked.CompareExchange(ref state, claimed, current), current))
+            {
+                return claimed;
+            }
+        }
     }
 
     #endregion

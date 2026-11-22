@@ -47,6 +47,8 @@ internal static class UpdatePackageTrust
 
     public const string StopProblem = "The update download failed in more than one way while it stopped.";
 
+    public const string RemovalProblem = "The stopped update download's attempt directory could not be removed.";
+
     public const string SettingProblem = "Drover could not save the update setting.";
 
     /// <summary>The start of the name of each download attempt's own directory.</summary>
@@ -568,10 +570,18 @@ internal static class UpdatePackageTrust
         // The update library's verdict on this attempt. Callbacks for any other attempt are ignored.
         var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Finished(AppCastItem item, string path) => _ = IsInAttempt(path, attempt) && verdict.TrySetResult(path);
-        void Failed(AppCastItem item, string? path, Exception exception) =>
-            _ = IsInAttempt(path, attempt) && verdict.TrySetException(exception);
-        void Corrupt(AppCastItem item, string path) =>
-            _ = IsInAttempt(path, attempt) && verdict.TrySetException(new InvalidDataException(SignatureProblem));
+        void Reject(string? path, Exception rejection)
+        {
+            // The same exception settles this call's verdict and is published to the download's stop, so a rejection
+            // reported with a timeout can be recognised by identity and is never reported twice.
+            if (IsInAttempt(path, attempt) && verdict.TrySetException(rejection))
+            {
+                downloader?.PublishVerdict(rejection);
+            }
+        }
+
+        void Failed(AppCastItem item, string? path, Exception exception) => Reject(path, exception);
+        void Corrupt(AppCastItem item, string path) => Reject(path, new InvalidDataException(SignatureProblem));
         void Cancelled(AppCastItem item, string path) => _ = IsInAttempt(path, attempt) && verdict.TrySetCanceled();
 
         void Unsubscribe()
@@ -653,18 +663,21 @@ internal static class UpdatePackageTrust
         string attempt,
         ILogger logger)
     {
-        if (!await StoppedWithin(stop, wait, time, () => FaultOf(verdict)))
+        if (!await StoppedWithin(stop, wait, time))
         {
             var early = stop.VerdictAtDeadline;
-            _ = RemoveAfterLateStop(stop.Stopped, verdict, early, attempt, logger);
+            List<Exception> reported = early is null ? [] : [early];
+            _ = RemoveAfterLateStop(stop.Stopped, verdict, reported, attempt, logger);
             var timeout = new TimeoutException(TeardownProblem);
             return early is null ? timeout : new AggregateException(TeardownProblem, timeout, early);
         }
 
         var outcome = await stop.Stopped;
-        var rejected = FaultOf(verdict);
-        RemoveTimedOutAttempt(attempt, outcome, rejected, late: false, logger);
-        return Causes(outcome, rejected) switch
+        var causes = Causes(outcome, FaultOf(verdict));
+
+        // Every cause is returned to the caller, so only a failure to remove the attempt is left to log.
+        RemoveTimedOutAttempt(attempt, outcome, [], late: false, logger);
+        return causes switch
         {
             [] => null,
             [var only] => only,
@@ -677,14 +690,10 @@ internal static class UpdatePackageTrust
     /// false when the time passes first. The decision is the one <see cref="DownloadStop"/> records; it is never
     /// read again from the stop task, and no continuation of the caller's takes part in it.
     /// </summary>
-    public static async Task<bool> StoppedWithin(
-        DownloadStop stop,
-        TimeSpan wait,
-        TimeProvider time,
-        Func<Exception?> verdictSoFar)
+    public static async Task<bool> StoppedWithin(DownloadStop stop, TimeSpan wait, TimeProvider time)
     {
         using var deadline = time.CreateTimer(
-            _ => stop.ClaimDeadline(verdictSoFar),
+            _ => stop.ClaimDeadline(),
             null,
             wait,
             Timeout.InfiniteTimeSpan);
@@ -752,17 +761,22 @@ internal static class UpdatePackageTrust
     }
 
     /// <summary>Removes a timed-out attempt once its download stopped after the deadline, and logs it.</summary>
-    /// <remarks>A rejection already returned to the caller with the timeout is not logged a second time.</remarks>
+    /// <remarks>
+    /// An exception already returned to the caller with the timeout is not logged again, whether it came as the
+    /// update library's rejection or as the download's own failure; every other cause is kept.
+    /// </remarks>
     private static async Task RemoveAfterLateStop(
         Task<DownloadOutcome> stopped,
         Task<string> verdict,
-        Exception? reported,
+        List<Exception> reported,
         string attempt,
         ILogger logger)
     {
         var outcome = await stopped;
-        var rejected = FaultOf(verdict);
-        var unreported = ReferenceEquals(rejected, reported) ? null : rejected;
+        List<Exception> unreported =
+        [
+            .. Causes(outcome, FaultOf(verdict)).Where(cause => !reported.Any(seen => ReferenceEquals(seen, cause))),
+        ];
         RemoveTimedOutAttempt(attempt, outcome, unreported, late: true, logger);
     }
 
@@ -805,19 +819,19 @@ internal static class UpdatePackageTrust
 
     /// <summary>
     /// Removes the directory of a timed-out attempt. A directory that cannot be removed is logged as a warning with
-    /// every cause. A late stop is logged when its attempt was removed, with any failure the download or the update
-    /// library reported, and says so when a partial file that could not be removed then was removed with the attempt.
+    /// <paramref name="causes"/>, the failures not yet reported to the caller. A late stop is logged when its attempt
+    /// was removed, with those causes, and says so when a partial file that could not be removed then was removed with
+    /// the attempt.
     /// </summary>
     private static void RemoveTimedOutAttempt(
         string attempt,
         DownloadOutcome outcome,
-        Exception? rejected,
+        List<Exception> causes,
         bool late,
         ILogger logger)
     {
         var ended = outcome.Finished ? "finished" : outcome.Cancelled ? "was cancelled" : "failed";
-        var causes = Causes(outcome, rejected);
-        var problem = late ? TeardownProblem : StopProblem;
+        var problem = late ? TeardownProblem : RemovalProblem;
         var notRemoved = RemoveDirectory(attempt);
 
         if (notRemoved is not null)
@@ -884,7 +898,7 @@ internal static class UpdatePackageTrust
         TimeProvider time,
         ILogger logger)
     {
-        if (downloader is not null && !await StoppedWithin(downloader.Stop, wait, time, () => null))
+        if (downloader is not null && !await StoppedWithin(downloader.Stop, wait, time))
         {
             logger.LogWarning("A rejected update download in {Attempt} did not stop, so it is left for now", attempt);
             return;
