@@ -32,31 +32,19 @@ internal static class Program
         var logger = logging.CreateLogger("Drover.Native.UITests");
         var folder = Directory.CreateTempSubdirectory("drover-ui-checks-").FullName;
 
-        if (args is ["android-proof", var artifacts])
+        try
         {
-            try
+            if (args is ["android-proof", var artifacts])
             {
                 return await Prove(Path.GetFullPath(artifacts), folder, logger) ? 0 : 1;
             }
-            catch (Exception exception) when (exception is NpgsqlException or TimeoutException)
-            {
-                logger.LogError("PostgreSQL did not accept a connection: {Message}", exception.Message);
-                return 1;
-            }
-            finally
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-        }
 
-        if (Target(args, folder) is not { } app)
-        {
-            logger.LogError("Name the app to check: desktop <dll>, android, android-proof <dir>, ios <app> <device>");
-            return 2;
-        }
+            if (Target(args, folder) is not { } app)
+            {
+                logger.LogError("Name the app to check: desktop <dll>, android, android-proof <dir>, ios <app> <device>");
+                return 2;
+            }
 
-        try
-        {
             var lines = await Check(app, folder, logger);
 
             foreach (var line in lines)
@@ -66,9 +54,9 @@ internal static class Program
 
             return lines.Contains(Passed) ? 0 : 1;
         }
-        catch (Exception exception) when (exception is NpgsqlException or TimeoutException)
+        catch (PostgresUnavailableException exception)
         {
-            logger.LogError("PostgreSQL did not accept a connection: {Message}", exception.Message);
+            logger.LogError(exception, "PostgreSQL did not accept a connection within {Limit}", exception.Limit);
             return 1;
         }
         finally
