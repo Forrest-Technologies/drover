@@ -3,6 +3,7 @@
   "id": "night-yard",
   "name": "Night Yard",
   "intent": "A dark, calm workspace where the bots are the lit things.",
+  "group": "expressive",
   "firstMode": "dark",
   "suits": [],
   "type": {

@@ -3,6 +3,7 @@
   "id": "blueprint",
   "name": "Blueprint",
   "intent": "Deep blue and a drawing grid, for people who like precise structure.",
+  "group": "expressive",
   "firstMode": "dark",
   "suits": [],
   "type": {

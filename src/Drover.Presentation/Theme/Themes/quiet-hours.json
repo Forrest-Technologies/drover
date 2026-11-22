@@ -3,6 +3,7 @@
   "id": "quiet-hours",
   "name": "Quiet Hours",
   "intent": "Low stimulus: soft color, no light effects, and every live state said in words.",
+  "group": "expressive",
   "firstMode": "dark",
   "suits": ["reduced-motion"],
   "type": {

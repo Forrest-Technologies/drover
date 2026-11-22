@@ -3,6 +3,7 @@
   "id": "signal-room",
   "name": "Signal Room",
   "intent": "Dense and exact, for people running many bots who want more on screen.",
+  "group": "expressive",
   "firstMode": "dark",
   "suits": [],
   "type": {
