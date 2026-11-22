@@ -18,6 +18,15 @@ public readonly record struct Rgb(byte Red, byte Green, byte Blue)
 
     public override string ToString() => $"#{Red:X2}{Green:X2}{Blue:X2}";
 
+    /// <summary>The hue of this color in the Oklab space, in degrees from 0 up to 360. A gray has no hue and reads as 0.</summary>
+    public double Hue()
+    {
+        var (_, a, b) = ToOklab(this);
+        var degrees = Math.Atan2(b, a) * 180 / Math.PI;
+
+        return degrees < 0 ? degrees + 360 : degrees;
+    }
+
     /// <summary>
     /// This color mixed with another in the Oklab space, the way the web client's style sheets mix a bot's head color
     /// with the visor or the light part of the head. <paramref name="share"/> is how much of this color is kept,

@@ -3,8 +3,8 @@ namespace Drover.Ui.Theme;
 /// <summary>
 /// Reads a theme file in the closed format: every key required, no other key, the types and bounds exact, colors
 /// only as <c>#RRGGBB</c>. These checks are small and local on purpose. The shared checker of issue 778 replaces
-/// them with the one both the device and the server run, and the accessibility gates of issue 423 add the contrast
-/// rules this reader does not know. A file that passes here is well formed, not yet known to be accessible.
+/// them with the one both the device and the server run. The contrast and touch rules this reader does not know are
+/// <see cref="ThemeGates"/>. A file that passes here is well formed, not yet known to be accessible.
 /// </summary>
 public static partial class ThemeFileReader
 {
