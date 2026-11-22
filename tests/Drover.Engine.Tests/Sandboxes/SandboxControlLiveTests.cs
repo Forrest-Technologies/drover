@@ -22,8 +22,9 @@ public sealed class SandboxControlLiveTests(PostgresServer postgres)
     private const string ScreenshotFolderVariable = "DROVER_TEST_SCREENSHOT_DIR";
 
     /// <summary>Where the pointer is and whether the left button is down, as the display itself says.</summary>
-    private const string PointerProbe =
-        """export DISPLAY=:0; xdotool getmouselocation --shell; xinput --query-state 'Virtual core pointer' | grep -o 'button\[1\]=[a-z]*'""";
+    private const string PointerProbe = $"export DISPLAY=:0; xdotool getmouselocation --shell; {ButtonProbe}";
+
+    private const string ButtonProbe = """xinput --query-state 'Virtual core pointer' | grep -o 'button\[1\]=[a-z]*'""";
 
     #endregion
 
@@ -120,7 +121,8 @@ public sealed class SandboxControlLiveTests(PostgresServer postgres)
                 services.AddE2BSandboxProvider(options =>
                 {
                     options.ApiKey = Environment.GetEnvironmentVariable(KeyVariable)
-                        ?? throw new InvalidOperationException($"Set {KeyVariable} to an E2B API key to run the live pointer test.");
+                        ?? throw new InvalidOperationException(
+                            $"Set {KeyVariable} to an E2B API key to run the live pointer test.");
                     options.Domain = Environment.GetEnvironmentVariable(DomainVariable) ?? options.Domain;
                 });
                 services.AddSandboxTools();
@@ -129,7 +131,12 @@ public sealed class SandboxControlLiveTests(PostgresServer postgres)
         {
             var bot = await db.Bots.SingleAsync(found => found.Id == world.BotId, RunWorld.Token);
             bot.SandboxPolicy = SandboxPolicy.Private;
-            bot.SandboxSettings = new SandboxSettings { Network = NetworkAccess.Off, IdleTimeoutMinutes = 3, Desktop = true };
+            bot.SandboxSettings = new SandboxSettings
+            {
+                Network = NetworkAccess.Off,
+                IdleTimeoutMinutes = 3,
+                Desktop = true,
+            };
             return true;
         });
         var host = world.StartHost();

@@ -83,8 +83,10 @@ internal sealed class SandboxPointerHolds(
 
     private const string TakenSentence = "Another person is holding that mouse button on this screen.";
 
-    private const string FullSentence =
-        "Too many mouse buttons are held on sandbox screens right now, so nothing was pressed. Let go of one, or try again in a moment.";
+    private const string FullWhat =
+        "Too many mouse buttons are held on sandbox screens right now, so nothing was pressed.";
+
+    private const string FullSentence = $"{FullWhat} Let go of one, or try again in a moment.";
 
     private static readonly TimeSpan limit = TimeSpan.FromSeconds(10);
 
@@ -317,7 +319,7 @@ internal sealed class SandboxPointerHolds(
             },
             cancellationToken);
 
-    /// <summary>Whether a button is held on this sandbox now. Cheap, so a bot's call can ask before every use.</summary>
+    /// <summary>Whether a button is held on this sandbox now. Cheap, so a bot's call asks before every use.</summary>
     public bool IsHeldOn(Guid spaceId, Guid sandboxId)
     {
         lock (sync)
@@ -844,7 +846,7 @@ internal sealed class SandboxPointerHolds(
         catch (OperationCanceledException)
         {
             logger.LogError(
-                "A mouse button on sandbox {SandboxId} could not be let go of within {Seconds} seconds as the server stopped",
+                "A mouse button on sandbox {SandboxId} was not let go of within {Seconds} seconds of the stop",
                 held.Request.SandboxId,
                 limit.TotalSeconds);
         }
@@ -889,7 +891,7 @@ internal sealed class SandboxPointerHolds(
             catch (OperationCanceledException)
             {
                 logger.LogError(
-                    "A screen was still busy after {Seconds} seconds as the server stopped; it lets go when that work ends",
+                    "A screen was busy {Seconds} seconds after the stop began; it lets go when that work ends",
                     limit.TotalSeconds);
                 return;
             }
@@ -927,7 +929,7 @@ internal sealed class SandboxPointerHolds(
         held.Timer = time.CreateTimer(_ => Expire(screen, held), null, due, Timeout.InfiniteTimeSpan);
     }
 
-    /// <summary>The time until the press is due: the nearer of its idle limit and its longest hold, never less than none.</summary>
+    /// <summary>The time until the press is due: the nearer of its two limits, and never below none.</summary>
     private TimeSpan Remaining(PressRecord held)
     {
         var idle = limit - time.GetElapsedTime(held.IdleFrom);
@@ -936,7 +938,7 @@ internal sealed class SandboxPointerHolds(
         return nearer > TimeSpan.Zero ? nearer : TimeSpan.Zero;
     }
 
-    /// <summary>The press is due when either limit has passed, by the monotonic clock. A stuck press is always due.</summary>
+    /// <summary>Due when either limit passed, by the monotonic clock. A stuck press is always due.</summary>
     private bool IsDue(PressRecord held) =>
         held.Stuck
         || time.GetElapsedTime(held.IdleFrom) >= limit

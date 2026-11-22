@@ -23,7 +23,9 @@ public enum ReleaseOutcome
     /// matters.</summary>
     Gone,
 
-    /// <summary>The sandbox could not be reached to let go: its row says it is paused or expired, or has no token.</summary>
+    /// <summary>
+    /// The sandbox could not be reached to let go: its row says it is paused or expired, or has no token.
+    /// </summary>
     Unreachable,
 }
 
@@ -71,8 +73,13 @@ public sealed class SandboxBroker(
     private const string MovedSentence =
         "The bot's sandbox changed while this was under way, so nothing was done. Try again.";
 
-    private const string HeldForBotSentence =
-        "A mouse button a person pressed on this sandbox's screen could not be let go of, so nothing was done in the sandbox. Try again in a moment; an owner or admin can let go of it or rebuild the sandbox from the bot's sandbox page.";
+    private const string HeldForBotWhat =
+        "A mouse button a person pressed on this sandbox's screen could not be let go of, so nothing was done.";
+
+    private const string HeldForBotNext =
+        "Try again in a moment; an owner or admin can let go of it or rebuild the sandbox from the bot's sandbox page.";
+
+    private const string HeldForBotSentence = $"{HeldForBotWhat} {HeldForBotNext}";
 
     private const string ClosedConversationSentence =
         "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.";
@@ -524,7 +531,8 @@ public sealed class SandboxBroker(
             return (ReleaseOutcome.Gone, null);
         }
 
-        if (row is not { State: SandboxState.Running, AccessSecretId: { } secretId } || row.ExpiresAt <= time.GetUtcNow())
+        if (row is not { State: SandboxState.Running, AccessSecretId: { } secretId }
+            || row.ExpiresAt <= time.GetUtcNow())
         {
             return (ReleaseOutcome.Unreachable, null);
         }
@@ -738,8 +746,8 @@ public sealed class SandboxBroker(
     /// Replaces the bot's sandbox with a fresh one: the live one is taken out of use and destroyed at the provider, its
     /// token deleted, and a new one made for the same sharing group, as when the Desktop setting changes. Its files are
     /// gone. With <paramref name="only"/>, the live one must be that sandbox and still live when it is taken out of
-    /// use, or nothing is done; <paramref name="begin"/> is called once that is checked. The bot's sandbox must still be
-    /// shared the same way when the new one is made, and a fresh one another call made meanwhile is left as it is.
+    /// use, or nothing is done; <paramref name="begin"/> is called once that is checked. The bot's sandbox must still
+    /// be shared the same way when the new one is made, and a fresh one another call made meanwhile is left as it is.
     /// </summary>
     public async Task Rebuild(
         SandboxCaller person,
@@ -785,7 +793,10 @@ public sealed class SandboxBroker(
             // Another call made the new one between the retirement and this lookup. It is already fresh, so it is not
             // touched here; only the old one is destroyed.
             await DestroyRetired(person.Tenant, fresh, cancellationToken);
-            logger.LogInformation("Sandbox {SandboxId} of bot {BotId} was already replaced during a rebuild", target.Row.Id, target.Owner.Id);
+            logger.LogInformation(
+                "Sandbox {SandboxId} of bot {BotId} was already replaced during a rebuild",
+                target.Row.Id,
+                target.Owner.Id);
             return;
         }
 
@@ -866,7 +877,14 @@ public sealed class SandboxBroker(
         }
 
         RefuseWhenMoved(target, only);
-        return await PrepareLocated(caller, target, keepAtLeast, screen, bound: only is not null, cancellationToken, environment);
+        return await PrepareLocated(
+            caller,
+            target,
+            keepAtLeast,
+            screen,
+            bound: only is not null,
+            cancellationToken,
+            environment);
     }
 
     /// <summary>

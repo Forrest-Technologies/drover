@@ -1462,7 +1462,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             (await pressing()).Refusal.Should().Be(SandboxControlRefusal.Refused);
         }
 
-        Pointer(provider).Should().HaveCount(2, "the row still read as paused, but the sandbox the press woke is let go of");
+        Pointer(provider).Should().HaveCount(2, "the row read as paused, but the sandbox the press woke is let go of");
         Pointer(provider)[1].Should().Equal("mouseup", "1");
     }
 
@@ -1546,7 +1546,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
         (await resume).Refusal.Should().Be(SandboxControlRefusal.None);
         (await press).Refusal.Should().Be(SandboxControlRefusal.None);
-        Pointer(provider).Should().ContainSingle("the press came after the resume began, so the resume let go of nothing")
+        Pointer(provider).Should().ContainSingle("the press came after the resume began, so it let go of nothing")
             .Which.Should().Contain("mousedown");
     }
 
@@ -1671,7 +1671,8 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     {
         var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var provider = PointerProvider((command, token) => IsPress(command) ? HoldCommand(running, release, token) : null);
+        var provider = PointerProvider((command, token) =>
+            IsPress(command) ? HoldCommand(running, release, token) : null);
         await using var world = await ControlWorld(provider, desktop: true);
         var control = Control(world);
         await StartDesktop(world, control, provider);
@@ -1686,18 +1687,21 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await clicking;
 
         Pointer(provider)
-            .Select(arguments => arguments.Contains("mousedown") ? "press" : arguments.Contains("mouseup") ? "release" : "click")
-            .Should().Equal(["press", "release", "click"], "the bot never works on a display with a person's button down");
+            .Select(arguments => arguments.Contains("mousedown") ? "press"
+                : arguments.Contains("mouseup") ? "release"
+                : "click")
+            .Should().Equal(["press", "release", "click"], "a bot never works with a person's button down");
     }
 
     [Fact]
-    public async Task Input_past_the_spaces_bound_is_refused_before_anything_reaches_the_provider_and_letting_go_still_goes()
+    public async Task Input_past_the_spaces_bound_is_refused_before_reaching_the_provider_and_letting_go_still_goes()
     {
         var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var provider = PointerProvider((command, token) => command.Program == "xdotool" && command.Arguments.Contains("click")
-            ? HoldCommand(running, release, token)
-            : null);
+        var provider = PointerProvider((command, token) =>
+            command.Program == "xdotool" && command.Arguments.Contains("click")
+                ? HoldCommand(running, release, token)
+                : null);
         await using var world = await ControlWorld(provider, desktop: true);
         var control = Control(world);
         await StartDesktop(world, control, provider);

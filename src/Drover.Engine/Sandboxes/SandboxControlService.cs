@@ -48,7 +48,7 @@ public sealed class SandboxControlService(
     private const string NoSandboxYet = "This bot has no sandbox yet. Run a command in the terminal to start one.";
 
     private const string TooMuchInput =
-        "Too much input is under way for this space's sandboxes right now, so this was not sent. Try again in a moment.";
+        "Too much input is under way for this space's sandboxes right now, so this was not sent. Try again soon.";
 
     /// <summary>The longest a person's command runs, below the deployment's own limit: the request waits for it.</summary>
     private static readonly TimeSpan commandLimit = TimeSpan.FromMinutes(5);
