@@ -51,6 +51,21 @@ const server = http.createServer(async (request, response) => {
         response.writeHead(404).end();
     }
 });
+// Some Playwright calls (keyboard input, evaluate, close) have no timeout of their own. If the browser stops answering,
+// this watchdog ends the check with the last step it reached instead of letting it hang until the job limit.
+const stallLimit = 5 * 60 * 1000;
+let lastStep = 'starting the browser';
+let stallTimer;
+function progress(step) {
+    lastStep = step;
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+        process.stderr.write(`The browser check made no progress for ${stallLimit / 60000} minutes after: ${lastStep}\n`);
+        process.exit(1);
+    }, stallLimit);
+    stallTimer.unref();
+}
+progress(lastStep);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox'] });
@@ -700,6 +715,7 @@ try {
                     await checkFieldHints(page, name);
                 }
                 process.stdout.write(`${name} ${width} ${theme}: passed\n`);
+                progress(`${name} ${width} ${theme}`);
                 if (heldRoute) {
                     await heldRoute.fulfill({ status: 503, json: { title: 'Sample server is unavailable.', status: 503 } });
                     heldRoute = null;
@@ -708,13 +724,16 @@ try {
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
+            progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
     }
     assert.equal(errors.length, 0, errors.join('\n'));
 } finally {
+    progress('closing the browser');
     await browser.close();
     await new Promise(resolve => server.close(resolve));
+    clearTimeout(stallTimer);
 }
 
 // Browser Back and closing the tab both ask before unsaved edits are dropped, and neither asks once there are none.
@@ -808,7 +827,8 @@ async function composerRingCheck(page) {
         await (await farAway(clip)).focus();
         await page.waitForTimeout(200);
         const elsewhere = await page.screenshot({ clip });
-        const { left, top, right, bottom, count } = await ringBetween(inField, onButton, elsewhere);
+        const { left, top, right, bottom, count } = await withDeadline(ringBetween(inField, onButton, elsewhere), 20000,
+            'the focus ring pictures to be compared');
         const outset = composerRingOutset[label] ?? 0;
         const expected = {
             left: Math.floor(box.x) - outset,
@@ -1263,6 +1283,7 @@ async function checkConversationSearch(page, width) {
         return box.height > 0 && box.top >= 80 && box.bottom <= 900;
     }, null, { timeout: 10000 });
     process.stdout.write(`conversation-search ${width}: passed\n`);
+    progress(`conversation-search ${width}`);
 }
 
 /**
