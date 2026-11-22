@@ -37,7 +37,7 @@ internal sealed class OutputBox : Grid
         {
             Content = words,
             Padding = Tokens.Space("DvSpace3", "DvSpace3"),
-            MaxHeight = Tokens.Number("DvOutputLines") * (double)Styles.Dictionary["DvLine14"],
+            MaxHeight = Tokens.Number("DvOutputLines") * Tokens.Number("DvLine14"),
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollMode = ScrollMode.Auto,

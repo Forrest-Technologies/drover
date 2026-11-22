@@ -5,6 +5,10 @@ public sealed class ThemeResolutionTests
 {
     #region Private Fields
 
+    private static readonly string[] lineTokens = ["line-0", "line-1", "line-2", "line-h1", "line-h2", "line-h3"];
+
+    private static readonly string[] namedTokens = ["line-0", "line-2", "line-h1"];
+
     private static readonly Dictionary<int, string> weightNames = new() { [400] = "Normal", [500] = "Medium", [600] = "SemiBold", [700] = "Bold" };
 
     #endregion
@@ -41,7 +45,7 @@ public sealed class ThemeResolutionTests
 
         foreach (var (token, value) in resolved)
         {
-            var name = token.StartsWith("size-", StringComparison.Ordinal) ? $"DvText{value}" : NativeTokens.NameOf(token);
+            var name = TokenNames.Of(token);
             if (!native.TryGetValue(name, out var found))
             {
                 continue;
@@ -54,7 +58,17 @@ public sealed class ThemeResolutionTests
         }
 
         problems.Should().BeEmpty();
-        resolved.Keys.Where(token => native.ContainsKey(NativeTokens.NameOf(token))).Should().HaveCountGreaterThan(30, "most numbers are compared");
+        resolved.Keys.Where(token => native.ContainsKey(TokenNames.Of(token))).Should().HaveCountGreaterThan(30, "most numbers are compared");
+    }
+
+    [Fact]
+    public void Night_yard_resolves_the_line_heights_and_leads_the_style_file_held_as_constants()
+    {
+        var numbers = BuiltInThemes.NightYard.Resolve(ColorMode.Dark).Numbers;
+
+        lineTokens.Select(token => numbers[token]).Should().Equal(18, 19.5, 21, 35, 25, 20);
+        (numbers["lead-body"], numbers["lead-mono"]).Should().Be((2, 1));
+        namedTokens.Select(TokenNames.Of).Should().Equal("DvLine12", "DvLine14", "DvLineH1");
     }
 
     [Fact]

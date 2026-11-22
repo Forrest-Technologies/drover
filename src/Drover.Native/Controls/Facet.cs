@@ -25,6 +25,7 @@ public sealed class Facet : Grid
     {
         // The shapes sit on a canvas, which asks for no room of its own: the frame takes its size from what is
         // put in it, and the shapes follow that size, never the other way round.
+        Cut = Tokens.Number("DvCut");
         backdrop.Children.Add(surface);
         backdrop.Children.Add(ring);
         SetRowSpan(backdrop, EveryCell);

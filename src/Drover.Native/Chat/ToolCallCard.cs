@@ -161,7 +161,7 @@ public sealed class ToolCallCard : Grid
         framed.Children.Add(endedEdge);
 
         under.FontSize = Tokens.Number("DvText13");
-        under.LineHeight = (double)Styles.Dictionary["DvLine13"];
+        under.LineHeight = Tokens.Number("DvLine13");
         underBox.Child = under;
         underBox.Padding = Tokens.Space("DvSpace3", "DvSpace2");
 

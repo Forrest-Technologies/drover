@@ -16,6 +16,8 @@ public static class BuiltInThemes
 
     private static readonly Lazy<IReadOnlyDictionary<string, ThemeFile>> themes = new(Load);
 
+    private static readonly ConcurrentDictionary<string, ThemeFile> samples = new();
+
     #endregion
 
     #region Properties
@@ -29,7 +31,13 @@ public static class BuiltInThemes
     #region Public Methods
 
     /// <summary>The theme with this id, or null when the app has none by that name.</summary>
-    public static ThemeFile? Get(string id) => themes.Value.GetValueOrDefault(id);
+    public static ThemeFile? Get(string id) => themes.Value.GetValueOrDefault(id) ?? samples.GetValueOrDefault(id);
+
+    /// <summary>
+    /// Makes a theme that is not part of the app known by its id, for the screen checks that switch themes. It is
+    /// not in <see cref="All"/>, and nothing in a shipped build calls this.
+    /// </summary>
+    internal static void AddSample(ThemeFile sample) => samples[sample.Id] = sample;
 
     #endregion
 

@@ -118,7 +118,7 @@ public sealed class CodeBlock : Grid
         body.HorizontalScrollBarVisibility = Wraps ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
         body.VerticalScrollMode = Wraps ? ScrollMode.Auto : ScrollMode.Disabled;
         body.VerticalScrollBarVisibility = Wraps ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
-        body.MaxHeight = Wraps ? Tokens.Number("DvOutputLines") * (double)Styles.Dictionary["DvLine14"] : double.PositiveInfinity;
+        body.MaxHeight = Wraps ? Tokens.Number("DvOutputLines") * Tokens.Number("DvLine14") : double.PositiveInfinity;
     }
 
     private void Paint()
