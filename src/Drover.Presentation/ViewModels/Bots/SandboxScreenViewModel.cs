@@ -69,7 +69,7 @@ public sealed partial class SandboxScreenViewModel(
     // How long a touch waits for a key's request on its way: a pause at a time, at most this many.
     private const int SendingWaits = 100;
 
-    private static readonly TimeSpan SendingPause = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan sendingPause = TimeSpan.FromMilliseconds(50);
 
     #endregion
 
@@ -795,7 +795,7 @@ public sealed partial class SandboxScreenViewModel(
     {
         for (var tries = 0; Sending && tries < SendingWaits; tries++)
         {
-            await Task.Delay(SendingPause);
+            await Task.Delay(sendingPause);
         }
     }
 
