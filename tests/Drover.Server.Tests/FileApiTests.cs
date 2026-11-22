@@ -39,6 +39,35 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     #region Uploading And Sending
 
     [Fact]
+    public async Task An_unwritable_store_reports_the_directory_at_startup_and_a_safe_upload_problem()
+    {
+        var root = DroverFactory.FilesPath(KeyRingPath);
+        await File.WriteAllTextAsync(root, string.Empty, Token);
+        try
+        {
+            var (client, spaceId, threadId, _) = await Conversation("alice");
+            var diagnostic = $"Files directory not writable: {root}";
+            Logs.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Error && entry.Text.TrimEnd() == diagnostic);
+            var name = $"private-{Guid.NewGuid():N}.txt";
+            var words = $"private-{Guid.NewGuid():N}";
+            using var http = NewRelay(client);
+            var api = new DroverApi(http) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
+            using var body = new MemoryStream(Encoding.UTF8.GetBytes(words));
+            var upload = () => api.UploadFile(spaceId, threadId, name, body, body.Length, cancellationToken: Token);
+
+            var failure = (await upload.Should().ThrowAsync<DroverApiException>()).Which;
+            failure.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+            failure.Refusal.Should().Be("storage_unavailable");
+            failure.Message.Should().Be("The server could not store this file. Contact the server administrator.");
+            Logs.AllText().Should().NotContain(name).And.NotContain(words);
+        }
+        finally
+        {
+            File.Delete(root);
+        }
+    }
+
+    [Fact]
     public async Task A_person_uploads_a_text_file_and_sends_it_with_a_message()
     {
         var (client, spaceId, threadId, _) = await Conversation("alice");

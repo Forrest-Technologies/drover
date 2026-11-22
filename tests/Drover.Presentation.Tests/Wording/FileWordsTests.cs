@@ -43,6 +43,16 @@ public sealed class FileWordsTests
         FileWords.RefusalFrom(code).Should().Be(refusal);
 
     [Fact]
+    public void A_storage_refusal_explains_why_the_attachment_cannot_be_sent()
+    {
+        var reason = FileWords.RefusalFrom(FileRefusals.StorageUnavailable);
+        var item = new AttachmentItem(Guid.NewGuid(), "photo.png", 68, UploadPhase.Ready, 100, reason);
+
+        FileWords.Status(item, "Helper").Should().Be("The server could not store this file. Contact the server administrator.");
+        FileWords.CanSend([item]).Should().BeFalse();
+    }
+
+    [Fact]
     public void An_upload_whose_progress_cannot_be_measured_says_uploading_without_a_number()
     {
         var item = new AttachmentItem(Guid.NewGuid(), "a.txt", 10, UploadPhase.Uploading, 0);

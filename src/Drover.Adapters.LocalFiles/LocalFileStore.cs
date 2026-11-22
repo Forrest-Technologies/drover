@@ -21,27 +21,60 @@ public sealed class LocalFileStore(string root) : IFileStore
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>Checks the configured root using the same account and private file mode as an upload.</summary>
+    public void CheckWritable()
+    {
+        CreateFolder(root);
+        using var probe = OpenNew(Path.Combine(root, $".{Guid.NewGuid():N}.probe"), FileOptions.DeleteOnClose);
+        probe.WriteByte(0);
+        probe.Flush();
+    }
+
+    #endregion
+
     #region Interface Implementations
 
     public async Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken)
     {
         var path = PathOf(spaceId, storageKey);
         var folder = Path.GetDirectoryName(path)!;
-        CreateFolder(folder);
         var temporary = Path.Combine(folder, $".{Guid.NewGuid():N}.partial");
-
+        var readingSource = false;
         try
         {
-            await using (var file = OpenNew(temporary))
+            CreateFolder(folder);
+            var file = OpenNew(temporary);
+            try
             {
-                await content.CopyToAsync(file, BufferSize, cancellationToken);
-            }
+                await using (file)
+                {
+                    var buffer = new byte[BufferSize];
+                    while (true)
+                    {
+                        readingSource = true;
+                        var count = await content.ReadAsync(buffer.AsMemory(), cancellationToken);
+                        readingSource = false;
+                        if (count == 0)
+                        {
+                            break;
+                        }
 
-            File.Move(temporary, path, overwrite: true);
+                        await file.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+                    }
+                }
+
+                File.Move(temporary, path, overwrite: true);
+            }
+            finally
+            {
+                File.Delete(temporary);
+            }
         }
-        finally
+        catch (Exception exception) when (!readingSource && exception is IOException or UnauthorizedAccessException)
         {
-            File.Delete(temporary);
+            throw new FileStorageUnavailableException(exception.GetType());
         }
     }
 
@@ -84,9 +117,7 @@ public sealed class LocalFileStore(string root) : IFileStore
     [UnsupportedOSPlatform("windows")]
     private static void CreateFolderForOwner(string folder)
     {
-        var parent = Path.GetDirectoryName(folder)!;
-
-        if (!Directory.Exists(parent))
+        if (Path.GetDirectoryName(folder) is { } parent && !Directory.Exists(parent))
         {
             Directory.CreateDirectory(parent, OwnerFolderMode);
         }
@@ -94,7 +125,7 @@ public sealed class LocalFileStore(string root) : IFileStore
         Directory.CreateDirectory(folder, OwnerFolderMode);
     }
 
-    private static FileStream OpenNew(string path)
+    private static FileStream OpenNew(string path, FileOptions optionsForFile = FileOptions.None)
     {
         var options = new FileStreamOptions
         {
@@ -102,7 +133,7 @@ public sealed class LocalFileStore(string root) : IFileStore
             Access = FileAccess.Write,
             Share = FileShare.None,
             BufferSize = BufferSize,
-            Options = FileOptions.Asynchronous,
+            Options = FileOptions.Asynchronous | optionsForFile,
         };
 
         if (!OperatingSystem.IsWindows())
