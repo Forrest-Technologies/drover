@@ -156,9 +156,13 @@ preview build or to the checks every pull request runs.
 **A manual proof on an emulator.** The workflow `.github/workflows/android-proof.yml` runs only when someone starts it
 (Actions, "Android proof", "Run workflow"): never on a push, a pull request or a tag. It runs on a GitHub-hosted
 runner. It proves the branch or tag it is started on and takes no input: choose it under "Use workflow from", or run
-`gh workflow run android-proof.yml --ref <branch>`. GitHub lists a manual workflow only once its file is on the
-repository's default branch, and runs the version of the file on the ref it is given, so the branch must contain the
-workflow and the harness. Each of the pull requests that fix the
+`gh workflow run android-proof.yml --ref <branch>`. The branch must contain the workflow and the harness. GitHub's
+documentation says a `workflow_dispatch` workflow must be on the default branch to be dispatched, and the Actions
+tab lists only workflows whose file is there. The repository already knows this workflow (it is registered under its
+file name), because runs of it were made from the branch that added it, so whether a dispatch with `--ref <branch>`
+is accepted before the file is on `main` is not yet confirmed. The sure way is the file on `main`: once it is there,
+the command above works for every branch. Until then a failed dispatch ("workflow not found" or HTTP 404) means the
+file has not reached `main`, and the proof is not run by pushing a trigger to a branch. Each of the pull requests that fix the
 upload or the touch drag links the run that proves it; without that run the fix is not called fixed.
 
 The run builds the app made for the screen checks (the preview app refuses a test server's certificate, as it must),
