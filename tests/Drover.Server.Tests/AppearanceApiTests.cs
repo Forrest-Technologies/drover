@@ -27,8 +27,11 @@ public sealed class AppearanceApiTests(PostgresServer postgres) : ServerTestBase
     {
         var alice = await SignIn(await SeedPerson("alice"));
 
-        (await alice.Put(Path, new AppearanceSetting("night-yard", "light"))).StatusCode.Should().Be(HttpStatusCode.NoContent);
-        (await alice.Put(Path, new AppearanceSetting("paper-ledger", "system"))).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var first = await alice.Put(Path, new AppearanceSetting("night-yard", "light"));
+        var second = await alice.Put(Path, new AppearanceSetting("paper-ledger", "system"));
+
+        first.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        second.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         (await GetFor<AppearanceSetting>(alice, Path)).Should().Be(new AppearanceSetting("paper-ledger", "system"));
     }
@@ -70,14 +73,16 @@ public sealed class AppearanceApiTests(PostgresServer postgres) : ServerTestBase
         var stranger = NewClient();
 
         (await stranger.Get(Path)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await stranger.Put(Path, new AppearanceSetting("night-yard", "dark"))).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var kept = await stranger.Put(Path, new AppearanceSetting("night-yard", "dark"));
+        kept.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     #endregion
 
     #region Private Methods
 
-    private Task<ApiClient> SignIn((string Email, string Password, Guid UserId, Guid SpaceId) person) => SignIn(person.Email, person.Password);
+    private Task<ApiClient> SignIn((string Email, string Password, Guid UserId, Guid SpaceId) person) =>
+        SignIn(person.Email, person.Password);
 
     private async Task<ApiClient> SignIn(string email, string password)
     {

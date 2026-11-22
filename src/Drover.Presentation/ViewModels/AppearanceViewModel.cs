@@ -38,21 +38,25 @@ public sealed partial class AppearanceViewModel(
 
     #region Properties
 
-    /// <summary>The themes the app has, in groups, in the order the app lists them. A group with no theme is left out.</summary>
+    /// <summary>
+    /// The themes the app has, in groups, in the order the app lists them. A group with no theme is left out.
+    /// </summary>
     public IReadOnlyList<ThemeGroupView> Groups =>
     [
         .. groupNames
-            .Select(group => new ThemeGroupView(group.Name, [.. BuiltInThemes.All.Where(file => file.Group == group.Group).Select(Option)]))
+            .Select(group => new ThemeGroupView(group.Name, ThemesIn(group.Group)))
             .Where(group => group.Themes.Count > 0),
     ];
 
-    public IReadOnlyList<SegmentOption<string>> Modes => [.. modeNames.Select(name => new SegmentOption<string>(name.Mode.ToString(), name.Name))];
+    public IReadOnlyList<SegmentOption<string>> Modes =>
+        [.. modeNames.Select(name => new SegmentOption<string>(name.Mode.ToString(), name.Name))];
 
     /// <summary>The mode in use, as the value of its option in <see cref="Modes"/>.</summary>
     public string Mode => theme.Choice.Mode.ToString();
 
     /// <summary>The words of the way back, or null while there is nothing to go back to.</summary>
-    public string? BackLabel => trail.Before is { } before && before != theme.Choice ? $"Back to {Describe(before)}" : null;
+    public string? BackLabel =>
+        trail.Before is { } before && before != theme.Choice ? $"Back to {Describe(before)}" : null;
 
     public bool UsesEverywhere => sync.Follows;
 
@@ -61,13 +65,10 @@ public sealed partial class AppearanceViewModel(
         ? "This device uses the theme you keep for all your devices, and a theme you choose here is kept for them."
         : "This device keeps its own theme. Turn this on to use the same theme on every device where it is on.";
 
-    /// <summary>One sentence for each thing the device asks for that a theme suits, naming those themes. Nothing is hidden.</summary>
-    public IReadOnlyList<string> Suggestions =>
-    [
-        .. asked.Select(request => (Request: request, Themes: BuiltInThemes.All.Where(file => file.Suits.Contains(request)).Select(file => file.Name).ToList()))
-            .Where(pair => pair.Themes.Count > 0)
-            .Select(pair => $"{Asked(pair.Request)} {Joined(pair.Themes)} {(pair.Themes.Count == 1 ? "suits" : "suit")} that."),
-    ];
+    /// <summary>
+    /// One sentence for each thing the device asks for that a theme suits, naming those themes. Nothing is hidden.
+    /// </summary>
+    public IReadOnlyList<string> Suggestions => [.. asked.Select(Suggestion).OfType<string>()];
 
     #endregion
 
@@ -123,8 +124,12 @@ public sealed partial class AppearanceViewModel(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(AppearanceViewModel));
-            Problem = $"Your theme was not kept for your other devices. {Failures.Sentence(exception, "Check that the server is running, then try again.")}";
+            logger.LogWarning(
+                exception,
+                "A request to the server failed on the {Screen} screen",
+                nameof(AppearanceViewModel));
+            var reason = Failures.Sentence(exception, "Check that the server is running, then try again.");
+            Problem = $"Your theme was not kept for your other devices. {reason}";
         }
         finally
         {
@@ -158,7 +163,24 @@ public sealed partial class AppearanceViewModel(
         OnPropertyChanged(nameof(EverywhereAbout));
     }
 
+    private List<ThemeOptionView> ThemesIn(ThemeGroup group) =>
+        [.. BuiltInThemes.All.Where(file => file.Group == group).Select(Option)];
+
     private ThemeOptionView Option(ThemeFile file) => new(file, file.Id == theme.Theme.Id);
+
+    // The sentence for one request, or null when no theme the app has suits it.
+    private static string? Suggestion(DeviceRequest request)
+    {
+        List<string> suited =
+            [.. BuiltInThemes.All.Where(file => file.Suits.Contains(request)).Select(file => file.Name)];
+
+        return suited.Count switch
+        {
+            0 => null,
+            1 => $"{Asked(request)} {suited[0]} suits that.",
+            _ => $"{Asked(request)} {Joined(suited)} suit that.",
+        };
+    }
 
     private static string Describe(ThemeChoice choice)
     {

@@ -38,7 +38,8 @@ public sealed class ThemeSample : SKCanvasElement
 
     #region Properties
 
-    public static readonly DependencyProperty ThemeProperty = Dp.Register<ThemeSample, ThemeFile?>(nameof(Theme), null, sample => sample.Invalidate());
+    public static readonly DependencyProperty ThemeProperty =
+        Dp.Register<ThemeSample, ThemeFile?>(nameof(Theme), null, sample => sample.Invalidate());
 
     /// <summary>The theme to draw.</summary>
     public ThemeFile? Theme
@@ -80,7 +81,8 @@ public sealed class ThemeSample : SKCanvasElement
         DrawFrame(canvas, theme, set, composer, "bg-1", "text-3", theme.Shape.Cut.Control, theme.Shape.ControlRadius);
         DrawText(canvas, set, "Write a message", "text-3", composer.Left + 10, composer.MidY + 4, size - 1);
         var send = SKRect.Create(composer.Right - 44, composer.Top + 5, 36, composer.Height - 10);
-        DrawFrame(canvas, theme, set, send, "ember", "ember", Math.Min(theme.Shape.Cut.Control, 6), theme.Shape.ControlRadius);
+        var sendCut = Math.Min(theme.Shape.Cut.Control, 6);
+        DrawFrame(canvas, theme, set, send, "ember", "ember", sendCut, theme.Shape.ControlRadius);
     }
 
     private static SKColor Paint(ThemeTokenSet set, string token)
@@ -123,10 +125,24 @@ public sealed class ThemeSample : SKCanvasElement
     }
 
     // The corner language of the theme: two cut corners, a small radius, or ticks drawn as lines at the cut corners.
-    private static void DrawFrame(SKCanvas canvas, ThemeFile theme, ThemeTokenSet set, SKRect box, string fill, string edge, int cut, int radius)
+    private static void DrawFrame(
+        SKCanvas canvas,
+        ThemeFile theme,
+        ThemeTokenSet set,
+        SKRect box,
+        string fill,
+        string edge,
+        int cut,
+        int radius)
     {
         using var surface = new SKPaint { Color = Paint(set, fill), IsAntialias = true };
-        using var line = new SKPaint { Color = Paint(set, edge), IsAntialias = true, IsStroke = true, StrokeWidth = theme.Shape.Line };
+        using var line = new SKPaint
+        {
+            Color = Paint(set, edge),
+            IsAntialias = true,
+            IsStroke = true,
+            StrokeWidth = theme.Shape.Line,
+        };
 
         switch (theme.Shape.Corners)
         {
@@ -152,7 +168,13 @@ public sealed class ThemeSample : SKCanvasElement
         {
             var tick = Math.Min(cut, box.Height / 2);
             var reach = theme.Shape.Registration ? 3 : 0;
-            using var mark = new SKPaint { Color = Paint(set, "text-3"), IsAntialias = true, IsStroke = true, StrokeWidth = 2 };
+            using var mark = new SKPaint
+            {
+                Color = Paint(set, "text-3"),
+                IsAntialias = true,
+                IsStroke = true,
+                StrokeWidth = 2,
+            };
             canvas.DrawLine(box.Left - reach, box.Top, box.Left + tick, box.Top, mark);
             canvas.DrawLine(box.Left, box.Top - reach, box.Left, box.Top + tick, mark);
             canvas.DrawLine(box.Right + reach, box.Bottom, box.Right - tick, box.Bottom, mark);
@@ -161,8 +183,21 @@ public sealed class ThemeSample : SKCanvasElement
     }
 
     // Two cut corners, top left and bottom right, as the frames of the app have.
-    private static string Faceted(SKRect box, float cut) =>
-        $"M{box.Left + cut} {box.Top}L{box.Right} {box.Top}L{box.Right} {box.Bottom - cut}L{box.Right - cut} {box.Bottom}L{box.Left} {box.Bottom}L{box.Left} {box.Top + cut}Z";
+    private static string Faceted(SKRect box, float cut)
+    {
+        var (left, top, right, bottom) = (box.Left, box.Top, box.Right, box.Bottom);
+        string[] corners =
+        [
+            $"M{left + cut} {top}",
+            $"L{right} {top}",
+            $"L{right} {bottom - cut}",
+            $"L{right - cut} {bottom}",
+            $"L{left} {bottom}",
+            $"L{left} {top + cut}",
+        ];
+
+        return $"{string.Concat(corners)}Z";
+    }
 
     // A head at rest from the stored parts, in the theme's head color, with its visor dark.
     private static void DrawHead(SKCanvas canvas, ThemeTokenSet set, SKPoint at)
@@ -188,7 +223,14 @@ public sealed class ThemeSample : SKCanvasElement
         canvas.Restore();
     }
 
-    private static void DrawText(SKCanvas canvas, ThemeTokenSet set, string words, string token, float x, float baseline, float size)
+    private static void DrawText(
+        SKCanvas canvas,
+        ThemeTokenSet set,
+        string words,
+        string token,
+        float x,
+        float baseline,
+        float size)
     {
         using var font = new SKFont { Size = size };
         using var paint = new SKPaint { Color = Paint(set, token), IsAntialias = true };

@@ -58,7 +58,8 @@ public sealed class ThemeFileTests
     public void A_group_is_expressive_or_professional_and_nothing_else()
     {
         ProblemsOf(Edit(night => night["group"] = "playful")).Should().ContainSingle().Which.Should().Contain("group");
-        ProblemsOf(Edit(night => night.AsObject().Remove("group"))).Should().ContainSingle().Which.Should().Contain("group");
+        ProblemsOf(Edit(night => night.AsObject().Remove("group")))
+            .Should().ContainSingle().Which.Should().Contain("group");
     }
 
     [Fact]

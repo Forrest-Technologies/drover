@@ -35,7 +35,12 @@ public sealed partial class ThemeSync : ObservableObject, IDisposable
 
     // A traditional constructor, because the sync listens to the theme and the session from the moment it exists.
 #pragma warning disable IDE0290
-    public ThemeSync(ThemeModel theme, SessionState session, DroverApi api, IDeviceSettings settings, ILogger<ThemeSync> logger)
+    public ThemeSync(
+        ThemeModel theme,
+        SessionState session,
+        DroverApi api,
+        IDeviceSettings settings,
+        ILogger<ThemeSync> logger)
 #pragma warning restore IDE0290
     {
         (this.theme, this.session, this.api, this.settings, this.logger) = (theme, session, api, settings, logger);
@@ -61,7 +66,9 @@ public sealed partial class ThemeSync : ObservableObject, IDisposable
     /// <summary>This device keeps its own theme from now on. The theme kept for the others stays as it is.</summary>
     public void KeepOnThisDevice() => Keep(false);
 
-    /// <summary>Takes the theme kept for the person's devices, when this device follows it and the person is signed in.</summary>
+    /// <summary>
+    /// Takes the theme kept for the person's devices, when this device follows it and the person is signed in.
+    /// </summary>
     public async Task TakeKept(CancellationToken cancellationToken = default)
     {
         if (!Follows || session.Current is null)
@@ -71,7 +78,9 @@ public sealed partial class ThemeSync : ObservableObject, IDisposable
 
         try
         {
-            if (await api.GetAppearance(cancellationToken) is { } kept && kept.ToChoice() is { } choice && choice != theme.Choice)
+            if (await api.GetAppearance(cancellationToken) is { } kept
+                && kept.ToChoice() is { } choice
+                && choice != theme.Choice)
             {
                 taking = true;
                 theme.Choose(choice);

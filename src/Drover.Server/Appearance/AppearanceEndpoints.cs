@@ -6,13 +6,20 @@ namespace Drover.Server.Appearance;
 /// </summary>
 public static class AppearanceEndpoints
 {
+    #region Private Fields
+
+    private const string NotASetting =
+        "Not a theme and a mode: the id is lowercase words joined by hyphens; the mode is system, dark or light.";
+
+    #endregion
+
     #region Public Methods
 
     public static IEndpointRouteBuilder MapAppearanceEndpoints(this RouteGroupBuilder api)
     {
         var appearance = api.MapGroup("/account/appearance").RequireAuthorization();
         appearance.MapGet("/", Get).WithName("GetAppearance")
-            .WithSummary("The theme the signed-in person keeps for every device that follows their account, or 404 when they keep none.");
+            .WithSummary("The theme the signed-in person keeps for all their devices, or 404 when they keep none.");
         appearance.MapPut("/", Set)
             .WithBodyLimit(RequestLimits.Account)
             .WithName("SetAppearance")
@@ -24,7 +31,9 @@ public static class AppearanceEndpoints
 
     #region Endpoints
 
-    private static async Task<Results<Ok<AppearanceSetting>, NotFound>> Get(HttpContext context, AppearanceService appearance) =>
+    private static async Task<Results<Ok<AppearanceSetting>, NotFound>> Get(
+        HttpContext context,
+        AppearanceService appearance) =>
         await appearance.Get(context.User.GetUserId(), context.RequestAborted) is { } kept
             ? TypedResults.Ok(kept)
             : TypedResults.NotFound();
@@ -37,7 +46,7 @@ public static class AppearanceEndpoints
             ? TypedResults.NoContent()
             : TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                [nameof(AppearanceSetting.ThemeId)] = ["This is not a theme and a mode: a theme id is lowercase words joined by hyphens, and the mode is system, dark or light."],
+                [nameof(AppearanceSetting.ThemeId)] = [NotASetting],
             });
 
     #endregion

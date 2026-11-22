@@ -46,7 +46,9 @@ public sealed partial class AppearanceService(
         return true;
     }
 
-    /// <summary>A theme id is lowercase words joined by hyphens, as a theme file's is, and the mode is one of three.</summary>
+    /// <summary>
+    /// A theme id is lowercase words joined by hyphens, as a theme file's is, and the mode is one of three.
+    /// </summary>
     public static bool IsWellFormed(AppearanceSetting? setting) =>
         setting is { ThemeId: { Length: > 0 and <= AppearanceSetting.MaxThemeIdLength } id, Mode: { } mode }
         && ThemeId().IsMatch(id)

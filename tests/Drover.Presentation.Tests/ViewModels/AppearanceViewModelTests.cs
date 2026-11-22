@@ -39,7 +39,8 @@ public sealed class AppearanceViewModelTests : ViewModelTest
     #region Properties
 
     /// <summary>A theme known only to these tests, marked as a sample, so a choice can move between two.</summary>
-    private static ThemeFile Sample { get; } = BuiltInThemes.NightYard with { Id = "sample-test-theme", Name = "Sample test theme" };
+    private static ThemeFile Sample { get; } =
+        BuiltInThemes.NightYard with { Id = "sample-test-theme", Name = "Sample test theme" };
 
     #endregion
 
@@ -65,7 +66,8 @@ public sealed class AppearanceViewModelTests : ViewModelTest
         model.ChooseTheme(Sample.Id);
 
         theme.Theme.Id.Should().Be(Sample.Id);
-        ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance).Should().Be(new ThemeChoice(Sample.Id, ThemeMode.Dark));
+        ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
+            .Should().Be(new ThemeChoice(Sample.Id, ThemeMode.Dark));
         model.BackLabel.Should().Be("Back to Night Yard, dark");
     }
 
@@ -130,7 +132,9 @@ public sealed class AppearanceViewModelTests : ViewModelTest
         settings.Values[ThemeSync.SettingName].Should().Be("on");
         await Eventually(() => Server.Requests.Count(request => request.Method == "PUT" && request.Path == Path) == 2);
         Server.Requests.Where(request => request.Path == Path).Select(request => request.Body)
-            .Should().Equal("""{"themeId":"night-yard","mode":"dark"}""", """{"themeId":"night-yard","mode":"light"}""");
+            .Should().Equal(
+                """{"themeId":"night-yard","mode":"dark"}""",
+                """{"themeId":"night-yard","mode":"light"}""");
     }
 
     [Fact]
@@ -148,7 +152,7 @@ public sealed class AppearanceViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task A_device_that_follows_takes_the_kept_theme_when_the_person_signs_in_and_one_that_does_not_never_asks()
+    public async Task A_following_device_takes_the_kept_theme_at_sign_in_and_another_never_asks()
     {
         Server.Answer("GET", Path, new AppearanceSetting(Sample.Id, "light"));
         SignedIn();
@@ -163,7 +167,9 @@ public sealed class AppearanceViewModelTests : ViewModelTest
         await following.TakeKept(TestContext.Current.CancellationToken);
 
         theme.Choice.Should().Be(new ThemeChoice(Sample.Id, ThemeMode.Light));
-        Server.Requests.Should().NotContain(request => request.Method == "PUT", "a theme taken from the account is not sent back");
+        Server.Requests.Should().NotContain(
+            request => request.Method == "PUT",
+            "a theme taken from the account is not sent back");
     }
 
     [Fact]

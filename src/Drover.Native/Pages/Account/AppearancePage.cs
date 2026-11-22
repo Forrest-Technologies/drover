@@ -81,7 +81,12 @@ public sealed class AppearancePage : Screen
 
         if (model.BackLabel is { } back)
         {
-            var button = new Button { Content = back, Kind = ButtonKind.Quiet, HorizontalAlignment = HorizontalAlignment.Left };
+            var button = new Button
+            {
+                Content = back,
+                Kind = ButtonKind.Quiet,
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
             button.Click += (_, _) => model.GoBack();
             body.Add(button);
         }
@@ -154,7 +159,13 @@ public sealed class AppearancePage : Screen
 
     private StackPanel Everywhere()
     {
-        var toggle = new Switch { Label = "Use on all my devices", About = model.EverywhereAbout, Value = model.UsesEverywhere, IsEnabled = !model.Saving };
+        var toggle = new Switch
+        {
+            Label = "Use on all my devices",
+            About = model.EverywhereAbout,
+            Value = model.UsesEverywhere,
+            IsEnabled = !model.Saving,
+        };
         toggle.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) =>
         {
             if (!quiet)
@@ -216,7 +227,8 @@ public sealed class AppearancePage : Screen
 
         #region Private Methods
 
-        protected override AutomationPeer OnCreateAutomationPeer() => new RoleButtonPeer(this, AutomationControlType.RadioButton);
+        protected override AutomationPeer OnCreateAutomationPeer() =>
+            new RoleButtonPeer(this, AutomationControlType.RadioButton);
 
         #endregion
     }
