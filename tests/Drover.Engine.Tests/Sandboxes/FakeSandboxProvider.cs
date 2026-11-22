@@ -47,6 +47,12 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>When set, every check of a handle finds another group's metadata.</summary>
     public bool MetadataMismatch { get; set; }
 
+    /// <summary>Awaited with the spec before a creation, so a test can refuse a rebuild's new sandbox.</summary>
+    public Func<SandboxSpec, CancellationToken, Task>? BeforeCreate { get; set; }
+
+    /// <summary>Awaited with the handle before a pause, so a test can retire the sandbox midway through one.</summary>
+    public Func<SandboxHandle, CancellationToken, Task>? BeforePause { get; set; }
+
     /// <summary>Awaited with the path before a file is read, as a slow provider or one that hangs would make the caller wait.</summary>
     public Func<string, CancellationToken, Task>? BeforeRead { get; set; }
 
@@ -95,9 +101,14 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     #region Interface Implementations
 
-    public Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
+    public async Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
     {
         Specs.Enqueue(spec);
+
+        if (BeforeCreate is { } before)
+        {
+            await before(spec, cancellationToken);
+        }
 
         lock (creating)
         {
@@ -109,7 +120,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
             }
 
             var sandbox = sandboxes[id];
-            return Task.FromResult(new SandboxHandle(id, sandbox.SpaceId, sandbox.GroupId, sandbox.Token));
+            return new SandboxHandle(id, sandbox.SpaceId, sandbox.GroupId, sandbox.Token);
         }
     }
 
@@ -124,11 +135,15 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         return Task.CompletedTask;
     }
 
-    public Task Pause(SandboxHandle sandbox, CancellationToken cancellationToken)
+    public async Task Pause(SandboxHandle sandbox, CancellationToken cancellationToken)
     {
+        if (BeforePause is { } before)
+        {
+            await before(sandbox, cancellationToken);
+        }
+
         Pauses.Enqueue(sandbox);
         Check(sandbox).State = ProviderSandboxState.Paused;
-        return Task.CompletedTask;
     }
 
     public Task<SandboxHandle> Resume(SandboxHandle sandbox, TimeSpan idle, CancellationToken cancellationToken)
@@ -248,7 +263,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
         if (found.State is not ProviderSandboxState.Running)
         {
-            throw new SandboxProviderException(SandboxFailure.Rejected, "The sandbox is paused.");
+            throw new SandboxProviderException(SandboxFailure.NotRunning, "The sandbox is paused.");
         }
 
         return found.Token == sandbox.AccessToken

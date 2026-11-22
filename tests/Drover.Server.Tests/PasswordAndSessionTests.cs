@@ -19,15 +19,8 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     /// own schedule. None of them is needed to answer an account request, so this class starts a server without
     /// them: the recorder then sees only the requests it is comparing.
     /// </summary>
-    protected override void ConfigureServices(IServiceCollection services)
-    {
-        List<ServiceDescriptor> loops = [.. services.Where(service => service.ServiceType == typeof(IHostedService))];
-
-        foreach (var loop in loops)
-        {
-            services.Remove(loop);
-        }
-    }
+    protected override void ConfigureServices(IServiceCollection services) =>
+        TestHosts.WithoutHostedServices(services);
 
     [Fact]
     public void The_server_under_test_has_no_background_loops()

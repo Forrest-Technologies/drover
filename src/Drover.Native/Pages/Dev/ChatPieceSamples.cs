@@ -58,6 +58,7 @@ public static class ChatPieceSamples
         new("File", "A picture keeps its shape while it loads, a text file shows its first lines, and every file has the same way to get it.", Files),
         new("Files panel", "The files a person and a bot exchanged, newest first. The filter appears only when files came from both sides.", FilesPanels),
         new("Memory panel", "What a bot remembers about the person reading. Each note says where it came from and is changed in place.", MemoryPanels),
+        new("Conversation search", "The box above the crew, empty, with sample results, with older messages not yet searched, searching, finding nothing, and failing. A result opens its conversation at the message.", () => PanelSamples.Searches()),
         new("Summary panel", "The summary the server keeps of a conversation, and what it says when there is none.", () => PanelSamples.Summaries()),
         new("Screen panel", "The panel around a bot's screen: every state with no screen to show, and the sandbox's state above one that is. Here a labeled box stands where the screen is drawn.", () => PanelSamples.Screens()),
         new("Activity panel", "A run as a timeline, read from its stream. This sample run waits for a person, so nothing in it moves.", () => PanelSamples.Activities()),

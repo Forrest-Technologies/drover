@@ -15,7 +15,7 @@ public sealed class RunMomentDetail : StackPanel
     private readonly Batch batch;
 
     // Kept while the node is drawn again, so what a person scrolled to stays put while output arrives.
-    private readonly OutputBox output = new() { Fill = "DvBg0", Rounded = false, FollowsEnd = true };
+    private readonly OutputBox output = new() { Fill = "DvBg0", Rounded = false, FollowsEnd = true, CopyLabel = OutputWords.CopyOutput };
 
     private readonly MarkdownView words = new();
 
@@ -251,7 +251,7 @@ public sealed class RunMomentDetail : StackPanel
 
             if (card.Result is { } text)
             {
-                result.Children.Add(new CodeBlock { Code = text });
+                result.Children.Add(new CodeBlock { Code = text, CodeLanguage = card.ResultLanguage, CopyLabel = OutputWords.CopyOutput });
             }
 
             if (model.ResultIsCut)

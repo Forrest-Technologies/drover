@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
     <PackageReference Include="Microsoft.Playwright" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
@@ -23,6 +24,10 @@
 
   <!-- The device checks' guard, report, and automation names, read by the rules that hold them in step with the app. -->
   <ItemGroup>
+    <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdatePackageTrust.cs" Link="Platform\UpdatePackageTrust.cs" />
+    <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdateInstall.cs" Link="Platform\UpdateInstall.cs" />
+    <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdateDownloads.cs" Link="Platform\UpdateDownloads.cs" />
+    <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdateCheckFlow.cs" Link="Platform\UpdateCheckFlow.cs" />
     <Compile Include="..\Drover.Native.UITests\AndroidCheckGuard.cs" Link="Rules\AndroidCheckGuard.cs" />
     <Compile Include="..\Drover.Native.UITests\IosCheckReport.cs" Link="Rules\IosCheckReport.cs" />
     <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />

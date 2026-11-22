@@ -50,6 +50,12 @@
     <UnoSplashScreenBackgroundColor>#05070A</UnoSplashScreenBackgroundColor>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(DroverReleaseVersion)' != ''">
+    <ApplicationDisplayVersion>$(DroverReleaseVersion)</ApplicationDisplayVersion>
+    <InformationalVersion>$(DroverReleaseVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
   <!-- The component gallery is part of a development build. This switch puts it in a release build too, for the
        parity bench: a published app is what runs under the server's security headers. -->
   <PropertyGroup Condition="'$(DroverShowGallery)' == 'true'">
@@ -98,7 +104,20 @@
     <Using Include="Uno.UI.Composition.Drawing" />
     <Using Include="Uno.UI.Composition.Skia" />
     <Using Include="Windows.UI.Text" />
+    <Using Include="System.Reflection" />
+    <Using Include="System.Runtime.InteropServices" />
+    <Using Include="NetSparkleUpdater" />
+    <Using Include="NetSparkleUpdater.AppCastHandlers" />
+    <Using Include="NetSparkleUpdater.Enums" />
+    <Using Include="NetSparkleUpdater.SignatureVerifiers" />
     <EmbeddedResource Include="Assets/Fonts/Inter-Regular.ttf" LogicalName="Drover.Native.FallbackInter.ttf" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>DroverUpdatePublicKey</_Parameter1>
+      <_Parameter2>$(DroverUpdatePublicKey)</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
@@ -202,12 +221,17 @@
        build that must not use that service; such a build needs a distributor app. The build's check of its Java
        dependencies stops on a package reference the platform's SDK adds without a version, so it is off for this one
        library: its two dependencies, the Kotlin runtime 2.1 or later and coroutines, are already in the app at 2.4 and
-       1.11 through the platform's Android packages. -->
+       1.11 through the platform's Android packages. Central is the only repository that carries this artifact: the
+       platform SDK's other repository returns 404 for both files. The artifact is an AAR, not a JAR, so the SDK's
+       default file order would ask for a file that cannot exist before the one that does; name the AAR to skip that
+       request. Version and file name move together, so both are pinned here. -->
   <PropertyGroup>
     <DroverEmbeddedPush Condition="'$(DroverEmbeddedPush)' == ''">true</DroverEmbeddedPush>
   </PropertyGroup>
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(DroverEmbeddedPush)' == 'true'">
-    <AndroidMavenLibrary Include="org.unifiedpush.android:embedded-fcm-distributor" Version="3.1.0" Bind="false" VerifyDependencies="false" />
+    <AndroidMavenLibrary Include="org.unifiedpush.android:embedded-fcm-distributor" Version="3.1.0"
+                         Repository="Central" ArtifactFilename="embedded-fcm-distributor-3.1.0.aar"
+                         Bind="false" VerifyDependencies="false" />
   </ItemGroup>
 
   <!-- Notifications over UnifiedPush, shares in, files out, and what Android hands the activity, kept in
@@ -246,6 +270,10 @@
 
   <!-- The screen checks run inside a build made for them, on a device or a desktop, and nowhere else: a product
        build never contains them. tests/Drover.Native.UITests starts the build with a test server to talk to. -->
+  <PropertyGroup Condition="'$(DroverUiChecks)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_UI_CHECKS</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(DroverUiChecks)' == 'true'">
     <Compile Include="../../tests/Drover.Native.UITests/App/*.cs" Link="UiChecks/%(Filename)%(Extension)" />
   </ItemGroup>
@@ -259,6 +287,11 @@
     <ProjectReference Include="..\Drover.Client\Drover.Client.csproj" />
     <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
     <ProjectReference Include="..\Drover.Presentation\Drover.Presentation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
   </ItemGroup>
 
   <!-- The SDK adds two packages to every app that are not open source: its packaging helper, under an end-user

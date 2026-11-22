@@ -24,7 +24,7 @@ public sealed class ToolCallCard : Grid
 
     private readonly StackPanel body = new() { Spacing = Tokens.Number("DvSpace4") };
 
-    private readonly OutputBox output = new() { Label = ToolCallCardViewModel.OutputTitle, FollowsEnd = true };
+    private readonly OutputBox output = new() { Label = ToolCallCardViewModel.OutputTitle, FollowsEnd = true, CopyLabel = OutputWords.CopyOutput };
 
     private readonly TextBlock under = Styles.Text(null);
 
@@ -336,7 +336,7 @@ public sealed class ToolCallCard : Grid
 
             if (model.Card.Result is { } text)
             {
-                result.Children.Add(Code(text));
+                result.Children.Add(Code(text, model.Card.ResultLanguage, OutputWords.CopyOutput));
             }
 
             body.Children.Add(result);
@@ -391,7 +391,8 @@ public sealed class ToolCallCard : Grid
     }
 
     // Arguments and results wrap, so a phone shows all of a line without scrolling sideways. Long ones scroll down.
-    private static CodeBlock Code(string text, string? language = null) => new() { Code = text, CodeLanguage = language, Wraps = true };
+    private static CodeBlock Code(string text, string? language = null, string copyLabel = OutputWords.CopyCode) =>
+        new() { Code = text, CodeLanguage = language, Wraps = true, CopyLabel = copyLabel };
 
     #endregion
 }

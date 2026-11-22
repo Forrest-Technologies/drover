@@ -14,6 +14,18 @@ public sealed class AccountMenu : Grid
 
     private readonly Dialog notifications = new() { Title = "Notifications on this device" };
 
+    private readonly Dialog? updates;
+
+    private readonly TextBlock? updateDetail;
+
+    private readonly Switch? updateChecks;
+
+    private readonly Button? checkUpdate;
+
+    private readonly Button? installUpdate;
+
+    private bool refreshingUpdates;
+
     private readonly Dialog about = new() { Title = "About Drover" };
 
     #endregion
@@ -27,6 +39,39 @@ public sealed class AccountMenu : Grid
         Children.Add(menu);
         Children.Add(notifications);
         Children.Add(about);
+
+        // A build without the update key shows no update controls. The dialog stays out of the tree, including the
+        // phone dock.
+        if (model.ShowsUpdates)
+        {
+            updates = new Dialog();
+            updateDetail = Styles.Text(null, "DvTextParagraph");
+            updateChecks = new Switch { Label = "Check for desktop updates" };
+            checkUpdate = new Button { Content = "Check now" };
+            installUpdate = new Button { Content = model.InstallLabel, Kind = ButtonKind.Primary };
+            updates.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => UpdatesChanged());
+            updateChecks.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => UpdateChecksChanged());
+            checkUpdate.Click += (_, _) => _ = model.CheckUpdates();
+            installUpdate.Click += (_, _) => _ = model.InstallUpdate();
+
+            var updateBody = new StackPanel { Spacing = Tokens.Number("DvSpace4") };
+            updateBody.Children.Add(updateDetail);
+            updateBody.Children.Add(updateChecks);
+            var updateActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+            updateActions.Children.Add(checkUpdate);
+            updateActions.Children.Add(installUpdate);
+            updates.Body = updateBody;
+            updates.Actions = updateActions;
+            Children.Add(updates);
+        }
+        else
+        {
+            updates = null;
+            updateDetail = null;
+            updateChecks = null;
+            checkUpdate = null;
+            installUpdate = null;
+        }
 
         model.PropertyChanged += (_, _) => Show();
         Unloaded += (_, _) => model.Dispose();
@@ -58,6 +103,7 @@ public sealed class AccountMenu : Grid
         menu.TriggerIcon = Compact ? IconName.Account : null;
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
         ShowNotifications();
+        ShowUpdates();
         ShowAbout();
 
         if (Compact)
@@ -74,6 +120,10 @@ public sealed class AccountMenu : Grid
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
         menu.Items.Add(Item("Notifications", model.OpenNotifications));
+        if (model.ShowsUpdates)
+        {
+            menu.Items.Add(Item(model.UpdatesLabel, model.OpenUpdates));
+        }
 
         // Everyone reads usage: a member reads their own runs, an owner or admin the whole space.
         menu.Items.Add(Item("Usage", () => model.Open(Addresses.Usage)));
@@ -100,6 +150,26 @@ public sealed class AccountMenu : Grid
         {
             notifications.Body = null;
         }
+    }
+
+    private void ShowUpdates()
+    {
+        if (updates is null || updateDetail is null || updateChecks is null || checkUpdate is null
+            || installUpdate is null)
+        {
+            return;
+        }
+
+        updates.Title = model.UpdatesTitle;
+        updateDetail.Text = model.UpdatesDetail;
+        refreshingUpdates = true;
+        updateChecks.Value = model.UpdateChecksEnabled;
+        refreshingUpdates = false;
+        checkUpdate.IsEnabled = model.CanCheckUpdates;
+        installUpdate.Content = model.InstallLabel;
+        installUpdate.IsEnabled = model.CanInstallUpdate;
+        installUpdate.Visibility = model.CanInstallUpdate ? Visibility.Visible : Visibility.Collapsed;
+        updates.Open = model.UpdatesOpen;
     }
 
     // Made each time it opens, so a notice from the last save is not shown again.
@@ -177,12 +247,29 @@ public sealed class AccountMenu : Grid
         }
     }
 
+    private void UpdatesChanged()
+    {
+        if (updates is not null && !updates.Open && model.UpdatesOpen)
+        {
+            model.UpdatesOpen = false;
+            menu.ReturnFocusToTrigger();
+        }
+    }
+
     private void AboutChanged()
     {
         if (!about.Open && model.AboutOpen)
         {
             model.AboutOpen = false;
             menu.ReturnFocusToTrigger();
+        }
+    }
+
+    private void UpdateChecksChanged()
+    {
+        if (!refreshingUpdates && updateChecks is not null)
+        {
+            model.SetUpdateChecks(updateChecks.Value);
         }
     }
 

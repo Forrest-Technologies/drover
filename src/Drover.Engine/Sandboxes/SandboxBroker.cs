@@ -479,6 +479,7 @@ public sealed class SandboxBroker(
         }
         catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.NotFound)
         {
+            // A sandbox the provider no longer has is gone in every state: no pause can bring it back.
             logger.LogInformation("Sandbox {SandboxId} of bot {BotId} was gone at the provider when a person paused it", target.Row.Id, target.Owner.Id);
             await Retire(person.Tenant, target.Row.Id, cancellationToken);
             return false;
@@ -488,16 +489,25 @@ public sealed class SandboxBroker(
             throw Refusal(failure);
         }
 
-        await person.Tenant.Transact(
+        // A running sandbox becomes paused; one already paused stays. A row retired or destroyed while the provider
+        // worked is left alone, so a pause cannot bring back a sandbox taken out of use.
+        return await person.Tenant.Transact(
             async services =>
             {
-                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(target.Row.Id, cancellationToken) is { } row)
+                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(target.Row.Id, cancellationToken) is not { } row)
+                {
+                    return false;
+                }
+
+                if (row.State is SandboxState.Running)
                 {
                     row.State = SandboxState.Paused;
+                    row.ExpiresAt = time.GetUtcNow();
                 }
+
+                return row.State is SandboxState.Paused;
             },
             cancellationToken);
-        return true;
     }
 
     /// <summary>Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made.</summary>
@@ -1162,11 +1172,20 @@ public sealed class SandboxBroker(
     private BuiltinToolException Refusal(SandboxProviderException failure, string? path = null)
     {
         logger.LogWarning("A sandbox call failed: {Failure}", failure.Failure);
+        var wait = SandboxWaits.Words(failure.RetryAfter);
+
         return new BuiltinToolException(failure.Failure switch
         {
             SandboxFailure.NotFound when path is not null => $"There is no file or folder at {path} in the sandbox.",
             SandboxFailure.NotFound => "The sandbox is gone at the provider. Try again to start a new one.",
-            SandboxFailure.HandleMismatch or SandboxFailure.Unauthorized =>
+            SandboxFailure.NotRunning => "The sandbox paused before this could run. Try again.",
+            SandboxFailure.Conflict => $"The sandbox is starting, pausing or resuming. Try again {wait}.",
+            SandboxFailure.Forbidden => "The server's sandbox account is not allowed to do this. Tell the server's operator.",
+            SandboxFailure.RateLimited => $"The sandbox provider is limiting requests. Try again {wait}.",
+            SandboxFailure.RetryLater => $"The sandbox provider cannot do this right now. Try again {wait}.",
+            SandboxFailure.Unauthorized =>
+                "The sandbox refused Drover's access to it, so nothing was done. Turning the sandbox off and starting a new one clears this. The server's operator can find the details in its log.",
+            SandboxFailure.HandleMismatch =>
                 "The provider's record of this sandbox does not match this bot, so nothing was done. The server's operator can find the details in its log.",
             SandboxFailure.TooLarge => "That is more than the sandbox accepts.",
             SandboxFailure.QuotaExceeded => "The server's sandbox account is at its limit. Tell the server's operator.",

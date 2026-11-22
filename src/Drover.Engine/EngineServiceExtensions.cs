@@ -59,6 +59,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<ToolSignIns>();
         services.AddSingleton<ToolSignInRenewal>();
         services.AddScoped<AuditLog>();
+        services.AddScoped<AllowAllService>();
         services.AddScoped<BotService>();
         services.AddScoped<ModelFallbackService>();
         services.AddScoped<ExtensionService>();
@@ -72,6 +73,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ThreadService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<ConversationModels>();
+        services.AddScoped<ConversationSearchService>();
         services.AddScoped<ConversationExporter>();
         services.AddScoped<PushService>();
         services.AddScoped<ThreadLine>();

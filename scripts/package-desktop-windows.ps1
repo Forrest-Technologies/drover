@@ -7,9 +7,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
-    throw "Version must have the form 1.2.3."
+if ($Version -notmatch '^(?<Base>[0-9]+\.[0-9]+\.[0-9]+)(-preview\.(?<Preview>[0-9]+))?$') {
+    throw "Version must have the form 1.2.3 or 1.2.3-preview.1."
 }
+$baseVersion = $Matches.Base
+$previewVersion = $Matches.Preview
+$versionParts = $baseVersion.Split('.') | ForEach-Object { [int] $_ }
+$revision = if ($previewVersion) { [int] $previewVersion } else { 65535 }
+if (@($versionParts | Where-Object { $_ -gt 65535 }).Count -gt 0 -or ($previewVersion -and $revision -gt 65534)) {
+    throw "Each package version part must fit the operating system package format."
+}
+$identityVersion = "$baseVersion.$revision"
 
 $executable = Join-Path $PublishDirectory "Drover.Native.exe"
 if (-not (Test-Path $executable -PathType Leaf)) {
@@ -66,7 +74,7 @@ try {
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap rescap">
-  <Identity Name="ForrestTechnologies.Drover" Publisher="CN=Forrest Technologies" Version="$Version.0" ProcessorArchitecture="x64" />
+  <Identity Name="ForrestTechnologies.Drover" Publisher="CN=Forrest Technologies" Version="$identityVersion" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Drover</DisplayName>
     <PublisherDisplayName>Forrest Technologies</PublisherDisplayName>

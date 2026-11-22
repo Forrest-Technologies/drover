@@ -38,6 +38,12 @@ public sealed class ToolCall : ISpaceOwned, IAudienceScoped
 
     public Guid? DecidedByUserId { get; set; }
 
+    /// <summary>
+    /// The window that answered this call. Null when a person decided it. A plain column: a window has an audience
+    /// of its own, so a foreign key would need a second audience in the key.
+    /// </summary>
+    public Guid? DecidedByWindowId { get; set; }
+
     public DateTimeOffset? DecidedAt { get; set; }
 
     public Guid? ChildRunId { get; set; }

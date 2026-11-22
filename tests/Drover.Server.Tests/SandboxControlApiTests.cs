@@ -135,6 +135,23 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         provider.Ids.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_refused_action_answers_as_before_and_leaves_an_audit_row_with_its_outcome()
+    {
+        var (client, spaceId, botId) = await DesktopBot("refused");
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await Read<SandboxCommandResponse>(await client.Post($"{sandbox}/commands", new SandboxCommandRequest("echo hi")));
+        provider.FailCommands = true;
+
+        var refused = await client.Post($"{sandbox}/commands", new SandboxCommandRequest("echo hi"));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Title(refused)).Should().Be("The sandbox provider is not available right now. Try again in a moment.");
+        (await AuditActions(spaceId)).Where(action => action.StartsWith("sandbox.", StringComparison.Ordinal))
+            .Should().Equal("sandbox.command", "sandbox.command");
+        (await AuditOutcomes(spaceId)).Should().Equal("done", "refused");
+    }
+
     #endregion
 
     #region Helpers
@@ -174,6 +191,23 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
 
     private static async Task<string> Title(HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString() ?? string.Empty;
+
+    private async Task<List<string?>> AuditOutcomes(Guid spaceId)
+    {
+        await using var connection = new NpgsqlConnection(AdminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand("SELECT data->>'outcome' FROM audit_log WHERE space_id = @space AND action LIKE 'sandbox.%' ORDER BY id", connection);
+        command.Parameters.AddWithValue("space", spaceId);
+        await using var reader = await command.ExecuteReaderAsync(Token);
+        List<string?> outcomes = [];
+
+        while (await reader.ReadAsync(Token))
+        {
+            outcomes.Add(await reader.IsDBNullAsync(0, Token) ? null : reader.GetString(0));
+        }
+
+        return outcomes;
+    }
 
     private async Task<List<string>> AuditActions(Guid spaceId)
     {

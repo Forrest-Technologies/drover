@@ -141,7 +141,7 @@ public sealed class ToolActivityTests
         new ToolAnnouncer().Next(conversation.AllTools(), "Marshal").Should().BeNull("calls that ended before the page opened are history, not news");
         cards[1].Open = true;
         cards[1].PartTitles.Should().Equal("Arguments", "Result");
-        cards[1].Card.Result.Should().Contain("The server's sandbox provider key does not work.", "the stored result is shown whole");
+        cards[1].Card.Result.Should().Contain("The server's sandbox provider key does not work.", "the stored result is read whole and said in words");
     }
 
     [Fact]

@@ -153,8 +153,9 @@ public sealed class ActivityPanelTests : IDisposable
         detail.IsCommand.Should().BeTrue();
         $"{RunMomentDetailViewModel.Prompt}{detail.CommandLine}".Should().StartWith("$ ls -la /home/user && echo done");
         RunMomentDetailViewModel.TerminalName.Should().Be("Command and its output");
-        JsonElement.DeepEquals(JsonElement.Parse(detail.Card!.Result!), JsonElement.Parse(storedResult.Result!))
-            .Should().BeTrue("the result is the stored one, whole");
+        detail.Card!.Result.Should().Be(
+            JsonElement.Parse(storedResult.Result!).GetProperty("error").GetString(),
+            "the stored result is read whole and said in words, not shown as JSON");
         detail.Facts.Should().Equal(("Took", Words.Duration(TimeSpan.FromMilliseconds(completed.DurationMs))));
         detail.ResultIsCut.Should().BeFalse("the conversation holds this call's whole result");
 

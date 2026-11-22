@@ -40,6 +40,13 @@ public sealed record NewBot(
     string? Model,
     Guid? ParentBotId)
 {
+    /// <summary>
+    /// The retry identity the client chose for this create, so that asking again after a lost answer returns the bot
+    /// that was made. It is kept with the space and the maker: the same one from another space or person is another
+    /// request.
+    /// </summary>
+    public Guid? RequestId { get; init; }
+
     /// <summary>The bot starts paused: it does nothing until a person turns it on. For a bot whose instructions came from a file.</summary>
     public bool Paused { get; init; }
 }

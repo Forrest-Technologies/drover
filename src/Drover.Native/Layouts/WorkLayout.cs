@@ -23,6 +23,7 @@ public sealed class WorkLayout : Grid
     private readonly NavLink[] links =
     [
         new("Conversations", Addresses.Home, matchesWhole: true),
+        new("Projects", Addresses.Projects),
         new("Bots", Addresses.Bots),
         new("Models", Addresses.Models),
         new("Tools", Addresses.Tools),

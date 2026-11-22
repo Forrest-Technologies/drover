@@ -1,18 +1,12 @@
 namespace Drover.Native.Controls;
 
 /// <summary>
-/// A block of code or output in the machine typeface, with a button that copies it. The text can be selected, and
+/// A block of code or output in the machine typeface, with the copy icon that copies all of it. The text can be selected, and
 /// a long line scrolls sideways inside the block and never widens the page.
 /// </summary>
 public sealed class CodeBlock : Grid
 {
     #region Private Fields
-
-    private const string Copied = "Copied";
-
-    private const string CopyFailed = "Copy failed. Select the code and copy it by hand.";
-
-    private static readonly TimeSpan confirmationTime = TimeSpan.FromSeconds(2);
 
     private readonly Border box = new();
 
@@ -20,15 +14,11 @@ public sealed class CodeBlock : Grid
 
     private readonly TextBlock language = Styles.Text(null, "DvTextMono");
 
-    private readonly TextBlock status = Styles.Text(null, "DvTextCaption");
-
-    private readonly PlainButton copy = new() { Content = "Copy code", Fill = "DvBg2", Line = "DvText3" };
+    private readonly CopyButton copy = new() { Label = OutputWords.CopyCode, VerticalAlignment = VerticalAlignment.Center };
 
     private readonly TextBlock code = Styles.Text(null, "DvTextCode");
 
     private readonly ScrollViewer body;
-
-    private int copies;
 
     #endregion
 
@@ -37,21 +27,14 @@ public sealed class CodeBlock : Grid
     public CodeBlock()
     {
         code.IsTextSelectionEnabled = true;
-        language.VerticalAlignment = status.VerticalAlignment = VerticalAlignment.Center;
-        AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
-        copy.Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0);
-        copy.FontSize = Tokens.Number("DvText13");
-        copy.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
-        copy.Click += async (_, _) => await Copy();
+        language.VerticalAlignment = VerticalAlignment.Center;
+        copy.Text = () => Code;
 
         var top = new Grid { ColumnSpacing = Tokens.Number("DvSpace2") };
         top.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        SetColumn(status, 1);
-        SetColumn(copy, 2);
+        SetColumn(copy, 1);
         top.Children.Add(language);
-        top.Children.Add(status);
         top.Children.Add(copy);
         bar.Child = top;
         bar.Padding = new(Tokens.Number("DvSpace3"), Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1"));
@@ -107,6 +90,13 @@ public sealed class CodeBlock : Grid
         set => SetValue(CodeLanguageProperty, value);
     }
 
+    /// <summary>The copy icon's name: "Copy code", or "Copy output" for what a tool printed or returned.</summary>
+    public string CopyLabel
+    {
+        get => copy.Label;
+        set => copy.Label = value;
+    }
+
     /// <summary>
     /// Wraps long lines and scrolls down past a set number of them, in place of scrolling sideways: for arguments and
     /// results in a card, so a phone shows all of a line.
@@ -131,42 +121,12 @@ public sealed class CodeBlock : Grid
         body.MaxHeight = Wraps ? Tokens.Number("DvOutputLines") * (double)Styles.Dictionary["DvLine14"] : double.PositiveInfinity;
     }
 
-    private async Task Copy()
-    {
-        var number = ++copies;
-        status.Text = WriteToClipboard() ? Copied : CopyFailed;
-        FrameworkElementAutomationPeer.FromElement(status)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
-
-        await Task.Delay(confirmationTime);
-        if (number == copies)
-        {
-            status.Text = string.Empty;
-        }
-    }
-
-    private bool WriteToClipboard()
-    {
-        try
-        {
-            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
-            package.SetText(Code);
-            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
-            return true;
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException or NotSupportedException)
-        {
-            Log.For<CodeBlock>().LogWarning(exception, "The platform refused to copy a code block");
-            return false;
-        }
-    }
-
     private void Paint()
     {
         box.Background = Tokens.Brush(this, "DvBg2");
         box.BorderBrush = Tokens.Brush(this, "DvLine");
         bar.BorderBrush = Tokens.Brush(this, "DvLine");
         language.Foreground = Tokens.Brush(this, "DvText2");
-        status.Foreground = Tokens.Brush(this, "DvText2");
     }
 
     #endregion

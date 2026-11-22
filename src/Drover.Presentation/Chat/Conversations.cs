@@ -77,12 +77,9 @@ public static class Conversations
         }
 
         conversation.RemoveAll(message => message is { Text.Length: 0, Tools.Count: 0, Files.Count: 0, Reasoning: null, Sources.Count: 0 });
-        if (reader is not null)
-        {
-            var principals = shown.Where(message => message.RunPrincipalUserId is not null)
-                .ToDictionary(message => message.Id.ToString(), message => message.RunPrincipalUserId);
-            MarkReplyEnds(conversation, run, entry => reader.MayRead(principals.GetValueOrDefault(entry.Key)));
-        }
+        var principals = shown.Where(message => message.RunPrincipalUserId is not null)
+            .ToDictionary(message => message.Id.ToString(), message => message.RunPrincipalUserId);
+        MarkReplyEnds(conversation, run, entry => reader?.MayRead(principals.GetValueOrDefault(entry.Key)) ?? false);
 
         AddUnplaced(conversation, unplaced, run, handover);
         PlaceVersions(conversation, shown);
@@ -270,21 +267,20 @@ public static class Conversations
         _ => null,
     };
 
-    // What a reply used is read at its last words, once the run that wrote them has finished.
+    // A reply finishes at its last words, once the run that wrote them has finished: there its footer stands, for
+    // everyone who sees it. What the reply used is offered there only to someone who may read it.
     private static void MarkReplyEnds(List<ChatMessage> conversation, RunView? run, Func<ChatMessage, bool> readable)
     {
         var ends = conversation.Select((message, index) => (message, index))
             .Where(entry => entry.message is { FromPerson: false, RunId: not null } && entry.message.Text.Length > 0)
             .Where(entry => run is not { IsActive: true } || entry.message.RunId != run.RunId)
             .GroupBy(entry => entry.message.RunId)
-            .Select(group => group.Last())
-            .Where(entry => readable(entry.message))
-            .Select(entry => entry.index)
+            .Select(group => group.Last().index)
             .ToList();
 
         foreach (var index in ends)
         {
-            conversation[index] = conversation[index] with { EndsReply = true };
+            conversation[index] = conversation[index] with { FinishesReply = true, EndsReply = readable(conversation[index]) };
         }
     }
 

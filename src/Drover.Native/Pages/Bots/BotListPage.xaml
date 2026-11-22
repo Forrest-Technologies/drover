@@ -16,8 +16,6 @@
       <dv:Button x:Name="NewBot" Grid.Column="1" Kind="Primary" VerticalAlignment="Center" Click="MakeBot" />
     </Grid>
 
-    <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Problem, Mode=OneWay}" />
-
     <!-- The empty, failed, and missing-model states are made when the list is in them: each needs its words to exist. -->
     <ContentControl x:Name="Stage" HorizontalContentAlignment="Stretch" IsTabStop="False" />
     <TextBlock x:Name="Loading" Style="{StaticResource DvTextParagraph}" Foreground="{ThemeResource DvText2Brush}" AutomationProperties.LiveSetting="Polite" />

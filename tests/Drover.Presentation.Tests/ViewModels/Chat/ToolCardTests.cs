@@ -47,7 +47,8 @@ public sealed class ToolCardTests
         var card = ToolCards.FromParts(part, result).ToCard(result);
 
         card.Should().Match<ToolCard>(shown => shown.Label == "Ran a command" && shown.Summary == "ls" && shown.Phase == ToolPhase.Failed && shown.ExitCode == 2);
-        card.Result.Should().Contain("\"stderr\": \"no such file\"", "a stored result is shown whole and indented");
+        card.Output.Should().Equal([new ToolOutputPiece("stderr", "no such file")], "a stored command's output is read from its result");
+        card.Result.Should().BeNull("the output and the exit code say all the result holds, so it is not shown again as JSON");
     }
 
     [Theory]

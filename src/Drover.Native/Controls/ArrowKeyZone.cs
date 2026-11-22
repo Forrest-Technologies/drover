@@ -73,16 +73,16 @@ public sealed class ArrowKeyZone : Grid
 
         List<Control> items = [.. ItemsUnder(this).Where(item => item.IsEnabled)];
         var current = items.IndexOf(from);
-        int? next = key.Key switch
+        var motion = key.Key switch
         {
-            VirtualKey.Down or VirtualKey.Right => Math.Min(current + 1, items.Count - 1),
-            VirtualKey.Up or VirtualKey.Left => Math.Max(current - 1, 0),
-            VirtualKey.Home => 0,
-            VirtualKey.End => items.Count - 1,
-            _ => null,
+            VirtualKey.Down or VirtualKey.Right => ArrowMotionKey.Next,
+            VirtualKey.Up or VirtualKey.Left => ArrowMotionKey.Previous,
+            VirtualKey.Home => ArrowMotionKey.First,
+            VirtualKey.End => ArrowMotionKey.Last,
+            _ => (ArrowMotionKey?)null,
         };
 
-        if (next is { } index)
+        if (motion is { } chosen && ArrowMotion.Next(current, items.Count, chosen) is { } index)
         {
             key.Handled = true;
             items[index].Focus(FocusState.Keyboard);

@@ -245,6 +245,8 @@ public sealed class MessageList : Grid
 
         if (list.TakeMoment() is { } moment)
         {
+            // Layout grows right after this draw, so leave the foot now before SizeChanged pulls the list back down.
+            atFoot = false;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ShowMoment(moment));
         }
     }
@@ -334,9 +336,9 @@ public sealed class MessageList : Grid
         }
 
         var top = entry.TransformToVisual(floor).TransformPoint(new(0, 0)).Y;
-        var middle = top + (entry.ActualHeight / 2) - (scroller.ViewportHeight / 2);
         atFoot = false;
-        scroller.ChangeView(null, Math.Clamp(middle, 0, scroller.ScrollableHeight), null, disableAnimation: true);
+        var offset = MomentViewport.Offset(top, entry.ActualHeight, scroller.ViewportHeight, scroller.ScrollableHeight);
+        scroller.ChangeView(null, offset, null, disableAnimation: true);
         entry.Land();
     }
 

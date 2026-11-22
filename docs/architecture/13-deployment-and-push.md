@@ -127,7 +127,7 @@ The image is built on the self-hoster's machine, so the build must fit a modest 
 
 ### Principle
 
-A push is a wake-up. Its payload is `{ "kind": "...", "thread": "<id>" }` and nothing else. The app wakes, calls the user's own server with its own credentials, and fetches what to show. No relay or push service ever sees message text, bot names, or titles.
+A push is a wake-up. Its payload is `{ "kind": "...", "thread": "<id>" }` and nothing else. The app wakes, calls the user's own server with its own credentials, and fetches what to show. No relay or push service ever sees message text, bot names, or titles. A chat channel is a different boundary: the messaging app does see the messages sent through it, so only the bot's words and a working line cross, never a tool card or an approval ([19-chat-channels.md](19-chat-channels.md)).
 
 ### Interface
 
