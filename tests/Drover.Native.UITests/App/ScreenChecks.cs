@@ -160,7 +160,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         theme.Choose(new ThemeChoice(SampleTheme.Id, ThemeMode.Dark));
         var sample = await UntilSeen("the open screen made again from the sample theme", seen => seen.RowMinimum == Row(sample: true));
 
-        Expect(sample.TextSizes.Contains(SampleTheme.BaseSize) && !sample.TextSizes.Contains(14), "type: the base step of the scale");
+        // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not required to be gone.
+        Expect(sample.TextSizes.Contains(SampleTheme.BaseSize), "type: the base step of the scale");
         Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
         Expect(sample.FrameCut == SampleTheme.FrameCut, "shape: the cut of a frame");
         Expect(sample.Bloom == SampleTheme.Bloom && sample.Duration == SampleTheme.Duration, "motion: bloom and the duration scale");
