@@ -803,8 +803,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
                 HttpRequestException transport => (int?)transport.StatusCode,
                 _ => null,
             };
-            logger.LogWarning("Attachment failed during {Stage} with {ExceptionType} (HTTP {StatusCode})",
-                stage, exception.GetType(), status);
+            logger.LogWarning(
+                "Attachment failed during {Stage} with {ExceptionType} (cause {CauseType}, HTTP {StatusCode})",
+                stage, exception.GetType(), exception.InnerException?.GetBaseException().GetType(), status);
             var reason = exception is DroverApiException apiFailure
                 ? FileWords.RefusalFrom(apiFailure.Refusal)
                 : FileRefusal.None;
