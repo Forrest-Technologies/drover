@@ -365,6 +365,12 @@ public sealed class SandboxControlService(
         {
             value = await work(broker, new SandboxCaller(tenant, botId));
         }
+        catch (RoleLostException lost)
+        {
+            logger.LogInformation("A person's action on the sandbox of bot {BotId} was refused at its gate", botId);
+            await Record<T>(tenant, userId, botId, audit, auditWhen, value: default!, "refused", rethrowing: false);
+            return Refuse<T>(lost.Refusal);
+        }
         catch (BuiltinToolException refused)
         {
             logger.LogInformation("A person's action on the sandbox of bot {BotId} was refused", botId);
@@ -534,6 +540,22 @@ public sealed class SandboxControlService(
     /// input waited sends nothing. Null when they may; otherwise the sentence that refuses them. Letting go of a button
     /// by the server never depends on this.
     /// </summary>
+    /// <summary>
+    /// Reads the person's role and the bot again, under a screen's gate, and throws when they may no longer change it.
+    /// Called before a power control lets go of, fences, retires or asks the provider anything.
+    /// </summary>
+    private static async Task RecheckRole(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        var refusal = await person.Tenant.Transact(
+            services => Check(services, person.Tenant.SpaceId, person.Tenant.UserId, person.BotId, cancellationToken),
+            cancellationToken);
+
+        if (refusal is { } refused)
+        {
+            throw new RoleLostException(refused);
+        }
+    }
+
     private static async Task<string?> Refusal(
         RunTenant tenant,
         Guid spaceId,
@@ -571,10 +593,17 @@ public sealed class SandboxControlService(
             await afterLookup();
         }
 
+        // The role was read before the gate was waited for; it is read again under the gate, before anything is let
+        // go of, fenced, retired or asked of the provider, and again right before the power operation, since letting
+        // go of a held button can wait. A refused caller changes nothing: held buttons stay with their records, whose
+        // deadlines let go of them in the background whoever pressed them.
+        Task Admit() => RecheckRole(person, cancellationToken);
+
         if (found is not { } sandboxId)
         {
             // Nothing was found to gate. A sandbox that has gone live since is a different display than the one
             // that was looked at, so the control is told to expect none and does nothing if it finds one.
+            await Admit();
             return await work(Guid.Empty, () => { });
         }
 
@@ -582,7 +611,15 @@ public sealed class SandboxControlService(
 
         if (buttons is ButtonsOnPower.LetGoAfter)
         {
-            return await holds.RunThenRelease(spaceId, sandboxId, () => work(sandboxId, () => { }), cancellationToken);
+            return await holds.RunThenRelease(
+                spaceId,
+                sandboxId,
+                async () =>
+                {
+                    await Admit();
+                    return await work(sandboxId, () => { });
+                },
+                cancellationToken);
         }
 
         var done = false;
@@ -590,8 +627,13 @@ public sealed class SandboxControlService(
             spaceId,
             sandboxId,
             required: buttons is ButtonsOnPower.LetGoFirst,
-            async begin => done = await work(sandboxId, begin),
-            cancellationToken);
+            async begin =>
+            {
+                await Admit();
+                done = await work(sandboxId, begin);
+            },
+            cancellationToken,
+            Admit);
 
         if (!ran)
         {
@@ -813,6 +855,16 @@ public sealed class SandboxControlService(
     #endregion
 
     #region Nested Types
+
+    /// <summary>The person may no longer change the bot, found under a screen's gate; nothing was done.</summary>
+    private sealed class RoleLostException(SandboxControlRefusal refusal) : Exception("The person's role changed.")
+    {
+        #region Properties
+
+        public SandboxControlRefusal Refusal { get; } = refusal;
+
+        #endregion
+    }
 
     /// <summary>An input ready to run: its command, what it does, and the pointer action when it is one.</summary>
     private sealed record BuiltInput(CommandRequest Action, string Doing, PointerAction? Pointer);

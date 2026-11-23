@@ -2067,6 +2067,77 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     #endregion
 
+    #region The Power Controls Under The Gate
+
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("resume")]
+    [InlineData("rebuild")]
+    [InlineData("turn off")]
+    public async Task A_power_control_whose_caller_is_demoted_while_it_waits_for_the_screen_does_nothing(string power)
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atTheGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var presses = 0;
+        var provider = PointerProvider((command, token) =>
+            IsPress(command) && Interlocked.Increment(ref presses) is 2
+                ? HoldCommand(running, finish, token)
+                : null);
+        await using var world = await ControlWorld(provider, desktop: true);
+        var admin = await world.AddMember(MembershipRole.Admin);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        (await control.Input(world.SpaceId, admin, world.BotId, new("down", X: 1, Y: 2, Button: "right"),
+            RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+        var pressing = control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6),
+            RunWorld.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+        var resumes = 0;
+        provider.BeforeResume = (_, _) =>
+        {
+            Interlocked.Increment(ref resumes);
+            return Task.CompletedTask;
+        };
+        var sent = provider.Commands.Count;
+        var created = provider.Created;
+        control.Holds.Waiting = () => atTheGate.TrySetResult();
+
+        var acting = power switch
+        {
+            "pause" => control.Pause(world.SpaceId, admin, world.BotId, RunWorld.Token),
+            "resume" => control.Resume(world.SpaceId, admin, world.BotId, RunWorld.Token),
+            "rebuild" => control.Rebuild(world.SpaceId, admin, world.BotId, RunWorld.Token),
+            _ => control.TurnOff(world.SpaceId, admin, world.BotId, RunWorld.Token),
+        };
+        await atTheGate.Task.WaitAsync(RunWorld.Token);
+        control.Holds.Waiting = null;
+        await Demote(world, admin);
+        finish.SetResult();
+        (await pressing).Refusal.Should().Be(SandboxControlRefusal.None);
+        var result = await acting;
+
+        result.Refusal.Should().Be(SandboxControlRefusal.NotPermitted, "the caller was demoted while it waited");
+        provider.Pauses.Should().BeEmpty();
+        provider.Destroys.Should().BeEmpty();
+        provider.Created.Should().Be(created, "nothing was made");
+        resumes.Should().Be(0, "nothing was resumed");
+        provider.Commands.Skip(sent).Should().NotContain(
+            command => command.Program == "xdotool" && command.Arguments.Contains("mouseup"),
+            "a refused control lets go of nothing; the held buttons stay with their own deadlines");
+        (await world.Read(db => db.Sandboxes.OrderBy(row => row.Id).LastAsync(RunWorld.Token))).State
+            .Should().Be(SandboxState.Running, "nothing was paused or retired");
+        control.Holds.IsHeldOn(world.SpaceId, await SandboxId(world)).Should().BeTrue();
+        (await world.Read(db => db.AuditLog.AsNoTracking()
+            .Where(entry => entry.ActorId == admin && entry.Action.StartsWith("sandbox.")
+                && entry.Action != "sandbox.input")
+            .Select(entry => entry.Data)
+            .ToListAsync(RunWorld.Token))).Should().ContainSingle()
+            .Which.GetProperty("outcome").GetString().Should().Be("refused");
+    }
+
+    #endregion
+
     #region Terminal
 
     [Fact]
