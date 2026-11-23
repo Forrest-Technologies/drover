@@ -46,7 +46,7 @@ public sealed class SessionStateSpaceTests : IDisposable
     [Fact]
     public async Task A_space_chosen_before_the_session_is_read_applies_once_it_is()
     {
-        var session = new SessionState(server.CreateApi());
+        var session = new SessionState(server.CreateApi(), new ShareInbox());
         session.ChooseSpace(shared);
         server.Answer("GET", "/api/session", Session());
 
@@ -114,7 +114,7 @@ public sealed class SessionStateSpaceTests : IDisposable
     private async Task<SessionState> SignedIn()
     {
         server.Answer("GET", "/api/session", Session());
-        var session = new SessionState(server.CreateApi());
+        var session = new SessionState(server.CreateApi(), new ShareInbox());
         await session.Load(TestContext.Current.CancellationToken);
         return session;
     }
