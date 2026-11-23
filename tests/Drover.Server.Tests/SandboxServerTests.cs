@@ -142,6 +142,9 @@ public sealed class SandboxKeySettingTests
         // The server's data registration provides the command locks; nothing here opens a connection through them.
         services.AddSingleton(provider => new SandboxCommandLocks(
             "Host=unused", provider.GetRequiredService<ILogger<SandboxCommandLocks>>()));
+        // The engine's registration provides the run scopes the broker opens its transactions through; nothing here
+        // opens one.
+        services.AddSingleton<RunScopes>();
         services.AddDroverSandboxes(configuration, policy ?? DeploymentPolicy.SelfHosted);
         return services.BuildServiceProvider();
     }

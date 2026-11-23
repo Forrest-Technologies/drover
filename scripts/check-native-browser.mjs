@@ -102,6 +102,19 @@ const panelFile = {
     id: '0196f1a0-0000-7000-8000-000000000008', name: 'sample-panel.png',
     contentType: 'image/png', kind: 'image', size: 80,
 };
+const retryPicture = {
+    id: '0196f1a0-0000-7000-8000-00000000000b', name: 'sample-retry.png',
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+};
+const exhaustedPicture = {
+    id: '0196f1a0-0000-7000-8000-00000000000c', name: 'sample-retry-exhausted.png',
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+};
+const concurrentPictures = Array.from({ length: 4 }, (_, index) => ({
+    id: `0196f1a0-0000-7000-8000-${String(index + 13).padStart(12, '0')}`,
+    name: `sample-concurrent-${index + 1}.png`,
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+}));
 const exchangedFiles = [
     {
         file: panelFile, threadId: thread.id, messageId: messages[0].id,
@@ -116,6 +129,9 @@ const exchangedFiles = [
 const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
 const sampleImageAddress = 'https://preview-image.example.test/sample.png';
 messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
+messages[0].parts.push(...concurrentPictures.map(file => ({ kind: 'file', fileId: file.id, file })));
+messages[0].parts.push({ kind: 'file', fileId: retryPicture.id, file: retryPicture });
+messages[0].parts.push({ kind: 'file', fileId: exhaustedPicture.id, file: exhaustedPicture });
 const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
 const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
@@ -218,6 +234,12 @@ try {
                 await route.abort();
             });
             let previewRequests = 0;
+            let retryPictureRequests = 0;
+            let exhaustedPictureRequests = 0;
+            let concurrentPictureRequests = 0;
+            let activeConcurrentPictureRequests = 0;
+            let maxConcurrentPictureRequests = 0;
+            const heldConcurrentPictures = [];
             // The file card in the conversation and in the Files panel reads the same preview path as the panel's
             // Preview toggle, so the answer is chosen by the step under test, not by the order of the requests.
             let panelPreviewBroken = false;
@@ -227,6 +249,11 @@ try {
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
                 if (message.location().url.startsWith(previewOrigin)) { return; }
+                // The paste check makes one file fail to read on purpose; the app logs that, as it should.
+                if (current === 'conversation'
+                    && message.text().includes('A file the browser handed over with a paste could not be read')) {
+                    return;
+                }
                 // These two intentional API failures exercise the loading-to-failure and retry states.
                 const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (current === 'conversation' && previewRequests === 5
@@ -255,6 +282,8 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
+            // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
+            const uploadedFiles = [];
             let projectMoved = false;
             let previewFrameRequests = [];
             let revokedPreviewGrants = [];
@@ -392,6 +421,45 @@ try {
                 else if (address.endsWith(`/files/${panelFile.id}/native-preview`)) {
                     body = { image: panelPreviewBroken ? 'iVBORw0KGgo=' : samplePng };
                 }
+                else if (address.endsWith(`/files/${retryPicture.id}/native-preview`)) {
+                    retryPictureRequests++;
+                    body = retryPictureRequests === 1 ? { refusal: 3 } : { image: samplePng };
+                }
+                else if (address.endsWith(`/files/${exhaustedPicture.id}/native-preview`)) {
+                    exhaustedPictureRequests++;
+                    body = { refusal: 3 };
+                }
+                else if (concurrentPictures.some(file => address.endsWith(`/files/${file.id}/native-preview`))) {
+                    concurrentPictureRequests++;
+                    activeConcurrentPictureRequests++;
+                    maxConcurrentPictureRequests = Math.max(
+                        maxConcurrentPictureRequests,
+                        activeConcurrentPictureRequests);
+                    await new Promise(resolve => heldConcurrentPictures.push(resolve));
+                    activeConcurrentPictureRequests--;
+                    body = { image: samplePng };
+                }
+                else if (address.endsWith(`/threads/${thread.id}/attachment-rules`)) {
+                    body = { maxFileBytes: 26214400, maxFilesPerMessage: 10, modelReadsImages: true, hasSandbox: true };
+                }
+                else if (address.endsWith(`/threads/${thread.id}/files`) && route.request().method() === 'POST') {
+                    const uploaded = new URL(route.request().url()).searchParams.get('name') ?? '';
+                    const bytes = route.request().postDataBuffer() ?? Buffer.alloc(0);
+                    uploadedFiles.push({ name: uploaded, bytes });
+                    const number = String(uploadedFiles.length).padStart(3, '0');
+                    await route.fulfill({
+                        status: 201,
+                        json: {
+                            id: `0196f1a0-0000-7000-8000-000000000${number}`, name: uploaded,
+                            contentType: 'image/png', kind: 'image', size: bytes.length, width: 16, height: 16,
+                        },
+                    });
+                    return;
+                }
+                else if (/\/files\/[^/]+$/.test(address) && route.request().method() === 'DELETE') {
+                    await route.fulfill({ status: 204 });
+                    return;
+                }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
                     body = {
@@ -507,6 +575,44 @@ try {
                 if (name === 'conversation') {
                     await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).waitFor({ state: 'attached' });
                     await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached' });
+                    const firstPictureDeadline = Date.now() + 10000;
+                    while (concurrentPictureRequests < 2 && Date.now() < firstPictureDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    await page.evaluate(() => new Promise(resolve =>
+                        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                    assert.equal(concurrentPictureRequests, 2,
+                        'Only two conversation pictures should read from the server together.');
+                    heldConcurrentPictures.splice(0).forEach(release => release());
+                    const backlogDeadline = Date.now() + 10000;
+                    while (concurrentPictureRequests < concurrentPictures.length && Date.now() < backlogDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(concurrentPictureRequests, concurrentPictures.length,
+                        'The queued conversation pictures should start after the first pair finishes.');
+                    assert.equal(activeConcurrentPictureRequests, 2,
+                        'The drained picture backlog should keep both request slots busy.');
+                    assert.equal(maxConcurrentPictureRequests, 2,
+                        'The picture request limit should hold while the backlog drains.');
+                    heldConcurrentPictures.splice(0).forEach(release => release());
+                    for (const file of concurrentPictures) {
+                        await page.locator(`[role="img"][aria-label="${file.name}"]`)
+                            .waitFor({ state: 'attached', timeout: 10000 });
+                    }
+                    const retryDeadline = Date.now() + 10000;
+                    while (retryPictureRequests < 2 && Date.now() < retryDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(retryPictureRequests, 2, 'A busy picture preview should be retried once.');
+                    await page.locator('[role="img"][aria-label="sample-retry.png"]')
+                        .waitFor({ state: 'attached', timeout: 10000 });
+                    const exhaustedDeadline = Date.now() + 10000;
+                    while (exhaustedPictureRequests < 2 && Date.now() < exhaustedDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(exhaustedPictureRequests, 2, 'A busy picture preview should retry only once.');
+                    await shown(page, 'This picture could not be shown.')
+                        .waitFor({ state: 'attached', timeout: 10000 });
                 }
                 if (name === 'share-empty') {
                     await page.getByText('Nothing is waiting to be shared. Share text or a file to Drover from another app.', { exact: true })
@@ -597,6 +703,7 @@ try {
                 }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
+                    await checkPastedAndDroppedFiles(page, uploadedFiles, width, theme);
                     await checkStopBounds(page, width);
                 }
                 if (name === 'conversation') {
@@ -624,7 +731,7 @@ try {
                     const drawn = {
                         pdf: 'Sample PDF page one summary.',
                         diagram: 'Diagram node Upload file',
-                        limit: 'Preview limits are 16 KiB for text, 1 MiB and 4 million pixels for pictures, and 1 MiB and 10 pages for PDF files. Download the file to keep it.',
+                        limit: 'This file exceeds the preview limits. Download the original to keep it.',
                         error: 'Could not show the preview. Download the file to keep it.',
                         malformed: 'This file contains invalid preview data. Download it to keep it.',
                         unsupported: 'This file format has no native preview. Download it to keep it.',
@@ -886,6 +993,189 @@ async function checkComposerBounds(page) {
     } finally {
         await close();
     }
+}
+
+// A picture on the clipboard arrives with the page's paste event, and files dropped anywhere on the conversation
+// attach to it. Each step waits for what the page did, never for a set time: a paste reports whether the page took
+// it from the field, an upload is waited for by count, and the drop line is waited for as it comes and goes.
+async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const dropLine = page.getByText('Drop the files to attach them.', { exact: true });
+    const pasteFailed = page.getByText('What was pasted could not be attached.');
+    // A complete PNG (signature, header, pixels, end), so what is uploaded can be checked byte for byte.
+    const png = [...Buffer.from(samplePng, 'base64')];
+    // A file copied from storage carries the time it was last changed; a picture the browser made for the paste, now.
+    const longAgo = Date.parse('2024-03-01T09:00:00Z');
+    // Dispatches a paste on the element with the focus, as Ctrl+V does. True when the page's paste script took it from
+    // the field. The field also handles a paste, so this is read on the body, after the script's listener on the
+    // document and before any listener of the field.
+    const paste = (files, text) => page.evaluate(({ files, text }) => {
+        const clipboardData = new DataTransfer();
+        for (const file of files) {
+            clipboardData.items.add(new File([new Uint8Array(file.bytes)], file.name, {
+                type: 'image/png',
+                lastModified: file.lastModified ?? Date.now(),
+            }));
+        }
+        if (text) {
+            clipboardData.setData('text/plain', text);
+        }
+        const event = new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true });
+        let taken = false;
+        const look = seen => { taken = seen.defaultPrevented; };
+        document.body.addEventListener('paste', look, { capture: true, once: true });
+        document.activeElement.dispatchEvent(event);
+        document.body.removeEventListener('paste', look, { capture: true });
+        return taken;
+    }, { files, text });
+    const uploadsAre = async (count, message) => {
+        const deadline = Date.now() + 10000;
+        while (uploadedFiles.length < count && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        assert.equal(uploadedFiles.length, count, message);
+    };
+    const held = () => page.evaluate(() => globalThis.droverPaste.held());
+    // The platform reads a drag from the document's drag events by where the pointer is, so the events carry the point.
+    const holdOver = (files, text) => page.evaluate(({ files, text }) => {
+        // A drop made by script has no file-system handle behind its item; the platform then reads the file itself.
+        Object.defineProperty(
+            DataTransferItem.prototype, 'getAsFileSystemHandle', { value: undefined, configurable: true });
+        const dataTransfer = new DataTransfer();
+        for (const file of files) {
+            dataTransfer.items.add(new File([new Uint8Array(file.bytes)], file.name, { type: 'image/png' }));
+        }
+        if (text) {
+            dataTransfer.setData('text/plain', text);
+        }
+        const point = { clientX: Math.round(innerWidth * 0.6), clientY: Math.round(innerHeight * 0.25) };
+        const target = document.elementFromPoint(point.clientX, point.clientY) ?? document.body;
+        globalThis.droverCheckDrag = { dataTransfer, point, target };
+    }, { files, text });
+    // The platform ignores a dragleave while the pointer is still over the window, so leaving carries a point at its
+    // edge, as a person's drag out of the window does.
+    const dragEvent = type => page.evaluate(type => {
+        const { dataTransfer, point, target } = globalThis.droverCheckDrag;
+        const at = type === 'dragleave' ? { clientX: 0, clientY: 0 } : point;
+        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
+    }, type);
+    // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
+    const dragUntilShown = async message => {
+        const deadline = Date.now() + 10000;
+        await dragEvent('dragenter');
+        while (await dropLine.count() === 0) {
+            assert.ok(Date.now() < deadline, message);
+            await dragEvent('dragover');
+        }
+    };
+
+    // Text and a picture together: the text is what was meant, so the page leaves the paste to the field.
+    await field.focus();
+    assert.equal(await paste([{ name: 'mixed.png', bytes: png, lastModified: longAgo }], 'some words'), false,
+        'A picture pasted with text beside it is left to the text field.');
+
+    // A screenshot alone: the browser names it image.png at the moment of the paste, and it is named for that moment.
+    assert.equal(await paste([{ name: 'image.png', bytes: png }]), true,
+        'A picture pasted alone is taken by the page.');
+    await uploadsAre(1, 'A picture pasted with no text uploads once, and the mixed paste before it uploaded nothing.');
+    assert.match(uploadedFiles[0].name, /^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.png$/);
+    assert.deepEqual([...uploadedFiles[0].bytes], png, 'The picture is uploaded byte for byte.');
+    await page.getByRole('button', { name: `Remove ${uploadedFiles[0].name}`, exact: true })
+        .waitFor({ state: 'attached', timeout: 10000 });
+    await page.screenshot({ path: path.join(pictures, `pasted-picture-${width}-${theme}.png`) });
+
+    // A file copied from storage keeps its own name, even image.png.
+    assert.equal(await paste([{ name: 'image.png', bytes: png, lastModified: longAgo }]), true);
+    await uploadsAre(2, 'A file copied from storage and pasted uploads once.');
+    assert.equal(uploadedFiles[1].name, 'image.png', 'A copied file named image.png keeps its name.');
+
+    // A file that cannot be read fails the whole paste once, and every byte held for it is let go.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let calls = 0;
+        Blob.prototype.arrayBuffer = function () {
+            calls++;
+            return calls === 2 ? Promise.reject(new Error('Sample read failure')) : reading.call(this);
+        };
+        globalThis.droverCheckRead = () => { Blob.prototype.arrayBuffer = reading; };
+    });
+    await field.focus();
+    assert.equal(await paste([
+        { name: 'first.png', bytes: png, lastModified: longAgo },
+        { name: 'second.png', bytes: png, lastModified: longAgo },
+    ]), true);
+    await pasteFailed.first().waitFor({ state: 'attached', timeout: 10000 });
+    await page.evaluate(() => globalThis.droverCheckRead());
+    assert.equal(await held(), 0, 'A paste that failed holds no bytes.');
+    await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
+    await pasteFailed.first().waitFor({ state: 'detached', timeout: 5000 });
+    assert.equal(uploadedFiles.length, 2, 'Nothing of a paste that failed is uploaded.');
+
+    // Files held over the message list: the drop line shows, and goes when the files leave the conversation.
+    await holdOver([{ name: 'left.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list show the drop line.');
+    await page.screenshot({ path: path.join(pictures, `drop-cue-${width}-${theme}.png`) });
+    await dragEvent('dragleave');
+    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+
+    // Words dragged over the conversation are refused at release: nothing is uploaded and no line is left behind.
+    await holdOver([], 'Sample dragged words');
+    await dragEvent('dragenter');
+    await dragEvent('dragover');
+    await dragEvent('drop');
+    assert.equal(await dropLine.count(), 0, 'Words held over the conversation never show the drop line.');
+
+    // Files dropped on the message list attach to the conversation, and the line goes with the drop.
+    await holdOver([{ name: 'dropped.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list after a refused drag show the drop line.');
+    await dragEvent('drop');
+    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await uploadsAre(3, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
+    assert.equal(uploadedFiles[2].name, 'dropped.png');
+    assert.deepEqual([...uploadedFiles[2].bytes], png);
+
+    // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
+    await field.focus();
+    assert.equal(await paste(Array.from({ length: 150 }, (_, index) => ({
+        name: `many ${index + 1}.png`, bytes: png, lastModified: longAgo,
+    }))), true);
+    await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'attached', timeout: 10000 });
+    const remove = page.getByRole('button', { name: /^Remove / });
+    assert.equal(await remove.count(), 103, 'The hundred files taken stand beside the three attached before.');
+    assert.equal(await held(), 0, 'Bytes the conversation did not collect are let go once the paste is reported.');
+    while (await remove.count() > 0) {
+        await remove.first().dispatchEvent('click');
+    }
+    // A warning stays until it is dismissed, and it would stand over the buttons the next check measures.
+    await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
+    await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'detached', timeout: 5000 });
+
+    // The paste belongs to the field it was made in: the cursor leaves while the file is read, and it still arrives.
+    // It comes last, since the cursor is not brought back to the field after it.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let open;
+        const gate = new Promise(resolve => { open = resolve; });
+        Blob.prototype.arrayBuffer = async function () {
+            await gate;
+            return reading.call(this);
+        };
+        globalThis.droverCheckRead = () => {
+            Blob.prototype.arrayBuffer = reading;
+            open();
+        };
+    });
+    const before = uploadedFiles.length;
+    await field.focus();
+    assert.equal(await paste([{ name: 'held.png', bytes: png, lastModified: longAgo }]), true);
+    await page.keyboard.press('Tab');
+    await page.evaluate(() => globalThis.droverCheckRead());
+    await uploadsAre(before + 1, 'A paste read after the cursor left its field still goes to that conversation.');
+    assert.equal(uploadedFiles[before].name, 'held.png');
+    const heldChip = page.getByRole('button', { name: 'Remove held.png', exact: true });
+    await heldChip.waitFor({ state: 'attached', timeout: 10000 });
+    await heldChip.dispatchEvent('click');
+    await heldChip.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 // While a run is in progress Stop stands where Send was, and the options button beside the field is still there. The
@@ -1184,7 +1474,9 @@ async function withDeadline(promise, milliseconds, what) {
 
 // The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
 function shown(page, words) {
-    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true })).first();
+    // The polite announcer retains the last message even after the rendered status disappears.
+    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true }))
+        .and(page.locator(':not(#uno-live-region-polite, #uno-live-region-polite *)')).first();
 }
 
 async function waitForShown(page, words) {

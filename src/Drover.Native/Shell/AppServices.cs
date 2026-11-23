@@ -26,7 +26,7 @@ public static partial class AppServices
             .AddSingleton<ToastService>()
             .AddSingleton<ExtensionHandoff>()
             .AddSingleton<ThemeModel>()
-            .AddSingleton<ShareInbox>()
+            .AddSingleton(ShareInbox.Process)
             .AddSingleton<MovedNotifications>()
             .AddPlatform();
         AddChecks(services);

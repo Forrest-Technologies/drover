@@ -166,6 +166,38 @@ public sealed class SidePanelTests : IDisposable
     }
 
     [Fact]
+    public async Task Closing_the_screen_during_its_first_read_does_not_throw()
+    {
+        bench.Server.Answer("GET", sandbox, new BotSandboxStatus(true, true, "running", null, true, true, true));
+        var answer = bench.Server.Hold("GET", sandbox, ignoreCancellation: true);
+        var panel = Screen();
+        var open = panel.Open();
+        await ChatBench.Eventually(() => bench.Server.Sent("GET", sandbox).Should().ContainSingle());
+
+        await panel.DisposeAsync();
+        answer.SetResult();
+
+        var ending = () => open;
+        await ending.Should().NotThrowAsync("the answer was already on its way when the person closed the screen");
+        time.Advance(TimeSpan.FromSeconds(30));
+        bench.Server.Sent("GET", sandbox).Should().ContainSingle("a closed screen reads nothing more");
+    }
+
+    [Fact]
+    public async Task Reading_the_state_again_after_the_screen_closed_does_not_throw()
+    {
+        bench.Server.Answer("GET", sandbox, new BotSandboxStatus(true, true, "running", null, true, true, true));
+        var panel = Screen();
+        await panel.Open();
+        await panel.DisposeAsync();
+
+        var reading = () => panel.Refresh();
+
+        await reading.Should().NotThrowAsync("the screen's surface can say the sandbox changed after the panel closed");
+        bench.Server.Sent("GET", sandbox).Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Someone_who_may_not_use_the_screen_is_told_who_does_and_the_state_is_not_read_again()
     {
         bench.Server.Answer("GET", sandbox, HttpStatusCode.Forbidden);

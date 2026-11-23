@@ -25,7 +25,7 @@ public sealed class SetupViewModelTests : IDisposable
 
     public SetupViewModelTests()
     {
-        session = new(server.CreateApi());
+        session = new(server.CreateApi(), new ShareInbox());
         server.Answer("GET", "/api/session", Samples.Session());
     }
 

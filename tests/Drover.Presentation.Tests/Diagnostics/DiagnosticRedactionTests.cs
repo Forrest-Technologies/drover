@@ -93,6 +93,19 @@ public sealed class DiagnosticRedactionTests : IDisposable
     }
 
     [Fact]
+    public void A_failure_type_and_http_status_survive_without_the_exception_text()
+    {
+        var logger = factory.CreateLogger<DiagnosticRedactionTests>();
+        var failure = Thrown();
+        logger.LogWarning("Attachment failed with {ExceptionType} (HTTP {StatusCode})",
+            failure.GetType(), (int)HttpStatusCode.BadRequest);
+
+        var saved = log.Compose(app);
+        saved.Should().Contain("ExceptionType=HttpRequestException StatusCode=400");
+        ShouldHoldNoSecret(saved);
+    }
+
+    [Fact]
     public void A_library_message_built_from_values_is_left_out_whole()
     {
         var logger = factory.CreateLogger("Uno.UI.Sample.Library");

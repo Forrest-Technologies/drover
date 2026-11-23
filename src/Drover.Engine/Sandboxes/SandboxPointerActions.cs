@@ -24,6 +24,12 @@ internal sealed record PointerAction(PointerStep Step, MouseButton Button, Comma
 /// <summary>Builds the pointer actions of a person's input, checked as a bot's own mouse actions are.</summary>
 internal static class SandboxPointerActions
 {
+    #region Private Fields
+
+    private const string DragNeeds = "A drag needs x, y, x2 and y2.";
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>
@@ -72,8 +78,6 @@ internal static class SandboxPointerActions
     #endregion
 
     #region Private Methods
-
-    private const string DragNeeds = "A drag needs x, y, x2 and y2.";
 
     /// <summary>The number the action needs, or the sentence that says what it needs.</summary>
     private static int Needed(int? value, string action) =>

@@ -104,7 +104,8 @@ public sealed class NativeFilePreviewViewModelTests
     }
 
     [Theory]
-    [InlineData(NativePreviewRefusal.TooLarge, "16 KiB")]
+    [InlineData(NativePreviewRefusal.TooLarge,
+        "This file exceeds the preview limits. Download the original to keep it.")]
     [InlineData(NativePreviewRefusal.Malformed, "invalid preview data")]
     [InlineData(NativePreviewRefusal.Unsupported, "no native preview")]
     [InlineData(NativePreviewRefusal.TooComplex, "complexity limit")]

@@ -211,6 +211,20 @@ jobs:
           trap 'xcrun simctl shutdown "$device" || true' EXIT
           app="$(find "$RUNNER_TEMP/ui-checks-ios" -type d -name 'Drover.Native.app' -print -quit)"
           test -n "$app"
+          # The harness connects here, after the simulator boot. Check the server at that moment, not in the step
+          # that started it. A ready server answers the first probe, so a healthy run pays one quick check.
+          bin="$(brew --prefix postgresql@17)/bin"
+          for ((attempt = 1; attempt <= 30; attempt++)); do
+            if "$bin/pg_isready" -h 127.0.0.1 -p 5432 -t 1 -q; then
+              break
+            fi
+            if ((attempt == 30)); then
+              echo "PostgreSQL did not accept connections after 30 probes"
+              tail -n 50 "$RUNNER_TEMP/postgres.log"
+              exit 1
+            fi
+            sleep 1
+          done
           dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- ios "$app" "$device"
 
   desktop:

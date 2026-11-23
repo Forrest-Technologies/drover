@@ -150,6 +150,8 @@ public sealed class SandboxPointerHoldsTests
         world.Clock.Advance(SandboxPointerHolds.Limit);
         await first.Started;
         var pressedAgain = false;
+        var waiting = World.Signal();
+        world.Holds.Waiting = () => waiting.TrySetResult();
 
         var second = world.Holds.Press(
             world.Press(owner),
@@ -160,7 +162,7 @@ public sealed class SandboxPointerHoldsTests
                 return Task.CompletedTask;
             },
             World.Token);
-        await World.Idle();
+        await waiting.Task.WaitAsync(World.Token);
 
         pressedAgain.Should().BeFalse("a press and a release of one sandbox take turns");
         first.Finish(ReleaseOutcome.Released);
@@ -216,14 +218,24 @@ public sealed class SandboxPointerHoldsTests
             () => busy.Task,
             World.Token);
 
-        world.Clock.Advance(SandboxPointerHolds.Limit);
-        await world.Holds.Move(World.Space, world.Sandbox, owner, World.Nothing);
+        var waiting = World.Signal();
+        world.Holds.Waiting = () => waiting.TrySetResult();
+
+        // Moves take turns at the gate too: this one waits behind the press of the right button and gets the gate a
+        // second before the timers set at the presses run out, so it keeps both buttons from then.
+        var moving = world.Holds.Move(World.Space, world.Sandbox, owner, World.Nothing);
+        await waiting.Task.WaitAsync(World.Token);
+        world.Holds.Waiting = null;
+        world.Clock.Advance(SandboxPointerHolds.Limit - TimeSpan.FromSeconds(1));
         busy.SetResult();
         await pressingRight;
-        await World.Idle();
+        await moving;
+        world.Clock.Advance(TimeSpan.FromSeconds(1));
+        await world.Holds.Quiet();
 
-        world.Calls.Should().BeEmpty("the left button was kept after the timer that waits for the gate was set");
-        world.Clock.Advance(SandboxPointerHolds.Limit);
+        world.Calls.Should().BeEmpty("the buttons were kept before the timers set at the presses ran out");
+        world.Clock.Advance(SandboxPointerHolds.Limit - TimeSpan.FromSeconds(1));
+        await world.Holds.Quiet();
         world.Calls.Select(call => call.Button).Should().BeEquivalentTo([MouseButton.Left, MouseButton.Right]);
     }
 
@@ -267,8 +279,10 @@ public sealed class SandboxPointerHoldsTests
         world.Clock.Advance(SandboxPointerHolds.Limit);
         await running.Started;
 
+        var waiting = World.Signal();
+        world.Holds.Stopping = () => waiting.TrySetResult();
         var stopping = world.Holds.DisposeAsync().AsTask();
-        await World.Idle();
+        await waiting.Task.WaitAsync(World.Token);
 
         stopping.IsCompleted.Should().BeFalse("a release is running for this button");
         running.Finish(ReleaseOutcome.Released);
@@ -283,8 +297,10 @@ public sealed class SandboxPointerHoldsTests
         var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pressing = world.Holds.Press(world.Press(), staysDown: true, () => inFlight.Task, World.Token);
 
+        var waiting = World.Signal();
+        world.Holds.Stopping = () => waiting.TrySetResult();
         var stopping = world.Holds.DisposeAsync().AsTask();
-        await World.Idle();
+        await waiting.Task.WaitAsync(World.Token);
         var late = () => world.Holds.Press(world.Press(World.Owner(2), button: MouseButton.Right), staysDown: true,
             World.Nothing, World.Token);
 
@@ -318,7 +334,7 @@ public sealed class SandboxPointerHoldsTests
     public async Task Work_started_by_the_timer_is_registered_before_anything_else_is_done_for_it()
     {
         var world = new World();
-        var registered = new List<bool>();
+        List<bool> registered = [];
         world.Watching = message =>
         {
             if (message.Contains("is being let go of", StringComparison.Ordinal))
@@ -363,8 +379,10 @@ public sealed class SandboxPointerHoldsTests
         var world = new World();
         var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pressing = world.Holds.Press(world.Press(), staysDown: true, () => inFlight.Task, World.Token);
+        var waiting = World.Signal();
+        world.Holds.Stopping = () => waiting.TrySetResult();
         var stopping = world.Holds.DisposeAsync().AsTask();
-        await World.Idle();
+        await waiting.Task.WaitAsync(World.Token);
         stopping.IsCompleted.Should().BeFalse("the press is still running");
 
         world.Clock.Advance(SandboxPointerHolds.Limit);
@@ -390,8 +408,10 @@ public sealed class SandboxPointerHoldsTests
         await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
         await world.Holds.Press(world.Press() with { SandboxId = other }, staysDown: true, World.Nothing, World.Token);
 
+        var waiting = World.Signal();
+        world.Holds.Stopping = () => waiting.TrySetResult();
         var stopping = world.Holds.DisposeAsync().AsTask();
-        await World.Idle();
+        await waiting.Task.WaitAsync(World.Token);
 
         world.Calls.Select(call => call.SandboxId).Should().BeEquivalentTo(
             [busy, other],
@@ -410,7 +430,7 @@ public sealed class SandboxPointerHoldsTests
         var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        world.Holds.PressWaiting = () => waiting.TrySetResult();
+        world.Holds.Waiting = () => waiting.TrySetResult();
         var pausing = world.Holds.RunWhileReleased(
             World.Space,
             world.Sandbox,
@@ -432,7 +452,8 @@ public sealed class SandboxPointerHoldsTests
                 ran = true;
                 return Task.CompletedTask;
             },
-            World.Token);
+            World.Token,
+            world.Holds.PowerEpoch);
         await waiting.Task;
         finish.SetResult();
         await pausing;
@@ -445,6 +466,244 @@ public sealed class SandboxPointerHoldsTests
         await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_power_control_in_another_space_does_not_end_a_press_or_a_drag_here(bool drag)
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        var anotherSpace = Guid.CreateVersion7();
+        await world.Holds.RunWhileReleased(anotherSpace, world.Sandbox, required: false, World.Nothing, World.Token);
+        await world.Holds.RunWhileReleased(anotherSpace, Guid.CreateVersion7(), required: true, World.Nothing,
+            World.Token);
+        var ran = false;
+
+        await world.Holds.Press(
+            world.Press(),
+            staysDown: !drag,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token,
+            before);
+
+        ran.Should().BeTrue("a control in another space changes nothing here, whatever sandbox id it used");
+    }
+
+    [Fact]
+    public async Task A_power_control_on_another_sandbox_of_the_same_space_does_not_end_a_press()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_that_was_cancelled_while_it_waited_for_the_gate_leaves_a_press_valid()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var busy = world.Holds.Press(
+            world.Press(World.Owner(1), button: MouseButton.Right),
+            staysDown: false,
+            () => inFlight.Task,
+            World.Token);
+        using var cancelled = new CancellationTokenSource();
+        var waiting = World.Signal();
+        world.Holds.Waiting = () => waiting.TrySetResult();
+        var pausing = world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: false,
+            World.Nothing,
+            cancelled.Token);
+        await waiting.Task.WaitAsync(World.Token);
+        await cancelled.CancelAsync();
+        var gone = async () => await pausing;
+        await gone.Should().ThrowAsync<OperationCanceledException>();
+        inFlight.SetResult();
+        await busy;
+
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_refused_because_a_button_could_not_be_let_go_of_leaves_a_press_valid()
+    {
+        var world = new World { Outcome = ReleaseOutcome.Unreachable };
+        await world.Holds.Press(world.Press(World.Owner(1), button: MouseButton.Right), staysDown: true, World.Nothing,
+            World.Token);
+        var before = world.Holds.PowerEpoch;
+        var ran = false;
+
+        var refused = await world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token);
+
+        refused.Should().BeFalse();
+        ran.Should().BeFalse();
+        await world.Holds.Press(world.Press(World.Owner(1)), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_press_that_read_the_number_longer_ago_than_the_marks_are_kept_is_refused()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+        world.Clock.Advance(TimeSpan.FromMinutes(16));
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+        var ran = false;
+
+        var press = () => world.Holds.Press(
+            world.Press(),
+            staysDown: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token,
+            before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*waited too long*");
+        ran.Should().BeFalse("the mark that would have refused it was forgotten, so its age refuses it instead");
+    }
+
+    [Fact]
+    public async Task A_mark_is_still_kept_for_a_press_whose_number_is_younger_than_the_memory()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+        world.Clock.Advance(TimeSpan.FromMinutes(14));
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
+    [Fact]
+    public async Task A_power_control_cancelled_as_the_last_release_succeeded_ran_nothing_and_leaves_a_press_valid()
+    {
+        using var cancelled = new CancellationTokenSource();
+        var world = new World();
+        await world.Holds.Press(world.Press(World.Owner(1), button: MouseButton.Right), staysDown: true, World.Nothing,
+            World.Token);
+        var before = world.Holds.PowerEpoch;
+        world.Behaviour = async (_, _) =>
+        {
+            await cancelled.CancelAsync();
+            return ReleaseOutcome.Released;
+        };
+        var ran = false;
+
+        var control = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            cancelled.Token);
+
+        await control.Should().ThrowAsync<OperationCanceledException>();
+        ran.Should().BeFalse("the request ended before the power control began");
+        await world.Holds.Press(world.Press(World.Owner(1)), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_that_ran_on_this_sandbox_still_ends_a_press_that_read_the_number_before_it()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
+    [Fact]
+    public async Task A_press_is_refused_when_a_power_control_that_failed_ran_since_it_read_the_epoch()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        var failing = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: false,
+            () => throw new InvalidOperationException(),
+            World.Token);
+        await failing.Should().ThrowAsync<InvalidOperationException>();
+        var ran = false;
+
+        var press = () => world.Holds.Press(
+            world.Press(),
+            staysDown: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token,
+            before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+        ran.Should().BeFalse("a control that failed may still have paused the display");
+    }
+
+    [Fact]
+    public async Task A_press_is_refused_when_a_cancelled_power_control_ran_since_it_read_the_epoch()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        using var cancelled = new CancellationTokenSource();
+        var cancelling = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: false,
+            async () =>
+            {
+                await cancelled.CancelAsync();
+                cancelled.Token.ThrowIfCancellationRequested();
+            },
+            cancelled.Token);
+        await cancelling.Should().ThrowAsync<OperationCanceledException>();
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
+    [Fact]
+    public async Task A_press_that_read_the_epoch_after_every_control_ended_is_not_refused()
+    {
+        var world = new World();
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, world.Holds.PowerEpoch);
+    }
+
     [Fact]
     public async Task A_pause_runs_with_nothing_held_and_no_press_can_come_between_the_release_and_the_pause()
     {
@@ -453,7 +712,7 @@ public sealed class SandboxPointerHoldsTests
         var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        world.Holds.PressWaiting = () => waiting.TrySetResult();
+        world.Holds.Waiting = () => waiting.TrySetResult();
 
         var pausing = world.Holds.RunWhileReleased(
             World.Space,
@@ -475,7 +734,8 @@ public sealed class SandboxPointerHoldsTests
                 pressed = true;
                 return Task.CompletedTask;
             },
-            World.Token);
+            World.Token,
+            world.Holds.PowerEpoch);
         await waiting.Task;
 
         world.Calls.Should().ContainSingle("the held button was let go of before the pause began");
@@ -612,6 +872,464 @@ public sealed class SandboxPointerHoldsTests
 
     #endregion
 
+    #region Deadlines, Bounds And Lookups
+
+    [Fact]
+    public async Task A_mark_is_kept_by_the_monotonic_clock_when_the_wall_clock_is_corrected()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+        world.Wall.Skew = -TimeSpan.FromMinutes(10);
+        await world.Holds.RunWhileReleased(World.Space, world.Sandbox, required: false, World.Nothing, World.Token);
+        world.Wall.Skew = TimeSpan.Zero;
+        world.Clock.Advance(TimeSpan.FromMinutes(6));
+        await world.Holds.RunWhileReleased(World.Space, Guid.CreateVersion7(), required: false, World.Nothing,
+            World.Token);
+
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage(
+            "*paused or replaced*",
+            "six minutes passed since the control, whatever the wall clock said when it was marked");
+    }
+
+    [Fact]
+    public async Task A_power_control_that_ends_before_it_begins_its_change_leaves_a_press_valid()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+
+        var cancelled = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            _ => throw new OperationCanceledException(),
+            World.Token);
+        var moved = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            _ => throw new BuiltinToolException("The bot's sandbox changed while this was under way."),
+            World.Token);
+
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+        await moved.Should().ThrowAsync<BuiltinToolException>();
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+    }
+
+    [Fact]
+    public async Task A_power_control_that_began_its_change_ends_a_press_even_when_it_fails_after()
+    {
+        var world = new World();
+        var before = world.Holds.PowerEpoch;
+
+        var failing = () => world.Holds.RunWhileReleased(
+            World.Space,
+            world.Sandbox,
+            required: true,
+            begin =>
+            {
+                begin();
+                throw new InvalidOperationException();
+            },
+            World.Token);
+
+        await failing.Should().ThrowAsync<InvalidOperationException>();
+        var press = () => world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token, before);
+        await press.Should().ThrowAsync<BuiltinToolException>().WithMessage("*paused or replaced*");
+    }
+
+    [Fact]
+    public async Task A_button_that_could_not_be_let_go_of_is_forgotten_once_its_sandbox_is_found_gone()
+    {
+        var world = new World { Outcome = ReleaseOutcome.Unreachable };
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+
+        for (var attempt = 0; attempt < SandboxPointerHolds.MaxFailedReleases; attempt++)
+        {
+            world.Clock.Advance(SandboxPointerHolds.Limit);
+        }
+
+        var stuck = () => world.Holds.Guard(World.Space, world.Sandbox, World.Nothing);
+        await stuck.Should().ThrowAsync<BuiltinToolException>().WithMessage("*could not be let go of*");
+        world.Clock.Advance(SandboxPointerHolds.StuckProbe);
+        await world.Holds.Quiet();
+        world.Calls.Should().HaveCount(SandboxPointerHolds.MaxFailedReleases + 1, "it is still tried, less often");
+        world.Outcome = ReleaseOutcome.Gone;
+        world.Clock.Advance(SandboxPointerHolds.StuckProbe);
+        await world.Holds.Quiet();
+
+        world.Holds.IsHeldOn(World.Space, world.Sandbox).Should().BeFalse("the sandbox was found to be gone");
+        await world.Holds.Guard(World.Space, world.Sandbox, World.Nothing);
+    }
+
+    [Fact]
+    public async Task A_new_screen_with_a_held_button_is_refused_past_the_bounds_of_its_space_and_the_server()
+    {
+        var world = new World();
+        var first = world.Press();
+        await world.Holds.Press(first, staysDown: true, World.Nothing, World.Token);
+
+        for (var screen = 1; screen < SandboxPointerHolds.MaxHeldScreensPerSpace; screen++)
+        {
+            await world.Holds.Press(first with { SandboxId = Guid.CreateVersion7() }, staysDown: true, World.Nothing,
+                World.Token);
+        }
+
+        var ran = false;
+        var oneMore = () => world.Holds.Press(
+            first with { SandboxId = Guid.CreateVersion7() },
+            staysDown: true,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            },
+            World.Token);
+
+        await oneMore.Should().ThrowAsync<BuiltinToolException>().WithMessage("*Too many mouse buttons*");
+        ran.Should().BeFalse("nothing was pressed");
+        await world.Holds.Press(first with { Button = MouseButton.Right }, staysDown: true, World.Nothing, World.Token);
+
+        var held = SandboxPointerHolds.MaxHeldScreensPerSpace;
+
+        while (held < SandboxPointerHolds.MaxHeldScreens)
+        {
+            var space = Guid.CreateVersion7();
+
+            for (var screen = 0; screen < SandboxPointerHolds.MaxHeldScreensPerSpace
+                && held < SandboxPointerHolds.MaxHeldScreens; screen++, held++)
+            {
+                await world.Holds.Press(first with { SpaceId = space, SandboxId = Guid.CreateVersion7() },
+                    staysDown: true, World.Nothing, World.Token);
+            }
+        }
+
+        var anotherSpace = () => world.Holds.Press(
+            first with { SpaceId = Guid.CreateVersion7(), SandboxId = Guid.CreateVersion7() },
+            staysDown: true,
+            World.Nothing,
+            World.Token);
+        await anotherSpace.Should().ThrowAsync<BuiltinToolException>().WithMessage("*Too many mouse buttons*");
+    }
+
+    [Fact]
+    public async Task A_stop_tries_every_button_of_a_screen_at_once_and_ends_on_time_when_a_release_never_ends()
+    {
+        var world = new World();
+        var never = new TaskCompletionSource<ReleaseOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.Behaviour = (held, _) => held.Button is MouseButton.Left
+            ? never.Task
+            : Task.FromResult(ReleaseOutcome.Released);
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+        await world.Holds.Press(world.Press(button: MouseButton.Right), staysDown: true, World.Nothing, World.Token);
+        var waiting = World.Signal();
+        world.Holds.Stopping = () => waiting.TrySetResult();
+
+        var stopping = world.Holds.DisposeAsync().AsTask();
+        await waiting.Task.WaitAsync(World.Token);
+
+        world.Calls.Select(call => call.Button).Should().BeEquivalentTo(
+            [MouseButton.Left, MouseButton.Right],
+            "the right button was tried while the left one's release was still running");
+        stopping.IsCompleted.Should().BeFalse();
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
+        never.SetResult(ReleaseOutcome.Released);
+    }
+
+    [Fact]
+    public async Task Work_that_holds_a_screen_past_a_stop_lets_go_of_every_button_on_it_when_it_ends()
+    {
+        var world = new World();
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+        var inFlight = World.Signal();
+        var pressing = world.Holds.Press(world.Press(button: MouseButton.Right), staysDown: true,
+            () => inFlight.Task, World.Token);
+        var waiting = World.Signal();
+        world.Holds.Stopping = () => waiting.TrySetResult();
+        var stopping = world.Holds.DisposeAsync().AsTask();
+        await waiting.Task.WaitAsync(World.Token);
+
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
+        world.Calls.Should().BeEmpty("the press still had the screen when the budget ran out");
+        inFlight.SetResult();
+        await pressing;
+
+        world.Calls.Select(call => call.Button).Should().BeEquivalentTo(
+            [MouseButton.Left, MouseButton.Right],
+            "the button held before the stop is let go of too, not only the one the press made");
+    }
+
+    [Fact]
+    public async Task A_second_press_after_the_longest_hold_lets_go_of_the_button_before_it_runs()
+    {
+        var world = new World();
+        var owner = World.Owner(1);
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+        await KeepUntilTheLastMinuteIsAlmostOver(world, owner);
+        var busy = World.Signal();
+        var pressingRight = world.Holds.Press(world.Press(owner, button: MouseButton.Right), staysDown: true,
+            () => busy.Task, World.Token);
+        var waiting = World.Signal();
+        world.Holds.Waiting = () => waiting.TrySetResult();
+        var letGoFirst = false;
+
+        var again = world.Holds.Press(
+            world.Press(owner),
+            staysDown: true,
+            () =>
+            {
+                letGoFirst = world.Calls.Any(call => call.Button is MouseButton.Left);
+                return Task.CompletedTask;
+            },
+            World.Token);
+        await waiting.Task.WaitAsync(World.Token);
+        world.Holds.Waiting = null;
+        world.Clock.Advance(TimeSpan.FromSeconds(6));
+        busy.SetResult();
+        await pressingRight;
+        await again;
+        await world.Holds.Quiet();
+
+        letGoFirst.Should().BeTrue("a press is not kept past a minute, even by its own session pressing it again");
+    }
+
+    [Fact]
+    public async Task A_move_after_the_longest_hold_lets_go_of_the_button_before_it_runs()
+    {
+        var world = new World();
+        var owner = World.Owner(1);
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+        await KeepUntilTheLastMinuteIsAlmostOver(world, owner);
+        var busy = World.Signal();
+        var pressingRight = world.Holds.Press(world.Press(World.Owner(2), button: MouseButton.Right),
+            staysDown: true, () => busy.Task, World.Token);
+        var waiting = World.Signal();
+        world.Holds.Waiting = () => waiting.TrySetResult();
+        var letGoFirst = false;
+
+        var moving = world.Holds.Move(
+            World.Space,
+            world.Sandbox,
+            owner,
+            () =>
+            {
+                letGoFirst = world.Calls.Any(call => call.Button is MouseButton.Left);
+                return Task.CompletedTask;
+            });
+        await waiting.Task.WaitAsync(World.Token);
+        world.Holds.Waiting = null;
+        world.Clock.Advance(TimeSpan.FromSeconds(6));
+        busy.SetResult();
+        await pressingRight;
+        await moving;
+        await world.Holds.Quiet();
+
+        letGoFirst.Should().BeTrue("a move takes its turn at the gate and never keeps a button past a minute");
+        world.Calls.Where(call => call.Button is MouseButton.Left).Should().ContainSingle();
+    }
+
+    #endregion
+
+    #region Round Thirteen: Deadlines At The Gate, Arming Before Dispatch, The Stop
+
+    [Fact]
+    public async Task A_move_that_gets_the_gate_after_the_idle_deadline_lets_go_of_the_button_before_it_runs()
+    {
+        var world = new World();
+        var owner = World.Owner(1);
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+        var busy = World.Signal();
+        var other = world.Holds.Guard(World.Space, world.Sandbox, () => busy.Task);
+        var waiting = World.Signal();
+        world.Holds.Waiting = () => waiting.TrySetResult();
+        var letGoFirst = false;
+
+        var moving = world.Holds.Move(
+            World.Space,
+            world.Sandbox,
+            owner,
+            () =>
+            {
+                letGoFirst = world.Calls.Any(call => call.Button is MouseButton.Left);
+                return Task.CompletedTask;
+            });
+        await waiting.Task.WaitAsync(World.Token);
+        world.Holds.Waiting = null;
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        busy.SetResult();
+        await other;
+        await moving;
+        await world.Holds.Quiet();
+
+        letGoFirst.Should().BeTrue("the move took the gate after the idle deadline, so it does not keep the button");
+        world.Calls.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_move_that_runs_across_the_idle_deadline_keeps_the_button_only_from_when_it_was_sent()
+    {
+        var world = new World();
+        var owner = World.Owner(1);
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+        world.Clock.Advance(TimeSpan.FromSeconds(9));
+        var running = World.Signal();
+        var finish = World.Signal();
+
+        var moving = world.Holds.Move(
+            World.Space,
+            world.Sandbox,
+            owner,
+            async () =>
+            {
+                running.TrySetResult();
+                await finish.Task;
+            });
+        await running.Task.WaitAsync(World.Token);
+        world.Clock.Advance(TimeSpan.FromSeconds(2));
+        finish.SetResult();
+        await moving;
+        await world.Holds.Quiet();
+        world.Calls.Should().BeEmpty("the move was sent a second before the deadline");
+        world.Clock.Advance(TimeSpan.FromSeconds(8));
+        await world.Holds.Quiet();
+
+        world.Calls.Should().ContainSingle("ten seconds after the move was sent, not after it ended");
+    }
+
+    [Fact]
+    public async Task Input_is_refused_while_a_due_button_could_not_be_let_go_of()
+    {
+        var world = new World { Outcome = ReleaseOutcome.Unreachable };
+        var owner = World.Owner(1);
+        await world.Holds.Press(world.Press(owner), staysDown: true, World.Nothing, World.Token);
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        await world.Holds.Quiet();
+        world.Calls.Should().ContainSingle("the release was tried and the sandbox could not be reached");
+        var ran = false;
+
+        var guarded = () => world.Holds.Guard(
+            World.Space,
+            world.Sandbox,
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            });
+        var moving = () => world.Holds.Move(World.Space, world.Sandbox, owner, World.Nothing);
+
+        await guarded.Should().ThrowAsync<BuiltinToolException>().WithMessage("*due to be let go of*");
+        await moving.Should().ThrowAsync<BuiltinToolException>().WithMessage("*due to be let go of*");
+        ran.Should().BeFalse("nothing runs on a display with a due button still down");
+        await world.Holds.Lift(World.Space, world.Sandbox, MouseButton.Left, World.Nothing, World.Token);
+        await world.Holds.Guard(World.Space, world.Sandbox, World.Nothing);
+    }
+
+    [Fact]
+    public async Task A_press_is_armed_before_its_command_and_let_go_of_when_slow_work_after_it_ends()
+    {
+        var world = new World();
+        var sent = World.Signal();
+        var finish = World.Signal();
+
+        var pressing = world.Holds.Press(
+            world.Press(),
+            staysDown: true,
+            async () =>
+            {
+                sent.TrySetResult();
+                await finish.Task;
+            },
+            World.Token);
+        await sent.Task.WaitAsync(World.Token);
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        world.Calls.Should().BeEmpty("the work that pressed it still has the screen");
+        finish.SetResult();
+        await pressing;
+        await world.Holds.Quiet();
+
+        world.Calls.Should().ContainSingle("the deadline passed while the work ran, so it is let go of as it ends");
+        world.Holds.IsHeldOn(World.Space, world.Sandbox).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_press_still_acquiring_its_sandbox_when_the_server_stops_presses_nothing()
+    {
+        var world = new World();
+        var acquiring = World.Signal();
+        var acquired = World.Signal();
+        var ran = false;
+        var use = new ScreenUse(
+            world.Sandbox,
+            async () =>
+            {
+                acquiring.TrySetResult();
+                await acquired.Task;
+                return "provider-sandbox";
+            },
+            () =>
+            {
+                ran = true;
+                return Task.CompletedTask;
+            });
+        var pressing = world.Holds.Press(world.Press(), staysDown: true, use, World.Token);
+        await acquiring.Task.WaitAsync(World.Token);
+        var stopped = World.Signal();
+        world.Holds.Stopping = () => stopped.TrySetResult();
+
+        var stopping = world.Holds.DisposeAsync().AsTask();
+        await stopped.Task.WaitAsync(World.Token);
+        world.Clock.Advance(SandboxPointerHolds.Limit);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
+        acquired.SetResult();
+
+        var pressed = () => pressing;
+        await pressed.Should().ThrowAsync<BuiltinToolException>().WithMessage("*stopping*");
+        ran.Should().BeFalse("the stop had begun, so the press sent nothing");
+        world.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_release_the_stop_cannot_make_at_first_is_tried_again_within_the_budget()
+    {
+        var world = new World();
+        var attempts = 0;
+        world.Behaviour = (_, _) => Task.FromResult(
+            Interlocked.Increment(ref attempts) is 1 ? ReleaseOutcome.Unreachable : ReleaseOutcome.Released);
+        await world.Holds.Press(world.Press(), staysDown: true, World.Nothing, World.Token);
+        var stopped = World.Signal();
+        world.Holds.Stopping = () => stopped.TrySetResult();
+
+        var stopping = world.Holds.DisposeAsync().AsTask();
+        await stopped.Task.WaitAsync(World.Token);
+        world.Calls.Should().ContainSingle("the first try could not reach the sandbox");
+        world.Clock.Advance(SandboxPointerHolds.StopRetry);
+        await stopping.WaitAsync(TimeSpan.FromSeconds(10), World.Token);
+
+        world.Calls.Should().HaveCount(2, "it was tried again before the budget ran out, and that worked");
+        world.Holds.IsHeldOn(World.Space, world.Sandbox).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Helpers
+
+    /// <summary>Keeps the button with a move every nine seconds, until fifty-four seconds after it went down.</summary>
+    private static async Task KeepUntilTheLastMinuteIsAlmostOver(World world, PointerOwner owner)
+    {
+        for (var step = 0; step < 6; step++)
+        {
+            world.Clock.Advance(TimeSpan.FromSeconds(9));
+            await world.Holds.Move(World.Space, world.Sandbox, owner, World.Nothing);
+        }
+
+        world.Calls.Should().BeEmpty();
+    }
+
+    #endregion
+
     #region Nested Types
 
     private sealed class World
@@ -632,7 +1350,11 @@ public sealed class SandboxPointerHoldsTests
 
         #region Constructors
 
-        public World() => Holds = new SandboxPointerHolds(Clock, new Watcher(this), Release);
+        public World()
+        {
+            Wall = new SkewedClock(Clock);
+            Holds = new SandboxPointerHolds(Wall, new Watcher(this), Release);
+        }
 
         #endregion
 
@@ -643,6 +1365,9 @@ public sealed class SandboxPointerHoldsTests
         public static Guid Space { get; } = Guid.CreateVersion7();
 
         public FakeTimeProvider Clock { get; } = new(DateTimeOffset.UtcNow);
+
+        /// <summary>The clock the holds read: <see cref="Clock"/>, with a wall time a test can set apart.</summary>
+        public SkewedClock Wall { get; }
 
         public SandboxPointerHolds Holds { get; }
 
@@ -675,8 +1400,8 @@ public sealed class SandboxPointerHoldsTests
         /// <summary>The same session every time for the same number, and a different one for another.</summary>
         public static PointerOwner Owner(int person) => new(Identity(person), Identity(person + 1000));
 
-        /// <summary>Time for work on other threads that a test expects to do nothing.</summary>
-        public static Task Idle() => Task.Delay(TimeSpan.FromMilliseconds(100), Token);
+        /// <summary>A signal a hook of the holds sets, so a test knows the work reached that point.</summary>
+        public static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public PointerPress Press(PointerOwner? owner = null, MouseButton button = MouseButton.Left,
             Guid? bot = null) =>
@@ -704,7 +1429,7 @@ public sealed class SandboxPointerHoldsTests
             return ReleaseOutcome.Unreachable;
         }
 
-        private static Guid Identity(int number) => new(number, 0, 0, new byte[8]);
+        private static Guid Identity(int number) => new(number, 0, 0, [0, 0, 0, 0, 0, 0, 0, 0]);
 
         private Task<ReleaseOutcome> Release(PointerPress held, CancellationToken cancellationToken)
         {
@@ -747,6 +1472,34 @@ public sealed class SandboxPointerHoldsTests
     }
 
     private sealed record BlockedRelease(Task Started, Action<ReleaseOutcome> Finish);
+
+    /// <summary>
+    /// A clock whose wall time can be set apart from its monotonic time, as when the system clock is corrected: the
+    /// timestamps and timers are the fake clock's, and only <see cref="GetUtcNow"/> moves by <see cref="Skew"/>.
+    /// </summary>
+    private sealed class SkewedClock(FakeTimeProvider clock) : TimeProvider
+    {
+        #region Properties
+
+        public TimeSpan Skew { get; set; }
+
+        public override long TimestampFrequency => clock.TimestampFrequency;
+
+        public override TimeZoneInfo LocalTimeZone => clock.LocalTimeZone;
+
+        #endregion
+
+        #region Overrides
+
+        public override DateTimeOffset GetUtcNow() => clock.GetUtcNow() + Skew;
+
+        public override long GetTimestamp() => clock.GetTimestamp();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            clock.CreateTimer(callback, state, dueTime, period);
+
+        #endregion
+    }
 
     #endregion
 }

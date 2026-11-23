@@ -160,7 +160,11 @@ public sealed class ToolConnectionsViewModelTests : IDisposable
 
     #region Private Methods
 
-    private ToolConnectionsViewModel Model() => new(server.CreateApi(), new(server.CreateApi()), navigator, NullLogger<ToolConnectionsViewModel>.Instance);
+    private ToolConnectionsViewModel Model() => new(
+        server.CreateApi(),
+        new(server.CreateApi(), new ShareInbox()),
+        navigator,
+        NullLogger<ToolConnectionsViewModel>.Instance);
 
     #endregion
 }

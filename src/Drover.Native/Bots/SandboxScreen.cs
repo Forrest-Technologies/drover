@@ -179,6 +179,7 @@ public sealed class SandboxScreen : StackPanel
 
     private void BuildControlBar()
     {
+        AutomationProperties.SetAutomationId(control, "SandboxControl");
         control.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) =>
         {
             if (control.Value != model.Control)
