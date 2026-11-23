@@ -492,11 +492,13 @@ public sealed class TalkViewModel(
 
     private async Task FollowFormerAddressOnceKnown()
     {
-        if (address.FormerThreadId is { } former && bots is { Count: > 0 })
+        if (!gone && address.FormerThreadId is { } former && bots is { Count: > 0 })
         {
             await FollowFormerAddress(former);
         }
     }
+
+    private bool StillShows(TalkAddress origin) => !gone && address == origin;
 
     private async Task LoadSpace()
     {
@@ -543,20 +545,38 @@ public sealed class TalkViewModel(
     private async Task FollowFormerAddress(Guid threadId)
     {
         formerMissing = false;
+        var origin = address;
         try
         {
             var thread = threads.GetValueOrDefault(threadId) ?? await api.GetThread(SpaceId, threadId);
+
+            // A slow answer can arrive after the person has left this screen or opened another address. The redirect
+            // replaces the current history entry, so it is only made while the old address is still the one shown.
+            if (!StillShows(origin))
+            {
+                return;
+            }
+
             navigator.NavigateTo(thread.IsMain ? Addresses.Talk(thread.BotId) : Addresses.SideChat(thread.BotId, thread.Id), replace: true);
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
         {
             logger.LogInformation(exception, "Thread {ThreadId} was not found", threadId);
-            formerMissing = true;
+
+            // A late answer about the old address says nothing about the one the person opened since, so it neither
+            // sets nor clears that address's notice.
+            if (StillShows(origin))
+            {
+                formerMissing = true;
+            }
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(TalkViewModel));
-            spaceProblem = Failures.Sentence(exception);
+            if (StillShows(origin))
+            {
+                spaceProblem = Failures.Sentence(exception);
+            }
         }
     }
 

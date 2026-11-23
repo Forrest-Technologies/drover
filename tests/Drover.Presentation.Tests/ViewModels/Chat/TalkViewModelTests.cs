@@ -402,6 +402,107 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_second_try_that_answers_after_the_person_moved_on_does_not_replace_where_they_went()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var bots = Server.Hold("GET", $"{Space}/bots");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        var retry = Ui.Run(Talk.Retry);
+
+        // The person leaves the conversations for another screen, which closes this one.
+        await Go("/tools");
+        await Ui.Run(Talk.Dispose);
+        bots.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be("/tools");
+    }
+
+    [Fact]
+    public async Task A_second_try_that_answers_after_another_conversation_was_opened_does_not_replace_it()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var thread = Server.Hold("GET", $"{Space}/threads/{threadId}");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{threadId}", Thread(null));
+        var retry = Ui.Run(Talk.Retry);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}"));
+
+        await Go(Addresses.SideChats(botId));
+        thread.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task A_second_try_whose_lookup_fails_after_another_conversation_was_opened_leaves_it_alone(
+        HttpStatusCode failure)
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var thread = Server.Hold("GET", $"{Space}/threads/{threadId}");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{threadId}", failure);
+        var retry = Ui.Run(Talk.Retry);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}"));
+
+        await Go(Addresses.SideChats(botId));
+        thread.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+        Talk.FormerMissing.Should().BeFalse();
+        Talk.NotReady.Should().NotBe(WorkspaceState.Failed);
+    }
+
+    [Fact]
+    public async Task A_late_not_found_for_an_older_kept_address_keeps_the_notice_of_the_current_one()
+    {
+        var older = Guid.Parse("0196f1a0-0000-7000-8000-00000000000b");
+        var current = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var olderLookup = Server.Hold("GET", $"{Space}/threads/{older}");
+        Server.Answer("GET", $"{Space}/threads/{older}", HttpStatusCode.NotFound);
+        Server.Answer("GET", $"{Space}/threads/{current}", HttpStatusCode.NotFound);
+
+        await Go($"/threads/{older}");
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{older}"));
+        await Go($"/threads/{current}");
+        await Until(() => Talk.FormerMissing.Should().BeTrue());
+
+        olderLookup.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        await Ui.Run(() => { });
+
+        Talk.FormerMissing.Should().BeTrue("the late answer was about the older address");
+    }
+
+    [Fact]
+    public async Task A_second_try_that_stays_on_a_kept_address_still_goes_to_its_conversation()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        await Do(Talk.Retry);
+
+        await Until(() => Address.Should().Be($"talk/{botId}"));
+    }
+
+    [Fact]
     public async Task An_address_kept_from_before_whose_conversation_is_gone_says_so()
     {
         var gone = Guid.Parse("0196f1a0-0000-7000-8000-00000000000a");
