@@ -102,6 +102,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.OnSend = text => Rendered(Send(text));
         Composer.OnCancel = () => Rendered(Stop());
         Composer.OnFiles = files => Rendered(Attach(files));
+        Composer.OnNotice = (words, kind) => toasts.Show(words, kind);
         Composer.OnRemoveFile = id => Rendered(RemoveFile(id));
         Composer.OnModelChosen = model => Rendered(ChooseModel(model));
         List.OnRetry = () => Rendered(Retry());

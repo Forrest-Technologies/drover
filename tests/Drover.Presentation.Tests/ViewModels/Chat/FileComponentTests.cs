@@ -458,6 +458,18 @@ public sealed class FileComponentTests : IDisposable
 
     #endregion
 
+    #region Pasted Pictures
+
+    [Fact]
+    public void A_pasted_picture_is_named_for_when_it_was_pasted()
+    {
+        FileWords.PastedPictureName(new(2026, 11, 20, 14, 3, 59, TimeSpan.FromHours(-5))).Should().Be("Pasted image 2026-11-20 14.03.png");
+        FileWords.PastedPictureName(new(2026, 1, 5, 8, 7, 0, TimeSpan.Zero)).Should().Be("Pasted image 2026-01-05 08.07.png");
+        FileWords.PastedPictureName(new(2026, 1, 5, 0, 0, 0, TimeSpan.FromHours(9))).Should().Be("Pasted image 2026-01-05 00.00.png", "the local clock is what is read, not UTC");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static FileCardViewModel Card(SharedFile file, Func<SharedFile, Task<FileText>>? readWhole = null) =>

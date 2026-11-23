@@ -61,6 +61,9 @@ public sealed partial class ComposerViewModel : ObservableObject
     /// <summary>Files the person chose, pasted, or dropped.</summary>
     public Func<IReadOnlyList<IPickedFile>, Task>? OnFiles { get; set; }
 
+    /// <summary>A sentence for the person about what happened to what they chose, pasted, or dropped.</summary>
+    public Action<string, ToastKind>? OnNotice { get; set; }
+
     /// <summary>A chosen file taken off before sending.</summary>
     public Func<Guid, Task>? OnRemoveFile { get; set; }
 
@@ -159,9 +162,19 @@ public sealed partial class ComposerViewModel : ObservableObject
         return OnModelChosen?.Invoke(value == BotsOwnModel ? null : value) ?? Task.CompletedTask;
     }
 
-    /// <summary>Chosen with Attach, pasted into the field, or dropped on the composer: every file comes through here.</summary>
-    public Task Chosen(IReadOnlyList<IPickedFile> files) =>
-        OnFiles?.Invoke([.. files.Take(MaxFilesAtOnce)]) ?? Task.CompletedTask;
+    /// <summary>Tells the person something about the files they handed over, in one sentence.</summary>
+    public void Notify(string words, ToastKind kind) => OnNotice?.Invoke(words, kind);
+
+    /// <summary>Chosen with Attach, pasted into the field, or dropped on the conversation: every file comes through here.</summary>
+    public Task Chosen(IReadOnlyList<IPickedFile> files)
+    {
+        if (files.Count > MaxFilesAtOnce)
+        {
+            Notify(FileWords.OnlyTheFirstFilesTaken(MaxFilesAtOnce), ToastKind.Warning);
+        }
+
+        return OnFiles?.Invoke([.. files.Take(MaxFilesAtOnce)]) ?? Task.CompletedTask;
+    }
 
     public Task Remove(Guid id) => OnRemoveFile?.Invoke(id) ?? Task.CompletedTask;
 

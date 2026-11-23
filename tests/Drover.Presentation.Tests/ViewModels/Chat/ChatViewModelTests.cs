@@ -334,6 +334,30 @@ public sealed class ChatViewModelTests : IDisposable
         composer.HasModelChoice.Should().BeFalse("nothing is offered while the server has not said what may be chosen");
     }
 
+    [Fact]
+    public async Task More_than_a_hundred_files_takes_the_first_hundred_and_says_so()
+    {
+        List<string> handed = [];
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer();
+        composer.OnFiles = files =>
+        {
+            handed = [.. files.Select(file => file.Name)];
+            return Task.CompletedTask;
+        };
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        await composer.Chosen([.. Enumerable.Range(1, 100).Select(number => new SamplePickedFile($"file {number}.txt", "one"))]);
+
+        handed.Should().HaveCount(100);
+        told.Should().BeEmpty("exactly a hundred is all that was asked for");
+
+        await composer.Chosen([.. Enumerable.Range(1, 101).Select(number => new SamplePickedFile($"file {number}.txt", "one"))]);
+
+        handed.Should().HaveCount(100).And.StartWith("file 1.txt").And.EndWith("file 100.txt");
+        told.Should().Equal([("Only the first 100 files were taken.", ToastKind.Warning)]);
+    }
+
     #endregion
 
     #region What A Reply Used

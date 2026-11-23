@@ -1360,6 +1360,35 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_pasted_picture_is_uploaded_like_a_chosen_file()
+    {
+        var fileId = Guid.CreateVersion7();
+        var name = FileWords.PastedPictureName(new(2026, 11, 20, 14, 3, 0, TimeSpan.Zero));
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/threads/{threadId}/files", new FileResponse(fileId, name, "image/png", FileKinds.Image, 3, 1, 1), HttpStatusCode.Created);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Attach(() => MainPane, new SamplePickedFile(name, [1, 2, 3]));
+
+        await Until(() => Status(MainPane).Should().Equal("3 bytes"));
+        MainPane.Composer.Attachments.Should().ContainSingle().Which.Name.Should().Be("Pasted image 2026-11-20 14.03.png");
+        Server.Addresses.Should().Contain($"POST {Space}/threads/{threadId}/files?name=Pasted%20image%202026-11-20%2014.03.png");
+    }
+
+    [Fact]
+    public async Task A_notice_from_the_composer_reaches_the_person()
+    {
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        MainPane.Composer.Notify("What was pasted could not be attached.", ToastKind.Error);
+
+        Toasts.Toasts.Should().ContainSingle()
+            .Which.Should().Match<ToastMessage>(toast => toast.Kind == ToastKind.Error && toast.Message == "What was pasted could not be attached.");
+    }
+
+    [Fact]
     public async Task Removing_an_uploaded_file_removes_it_from_the_server_too()
     {
         var fileId = Guid.CreateVersion7();
