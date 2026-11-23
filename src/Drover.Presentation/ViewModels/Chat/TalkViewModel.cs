@@ -411,7 +411,7 @@ public sealed class TalkViewModel(
     /// <summary>Where the rail's first control leads: closed, or from a side chat back to the list of them.</summary>
     public string RailUp(Guid botId) => RailCloses ? Addresses.Talk(botId) : Addresses.SideChats(botId);
 
-    /// <summary>Reads the space again, after it could not be read, and then does what opening the address does.</summary>
+    /// <summary>Reads the space again after it could not be read, then does what opening the address does.</summary>
     public Task Retry() => Rendered(ReloadSpace());
 
     /// <summary>Opens something beside the conversation, from the conversation's menu.</summary>
