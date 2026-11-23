@@ -221,27 +221,7 @@ Read more: [solution layout](docs/architecture/01-solution-layout.md), [run life
 
 ## Roadmap
 
-Planned, not shipped. Each item links to its issue, which holds its live state. Direction and phases are in [ROADMAP.md](ROADMAP.md).
-
-| Area | Planned | Issues |
-| --- | --- | --- |
-| Sharing | Invite people to a space with a role, and switch between the spaces you belong to | [#517](https://github.com/Forrest-Technologies/drover/issues/517), [#591](https://github.com/Forrest-Technologies/drover/issues/591) |
-| Sandboxes | Docker sandboxes on your own server, with no outside account | [#657](https://github.com/Forrest-Technologies/drover/issues/657) |
-| Sandboxes | A credential broker, so a sandbox can use a secret without ever holding it | [#393](https://github.com/Forrest-Technologies/drover/issues/393), [#394](https://github.com/Forrest-Technologies/drover/issues/394), [#395](https://github.com/Forrest-Technologies/drover/issues/395) |
-| Sandboxes | A fuller live terminal, and a live screen you take over in one press | [#666](https://github.com/Forrest-Technologies/drover/issues/666), [#667](https://github.com/Forrest-Technologies/drover/issues/667) |
-| Your computer | A bot works on your own computer through a small connector | [#661](https://github.com/Forrest-Technologies/drover/issues/661) |
-| Chat channels | Talk to a bot from a chat app you already use | [#722](https://github.com/Forrest-Technologies/drover/issues/722) |
-| Rooms | Several bots in one conversation, taking turns | [#714](https://github.com/Forrest-Technologies/drover/issues/714) |
-| Bots | A bot asks you a question and waits; a bot hands off work without waiting | [#544](https://github.com/Forrest-Technologies/drover/issues/544), [#547](https://github.com/Forrest-Technologies/drover/issues/547) |
-| Skills | How-tos you write once and give to any bot | [#153](https://github.com/Forrest-Technologies/drover/issues/153) |
-| Models | Sign in to a model provider with a personal plan instead of a key | [#526](https://github.com/Forrest-Technologies/drover/issues/526) |
-| Sign-in | Passkeys and OpenID Connect | [#525](https://github.com/Forrest-Technologies/drover/issues/525), [#524](https://github.com/Forrest-Technologies/drover/issues/524) |
-| Voice | Talk to a bot, and hear replies read aloud | [#413](https://github.com/Forrest-Technologies/drover/issues/413) |
-| Search | Search everything in a space, not only conversations | [#704](https://github.com/Forrest-Technologies/drover/issues/704) |
-| Themes | Your own themes, saved, shared, and offered by a space | [#785](https://github.com/Forrest-Technologies/drover/issues/785) |
-| Operators | Read and export a space's audit log; export everything a space or a person has | [#590](https://github.com/Forrest-Technologies/drover/issues/590), [#475](https://github.com/Forrest-Technologies/drover/issues/475) |
-| Apps | Signed desktop installers for Windows, macOS, and Linux, and an iOS app | [#613](https://github.com/Forrest-Technologies/drover/issues/613), [#611](https://github.com/Forrest-Technologies/drover/issues/611), [#289](https://github.com/Forrest-Technologies/drover/issues/289) |
-| Apps | Readable offline, and translated | [#606](https://github.com/Forrest-Technologies/drover/issues/606), [#609](https://github.com/Forrest-Technologies/drover/issues/609) |
+Everything above ships today. What comes next is planned in [docs/roadmap.md](docs/roadmap.md), with each piece of work filed as an issue under the [roadmap label](https://github.com/Forrest-Technologies/drover/issues?q=label%3Aroadmap), grouped into milestones. The issue is the source of truth for its status. The phases Drover is working through are in [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
