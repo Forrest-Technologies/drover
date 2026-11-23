@@ -1451,6 +1451,143 @@ public sealed class BotEditorViewModelTests : ViewModelTest
             .Contain("\"checkpoint\":\"before_reply\"").And.Contain("\"text\":\"Some sample words here.\"").And.NotContain("\"draft\":{");
     }
 
+    [Fact]
+    public async Task Removing_a_rule_offers_to_put_it_back()
+    {
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(rule);
+
+        Server.Addresses.Should().ContainSingle(address => address.StartsWith("DELETE ", StringComparison.Ordinal)).Which
+            .Should().Be($"DELETE {bot}/rules/{ruleId}");
+        editor.Removing.Should().BeFalse("a removal asks nothing first");
+        part.Own.Should().BeEmpty();
+        part.Announcement.Should().Be("Rule removed: Sample rule.");
+        var toast = toasts.Quiet.Should().ContainSingle().Subject;
+        (toast.Message, toast.Kind).Should().Be(("Rule removed: Sample rule.", ToastKind.Info));
+        (toast.Action!.Label, toast.Action.Name, toast.Action.Until).Should().Be(("Undo", "Undo removing Sample rule", null));
+    }
+
+    [Fact]
+    public async Task Undo_creates_the_rule_again_with_everything_it_had()
+    {
+        var first = Rule("First", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["read"] }) with
+        {
+            Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b1"),
+        };
+        var removed = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["write", "critical"] }) with
+        {
+            Enabled = false,
+            Position = 1,
+        };
+        var last = Rule("Last", RuleWords.BeforeReply, "redact", new RuleConditionBody("text_contains") { Entries = ["sample"] }) with
+        {
+            Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b2"),
+            Position = 2,
+        };
+        var restored = removed with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b3") };
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[first, removed, last]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        Server.Answer("POST", $"{bot}/rules", restored, HttpStatusCode.Created);
+        var editor = await OpenEditor("Rules, 3 rules, 1 off");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(removed);
+        await toasts.Act(toasts.Quiet.Single());
+
+        var post = Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Subject;
+        using var sent = JsonDocument.Parse(post);
+        var body = sent.RootElement;
+        body.GetProperty("name").GetString().Should().Be("Sample rule");
+        body.GetProperty("enabled").GetBoolean().Should().BeFalse();
+        body.GetProperty("checkpoint").GetString().Should().Be("before_tool");
+        body.GetProperty("effect").GetString().Should().Be("block");
+        body.GetProperty("position").GetInt32().Should().Be(1);
+        body.GetProperty("conditions")[0].GetProperty("toolKinds").EnumerateArray().Select(kind => kind.GetString())
+            .Should().Equal("write", "critical");
+        string[] names = [.. part.Own.Select(rule => rule.Name)];
+        names.Should().Equal("First", "Sample rule", "Last");
+        part.Announcement.Should().Be("Rule put back: Sample rule.");
+        Toasts.Toasts.Should().BeEmpty("the put back is said in the section, not in a toast");
+    }
+
+    [Fact]
+    public async Task A_refused_removal_offers_no_undo()
+    {
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Refuse("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.BadRequest, "The rule is in use.");
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+
+        await part.Remove(rule);
+
+        part.Problem.Should().Be("The rule is in use.");
+        part.Own.Should().ContainSingle().Which.Id.Should().Be(ruleId);
+        Toasts.Toasts.Should().BeEmpty("a rule that was not removed offers nothing to put back");
+        editor.Removing.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task An_undo_the_server_refuses_says_why_and_can_be_tried_again()
+    {
+        const string Reason = "A bot has at most 50 rules of its own. Remove one first.";
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        Server.Refuse("POST", $"{bot}/rules", HttpStatusCode.BadRequest, Reason);
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(rule);
+        await toasts.Act(toasts.Quiet.Single());
+
+        toasts.Errors.Should().ContainSingle().Which.Message.Should().Be($"The rule could not be put back. {Reason}");
+        part.Own.Should().BeEmpty();
+        var retry = toasts.Quiet.Should().ContainSingle().Subject;
+        (retry.Message, retry.Action!.Label, retry.Action.Name).Should().Be(("Rule removed: Sample rule.", "Undo", "Undo removing Sample rule"));
+
+        Server.Answer("POST", $"{bot}/rules", rule, HttpStatusCode.Created);
+        await toasts.Act(retry);
+
+        Server.Sent("POST", $"{bot}/rules").Should().HaveCount(2);
+        part.Own.Should().ContainSingle().Which.Name.Should().Be("Sample rule");
+    }
+
+    [Fact]
+    public async Task Undo_from_another_screen_puts_the_rule_back_on_its_own_bot()
+    {
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        Server.Answer("POST", $"{bot}/rules", rule, HttpStatusCode.Created);
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(rule);
+        editor.Close();
+
+        await toasts.Act(toasts.Quiet.Single());
+
+        Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Which.Should().Contain("\"name\":\"Sample rule\"");
+        Toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be("Rule put back: Sample rule.");
+        part.Own.Should().BeEmpty("the section that was left does not gain a rule");
+        part.Announcement.Should().Be("Rule removed: Sample rule.");
+    }
+
     #endregion
 
     #region States
