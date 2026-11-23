@@ -18,7 +18,7 @@ internal static class AppDiagnostics
 /// <summary>The screen factory the native registration's documentation points at.</summary>
 internal abstract class Screen
 {
-    #region Public Methods
+    #region Private Methods
 
     protected static T Make<T>() => default!;
 

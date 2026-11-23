@@ -1,11 +1,12 @@
 namespace Drover.Presentation.Tests.Shell;
 
 /// <summary>
-/// The share inbox outlives any one service container: Android takes a share with the cold-start container's
-/// services before the interface exists, and the interface builds its own container when it starts. The real native
-/// registration is compiled into this project, so this holds the lifetime without a device or an emulator.
+/// The share inbox outlives any one service container, so Android can take a share before the interface exists and
+/// the interface can still read it. It does not outlive the person or the server it was shared to: a share waiting
+/// for one sign-in is never shown to the next. The real native registration and server choice are compiled into this
+/// project, so these hold without a device or an emulator.
 /// </summary>
-public sealed class ShareInboxLifetimeTests
+public sealed class ShareInboxLifetimeTests : IDisposable
 {
     #region Public Methods
 
@@ -20,6 +21,31 @@ public sealed class ShareInboxLifetimeTests
 
         restarted.GetRequiredService<ShareInbox>().Waiting.Should().BeSameAs(draft);
     }
+
+    [Fact]
+    public async Task EndingTheSessionForgetsWhatWasShared()
+    {
+        using var server = new FakeServer();
+        server.Answer("POST", "/api/sign-out", HttpStatusCode.NoContent);
+        var session = new SessionState(server.CreateApi());
+        ShareInbox.Process.Offer(new SharedDraft("Sample words from another app", []));
+
+        await session.End(TestContext.Current.CancellationToken);
+
+        ShareInbox.Process.Waiting.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ChangingTheServerForgetsWhatWasShared()
+    {
+        ShareInbox.Process.Offer(new SharedDraft("Sample words from another app", []));
+
+        await new DeviceServerChoice(new ServerAddress()).Change();
+
+        ShareInbox.Process.Waiting.Should().BeNull();
+    }
+
+    public void Dispose() => ShareInbox.Process.Discard();
 
     #endregion
 }

@@ -26,6 +26,7 @@
        The platform-only pieces it asks for are stood in for by Shell/AppServicesStubs.cs. -->
   <ItemGroup>
     <Compile Include="..\..\src\Drover.Native\Shell\AppServices.cs" Link="Shell\AppServices.cs" />
+    <Compile Include="..\..\src\Drover.Native\Device\DeviceServerChoice.cs" Link="Shell\DeviceServerChoice.cs" />
   </ItemGroup>
 
   <!-- The device checks' guard, report, and automation names, read by the rules that hold them in step with the app. -->
