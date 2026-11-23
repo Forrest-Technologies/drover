@@ -2251,6 +2251,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await StartDesktop(world, control, provider);
         var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
         var old = provider.Only();
+        var oldRow = await SandboxId(world);
         var moved = false;
 
         // The role read has passed inside the broker's lookup; the bot then moves to another sharing group.
@@ -2273,6 +2274,8 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         provider.Pauses.Should().BeEmpty("the old display was not paused");
         provider.Destroys.Should().BeEmpty("the old display was not destroyed");
         old.State.Should().Be(ProviderSandboxState.Running);
+        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(row => row.Id == oldRow, RunWorld.Token))).State
+            .Should().Be(SandboxState.Running, "the old row was not paused or taken out of use either");
     }
 
     #endregion

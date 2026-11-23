@@ -629,7 +629,8 @@ public sealed class SandboxControlService(
         // The role was read before the gate was waited for. Under the gate it is read again, with the check that the
         // bot still reaches the display that was gated, before anything is let go of or fenced; a control refused there
         // changes nothing, and held buttons stay with their records, whose deadlines let go of them in the background.
-        // The broker reads the role once more right before each provider power call and retirement of the row.
+        // The broker reads the role once more, last, in the same transaction that finds the sandbox to act on; the work
+        // that follows (retiring rows, finding or making a replacement, the provider call) runs on that read.
         async Task Admit()
         {
             await RecheckRole(person, cancellationToken);
