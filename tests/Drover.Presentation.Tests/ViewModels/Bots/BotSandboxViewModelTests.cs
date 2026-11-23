@@ -1080,6 +1080,59 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
         Page.Entries.Should().ContainSingle().Which.Problem.Should().Contain("This bot has no sandbox.");
     }
 
+    [Fact]
+    public async Task A_command_that_ends_after_the_page_was_left_does_not_throw()
+    {
+        Answer(Status("running") with { Desktop = false });
+        server.Answer(
+            "POST",
+            $"{sandbox}/commands",
+            new SandboxCommandResponse(0, "done\n", string.Empty, false, false, false));
+        var answer = server.Hold("POST", $"{sandbox}/commands");
+        await Open();
+        Page.Command = "sleep 10";
+        var run = Page.RunCommand();
+        await Eventually(() => Requests("POST", $"{sandbox}/commands").Should().ContainSingle());
+
+        await Page.DisposeAsync();
+        answer.SetResult();
+
+        var ending = () => run;
+        await ending.Should().NotThrowAsync(
+            "the person left the page, and nothing that ends afterwards may reach the platform");
+        Requests("GET", sandbox).Should().ContainSingle("the page that was left does not read the state again");
+    }
+
+    [Fact]
+    public async Task Opening_the_terminal_window_while_leaving_does_not_throw()
+    {
+        Answer(Status("running"));
+        server.Hold("POST", $"{sandbox}/input");
+        await Open(BotSandboxViewModel.TerminalView);
+        var open = Page.OpenTerminal();
+        await Eventually(() => Requests("POST", $"{sandbox}/input").Should().ContainSingle());
+
+        await Page.DisposeAsync();
+
+        var ending = () => open;
+        await ending.Should().NotThrowAsync("leaving cancels the request, which is a quiet end and not a failure");
+        Page.ActionProblem.Should().BeNull("leaving is not a problem to report");
+        Page.Busy.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reading_the_state_again_after_the_page_was_left_does_not_throw()
+    {
+        Answer(Status("running"));
+        await Open();
+        await Page.DisposeAsync();
+
+        var reading = () => Page.RefreshStatus();
+
+        await reading.Should().NotThrowAsync("the picture can tell the page the sandbox changed after the page closed");
+        Requests("GET", sandbox).Should().ContainSingle();
+    }
+
     #endregion
 
     #region Gestures
