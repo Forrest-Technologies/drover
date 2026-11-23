@@ -63,6 +63,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     private bool leaveConfirmed;
 
+    private bool closed;
+
     #endregion
 
     #region Constructors
@@ -338,6 +340,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
     public async Task Open(Guid botId, string? section)
     {
         BotId = botId;
+        closed = false;
         navigator.Leaving = ConfirmLeaving;
         navigator.HoldsWork = HoldsWork;
 
@@ -353,6 +356,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
     /// <summary>Runs when the screen is gone, so the navigator no longer asks it.</summary>
     public void Close()
     {
+        closed = true;
+
         if (navigator.Leaving == ConfirmLeaving)
         {
             navigator.Leaving = null;
@@ -386,6 +391,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
         (IsNew, newParentId, madeBotId, madeAndOpened, createRequestId, BotId, shownBotId, leaveConfirmed) =
             (true, parentBotId, null, false, null, Guid.Empty, null, false);
+        closed = false;
         await LoadNew();
     }
 
@@ -643,6 +649,9 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     #region Internal Methods
 
+    /// <summary>The rule is gone: offer the one press that puts it back, on this bot, wherever the person goes next.</summary>
+    internal void OfferRuleUndo(BotRuleResponse rule) => OfferRuleUndo(rule, SpaceId, BotId);
+
     internal async Task ChooseConnection(Guid connectionId)
     {
         Models = null;
@@ -665,6 +674,41 @@ public sealed partial class BotEditorViewModel : ObservableObject
     #endregion
 
     #region Private Methods
+
+    private void OfferRuleUndo(BotRuleResponse rule, Guid spaceId, Guid botId) =>
+        toasts.Show(
+            RulesSectionViewModel.RemovedAnnouncement(rule),
+            ToastKind.Info,
+            new ToastAction("Undo", () => PutBack(rule, spaceId, botId), RulesSectionViewModel.UndoName(rule)));
+
+    // Undo goes straight to the API with the ids from when the toast was made: the rule is put back on its own bot even
+    // after this screen is gone. The rule gets a new id; the old one is not kept anywhere in the client.
+    private async Task PutBack(BotRuleResponse rule, Guid spaceId, Guid botId)
+    {
+        var body = new BotRuleBody(rule.Name, rule.Enabled, rule.Checkpoint, rule.Effect, rule.Conditions, rule.Position);
+
+        try
+        {
+            var saved = await api.CreateBotRule(spaceId, botId, body);
+            if (!closed && BotId == botId && IsOpen(RulesSection) && Rules is not null)
+            {
+                RulesPart.PutBack(saved);
+            }
+            else
+            {
+                toasts.Show(RulesSectionViewModel.PutBackAnnouncement(rule), ToastKind.Success);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A rule could not be put back on the {Screen} screen", nameof(BotEditorViewModel));
+            var sentence = Failures.Sentence(exception, "Check that the server is running.");
+            toasts.Show(RulesSectionViewModel.PutBackFailed(sentence), ToastKind.Error);
+
+            // Choosing the action dismisses its toast, so offer the same undo again on the bot the rule came from.
+            OfferRuleUndo(rule, spaceId, botId);
+        }
+    }
 
     // A closed section is gone from the screen, and what was half done in it goes too, as it does on the web.
     private void ForgetSection(string section)

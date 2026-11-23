@@ -1469,6 +1469,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Removing.Should().BeFalse("a removal asks nothing first");
         part.Own.Should().BeEmpty();
         part.Announcement.Should().Be("Rule removed: Sample rule.");
+        part.TakeFocus().Should().Be(RuleFocus.Add, "the row is gone, so focus goes to Add a rule");
         var toast = toasts.Quiet.Should().ContainSingle().Subject;
         (toast.Message, toast.Kind).Should().Be(("Rule removed: Sample rule.", ToastKind.Info));
         (toast.Action!.Label, toast.Action.Name, toast.Action.Until).Should().Be(("Undo", "Undo removing Sample rule", null));
