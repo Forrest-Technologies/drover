@@ -563,8 +563,12 @@ public sealed class TalkViewModel(
         {
             logger.LogInformation(exception, "Thread {ThreadId} was not found", threadId);
 
-            // A late answer about the old address says nothing about the one the person opened since.
-            formerMissing = StillShows(origin);
+            // A late answer about the old address says nothing about the one the person opened since, so it neither
+            // sets nor clears that address's notice.
+            if (StillShows(origin))
+            {
+                formerMissing = true;
+            }
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {

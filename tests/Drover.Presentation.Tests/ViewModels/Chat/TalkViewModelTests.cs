@@ -469,6 +469,27 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_late_not_found_for_an_older_kept_address_keeps_the_notice_of_the_current_one()
+    {
+        var older = Guid.Parse("0196f1a0-0000-7000-8000-00000000000b");
+        var current = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var olderLookup = Server.Hold("GET", $"{Space}/threads/{older}");
+        Server.Answer("GET", $"{Space}/threads/{older}", HttpStatusCode.NotFound);
+        Server.Answer("GET", $"{Space}/threads/{current}", HttpStatusCode.NotFound);
+
+        await Go($"/threads/{older}");
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{older}"));
+        await Go($"/threads/{current}");
+        await Until(() => Talk.FormerMissing.Should().BeTrue());
+
+        olderLookup.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        await Ui.Run(() => { });
+
+        Talk.FormerMissing.Should().BeTrue("the late answer was about the older address");
+    }
+
+    [Fact]
     public async Task A_second_try_that_stays_on_a_kept_address_still_goes_to_its_conversation()
     {
         Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
