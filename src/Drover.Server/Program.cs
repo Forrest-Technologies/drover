@@ -77,6 +77,9 @@ builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
 builder.Services.AddHostedService<MigrationStartupCheck>();
 
+// Held mouse buttons are let go of in the host's stopping step, before any hosted service stops.
+builder.Services.AddHostedService<SandboxHoldsRelease>();
+
 var app = builder.Build();
 try
 {

@@ -29,6 +29,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #region Constructors
 
     public TalkViewModelTests()
+        : base(new StreamPresence())
     {
         Server.Answer("GET", $"{Space}/model-connections", new[] { Connection });
         Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
@@ -233,6 +234,164 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go($"/talk/{botId}/side");
 
         await Until(() => AttentionWords.Word(Talk.SideChats.Single().Attention).Should().Be("New"));
+    }
+
+    #endregion
+
+    #region An Open Conversation Hears Of Changes Made Elsewhere
+
+    [Fact]
+    public async Task A_message_sent_and_run_started_elsewhere_reaches_the_open_conversation_and_the_run_is_followed()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Do(() =>
+        {
+            MainPane.Composer.Text = "A half written sample";
+            return Task.CompletedTask;
+        });
+        var shown = MainPane;
+
+        var elsewhere = Elsewhere();
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() =>
+        {
+            MainPane.Messages.Should().HaveCount(3, "the reply sent from the notification is shown");
+            RunWatched().Should().BeTrue("the run is followed");
+            MainPane.Working.Should().BeTrue("the bot is working on it");
+        });
+        MainPane.Should().BeSameAs(shown);
+        MainPane.Composer.Text.Should().Be("A half written sample", "the draft stays as it is");
+        await elsewhere.End();
+    }
+
+    [Fact]
+    public async Task What_was_written_and_attached_in_the_open_conversation_stays_when_it_takes_in_a_change()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain",
+            FileKinds.Text, 3), HttpStatusCode.Created);
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+        await Until(() => MainPane.Composer.Attachments.Should().ContainSingle());
+        await Do(() =>
+        {
+            MainPane.Composer.Text = "A half written sample";
+            return Task.CompletedTask;
+        });
+
+        var elsewhere = Elsewhere();
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() => MainPane.Messages.Should().HaveCount(3));
+        MainPane.Composer.Text.Should().Be("A half written sample");
+        MainPane.Composer.Attachments.Should().ContainSingle();
+        await elsewhere.End();
+    }
+
+    [Fact]
+    public async Task A_dropped_signal_connection_brings_the_open_conversation_up_to_date()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        var elsewhere = Elsewhere();
+        await signals.Send(new UserSignal(UserSignalKinds.Reconnected, null, null));
+
+        await Until(() =>
+        {
+            MainPane.Messages.Should().HaveCount(3);
+            RunWatched().Should().BeTrue("the run is followed");
+        });
+        await elsewhere.End();
+    }
+
+    [Fact]
+    public async Task An_app_that_was_away_and_is_shown_again_shows_what_was_sent_to_the_open_conversation_meanwhile()
+    {
+        Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Presence!.Hide();
+
+        var elsewhere = Elsewhere();
+        Server.Stream($"{Space}/stream");
+        Presence.Show();
+
+        await Until(() =>
+        {
+            MainPane.Messages.Should().HaveCount(3, "the reply was sent from the notification while the app was away");
+            RunWatched().Should().BeTrue("the run is followed");
+        });
+        await elsewhere.End();
+    }
+
+    [Fact]
+    public async Task A_change_that_the_open_conversation_already_has_is_not_read_again()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        var reads = Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Count();
+
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}").Should().NotBeEmpty());
+
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(reads,
+            "nothing newer was reported");
+    }
+
+    [Fact]
+    public async Task A_change_reported_while_the_conversation_follows_its_own_run_is_left_to_that_run()
+    {
+        var own = RunStarts();
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+        await Until(() => RunWatched().Should().BeTrue());
+        var reads = Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Count();
+
+        Main(Thread(runId) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(5) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}").Should().NotBeEmpty());
+
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(reads,
+            "the run being followed reads them when it ends");
+        await own.End();
+    }
+
+    [Fact]
+    public async Task A_change_reported_as_the_followed_run_is_stopped_does_not_start_following_it_again()
+    {
+        var own = RunStarts();
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+        await Until(() => RunWatched().Should().BeTrue());
+        await own.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await Until(() => MainPane.Working.Should().BeTrue());
+
+        // The server says what the stop and the signal for it left: newer activity, the run still named.
+        Main(Thread(runId) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(5) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}").Should().NotBeEmpty());
+        await own.Send(Event(2, RunEventTypes.RunCancelled, new RunStatusChanged("cancelled", null, null, 1, null)));
+        await own.End();
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() => MainPane.Working
+            .Should().BeFalse("the run was stopped, and what was reported does not bring it back"));
+        Server.Addresses.Count(address => address.StartsWith($"GET {Space}/runs/{runId}/events",
+            StringComparison.Ordinal))
+            .Should().Be(1, "the run is not followed a second time");
     }
 
     #endregion
@@ -1731,6 +1890,26 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Server.Answer("PUT", $"{Space}/bots/{botId}/main-thread", thread);
         Server.Answer("GET", $"{Space}/threads/{threadId}", thread);
     }
+
+    // A message was sent to the open conversation from somewhere else, and a run started for it: the server now says
+    // so, with a later activity time, and the run's events are there to be read.
+    private LiveEvents Elsewhere()
+    {
+        Main(Thread(runId) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(5) });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads",
+            new[] { Thread(runId) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(5) } });
+        Server.Answer(
+            "GET",
+            $"{Space}/threads/{threadId}/messages",
+            new[] { Said("user", "Sample question"), Said("assistant", "Sample **answer**"), Said("user",
+                "Sample reply from the notification") });
+        return Server.Stream($"{Space}/runs/{runId}/events");
+    }
+
+    // Whether the run's events were asked for, as following it does.
+    private bool RunWatched() =>
+        Server.Addresses.Any(address => address.StartsWith($"GET {Space}/runs/{runId}/events",
+            StringComparison.Ordinal));
 
     private static MessageResponse Said(string role, string text) =>
         new(Guid.CreateVersion7(), threadId, 0, role, null, [new("text") { Text = text }], DateTimeOffset.UnixEpoch);

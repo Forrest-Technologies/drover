@@ -146,7 +146,7 @@ public sealed class FakeServer : HttpMessageHandler
     /// A client whose every request lands here. It comes from the client factory, as every client in Drover
     /// does, with this fake as the one handler behind it.
     /// </summary>
-    public DroverApi CreateApi()
+    public DroverApi CreateApi(StreamPresence? presence = null)
     {
         clients ??= new ServiceCollection()
             .AddHttpClient(ClientName)
@@ -155,7 +155,7 @@ public sealed class FakeServer : HttpMessageHandler
             .BuildServiceProvider();
         var client = clients.GetRequiredService<IHttpClientFactory>().CreateClient(ClientName);
         client.BaseAddress = new("https://drover.test/");
-        return new(client);
+        return new(client, presence);
     }
 
     #endregion
