@@ -167,6 +167,7 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
             if (session.Current is null)
             {
                 ClearSharedCopies();
+                ShareInbox.Process.Discard();
             }
         };
 

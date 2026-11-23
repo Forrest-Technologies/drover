@@ -12,6 +12,7 @@ internal sealed class DeviceServerChoice(ServerAddress server) : IServerChoice
 
     public Task Change()
     {
+        ShareInbox.Process.Discard();
         server.Forget();
 
         // The app starts again with nothing kept from the server that was left.
