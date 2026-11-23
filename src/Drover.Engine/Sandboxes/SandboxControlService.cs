@@ -135,7 +135,12 @@ public sealed class SandboxControlService(
             botId,
             "sandbox.paused",
             (sandbox, person, only, begin) =>
-                sandbox.Pause(person, cancellationToken, only, begin, () => RecheckRole(person, cancellationToken)),
+                sandbox.Pause(
+                    person,
+                    cancellationToken,
+                    only,
+                    begin,
+                    services => RequireRole(services, person, cancellationToken)),
             ButtonsOnPower.LetGoFirst,
             cancellationToken);
 
@@ -146,7 +151,11 @@ public sealed class SandboxControlService(
             botId,
             "sandbox.resumed",
             (sandbox, person, only, _) =>
-                sandbox.Resume(person, cancellationToken, only, () => RecheckRole(person, cancellationToken)),
+                sandbox.Resume(
+                    person,
+                    cancellationToken,
+                    only,
+                    services => RequireRole(services, person, cancellationToken)),
             ButtonsOnPower.LetGoAfter,
             cancellationToken);
 
@@ -163,7 +172,7 @@ public sealed class SandboxControlService(
                     cancellationToken,
                     only,
                     begin,
-                    () => RecheckRole(person, cancellationToken));
+                    services => RequireRole(services, person, cancellationToken));
                 return true;
             },
             ButtonsOnPower.Reset,
@@ -176,7 +185,12 @@ public sealed class SandboxControlService(
             botId,
             "sandbox.turned_off",
             (sandbox, person, only, begin) =>
-                sandbox.TurnOff(person, cancellationToken, only, begin, () => RecheckRole(person, cancellationToken)),
+                sandbox.TurnOff(
+                    person,
+                    cancellationToken,
+                    only,
+                    begin,
+                    services => RequireRole(services, person, cancellationToken)),
             ButtonsOnPower.Reset,
             cancellationToken);
 
@@ -547,16 +561,23 @@ public sealed class SandboxControlService(
 
     /// <summary>
     /// Reads the person's role and the bot again and throws when they may no longer change it. A power control calls
-    /// it under the screen's gate before it lets go of or fences anything, and the broker calls it again right before
-    /// each provider power call and each retirement of the row.
+    /// it under the screen's gate before it lets go of or fences anything; <see cref="RequireRole"/> does the same
+    /// inside the broker's own lookup of the sandbox to act on.
     /// </summary>
-    private static async Task RecheckRole(SandboxCaller person, CancellationToken cancellationToken)
-    {
-        var refusal = await person.Tenant.Transact(
-            services => Check(services, person.Tenant.SpaceId, person.Tenant.UserId, person.BotId, cancellationToken),
-            cancellationToken);
+    private static Task RecheckRole(SandboxCaller person, CancellationToken cancellationToken) =>
+        person.Tenant.Transact(services => RequireRole(services, person, cancellationToken), cancellationToken);
 
-        if (refusal is { } refused)
+    /// <summary>
+    /// As <see cref="RecheckRole"/>, inside a transaction the caller already has open: the broker runs it first in the
+    /// transaction that resolves the bot's sharing group and sandbox, so the check and the target are one step.
+    /// </summary>
+    private static async Task RequireRole(
+        IServiceProvider services,
+        SandboxCaller person,
+        CancellationToken cancellationToken)
+    {
+        if (await Check(services, person.Tenant.SpaceId, person.Tenant.UserId, person.BotId, cancellationToken)
+            is { } refused)
         {
             throw new RoleLostException(refused);
         }

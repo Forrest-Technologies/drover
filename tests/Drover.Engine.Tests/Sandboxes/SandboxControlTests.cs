@@ -2237,6 +2237,44 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             .Should().Be(SandboxState.Running, "the row was not paused or taken out of use");
     }
 
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("rebuild")]
+    [InlineData("turn off")]
+    public async Task A_power_control_does_not_act_on_the_old_display_when_the_bot_moves_during_its_role_check(
+        string power)
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        var old = provider.Only();
+        var moved = false;
+
+        // The role read has passed inside the broker's lookup; the bot then moves to another sharing group.
+        broker.AfterPowerAuthorized = async _ =>
+        {
+            broker.AfterPowerAuthorized = null;
+            await MoveUnderGroup(world);
+            moved = true;
+        };
+        var result = power switch
+        {
+            "pause" => await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+            "rebuild" => await control.Rebuild(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+            _ => await control.TurnOff(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+        };
+
+        moved.Should().BeTrue("the bot moved between the role read and the target's own read");
+        result.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        result.Problem.Should().Contain("changed while this was under way");
+        provider.Pauses.Should().BeEmpty("the old display was not paused");
+        provider.Destroys.Should().BeEmpty("the old display was not destroyed");
+        old.State.Should().Be(ProviderSandboxState.Running);
+    }
+
     #endregion
 
     #region Terminal
