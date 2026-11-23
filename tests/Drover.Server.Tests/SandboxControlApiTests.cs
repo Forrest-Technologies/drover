@@ -206,7 +206,8 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         (await client.Post($"{sandbox}/input", new SandboxInputRequest("down", X: 10, Y: 20, Button: "middle")))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        await RestartServer();
+        // The host stops as a server does on a signal, with its hosted services' stop steps in their order.
+        await Services.GetRequiredService<IHost>().StopAsync(Token);
 
         provider.Commands.Last(command => command.Program == "xdotool").Arguments.Should().Equal(
             ["mouseup", "2"],
