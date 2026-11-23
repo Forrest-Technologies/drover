@@ -111,9 +111,10 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
     /// <summary>
     /// Runs the work on a client for the endpoint, within the endpoint's timeout. A kept session whose server says
-    /// it has forgotten it is always closed. Work that only reads (<paramref name="mayRepeat"/>) is then done once
-    /// more on a new session. A tool call never is: the server may have acted before it answered, and a server can
-    /// say "session gone" whenever it likes, so the failure is reported and the next call opens a session of its own.
+    /// it has forgotten it, or whose connection the server closed, is always closed. Work that only reads
+    /// (<paramref name="mayRepeat"/>) is then done once more on a new session. A tool call never is: the server may
+    /// have acted before it answered, and a server can say "session gone" whenever it likes, so the failure is
+    /// reported and the next call opens a session of its own.
     /// </summary>
     private async Task<T> Use<T>(
         ToolEndpoint endpoint,
@@ -142,11 +143,11 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 {
                     return await kept.Use(work, time, limit.Token);
                 }
-                catch (Exception gone) when (IsSessionGone(gone))
+                catch (Exception gone) when (IsSessionGone(gone) || Failures.IsConnectionResetOrRefused(gone))
                 {
                     // The library's failure may carry the server's own text, so only its type is logged.
                     logger.LogInformation(
-                        "The session with tool connection {ConnectionId} is gone ({Failure}); repeating the request: {Repeating}",
+                        "The session with tool connection {ConnectionId} cannot be used ({Failure}); repeating the request: {Repeating}",
                         endpoint.ConnectionId,
                         gone.GetType().Name,
                         mayRepeat);
