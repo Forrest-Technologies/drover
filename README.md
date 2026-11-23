@@ -37,7 +37,7 @@ Hosted assistants are good at chat. They are also someone else's product: their 
 - **Complete from day one.** Streaming chat, tools, memory, files, schedules, delegation, sandboxes, and a phone app. Not a demo you have to finish yourself.
 - **Real control.** Grants, rules, and policies decide what a bot can do, and you write them. Every limit is a setting you can read.
 - **Truly open source.** Apache 2.0, the whole stack: server, engine, clients, and deployment files. Read it, fork it, change how it behaves.
-- **Secure defaults, no needless limits.** Defaults are strict where a mistake costs you: other people's data, your keys, your network. Everything else is yours to open up.
+- **Secure defaults, no needless limits.** Defaults are strict where a mistake costs you: other people's data and your keys. Network reach starts open, so local models and servers on your network just work, and one setting closes it. The rest is yours to tune.
 - **Keeps moving.** New models, tools, and protocols are ported in as they appear, behind interfaces Drover owns, so a provider change stays in one place.
 
 Owning the whole stack means you can build it to behave exactly how you want.
@@ -101,7 +101,7 @@ Drover is built so that a bug in feature code cannot leak your data, and a cleve
 | Rules | Rules run at four points: a message arrives, before a tool, after a tool, and before a reply. They match on the tool, the kind of tool, text, built-in patterns (email addresses, card numbers, keys), time of day, or the size of the run. They redact, ask, block, or stop. |
 | Untrusted text | Tool results, web pages, and tool descriptions are data. They never become instructions and never change a grant. |
 | Secrets | Model keys, tool headers, and sign-ins are encrypted with a key ring on your server and never returned by any endpoint. Tool arguments and results are scrubbed of known secrets and common token shapes before they are stored. |
-| Server policy | A deployment policy sets every limit: private network access, sandbox network and size, schedules, file sizes, delegation budgets, open registration. Limits only narrow: server, then space, then bot. |
+| Server policy | A deployment policy sets every limit: private network access, sandbox network and size, schedules, file sizes, delegation budgets, open registration. The self-hosted default is permissive for one trusted operator; a stricter preset locks every rule down. Limits only narrow: server, then space, then bot. |
 | Accountability | Changes to bots, projects, extensions, and spaces go to an audit log that records the person, or the bot and the person it acted for. |
 | Web hardening | Content Security Policy, HSTS, no framing, antiforgery tokens, and a sign-in rate limit. |
 | Deployment | Containers run read-only, with every capability dropped and `no-new-privileges`. Database passwords are generated on first start. Drover listens on this machine only until you put HTTPS in front. |
