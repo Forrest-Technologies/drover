@@ -277,6 +277,8 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
+            // The names of the files the conversation uploaded, in order: a pasted picture and a dropped file each add one.
+            const uploadedFiles = [];
             let projectMoved = false;
             let previewFrameRequests = [];
             let revokedPreviewGrants = [];
@@ -431,6 +433,22 @@ try {
                     await new Promise(resolve => heldConcurrentPictures.push(resolve));
                     activeConcurrentPictureRequests--;
                     body = { image: samplePng };
+                }
+                else if (address.endsWith(`/threads/${thread.id}/attachment-rules`)) {
+                    body = { maxFileBytes: 26214400, maxFilesPerMessage: 10, modelReadsImages: true, hasSandbox: true };
+                }
+                else if (address.endsWith(`/threads/${thread.id}/files`) && route.request().method() === 'POST') {
+                    const uploaded = new URL(route.request().url()).searchParams.get('name') ?? '';
+                    uploadedFiles.push(uploaded);
+                    await route.fulfill({
+                        status: 201,
+                        json: {
+                            id: `0196f1a0-0000-7000-8000-0000000001${String(uploadedFiles.length).padStart(2, '0')}`, name: uploaded,
+                            contentType: 'image/png', kind: 'image', size: route.request().postDataBuffer()?.length ?? 0,
+                            width: 1, height: 1,
+                        },
+                    });
+                    return;
                 }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
@@ -675,6 +693,7 @@ try {
                 }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
+                    await checkPastedAndDroppedFiles(page, uploadedFiles);
                     await checkStopBounds(page, width);
                 }
                 if (name === 'conversation') {
@@ -964,6 +983,54 @@ async function checkComposerBounds(page) {
     } finally {
         await close();
     }
+}
+
+// A picture on the clipboard arrives with the page's paste event, and files dropped anywhere on the conversation
+// attach to it. The page is given a paste event whose clipboard holds one PNG, then the same with text beside the
+// picture (the text is what was meant, so nothing is attached), then a drop of one file over the message list.
+async function checkPastedAndDroppedFiles(page, uploadedFiles) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const png = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137];
+    const pasteWith = (text) => page.evaluate(({ bytes, text }) => {
+        const clipboardData = new DataTransfer();
+        clipboardData.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+        if (text) {
+            clipboardData.setData('text/plain', text);
+        }
+        document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    }, { bytes: png, text });
+    const uploadsAre = async (count, message) => {
+        const deadline = Date.now() + 10000;
+        while (uploadedFiles.length < count && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        assert.equal(uploadedFiles.length, count, message);
+    };
+
+    await field.focus();
+    await pasteWith('some words');
+    await page.waitForTimeout(500);
+    assert.equal(uploadedFiles.length, 0, 'A picture pasted with text beside it attaches nothing: the text is what was meant.');
+
+    await pasteWith(null);
+    await uploadsAre(1, 'A picture pasted with no text uploads once.');
+    assert.match(uploadedFiles[0], /^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.png$/);
+
+    // The platform reads a drop from the document's drag events by where the pointer is, so the events carry the point.
+    await page.evaluate(async bytes => {
+        // A drop made by script has no file-system handle behind its item; the platform then reads the file itself.
+        Object.defineProperty(DataTransferItem.prototype, 'getAsFileSystemHandle', { value: undefined, configurable: true });
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(new File([new Uint8Array(bytes)], 'dropped.png', { type: 'image/png' }));
+        const point = { clientX: Math.round(innerWidth * 0.6), clientY: Math.round(innerHeight * 0.25) };
+        const target = document.elementFromPoint(point.clientX, point.clientY) ?? document.body;
+        for (const type of ['dragenter', 'dragover', 'dragover', 'drop']) {
+            target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...point }));
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }, png);
+    await uploadsAre(2, 'A file dropped on the message list uploads to the conversation.');
+    assert.equal(uploadedFiles[1], 'dropped.png');
 }
 
 // While a run is in progress Stop stands where Send was, and the options button beside the field is still there. The
