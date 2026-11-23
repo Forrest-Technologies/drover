@@ -1365,15 +1365,21 @@ public sealed class TalkViewModelTests : WorkspaceTest
         var fileId = Guid.CreateVersion7();
         var name = FileWords.PastedPictureName(new(2026, 11, 20, 14, 3, 0, TimeSpan.Zero));
         AttachmentsAllowed();
-        Server.Answer("POST", $"{Space}/threads/{threadId}/files", new FileResponse(fileId, name, "image/png", FileKinds.Image, 3, 1, 1), HttpStatusCode.Created);
+        Server.Answer(
+            "POST",
+            $"{Space}/threads/{threadId}/files",
+            new FileResponse(fileId, name, "image/png", FileKinds.Image, 3, 1, 1),
+            HttpStatusCode.Created);
         await Go($"/talk/{botId}");
         await Until(() => MainPane.Messages.Should().HaveCount(2));
 
         await Attach(() => MainPane, new SamplePickedFile(name, [1, 2, 3]));
 
         await Until(() => Status(MainPane).Should().Equal("3 bytes"));
-        MainPane.Composer.Attachments.Should().ContainSingle().Which.Name.Should().Be("Pasted image 2026-11-20 14.03.png");
-        Server.Addresses.Should().Contain($"POST {Space}/threads/{threadId}/files?name=Pasted%20image%202026-11-20%2014.03.png");
+        MainPane.Composer.Attachments.Should().ContainSingle()
+            .Which.Name.Should().Be("Pasted image 2026-11-20 14.03.png");
+        Server.Addresses.Should()
+            .Contain($"POST {Space}/threads/{threadId}/files?name=Pasted%20image%202026-11-20%2014.03.png");
     }
 
     [Fact]
@@ -1383,11 +1389,13 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go($"/talk/{botId}");
         await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
         MainPane.AcceptsFiles.Should().BeFalse("it is still being read");
+        MainPane.Composer.TakesFiles.Should().BeFalse("Attach is not offered while nothing would take the files");
 
         messages.SetResult();
 
         await Until(() => MainPane.Messages.Should().HaveCount(2));
         MainPane.AcceptsFiles.Should().BeTrue();
+        MainPane.Composer.TakesFiles.Should().BeTrue();
     }
 
     [Fact]
@@ -1405,10 +1413,16 @@ public sealed class TalkViewModelTests : WorkspaceTest
     public async Task A_bots_side_of_handed_work_is_only_read_so_it_takes_no_files()
     {
         var workThread = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
-        Server.Answer("GET", $"{Space}/bots", new[] { Marshal, Helper });
-        Server.Answer("GET", $"{Space}/bots/{helperId}/threads", Array.Empty<ThreadSummary>());
-        Server.Answer("GET", $"{Space}/threads/{workThread}", new ThreadSummary(workThread, helperId, null, false, DateTimeOffset.UnixEpoch, null));
-        Server.Answer("GET", $"{Space}/threads/{workThread}/messages", new[] { Said("user", "Sample task") with { ThreadId = workThread } });
+        BotSummary[] crew = [Marshal, Helper];
+        ThreadSummary[] helpersThreads = [];
+        MessageResponse[] said = [Said("user", "Sample task") with { ThreadId = workThread }];
+        Server.Answer("GET", $"{Space}/bots", crew);
+        Server.Answer("GET", $"{Space}/bots/{helperId}/threads", helpersThreads);
+        Server.Answer(
+            "GET",
+            $"{Space}/threads/{workThread}",
+            new ThreadSummary(workThread, helperId, null, false, DateTimeOffset.UnixEpoch, null));
+        Server.Answer("GET", $"{Space}/threads/{workThread}/messages", said);
 
         await Go(Addresses.Work(botId, helperId, workThread));
 
@@ -1426,7 +1440,8 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
 
-        MainPane.Composer.Attachments.Should().BeEmpty("a conversation still being read takes no files, however they arrived");
+        MainPane.Composer.Attachments.Should()
+            .BeEmpty("a conversation still being read takes no files, however they arrived");
         Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
         messages.SetResult();
         await Until(() => MainPane.Messages.Should().HaveCount(2));
@@ -1455,6 +1470,73 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
         MainPane.AcceptsFiles.Should().BeFalse();
+        MainPane.Composer.TakesFiles.Should().BeFalse("Attach is not offered when the files would go nowhere");
+    }
+
+    [Fact]
+    public async Task A_share_waits_while_the_conversation_could_not_be_read()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+        AttachmentsAllowed();
+        Inbox.Offer(new SharedDraft("Sample words from another app", [new SamplePickedFile("notes.txt", "one")]));
+        Inbox.SendTo(botId);
+
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Do(() => Task.CompletedTask);
+
+        Inbox.Waiting.Should().NotBeNull("the share is kept for when the conversation can be read");
+        MainPane.Composer.TakesFiles.Should().BeFalse();
+        MainPane.Composer.Text.Should().BeEmpty();
+        MainPane.Composer.Attachments.Should().BeEmpty();
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Files_handed_to_a_conversation_that_was_left_make_no_thread_and_ask_nothing()
+    {
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/bots/{botId}/threads", Side with { Title = null }, HttpStatusCode.Created);
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SideTitle.Should().Be("New side chat"));
+        var pane = SidePane;
+        var file = new SamplePickedFile("notes.txt", "one");
+
+        await Do(() =>
+        {
+            Talk.Dispose();
+            return Task.CompletedTask;
+        });
+        await Attach(() => pane, file);
+
+        pane.AcceptsFiles.Should().BeFalse("a conversation that was left takes nothing");
+        Server.Sent("POST", $"{Space}/bots/{botId}/threads").Should().BeEmpty();
+        Server.Addresses.Should().NotContain(address => address.Contains("attachment-rules"));
+        file.Opened.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_file_handed_over_as_the_conversation_is_left_is_never_opened()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
+        var rules = Server.Hold("GET", $"{Space}/threads/{threadId}/attachment-rules");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        var pane = MainPane;
+        var file = new SamplePickedFile("notes.txt", "one");
+
+        var attached = Attach(() => pane, file);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}/attachment-rules"));
+        await Do(() =>
+        {
+            Talk.Dispose();
+            return Task.CompletedTask;
+        });
+        rules.SetResult();
+        await attached;
+
+        file.Opened.Should().Be(0, "the conversation was left before the rules came back, so nothing is added to it");
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
     }
 
     [Fact]
@@ -1465,10 +1547,9 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         MainPane.Composer.Notify("What was pasted could not be attached.", ToastKind.Error);
 
-        Toasts.Toasts.Should().ContainSingle()
-            .Which.Should().Match<ToastMessage>(toast => toast.Kind == ToastKind.Error && toast.Message == "What was pasted could not be attached.");
+        Toasts.Toasts.Should().ContainSingle().Which.Should().Match<ToastMessage>(toast =>
+            toast.Kind == ToastKind.Error && toast.Message == "What was pasted could not be attached.");
     }
-
     [Fact]
     public async Task Removing_an_uploaded_file_removes_it_from_the_server_too()
     {

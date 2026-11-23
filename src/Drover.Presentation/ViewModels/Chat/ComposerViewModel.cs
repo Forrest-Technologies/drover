@@ -30,6 +30,10 @@ public sealed partial class ComposerViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanSend))]
     private bool sending;
 
+    // Whether the conversation takes files now. Attach, a paste of files and a drop all follow it.
+    [ObservableProperty]
+    private bool takesFiles;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSomething), nameof(CanSend), nameof(ShowsSend), nameof(HasTwoActions))]
     private IReadOnlyList<AttachmentItem> attachments = [];
@@ -165,16 +169,78 @@ public sealed partial class ComposerViewModel : ObservableObject
     /// <summary>Tells the person something about the files they handed over, in one sentence.</summary>
     public void Notify(string words, ToastKind kind) => OnNotice?.Invoke(words, kind);
 
-    /// <summary>Chosen with Attach, pasted into the field, or dropped on the conversation: every file comes through here.</summary>
-    public Task Chosen(IReadOnlyList<IPickedFile> files)
+    /// <summary>
+    /// Chosen with Attach, pasted into the field, or dropped on the conversation: every file comes through here. More
+    /// than one go takes are cut to the first ones, and the person is told.
+    /// </summary>
+    public Task Chosen(IReadOnlyList<IPickedFile> files) =>
+        Hand(new([.. files.Take(MaxFilesAtOnce)], Beyond: Math.Max(0, files.Count - MaxFilesAtOnce)));
+
+    /// <summary>
+    /// What one choice, paste or drop handed over. Its files go on; what was left out of it is said in one sentence:
+    /// files past the most one go takes, or folders when they were all it held.
+    /// </summary>
+    public Task Hand(HandedFiles handed)
     {
-        if (files.Count > MaxFilesAtOnce)
+        if (handed.Files.Count == 0)
         {
-            Notify(FileWords.OnlyTheFirstFilesTaken(MaxFilesAtOnce), ToastKind.Warning);
+            if (handed.Folders > 0)
+            {
+                Notify(FileWords.FoldersOnly, ToastKind.Warning);
+            }
+
+            return Task.CompletedTask;
         }
 
-        return OnFiles?.Invoke([.. files.Take(MaxFilesAtOnce)]) ?? Task.CompletedTask;
+        if (handed.Beyond > 0)
+        {
+            Notify(FileWords.OnlyTheFirstFilesTaken(handed.Files.Count), ToastKind.Warning);
+        }
+
+        return OnFiles?.Invoke(handed.Files) ?? Task.CompletedTask;
     }
+
+    /// <summary>
+    /// A paste into the message field, told what the device's clipboard holds. True when it holds files or a picture
+    /// to take, so the field leaves the paste alone and <see cref="TakePasted"/> takes them. Text is what was meant
+    /// whenever it is there, and an empty clipboard says nothing. A clipboard that could not be read, or a picture the
+    /// device lists and did not hand over, is said in one sentence. A conversation that takes no files leaves every
+    /// paste to the field.
+    /// </summary>
+    public bool Pasting(Func<ClipboardHolds> look, ILogger logger)
+    {
+        if (!TakesFiles)
+        {
+            return false;
+        }
+
+        ClipboardHolds holds;
+        try
+        {
+            holds = look();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            logger.LogError(exception, "The clipboard could not be read for a paste");
+            Notify(FileWords.PasteFailed, ToastKind.Error);
+            return false;
+        }
+
+        if (holds is ClipboardHolds.PictureNotHandedOver)
+        {
+            Notify(FileWords.PictureNotHandedOver, ToastKind.Warning);
+        }
+
+        return holds is ClipboardHolds.Files;
+    }
+
+    /// <summary>Takes the files of a paste. What could not be read is said in one sentence.</summary>
+    public Task TakePasted(Func<Task<HandedFiles>> read, ILogger logger) =>
+        Take(read, FileWords.PasteFailed, "pasted", logger);
+
+    /// <summary>Takes the files dropped on the conversation. What could not be read is said in one sentence.</summary>
+    public Task TakeDropped(Func<Task<HandedFiles>> read, ILogger logger) =>
+        Take(read, FileWords.DropFailed, "dropped", logger);
 
     public Task Remove(Guid id) => OnRemoveFile?.Invoke(id) ?? Task.CompletedTask;
 
@@ -194,6 +260,37 @@ public sealed partial class ComposerViewModel : ObservableObject
         if (OnSend is { } send)
         {
             await send(message);
+        }
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // Reading what was handed over can take a while. A conversation that stops taking files meanwhile (it was left,
+    // or could not be read) gets none of them.
+    private async Task Take(Func<Task<HandedFiles>> read, string failed, string way, ILogger logger)
+    {
+        if (!TakesFiles)
+        {
+            return;
+        }
+
+        HandedFiles handed;
+        try
+        {
+            handed = await read();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            logger.LogError(exception, "What was {Way} could not be read as files", way);
+            Notify(failed, ToastKind.Error);
+            return;
+        }
+
+        if (TakesFiles)
+        {
+            await Hand(handed);
         }
     }
 

@@ -463,9 +463,33 @@ public sealed class FileComponentTests : IDisposable
     [Fact]
     public void A_pasted_picture_is_named_for_when_it_was_pasted()
     {
-        FileWords.PastedPictureName(new(2026, 11, 20, 14, 3, 59, TimeSpan.FromHours(-5))).Should().Be("Pasted image 2026-11-20 14.03.png");
-        FileWords.PastedPictureName(new(2026, 1, 5, 8, 7, 0, TimeSpan.Zero)).Should().Be("Pasted image 2026-01-05 08.07.png");
-        FileWords.PastedPictureName(new(2026, 1, 5, 0, 0, 0, TimeSpan.FromHours(9))).Should().Be("Pasted image 2026-01-05 00.00.png", "the local clock is what is read, not UTC");
+        FileWords.PastedPictureName(new(2026, 11, 20, 14, 3, 59, TimeSpan.FromHours(-5)))
+            .Should().Be("Pasted image 2026-11-20 14.03.png");
+        FileWords.PastedPictureName(new(2026, 1, 5, 8, 7, 0, TimeSpan.Zero))
+            .Should().Be("Pasted image 2026-01-05 08.07.png");
+        FileWords.PastedPictureName(new(2026, 1, 5, 0, 0, 0, TimeSpan.FromHours(9)))
+            .Should().Be("Pasted image 2026-01-05 00.00.png", "the local clock is what is read, not UTC");
+    }
+
+    [Fact]
+    public void A_pasted_file_keeps_its_own_name_even_when_it_is_image_png()
+    {
+        var local = new DateTimeOffset(2026, 11, 20, 14, 3, 0, TimeSpan.Zero);
+
+        FileWords.PastedFileName("image.png", madeForThePaste: false, local)
+            .Should().Be("image.png", "a file copied from storage keeps the name it has there");
+        FileWords.PastedFileName("Quarterly figures.png", madeForThePaste: false, local)
+            .Should().Be("Quarterly figures.png");
+    }
+
+    [Fact]
+    public void A_picture_made_for_the_paste_or_with_no_name_is_named_for_when_it_was_pasted()
+    {
+        var local = new DateTimeOffset(2026, 11, 20, 14, 3, 0, TimeSpan.Zero);
+
+        FileWords.PastedFileName("image.png", madeForThePaste: true, local)
+            .Should().Be("Pasted image 2026-11-20 14.03.png", "a screenshot has no name, only the one the device gave it");
+        FileWords.PastedFileName(" ", madeForThePaste: false, local).Should().Be("Pasted image 2026-11-20 14.03.png");
     }
 
     #endregion

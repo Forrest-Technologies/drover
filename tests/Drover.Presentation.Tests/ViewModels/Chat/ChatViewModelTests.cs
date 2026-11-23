@@ -347,15 +347,178 @@ public sealed class ChatViewModelTests : IDisposable
         };
         composer.OnNotice = (words, kind) => told.Add((words, kind));
 
-        await composer.Chosen([.. Enumerable.Range(1, 100).Select(number => new SamplePickedFile($"file {number}.txt", "one"))]);
+        await composer.Chosen(SampleFiles(100));
 
         handed.Should().HaveCount(100);
         told.Should().BeEmpty("exactly a hundred is all that was asked for");
 
-        await composer.Chosen([.. Enumerable.Range(1, 101).Select(number => new SamplePickedFile($"file {number}.txt", "one"))]);
+        await composer.Chosen(SampleFiles(101));
 
         handed.Should().HaveCount(100).And.StartWith("file 1.txt").And.EndWith("file 100.txt");
         told.Should().Equal([("Only the first 100 files were taken.", ToastKind.Warning)]);
+    }
+
+    [Fact]
+    public async Task Files_past_the_hundredth_are_counted_and_never_read()
+    {
+        List<int> read = [];
+        var items = Enumerable.Range(1, 150).ToList();
+
+        var handed = await HandedFiles.ReadFirst(items, number =>
+        {
+            read.Add(number);
+            return number > ComposerViewModel.MaxFilesAtOnce
+                ? throw new IOException("A file past the hundredth was read.")
+                : Task.FromResult<IPickedFile>(new SamplePickedFile($"file {number}.txt", "one"));
+        });
+
+        read.Should().HaveCount(100, "only the files that can be taken are asked for their details");
+        handed.Files.Should().HaveCount(100);
+        handed.Beyond.Should().Be(50);
+    }
+
+    [Fact]
+    public async Task Files_handed_over_past_the_most_one_go_takes_are_said_to_be_left_out()
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer();
+        IReadOnlyList<IPickedFile> handed = [];
+        composer.OnFiles = files =>
+        {
+            handed = files;
+            return Task.CompletedTask;
+        };
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        await composer.Hand(new(SampleFiles(100), Beyond: 1));
+
+        handed.Should().HaveCount(100);
+        told.Should().Equal([("Only the first 100 files were taken.", ToastKind.Warning)]);
+    }
+
+    [Fact]
+    public async Task Folders_alone_are_said_to_be_left_out_and_nothing_is_attached()
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer();
+        var attached = false;
+        composer.OnFiles = _ =>
+        {
+            attached = true;
+            return Task.CompletedTask;
+        };
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        await composer.Hand(new([], Folders: 2));
+
+        attached.Should().BeFalse();
+        told.Should().Equal([("Folders cannot be attached. Attach the files inside.", ToastKind.Warning)]);
+    }
+
+    [Fact]
+    public void A_clipboard_that_cannot_be_read_says_the_paste_failed()
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer(takesFiles: true);
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        var taken = composer.Pasting(
+            () => throw new InvalidOperationException("The clipboard is held by another program."),
+            NullLogger.Instance);
+
+        taken.Should().BeFalse("nothing was read, so the field keeps the paste");
+        told.Should().Equal([("What was pasted could not be attached.", ToastKind.Error)]);
+    }
+
+    [Theory]
+    [InlineData(ClipboardHolds.Text)]
+    [InlineData(ClipboardHolds.Nothing)]
+    public void Text_or_an_empty_clipboard_is_left_to_the_field_and_says_nothing(ClipboardHolds holds)
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer(takesFiles: true);
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        composer.Pasting(() => holds, NullLogger.Instance).Should().BeFalse();
+
+        told.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_paste_of_files_is_taken_from_the_field()
+    {
+        var composer = Composer(takesFiles: true);
+
+        composer.Pasting(() => ClipboardHolds.Files, NullLogger.Instance).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_picture_the_device_did_not_hand_over_is_said_in_one_sentence()
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer(takesFiles: true);
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        composer.Pasting(() => ClipboardHolds.PictureNotHandedOver, NullLogger.Instance).Should().BeFalse();
+
+        told.Should().Equal(
+            [("This device did not hand over the picture. Save it as a file and attach that.", ToastKind.Warning)]);
+    }
+
+    [Fact]
+    public void A_conversation_that_takes_no_files_leaves_a_paste_to_the_field_without_reading_the_clipboard()
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer(takesFiles: false);
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+        var looked = false;
+
+        var taken = composer.Pasting(() =>
+        {
+            looked = true;
+            return ClipboardHolds.Files;
+        }, NullLogger.Instance);
+
+        taken.Should().BeFalse();
+        looked.Should().BeFalse();
+        told.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Files_that_cannot_be_read_say_whether_they_were_pasted_or_dropped()
+    {
+        List<(string Words, ToastKind Kind)> told = [];
+        var composer = Composer(takesFiles: true);
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+
+        await composer.TakePasted(() => throw new IOException("The picture could not be read."), NullLogger.Instance);
+        await composer.TakeDropped(() => throw new IOException("The file could not be read."), NullLogger.Instance);
+
+        told.Should().Equal(
+        [
+            ("What was pasted could not be attached.", ToastKind.Error),
+            ("What was dropped could not be attached.", ToastKind.Error),
+        ]);
+    }
+
+    [Fact]
+    public async Task Files_read_while_the_conversation_stops_taking_them_are_not_handed_on()
+    {
+        var composer = Composer(takesFiles: true);
+        var attached = false;
+        composer.OnFiles = _ =>
+        {
+            attached = true;
+            return Task.CompletedTask;
+        };
+        var reading = new TaskCompletionSource<HandedFiles>();
+
+        var dropped = composer.TakeDropped(() => reading.Task, NullLogger.Instance);
+        composer.TakesFiles = false;
+        reading.SetResult(new(SampleFiles(1)));
+        await dropped;
+
+        attached.Should().BeFalse("the conversation stopped taking files while they were read");
     }
 
     #endregion
@@ -500,21 +663,29 @@ public sealed class ChatViewModelTests : IDisposable
 
     #region Private Methods
 
-    private static ComposerViewModel Composer(bool running = false, Action<string>? onSend = null, Action? onCancel = null) => new()
-    {
-        BotName = "Sample bot",
-        Running = running,
-        OnSend = text =>
+    private static IReadOnlyList<IPickedFile> SampleFiles(int count) =>
+        [.. Enumerable.Range(1, count).Select(number => new SamplePickedFile($"file {number}.txt", "one"))];
+
+    private static ComposerViewModel Composer(
+        bool running = false,
+        Action<string>? onSend = null,
+        Action? onCancel = null,
+        bool takesFiles = false) => new()
         {
-            onSend?.Invoke(text);
-            return Task.CompletedTask;
-        },
-        OnCancel = () =>
-        {
-            onCancel?.Invoke();
-            return Task.CompletedTask;
-        },
-    };
+            BotName = "Sample bot",
+            Running = running,
+            TakesFiles = takesFiles,
+            OnSend = text =>
+            {
+                onSend?.Invoke(text);
+                return Task.CompletedTask;
+            },
+            OnCancel = () =>
+            {
+                onCancel?.Invoke();
+                return Task.CompletedTask;
+            },
+        };
 
     private async Task<(BotNotifyMenuViewModel Menu, ToastService Toasts)> Menu()
     {

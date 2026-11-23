@@ -187,9 +187,18 @@ public static class FileWords
     public static SharedFile Exchanged(ExchangedFileResponse exchanged, string href, string momentHref) =>
         Shared(exchanged.File, href, exchanged.FromBot) with { When = exchanged.SharedAt, MomentHref = momentHref };
 
-    /// <summary>The name a picture taken from the clipboard gets: "Pasted image 2026-11-20 14.03.png", by the local clock.</summary>
+    /// <summary>
+    /// The name a picture taken from the clipboard gets: "Pasted image 2026-11-20 14.03.png", by the local clock.
+    /// </summary>
     public static string PastedPictureName(DateTimeOffset local) =>
         $"Pasted image {local.ToString("yyyy-MM-dd HH.mm", CultureInfo.InvariantCulture)}.png";
+
+    /// <summary>
+    /// The name a pasted file goes by. A file that has a name of its own keeps it, even "image.png"; a picture with no
+    /// name of its own, which the device made for the paste, is named for when it was pasted.
+    /// </summary>
+    public static string PastedFileName(string name, bool madeForThePaste, DateTimeOffset local) =>
+        madeForThePaste || string.IsNullOrWhiteSpace(name) ? PastedPictureName(local) : name;
 
     /// <summary>The file chooser could not be opened. A cancelled chooser is not this.</summary>
     public const string ChooserFailed = "The file chooser could not be opened on this device.";
@@ -204,7 +213,8 @@ public static class FileWords
     public const string FoldersOnly = "Folders cannot be attached. Attach the files inside.";
 
     /// <summary>A picture is on the clipboard, and this device did not hand it over.</summary>
-    public const string PictureNotHandedOver = "This device did not hand over the picture. Save it as a file and attach that.";
+    public const string PictureNotHandedOver =
+        "This device did not hand over the picture. Save it as a file and attach that.";
 
     /// <summary>More files were handed over at once than one go takes.</summary>
     public static string OnlyTheFirstFilesTaken(int taken) => $"Only the first {taken} files were taken.";

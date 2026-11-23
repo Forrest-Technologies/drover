@@ -146,10 +146,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     public bool Loading => loading;
 
     /// <summary>
-    /// True while files dropped on the conversation would be taken. A conversation that is only read, is not there,
-    /// is still being read, or could not be read takes none.
+    /// True while files chosen, pasted, dropped or shared would be taken. A conversation that is only read, is not
+    /// there, is still being read, could not be read, or was left takes none.
     /// </summary>
-    public bool AcceptsFiles => !ReadOnly && !Missing && !loading && !loadFailed;
+    public bool AcceptsFiles => !gone && !ReadOnly && !Missing && !loading && !loadFailed;
 
     /// <summary>The new conversation's first load, and each later change of what the screen tells it, as one task to wait for.</summary>
     public Task Ready { get; private set; } = Task.CompletedTask;
@@ -238,6 +238,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         gone = true;
+        Composer.TakesFiles = false;
         watch?.Cancel();
         watch?.Dispose();
         leaving.Cancel();
@@ -427,10 +428,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     }
 
     // What another app shared, once the person has chosen this bot for it, becomes this conversation's draft: the
-    // words in the field, the files uploaded as any chosen file is. Sending stays the person's own act.
+    // words in the field, the files uploaded as any chosen file is. Sending stays the person's own act. A conversation
+    // that takes no files now (it could not be read, say) leaves the share waiting for the next time it is opened.
     private async Task TakeWhatWasShared()
     {
-        if (!Main || ReadOnly || loading || missing || inbox.TakeFor(Bot.Id) is not { } shared)
+        if (!Main || !AcceptsFiles || inbox.TakeFor(Bot.Id) is not { } shared)
         {
             return;
         }
@@ -747,8 +749,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     // new side chat gets its thread now, from its first file, since a file belongs to a conversation.
     private async Task Attach(IReadOnlyList<IPickedFile> files)
     {
-        // However the files arrived, a conversation that does not take them (read only, missing, still being read, or
-        // not read) takes none: the cursor refusing a drop is only a hint to the person.
+        // However the files arrived, a conversation that does not take them (read only, missing, still being read, not
+        // read, or left) takes none: the cursor refusing a drop is only a hint to the person. It is asked again after
+        // each wait, since the person may leave while the thread or the rules are on their way.
         if (!AcceptsFiles)
         {
             return;
@@ -759,12 +762,23 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         try
         {
             shown = await OpenThread();
+
+            if (!AcceptsFiles)
+            {
+                return;
+            }
+
             rules ??= await api.GetAttachmentRules(SpaceId, shown.Id);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
             problem = $"The files were not attached. {Failures.Sentence(exception, "Check that the server is running.")}";
+            return;
+        }
+
+        if (!AcceptsFiles)
+        {
             return;
         }
 
@@ -1167,6 +1181,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.Running = Working;
         Composer.Waiting = Waiting;
         Composer.Disabled = loading;
+        Composer.TakesFiles = AcceptsFiles;
         Composer.Sending = sending;
 
         var items = draft.Items;
