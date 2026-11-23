@@ -10,8 +10,10 @@ public static class RunEndpoints
 
     private const string NotAHandover = "This call does not ask a person to take over the screen.";
 
-    private const string ButtonHeldSentence =
-        "A mouse button on this screen could not be let go of, so the screen was not handed back. Try again, or rebuild the sandbox.";
+    private const string ButtonHeldWhat =
+        "A mouse button on this screen could not be let go of, so the screen was not handed back.";
+
+    private const string ButtonHeldSentence = $"{ButtonHeldWhat} Try again, or rebuild the sandbox.";
 
     #endregion
 
@@ -142,7 +144,9 @@ public static class RunEndpoints
             DecisionOutcome.Forbidden => TypedResults.Forbid(),
             DecisionOutcome.NotWaiting => TypedResults.Problem(title: "This call is not waiting for an answer any more.", statusCode: StatusCodes.Status409Conflict),
             DecisionOutcome.WrongKind => TypedResults.Problem(title: wrongKind, statusCode: StatusCodes.Status409Conflict),
-            DecisionOutcome.ButtonHeld => TypedResults.Problem(title: ButtonHeldSentence, statusCode: StatusCodes.Status409Conflict),
+            DecisionOutcome.ButtonHeld => TypedResults.Problem(
+                title: ButtonHeldSentence,
+                statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Ok(decision.Run!.ToSummary()),
         };
 

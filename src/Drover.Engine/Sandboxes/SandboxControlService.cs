@@ -296,7 +296,7 @@ public sealed class SandboxControlService(
     /// </summary>
     public Task LetGoOfEverything(CancellationToken host) => broker?.StopHolds(host) ?? Task.CompletedTask;
 
-    /// <summary>The same as the server stops, for a host that did not stop first; once stopped, it does nothing.</summary>
+    /// <summary>The same as the server stops, for a host that did not stop first; once stopped, does nothing.</summary>
     public ValueTask DisposeAsync() => new(LetGoOfEverything(CancellationToken.None));
 
     #endregion

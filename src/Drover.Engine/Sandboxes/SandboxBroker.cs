@@ -401,7 +401,10 @@ public sealed class SandboxBroker(
     /// A bot's picture of the screen, taken under the sandbox's command lock, which lets go of every button a person
     /// holds on it first.
     /// </summary>
-    private async Task<byte[]> CaptureForBot(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    private async Task<byte[]> CaptureForBot(
+        SandboxCaller caller,
+        SandboxLease lease,
+        CancellationToken cancellationToken)
     {
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {

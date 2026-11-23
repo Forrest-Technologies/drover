@@ -2031,7 +2031,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task A_bots_screenshot_holds_the_command_lock_so_no_person_press_comes_between_its_cleanup_and_capture()
+    public async Task A_bots_screenshot_holds_the_command_lock_so_no_person_press_comes_before_its_capture()
     {
         var shooting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var shot = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

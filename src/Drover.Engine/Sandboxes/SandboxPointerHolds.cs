@@ -777,7 +777,7 @@ internal sealed class SandboxPointerHolds(
         throw new BuiltinToolException(refused);
     }
 
-    /// <summary>Lets go of every button <paramref name="userId"/> holds on this screen, called with its gate held.</summary>
+    /// <summary>Lets go of every button <paramref name="userId"/> holds on this screen, with its gate held.</summary>
     private async Task ReleaseOwned(Screen screen, Guid userId)
     {
         foreach (var held in Snapshot(screen).Where(held => held.Request.Owner.UserId == userId))
@@ -789,14 +789,14 @@ internal sealed class SandboxPointerHolds(
                 if (!await ReleaseHeld(screen, held, bound.Token))
                 {
                     logger.LogWarning(
-                        "A mouse button on sandbox {SandboxId} held by a person who may no longer use it was not let go of",
+                        "A mouse button on sandbox {SandboxId} held by a person without the role was not let go of",
                         held.Request.SandboxId);
                 }
             }
             catch (OperationCanceledException)
             {
                 logger.LogWarning(
-                    "Letting go of a mouse button on sandbox {SandboxId} for a person who lost their role ran out of time",
+                    "Letting go of a mouse button on sandbox {SandboxId} for a person without the role ran out of time",
                     held.Request.SandboxId);
                 Fail(screen, held);
             }
