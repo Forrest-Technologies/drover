@@ -18,6 +18,7 @@ public enum IconName
     Crew,
     Download,
     Edit,
+    Expand,
     ExternalLink,
     Info,
     Microphone,
@@ -35,4 +36,5 @@ public enum IconName
     Speaker,
     Stop,
     Warning,
+    Wrap,
 }

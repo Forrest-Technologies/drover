@@ -86,7 +86,9 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Logging.Abstractions;
 global using Microsoft.Extensions.Options;
+global using Microsoft.Extensions.Time.Testing;
 global using Npgsql;
+global using SkiaSharp;
 global using Testcontainers.PostgreSql;
 global using Xunit;
 

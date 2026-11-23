@@ -71,12 +71,24 @@ builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddRequestLimits();
 builder.Services.AddSingleton(new KeyRingLocation(keyRingPath));
 builder.Services.AddDroverPush(builder.Configuration, keyRingPath);
-builder.Services.AddSingleton<IFileStore>(new LocalFileStore(filesPath));
+var fileStore = new LocalFileStore(filesPath);
+builder.Services.AddSingleton<IFileStore>(fileStore);
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
 builder.Services.AddHostedService<MigrationStartupCheck>();
 
+// Held mouse buttons are let go of in the host's stopping step, before any hosted service stops.
+builder.Services.AddHostedService<SandboxHoldsRelease>();
+
 var app = builder.Build();
+try
+{
+    fileStore.CheckWritable();
+}
+catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+{
+    app.Logger.LogError("Files directory not writable: {Path}", Path.GetFullPath(filesPath));
+}
 
 app.UseTrustedProxies();
 app.UseSecurityHeaders();

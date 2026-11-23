@@ -89,7 +89,9 @@ public partial class App : Application
         PlatformShell.Start(navigator);
         services.GetRequiredService<ILiveNotifications>().Start();
 #if ANDROID
-        AndroidFileDelivery.ClearSharedCopiesOnSignOut(services.GetRequiredService<SessionState>());
+        AndroidFileDelivery.ClearSharedCopiesOnSignOut(
+            services.GetRequiredService<SessionState>(),
+            services.GetRequiredService<ShareInbox>());
 #endif
 
         var shell = new ShellView(services, window);

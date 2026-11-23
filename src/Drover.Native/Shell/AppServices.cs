@@ -28,7 +28,7 @@ public static partial class AppServices
             .AddSingleton<ThemeModel>()
             .AddSingleton<ThemeSync>()
             .AddSingleton<AppearanceTrail>()
-            .AddSingleton<ShareInbox>()
+            .AddSingleton(ShareInbox.Process)
             .AddSingleton<MovedNotifications>()
             .AddPlatform();
         AddChecks(services);

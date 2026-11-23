@@ -9,7 +9,7 @@ public sealed partial class ConnectViewModel(
 {
     #region Private Fields
 
-    private static readonly TimeSpan patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan patience = TimeSpan.FromSeconds(30);
 
     [ObservableProperty]
     private string address = string.Empty;
@@ -47,7 +47,7 @@ public sealed partial class ConnectViewModel(
         using var timeout = new CancellationTokenSource(patience);
         try
         {
-            if (await requests.IsDroverServer(origin, timeout.Token))
+            if (await requests.IsDroverServer(origin, logger, timeout.Token))
             {
                 server.Set(origin);
 

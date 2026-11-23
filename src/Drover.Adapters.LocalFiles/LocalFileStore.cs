@@ -21,27 +21,35 @@ public sealed class LocalFileStore(string root) : IFileStore
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>Checks the configured root using the same account and private file mode as an upload.</summary>
+    public void CheckWritable()
+    {
+        CreateFolder(root);
+        using var probe = OpenNew(Path.Combine(root, $".{Guid.NewGuid():N}.probe"), FileOptions.DeleteOnClose);
+        probe.WriteByte(0);
+        probe.Flush();
+    }
+
+    #endregion
+
     #region Interface Implementations
 
     public async Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken)
     {
         var path = PathOf(spaceId, storageKey);
         var folder = Path.GetDirectoryName(path)!;
-        CreateFolder(folder);
         var temporary = Path.Combine(folder, $".{Guid.NewGuid():N}.partial");
-
+        var file = OpenTemporary(folder, temporary);
         try
         {
-            await using (var file = OpenNew(temporary))
-            {
-                await content.CopyToAsync(file, BufferSize, cancellationToken);
-            }
-
-            File.Move(temporary, path, overwrite: true);
+            await CopyToTemporary(content, file, cancellationToken);
+            ChangeFile(() => File.Move(temporary, path, overwrite: true));
         }
         finally
         {
-            File.Delete(temporary);
+            ChangeFile(() => File.Delete(temporary));
         }
     }
 
@@ -70,6 +78,60 @@ public sealed class LocalFileStore(string root) : IFileStore
         return Path.Combine(root, spaceId.ToString("N"), fileId.ToString("N"));
     }
 
+    private static FileStream OpenTemporary(string folder, string temporary)
+    {
+        try
+        {
+            CreateFolder(folder);
+            return OpenNew(temporary);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new FileStorageUnavailableException(failure);
+        }
+    }
+
+    private static async Task CopyToTemporary(Stream source, FileStream file, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var buffer = new byte[BufferSize];
+            var count = 0;
+            while ((count = await source.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+            {
+                await WriteFile(() => file.WriteAsync(buffer.AsMemory(0, count), cancellationToken));
+            }
+        }
+        finally
+        {
+            await WriteFile(file.DisposeAsync);
+        }
+    }
+
+    private static async ValueTask WriteFile(Func<ValueTask> operation)
+    {
+        try
+        {
+            await operation();
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new FileStorageUnavailableException(failure);
+        }
+    }
+
+    private static void ChangeFile(Action operation)
+    {
+        try
+        {
+            operation();
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new FileStorageUnavailableException(failure);
+        }
+    }
+
     private static void CreateFolder(string folder)
     {
         if (OperatingSystem.IsWindows())
@@ -84,9 +146,7 @@ public sealed class LocalFileStore(string root) : IFileStore
     [UnsupportedOSPlatform("windows")]
     private static void CreateFolderForOwner(string folder)
     {
-        var parent = Path.GetDirectoryName(folder)!;
-
-        if (!Directory.Exists(parent))
+        if (Path.GetDirectoryName(folder) is { } parent && !Directory.Exists(parent))
         {
             Directory.CreateDirectory(parent, OwnerFolderMode);
         }
@@ -94,7 +154,7 @@ public sealed class LocalFileStore(string root) : IFileStore
         Directory.CreateDirectory(folder, OwnerFolderMode);
     }
 
-    private static FileStream OpenNew(string path)
+    private static FileStream OpenNew(string path, FileOptions optionsForFile = FileOptions.None)
     {
         var options = new FileStreamOptions
         {
@@ -102,7 +162,7 @@ public sealed class LocalFileStore(string root) : IFileStore
             Access = FileAccess.Write,
             Share = FileShare.None,
             BufferSize = BufferSize,
-            Options = FileOptions.Asynchronous,
+            Options = FileOptions.Asynchronous | optionsForFile,
         };
 
         if (!OperatingSystem.IsWindows())

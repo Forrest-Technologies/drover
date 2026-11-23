@@ -37,6 +37,8 @@ public static class IconShapes
             """<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>""",
         [IconName.Edit] =
             """<path d="m4 20 1-5L16 4l4 4L9 19z"/><path d="m14 6 4 4"/>""",
+        [IconName.Expand] =
+            """<path d="M4 9V4h5"/><path d="M15 4h5v5"/><path d="M20 15v5h-5"/><path d="M9 20H4v-5"/>""",
         [IconName.ExternalLink] =
             """<path d="M14 4h6v6"/><path d="m20 4-9 9"/><path d="M18 14v4l-2 2H4V9l3-3h3"/>""",
         [IconName.Info] =
@@ -71,6 +73,8 @@ public static class IconShapes
             """<path d="M8 5h11v11l-3 3H5V8z"/>""",
         [IconName.Warning] =
             """<path d="M12 3 22 20H2z"/><path d="M12 10v4"/><path d="M12 17h.01"/>""",
+        [IconName.Wrap] =
+            """<path d="M4 6h16"/><path d="M4 12h13l3 3-3 3h-4"/><path d="m15 15-3 3 3 3"/><path d="M4 18h4"/>""",
     };
 
     #endregion

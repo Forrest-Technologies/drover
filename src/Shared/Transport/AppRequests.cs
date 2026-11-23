@@ -16,6 +16,14 @@ public sealed class AppRequests : DelegatingHandler
 
     private readonly CookieContainer cookies;
 
+    // The waits between attempts to reach a server that refused or dropped a connection. A server that is
+    // starting, or a phone that has only just joined its network, answers a moment later; one that is down
+    // still fails once these are spent.
+    private readonly IReadOnlyList<TimeSpan> backoff;
+
+    private static readonly TimeSpan[] defaultBackoff =
+        [TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)];
+
     #endregion
 
     #region Constructors
@@ -25,11 +33,13 @@ public sealed class AppRequests : DelegatingHandler
     {
     }
 
-    internal AppRequests(ServerAddress server, NativeSession session, HttpMessageHandler transport)
+    internal AppRequests(
+        ServerAddress server, NativeSession session, HttpMessageHandler transport, IReadOnlyList<TimeSpan>? backoff = null)
         : base(transport)
     {
         this.server = server;
         this.session = session;
+        this.backoff = backoff ?? defaultBackoff;
         cookies = transport is HttpClientHandler handler ? handler.CookieContainer : new();
     }
 
@@ -47,6 +57,34 @@ public sealed class AppRequests : DelegatingHandler
     {
         await IssueToken(origin, cancellationToken);
         return ReadCookie(origin) is { Length: > 0 };
+    }
+
+    /// <summary>
+    /// Asks whether a Drover server answers at <paramref name="origin"/>. A connection that could not be made, because
+    /// it was refused or dropped, is tried again after each wait in the backoff, and every retry is logged. An answer
+    /// that is not from a Drover server is never retried. The caller's token bounds the whole wait, so a server that
+    /// never answers still fails, with the last refusal thrown.
+    /// </summary>
+    public async Task<bool> IsDroverServer(Uri origin, ILogger logger, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await IsDroverServer(origin, cancellationToken);
+            }
+            catch (HttpRequestException exception) when (attempt < backoff.Count && IsConnectionFailure(exception)
+                && !cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Attempt {Attempt} of {Attempts} to reach the Drover server failed; trying again in {DelayMilliseconds} ms",
+                    attempt + 1,
+                    backoff.Count + 1,
+                    backoff[attempt].TotalMilliseconds);
+                await Task.Delay(backoff[attempt], cancellationToken);
+            }
+        }
     }
 
     #endregion
@@ -167,6 +205,9 @@ public sealed class AppRequests : DelegatingHandler
 
         return token ?? throw new HttpRequestException("Drover did not issue a request token.");
     }
+
+    private static bool IsConnectionFailure(HttpRequestException exception) =>
+        exception.HttpRequestError is HttpRequestError.ConnectionError;
 
     private string? ReadCookie(Uri origin) => cookies.GetCookies(origin)[AntiforgeryCookie]?.Value;
 

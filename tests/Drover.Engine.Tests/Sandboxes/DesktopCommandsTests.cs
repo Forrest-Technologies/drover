@@ -122,6 +122,134 @@ public sealed class DesktopCommandsTests
 
     #endregion
 
+    #region The Pointer
+
+    [Theory]
+    [InlineData(MouseButton.Left, "1")]
+    [InlineData(MouseButton.Right, "3")]
+    [InlineData(MouseButton.Middle, "2")]
+    public void A_press_moves_to_the_point_and_holds_the_button_down_in_one_xdotool_run(MouseButton button,
+        string number)
+    {
+        var command = DesktopCommands.MouseDown(10, 20, button);
+
+        command.Program.Should().Be("xdotool");
+        command.Arguments.Should().Equal("mousemove", "10", "20", "mousedown", number);
+        command.Environment.Should().Contain("DISPLAY", ":0");
+    }
+
+    [Fact]
+    public void A_move_only_moves_the_pointer()
+    {
+        DesktopCommands.MouseMove(300, 400).Arguments.Should().Equal("mousemove", "300", "400");
+    }
+
+    [Fact]
+    public void A_release_lets_go_of_the_button_where_the_pointer_is_or_at_a_point_when_one_is_given()
+    {
+        DesktopCommands.MouseUp(MouseButton.Right, null, null).Arguments.Should().Equal("mouseup", "3");
+        DesktopCommands.MouseUp(MouseButton.Left, 7, 8).Arguments.Should().Equal("mousemove", "7", "8", "mouseup", "1");
+    }
+
+    [Fact]
+    public void Letting_go_of_every_held_button_is_one_run_with_a_short_time_limit()
+    {
+        var command = DesktopCommands.Release([MouseButton.Left, MouseButton.Middle]);
+
+        command.Arguments.Should().Equal("mouseup", "1", "mouseup", "2");
+        command.Timeout.Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void A_release_of_no_button_is_refused()
+    {
+        ((Func<CommandRequest>)(() => DesktopCommands.Release([]))).Should().Throw<BuiltinToolException>();
+    }
+
+    [Fact]
+    public void A_drag_presses_moves_along_a_bounded_line_and_releases_in_one_run()
+    {
+        var command = DesktopCommands.Drag(100, 200, 500, 600, MouseButton.Left);
+
+        command.Program.Should().Be("xdotool");
+        command.Arguments.Take(5).Should().Equal("mousemove", "100", "200", "mousedown", "1");
+        command.Arguments.TakeLast(2).Should().Equal("mouseup", "1");
+        command.Arguments.Skip(5).Where(argument => argument == "mousemove")
+            .Should().HaveCount(DesktopCommands.DragSteps + 1);
+        command.Arguments.Skip(5).Where(argument => argument == "mousemove")
+            .Should().HaveCount(9, "eight points on the way and one at the end, whatever the constant says");
+        command.Arguments.Should().ContainInOrder("mousemove", "500", "600", "sleep", "mouseup");
+        command.Arguments.Count(argument => argument == "mousedown").Should().Be(1);
+        command.Arguments.Count(argument => argument == "mouseup").Should().Be(1);
+    }
+
+    [Fact]
+    public void A_drag_goes_through_evenly_spaced_points_that_are_all_on_the_screen()
+    {
+        var command = DesktopCommands.Drag(0, 767, 1023, 0, MouseButton.Left);
+
+        var points = command.Arguments
+            .Select((argument, index) => (argument, index))
+            .Where(item => item.argument == "mousemove")
+            .Select(item => (X: int.Parse(command.Arguments[item.index + 1], CultureInfo.InvariantCulture),
+                Y: int.Parse(command.Arguments[item.index + 2], CultureInfo.InvariantCulture)))
+            .ToList();
+
+        points.Should().HaveCount(DesktopCommands.DragSteps + 2);
+        points.Should().OnlyContain(point => point.X >= 0 && point.X < DesktopCommands.ScreenWidth && point.Y >= 0
+            && point.Y < DesktopCommands.ScreenHeight);
+        points[0].Should().Be((0, 767));
+        points[^1].Should().Be((1023, 0));
+        points.Select(point => point.X).Should().BeInAscendingOrder();
+        points.Select(point => point.Y).Should().BeInDescendingOrder();
+        points.Should().HaveCount(10, "the press, eight points on the way, and the end");
+        points.Should().OnlyHaveUniqueItems("no point on the way repeats another");
+
+        for (var step = 0; step < points.Count; step++)
+        {
+            // Each point is within a pixel of where an equal share of the way falls on the straight line.
+            var share = step / 9.0;
+            points[step].X.Should().BeCloseTo((int)Math.Round(1023 * share), 1);
+            points[step].Y.Should().BeCloseTo((int)Math.Round(767 - (767 * share)), 1);
+        }
+    }
+
+    [Fact]
+    public void A_drag_has_time_to_finish_within_its_command_limit()
+    {
+        var command = DesktopCommands.Drag(0, 0, 1023, 767, MouseButton.Left);
+
+        command.Timeout.Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(30));
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, -1)]
+    [InlineData(1024, 0)]
+    [InlineData(0, 768)]
+    public void A_pointer_point_off_the_screen_is_refused_in_a_plain_sentence(int x, int y)
+    {
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseDown(x, y, MouseButton.Left)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseMove(x, y)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseUp(MouseButton.Left, x, y)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.Drag(x, y, 5, 5, MouseButton.Left)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+        ((Func<CommandRequest>)(() => DesktopCommands.Drag(5, 5, x, y, MouseButton.Left)))
+            .Should().Throw<BuiltinToolException>().WithMessage("*off the screen*");
+    }
+
+    [Fact]
+    public void A_release_with_half_a_point_is_refused()
+    {
+        ((Func<CommandRequest>)(() => DesktopCommands.MouseUp(MouseButton.Left, 10, null)))
+            .Should().Throw<BuiltinToolException>();
+    }
+
+    #endregion
+
     #region Keys
 
     [Fact]

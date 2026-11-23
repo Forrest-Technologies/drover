@@ -92,7 +92,7 @@ public sealed class DesktopSignInReturnTests
 
         for (var attempt = 0; attempt < 20 && !returned.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal); attempt++)
         {
-            returned = await Visit(listener, $"/tool-sign-in?ticket={ticket}");
+            returned = await VisitIgnoringRefusal(listener, $"/tool-sign-in?ticket={ticket}");
         }
 
         returned.Should().StartWith("HTTP/1.1 200 OK\r\n");
@@ -143,6 +143,23 @@ public sealed class DesktopSignInReturnTests
 
     private static string NothingArrived(Exception failure) =>
         failure is OperationCanceledException or IOException ? string.Empty : throw failure;
+
+    /// <summary>
+    /// A connection past the limit is refused without its request being read, so closing it can send a reset instead
+    /// of the 503 page on some systems. Neither shape carries a ticket; both leave the caller to try again.
+    /// </summary>
+    private static async Task<string> VisitIgnoringRefusal(DesktopSignInReturn listener, string path)
+    {
+        try
+        {
+            return await Visit(listener, path);
+        }
+        catch (IOException failure) when
+            (failure.InnerException is SocketException { SocketErrorCode: SocketError.ConnectionReset })
+        {
+            return NothingArrived(failure);
+        }
+    }
 
     /// <summary>What a browser sends to the listener and reads back, until the listener closes the connection.</summary>
     private static async Task<string> Visit(DesktopSignInReturn listener, string path)

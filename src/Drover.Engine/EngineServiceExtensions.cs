@@ -83,6 +83,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ApprovalService>();
         services.AddScoped<FileAbilityReader>();
         services.AddSingleton<UploadCleanup>();
+        services.AddSingleton<NativePictureCache>();
         services.AddScoped<FileService>();
         return services;
     }

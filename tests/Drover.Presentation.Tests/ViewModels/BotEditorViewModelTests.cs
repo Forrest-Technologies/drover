@@ -312,6 +312,23 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_working_tool_connection_shows_no_stale_error_in_the_tools_section()
+    {
+        var workingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000d");
+        Server.Answer("GET", $"{space}/tool-connections", (ToolConnectionSummary[])[
+            new(workingId, "Working server", "working", "https://working.example.test/mcp", "none", "untrusted", "automatic", "ready", null, null, "Sample old failure."),
+            new(failedId, "Failed server", "failed", "https://failed.example.test/mcp", "none", "untrusted", "automatic", "failed", null, null, "Sample current failure.")]);
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+
+        var groups = editor.ToolsPart.Groups;
+
+        groups.Single(group => group.ConnectionId == workingId).Problem.Should().BeNull("the last error is stale once the connection works");
+        groups.Single(group => group.ConnectionId == failedId).Problem.Should().Be("Sample current failure.");
+    }
+
+    [Fact]
     public async Task A_grant_the_server_refuses_is_said_in_its_words_and_the_control_goes_back()
     {
         Server.Refuse("PUT", $"{bot}/tools/{toolId}", HttpStatusCode.Conflict, "Sample parent has this tool set to ask. Raise it on Sample parent first.");
@@ -569,6 +586,42 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.CanSave.Should().BeTrue();
         BotEditorViewModel.Sections.Where(editor.ShowsSection).Should().Equal(Model, BotEditorViewModel.MemorySection, Team, Limits);
         Server.Requests.Should().NotContain(request => request.Method == "POST" || request.Method == "PUT", "nothing is stored until the person saves");
+    }
+
+    [Fact]
+    public async Task A_new_bot_prefers_a_working_connection_over_one_that_just_failed()
+    {
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var workingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000d");
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[
+            new(failedId, "Just failed", "venice", null, true, "failed", "sample-failed", [], null, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            new(workingId, "Working", "venice", null, true, "ready", "sample-working", [], null, DateTimeOffset.UtcNow.AddDays(-1))]);
+        Server.Answer("GET", $"{space}/model-connections/{failedId}/models", (ModelCatalogResponse[])[CatalogModel("sample-failed", toolCalling: true)]);
+        Server.Answer("GET", $"{space}/model-connections/{workingId}/models", (ModelCatalogResponse[])[CatalogModel("sample-working", toolCalling: true)]);
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.Draft!.ModelConnectionId.Should().Be(workingId, "a connection whose test just failed is not chosen over one that works");
+        editor.Draft.Model.Should().Be("sample-working");
+    }
+
+    [Fact]
+    public async Task A_new_bot_prefers_an_untested_connection_over_a_failed_one()
+    {
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var pendingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000e");
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[
+            new(failedId, "Just failed", "venice", null, true, "failed", "sample-failed", [], null, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            new(pendingId, "Not tested yet", "venice", null, true, "pending", "sample-pending", [], null, null)]);
+        Server.Answer("GET", $"{space}/model-connections/{failedId}/models", (ModelCatalogResponse[])[CatalogModel("sample-failed", toolCalling: true)]);
+        Server.Answer("GET", $"{space}/model-connections/{pendingId}/models", (ModelCatalogResponse[])[CatalogModel("sample-pending", toolCalling: true)]);
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.Draft!.ModelConnectionId.Should().Be(pendingId, "an untested connection outranks one that failed");
+        editor.Draft.Model.Should().Be("sample-pending");
     }
 
     [Fact]
@@ -1449,6 +1502,144 @@ public sealed class BotEditorViewModelTests : ViewModelTest
             "Some [removed by a rule] here.");
         Server.Sent("POST", $"{bot}/rules/try").Should().ContainSingle().Which.Should()
             .Contain("\"checkpoint\":\"before_reply\"").And.Contain("\"text\":\"Some sample words here.\"").And.NotContain("\"draft\":{");
+    }
+
+    [Fact]
+    public async Task Removing_a_rule_offers_to_put_it_back()
+    {
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(rule);
+
+        Server.Addresses.Should().ContainSingle(address => address.StartsWith("DELETE ", StringComparison.Ordinal)).Which
+            .Should().Be($"DELETE {bot}/rules/{ruleId}");
+        editor.Removing.Should().BeFalse("a removal asks nothing first");
+        part.Own.Should().BeEmpty();
+        part.Announcement.Should().Be("Rule removed: Sample rule.");
+        part.TakeFocus().Should().Be(RuleFocus.Add, "the row is gone, so focus goes to Add a rule");
+        var toast = toasts.Quiet.Should().ContainSingle().Subject;
+        (toast.Message, toast.Kind).Should().Be(("Rule removed: Sample rule.", ToastKind.Info));
+        (toast.Action!.Label, toast.Action.Name, toast.Action.Until).Should().Be(("Undo", "Undo removing Sample rule", null));
+    }
+
+    [Fact]
+    public async Task Undo_creates_the_rule_again_with_everything_it_had()
+    {
+        var first = Rule("First", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["read"] }) with
+        {
+            Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b1"),
+        };
+        var removed = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["write", "critical"] }) with
+        {
+            Enabled = false,
+            Position = 1,
+        };
+        var last = Rule("Last", RuleWords.BeforeReply, "redact", new RuleConditionBody("text_contains") { Entries = ["sample"] }) with
+        {
+            Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b2"),
+            Position = 2,
+        };
+        var restored = removed with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b3") };
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[first, removed, last]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        Server.Answer("POST", $"{bot}/rules", restored, HttpStatusCode.Created);
+        var editor = await OpenEditor("Rules, 3 rules, 1 off");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(removed);
+        await toasts.Act(toasts.Quiet.Single());
+
+        var post = Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Subject;
+        using var sent = JsonDocument.Parse(post);
+        var body = sent.RootElement;
+        body.GetProperty("name").GetString().Should().Be("Sample rule");
+        body.GetProperty("enabled").GetBoolean().Should().BeFalse();
+        body.GetProperty("checkpoint").GetString().Should().Be("before_tool");
+        body.GetProperty("effect").GetString().Should().Be("block");
+        body.GetProperty("position").GetInt32().Should().Be(1);
+        body.GetProperty("conditions")[0].GetProperty("toolKinds").EnumerateArray().Select(kind => kind.GetString())
+            .Should().Equal("write", "critical");
+        string[] names = [.. part.Own.Select(rule => rule.Name)];
+        names.Should().Equal("First", "Sample rule", "Last");
+        part.Announcement.Should().Be("Rule put back: Sample rule.");
+        Toasts.Toasts.Should().BeEmpty("the put back is said in the section, not in a toast");
+    }
+
+    [Fact]
+    public async Task A_refused_removal_offers_no_undo()
+    {
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Refuse("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.BadRequest, "The rule is in use.");
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+
+        await part.Remove(rule);
+
+        part.Problem.Should().Be("The rule is in use.");
+        part.Own.Should().ContainSingle().Which.Id.Should().Be(ruleId);
+        Toasts.Toasts.Should().BeEmpty("a rule that was not removed offers nothing to put back");
+        editor.Removing.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task An_undo_the_server_refuses_says_why_and_can_be_tried_again()
+    {
+        const string Reason = "A bot has at most 50 rules of its own. Remove one first.";
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        Server.Refuse("POST", $"{bot}/rules", HttpStatusCode.BadRequest, Reason);
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(rule);
+        await toasts.Act(toasts.Quiet.Single());
+
+        toasts.Errors.Should().ContainSingle().Which.Message.Should().Be($"The rule could not be put back. {Reason}");
+        part.Own.Should().BeEmpty();
+        var retry = toasts.Quiet.Should().ContainSingle().Subject;
+        (retry.Message, retry.Action!.Label, retry.Action.Name).Should().Be(("Rule removed: Sample rule.", "Undo", "Undo removing Sample rule"));
+
+        Server.Answer("POST", $"{bot}/rules", rule, HttpStatusCode.Created);
+        await toasts.Act(retry);
+
+        Server.Sent("POST", $"{bot}/rules").Should().HaveCount(2);
+        part.Own.Should().ContainSingle().Which.Name.Should().Be("Sample rule");
+    }
+
+    [Fact]
+    public async Task Undo_from_another_screen_puts_the_rule_back_on_its_own_bot()
+    {
+        var rule = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[rule]);
+        Server.Answer("DELETE", $"{bot}/rules/{ruleId}", HttpStatusCode.NoContent);
+        Server.Answer("POST", $"{bot}/rules", rule, HttpStatusCode.Created);
+        var editor = await OpenEditor("Rules, 1 rule");
+        editor.Toggle(Rules, true);
+        var part = editor.RulesPart;
+        using var toasts = new ToastHostViewModel(Toasts);
+
+        await part.Remove(rule);
+        editor.Close();
+
+        await toasts.Act(toasts.Quiet.Single());
+
+        Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Which.Should().Contain("\"name\":\"Sample rule\"");
+        Toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be("Rule put back: Sample rule.");
+        part.Own.Should().BeEmpty("the section that was left does not gain a rule");
+        part.Announcement.Should().Be("Rule removed: Sample rule.");
     }
 
     #endregion

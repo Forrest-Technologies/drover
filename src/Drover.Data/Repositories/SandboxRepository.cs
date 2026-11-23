@@ -30,9 +30,27 @@ public sealed class SandboxRepository(DroverDbContext db)
             .OrderByDescending(sandbox => sandbox.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    /// <summary>The sandbox with this id in any state, or null when there is none.</summary>
+    public Task<Sandbox?> FindSandbox(Guid id, CancellationToken cancellationToken) =>
+        db.Sandboxes.AsNoTracking().SingleOrDefaultAsync(sandbox => sandbox.Id == id, cancellationToken);
+
     /// <summary>The tracked row, locked until the transaction ends, so two calls that finish creating it take turns.</summary>
     public async Task<Sandbox?> GetSandboxForUpdate(Guid id, CancellationToken cancellationToken) =>
         (await db.Sandboxes.FromSql($"SELECT * FROM sandboxes WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault();
+
+    /// <summary>
+    /// Takes this sandbox out of use if it is still live: it becomes <see cref="SandboxState.Retiring"/>, to be
+    /// destroyed from <paramref name="retireAfter"/>. False when it is not live, such as when it was already retired.
+    /// </summary>
+    public async Task<bool> RetireLive(Guid id, DateTimeOffset retireAfter, CancellationToken cancellationToken) =>
+        await db.Sandboxes
+            .Where(sandbox => sandbox.Id == id
+                && (sandbox.State == SandboxState.Creating || sandbox.State == SandboxState.Running
+                    || sandbox.State == SandboxState.Paused))
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(sandbox => sandbox.State,
+                    SandboxState.Retiring).SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
+                cancellationToken) > 0;
 
     public void Add(Sandbox sandbox) => db.Sandboxes.Add(sandbox);
 
