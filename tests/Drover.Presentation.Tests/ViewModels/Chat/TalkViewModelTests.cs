@@ -1377,6 +1377,57 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task Files_are_taken_once_the_conversation_is_read_and_not_while_it_is_being_read()
+    {
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+        MainPane.AcceptsFiles.Should().BeFalse("it is still being read");
+
+        messages.SetResult();
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.AcceptsFiles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_side_chat_that_is_not_there_takes_no_files()
+    {
+        Server.Answer("GET", $"{Space}/threads/{sideId}", HttpStatusCode.NotFound);
+
+        await Go($"/talk/{botId}/side/{sideId}");
+
+        await Until(() => SidePane.Missing.Should().BeTrue());
+        SidePane.AcceptsFiles.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_bots_side_of_handed_work_is_only_read_so_it_takes_no_files()
+    {
+        var workThread = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal, Helper });
+        Server.Answer("GET", $"{Space}/bots/{helperId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{workThread}", new ThreadSummary(workThread, helperId, null, false, DateTimeOffset.UnixEpoch, null));
+        Server.Answer("GET", $"{Space}/threads/{workThread}/messages", new[] { Said("user", "Sample task") with { ThreadId = workThread } });
+
+        await Go(Addresses.Work(botId, helperId, workThread));
+
+        await Until(() => Talk.WorkPane!.Messages.Should().ContainSingle());
+        Talk.WorkPane!.AcceptsFiles.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_conversation_that_could_not_be_read_takes_no_files()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+
+        await Go("/");
+
+        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        MainPane.AcceptsFiles.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_notice_from_the_composer_reaches_the_person()
     {
         await Go($"/talk/{botId}");

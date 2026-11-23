@@ -75,6 +75,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool missing;
 
+    private bool loadFailed;
+
     private bool reportedBusy;
 
     private Takeover? reportedTakeover;
@@ -142,6 +144,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     public bool Missing => missing;
 
     public bool Loading => loading;
+
+    /// <summary>
+    /// True while files dropped on the conversation would be taken. A conversation that is only read, is not there,
+    /// is still being read, or could not be read takes none.
+    /// </summary>
+    public bool AcceptsFiles => !ReadOnly && !Missing && !loading && !loadFailed;
 
     /// <summary>The new conversation's first load, and each later change of what the screen tells it, as one task to wait for.</summary>
     public Task Ready { get; private set; } = Task.CompletedTask;
@@ -275,6 +283,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         loading = true;
+        loadFailed = false;
         try
         {
             thread = Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await api.GetThread(SpaceId, parameters.ThreadId!.Value);
@@ -313,6 +322,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
             problem = Failures.Sentence(exception, "Check that the server is running.");
+            loadFailed = true;
         }
         finally
         {
