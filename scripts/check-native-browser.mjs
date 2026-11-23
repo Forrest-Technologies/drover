@@ -389,7 +389,16 @@ try {
                 }
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
-                else if (address.endsWith('/stream')) { await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }); return; }
+                else if (address.endsWith('/stream')) {
+                    if (current === 'conversation-load-failed') {
+                        // A stream that ends reports a reconnection, which reads the conversation again by itself.
+                        // Hold this one open so the scene checks the button, not the automatic retry.
+                        return;
+                    }
+
+                    await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' });
+                    return;
+                }
                 else if (address.endsWith(`/files/${sampleFile.id}/native-preview`)) {
                     const attempt = ++previewRequests;
                     if (attempt === 1) {
@@ -687,7 +696,10 @@ try {
                     await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                     assert.equal(await page.getByText('Nothing said yet.', { exact: false }).count(), 0,
                         'a conversation that was never read must not say nothing was said');
-                    assert.equal(await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).isDisabled(), true);
+                    // Uno's hidden text box carries no disabled attribute, so ask the field itself: it takes no text.
+                    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+                    await field.press('X');
+                    assert.equal(await field.inputValue(), '', 'the field is disabled while the state is shown');
                 }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
@@ -700,8 +712,10 @@ try {
                     await reread;
                     await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached', timeout: 10000 });
                     assert.equal(conversationLoadRequests, 2, 'the first read failed and the retry read once');
-                    assert.equal(await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).isDisabled(), false,
-                        'the field is open once the conversation has been read');
+                    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+                    await field.press('X');
+                    assert.equal(await field.inputValue(), 'X', 'the field takes text once the conversation has been read');
+                    await field.fill('');
                 }
                 if (name === 'extension-editor') {
                     // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
