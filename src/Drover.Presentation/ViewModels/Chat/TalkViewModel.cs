@@ -628,6 +628,20 @@ public sealed class TalkViewModel(
                 var crew = await api.ListBots(SpaceId, cancellationToken);
                 await LoadThreads(crew, cancellationToken);
                 bots = crew;
+
+                // A connection that came back may have missed the answers these panes waited for. Reading them again
+                // here fixes the screen without asking the person to press anything.
+                ui.Post(() =>
+                {
+                    ConversationViewModel?[] panes = [MainPane, SidePane, WorkPane];
+                    foreach (var pane in panes)
+                    {
+                        if (pane is { LoadFailed: true })
+                        {
+                            _ = pane.Reload();
+                        }
+                    }
+                });
             }
             else if (signal.ThreadId is { } threadId)
             {
