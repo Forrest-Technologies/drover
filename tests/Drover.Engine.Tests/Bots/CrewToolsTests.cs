@@ -279,6 +279,43 @@ public sealed class CrewToolsTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Keep_through_the_crew_tool_copies_the_removed_bots_rules_to_the_bots_that_move_up()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.StartHost();
+        var scoutId = await Add(world, host, world.BotId, """{"name":"Scout"}""");
+        var trackerId = await Add(world, host, world.BotId, $$"""{"name":"Tracker","parent_id":"{{scoutId}}"}""");
+        var originalId = await world.Read(db =>
+        {
+            var rule = new BotRule
+            {
+                BotId = scoutId,
+                Name = "Never say the word",
+                Enabled = true,
+                Checkpoint = RuleCheckpoint.BeforeReply,
+                Effect = RuleEffect.Block,
+                Conditions = [new RuleCondition { Kind = RuleConditionKind.TextContains, Entries = ["tangerine"] }],
+                CreatedByUserId = world.UserId,
+            };
+            db.BotRules.Add(rule);
+            return Task.FromResult(rule.Id);
+        });
+
+        await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}","beneath":"keep"}""");
+
+        var copied = await world.Read(db => db.BotRules.AsNoTracking()
+            .Where(rule => rule.BotId == trackerId)
+            .Select(rule => new { rule.Id, rule.Name, rule.Enabled, rule.CreatedByUserId, rule.Position })
+            .ToListAsync(RunWorld.Token));
+        copied.Should().ContainSingle();
+        copied[0].Id.Should().NotBe(originalId, "the copy is a new row");
+        copied[0].Name.Should().Be("Never say the word");
+        copied[0].Enabled.Should().BeTrue();
+        copied[0].CreatedByUserId.Should().Be(world.UserId);
+        copied[0].Position.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Making_a_bot_is_refused_at_the_spaces_cap_on_its_bots_and_a_removed_bot_frees_its_place()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
