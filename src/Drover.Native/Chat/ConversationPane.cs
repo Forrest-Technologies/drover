@@ -3,7 +3,7 @@ namespace Drover.Native.Chat;
 /// <summary>
 /// One conversation with a bot: what was said, what the bot is doing, and the field to write in. It fills the
 /// column it is put in: the messages scroll, the composer stays at the foot. A bot's side of work handed to it has
-/// a line of words where the field would be.
+/// a line of words where the field would be. Files dropped anywhere on it are attached to it.
 /// </summary>
 public sealed class ConversationPane : Grid
 {
@@ -50,6 +50,11 @@ public sealed class ConversationPane : Grid
         Children.Add(center);
         Children.Add(composer);
         Children.Add(readBox);
+        AllowDrop = true;
+        DragOver += Carried;
+        DragLeave += (_, _) => composer.ShowDropping(false);
+        Drop += async (_, dropped) => await composer.TakeDropped(dropped.DataView);
+
         this.WhenShownOrRethemed(Paint);
         Show();
     }
@@ -129,6 +134,22 @@ public sealed class ConversationPane : Grid
         }
 
         Paint();
+    }
+
+    // Files held over the conversation, its messages as much as its field: the composer's frame and a line of words say
+    // it will take them. A conversation that cannot take files leaves the drop refused, and the cursor says so.
+    private void Carried(object sender, DragEventArgs held)
+    {
+        if (model is { AcceptsFiles: true }
+            && held.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            held.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            composer.ShowDropping(true);
+        }
+        else
+        {
+            held.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+        }
     }
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;

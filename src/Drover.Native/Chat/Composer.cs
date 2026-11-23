@@ -3,7 +3,7 @@ namespace Drover.Native.Chat;
 /// <summary>
 /// The console a person writes to a bot in: the field and its actions in one frame. Enter sends and Shift+Enter
 /// breaks the line; on a touch keyboard Enter breaks the line and Send sends. The field grows with its text up to
-/// a set number of lines. Files chosen with Attach, pasted into the field, or dropped on the composer all go the
+/// a set number of lines. Files chosen with Attach, pasted into the field, or dropped on the conversation all go the
 /// same way. While the bot works, a line travels the frame's top edge and Stop stands where Send was. The model the
 /// conversation answers with is chosen behind the plus button, beside Attach, when the bot may use more than one.
 /// </summary>
@@ -49,6 +49,16 @@ public sealed class Composer : Grid
     private readonly Button send = new() { Kind = ButtonKind.Primary, VerticalAlignment = VerticalAlignment.Bottom };
 
     private readonly TextBlock dropNote = Styles.Text("Drop the files to attach them.", "DvTextLabel");
+
+    // The formats a text field takes by itself. Anything else on the clipboard is something it cannot use.
+    private static readonly HashSet<string> readable =
+    [
+        Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text,
+        Windows.ApplicationModel.DataTransfer.StandardDataFormats.Html,
+        Windows.ApplicationModel.DataTransfer.StandardDataFormats.Rtf,
+        Windows.ApplicationModel.DataTransfer.StandardDataFormats.WebLink,
+        Windows.ApplicationModel.DataTransfer.StandardDataFormats.ApplicationLink,
+    ];
 
     private ComposerViewModel? model;
 
@@ -101,10 +111,12 @@ public sealed class Composer : Grid
         send.Click += async (_, _) => await Send();
         tray.Remove += async (_, id) => await (model?.Remove(id) ?? Task.CompletedTask);
 
-        AllowDrop = true;
-        DragOver += Carried;
-        DragLeave += (_, _) => SetDropping(false);
-        Drop += async (_, dropped) => await Dropped(dropped);
+        Loaded += (_, _) =>
+        {
+            PlatformPaste.Start();
+            PlatformPaste.Received += PastedInBrowser;
+        };
+        Unloaded += (_, _) => PlatformPaste.Received -= PastedInBrowser;
 
         frame.GotFocus += (_, _) => SetWithin(true);
         frame.LostFocus += (_, _) => SetWithin(false);
@@ -152,6 +164,30 @@ public sealed class Composer : Grid
     {
         focusWanted = true;
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusField);
+    }
+
+    /// <summary>The frame takes the ember edge and the line of words says it will take the files held over the conversation.</summary>
+    public void ShowDropping(bool value)
+    {
+        dropping = value;
+        dropNote.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        Paint();
+    }
+
+    /// <summary>Takes the files dropped on the conversation. What cannot be taken is said in one sentence.</summary>
+    public async Task TakeDropped(Windows.ApplicationModel.DataTransfer.DataPackageView dropped)
+    {
+        ShowDropping(false);
+
+        try
+        {
+            await Take(dropped);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Log.For<Composer>().LogError(exception, "What was dropped could not be read as files");
+            model?.Notify(FileWords.DropFailed, ToastKind.Error);
+        }
     }
 
     #endregion
@@ -401,58 +437,79 @@ public sealed class Composer : Grid
         {
             // A device with no file chooser, or one that fails: the composer stays as it was, and the log says why.
             Log.For<Composer>().LogError(exception, "The device's file chooser could not be opened");
+            model.Notify(FileWords.ChooserFailed, ToastKind.Error);
         }
     }
 
-    // A copy from an office program carries its text and a picture of it: then the text is what was meant.
+    // A copy from an office program carries its text and a picture of it: then the text is what was meant. In a
+    // browser the page's paste event brings files and pictures instead, and the platform's clipboard holds text only.
     private async Task Pasted(TextControlPasteEventArgs pasted)
     {
+        var carriesSomething = false;
+
         try
         {
-            var carried = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
-            var hasText = carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text);
-
-            if (!hasText && carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            if (OperatingSystem.IsBrowser())
             {
+                return;
+            }
+
+            var carried = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+
+            if (carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            {
+                return;
+            }
+
+            if (Offers(carried))
+            {
+                carriesSomething = true;
                 pasted.Handled = true;
-                await Hand(await PickedFiles.From(carried));
+                await Take(carried);
+            }
+            else if (carried.AvailableFormats.Any(format => !readable.Contains(format)))
+            {
+                // Something is on the clipboard that this device did not hand over as a file or a picture.
+                model?.Notify(FileWords.PictureNotHandedOver, ToastKind.Warning);
             }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             Log.For<Composer>().LogError(exception, "What was pasted could not be read as files");
+
+            if (carriesSomething)
+            {
+                model?.Notify(FileWords.PasteFailed, ToastKind.Error);
+            }
         }
     }
 
-    // Files held over the composer: the frame and a line of words say it will take them. A fact, so nothing moves.
-    private void Carried(object sender, DragEventArgs held)
+    // A file the browser's paste event brought. It goes to the composer whose field has the cursor.
+    private async void PastedInBrowser(IPickedFile file)
     {
-        if (held.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        if (fieldFocused)
         {
-            held.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            SetDropping(true);
+            await Hand([file]);
         }
     }
 
-    private async Task Dropped(DragEventArgs dropped)
-    {
-        SetDropping(false);
+    private static bool Offers(Windows.ApplicationModel.DataTransfer.DataPackageView carried) =>
+        carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)
+        || carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap);
 
-        try
-        {
-            await Hand(await PickedFiles.From(dropped.DataView));
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            Log.For<Composer>().LogError(exception, "What was dropped could not be read as files");
-        }
-    }
-
-    private void SetDropping(bool value)
+    // Files and pictures, whichever way they came, end here: files go on, and folders alone are said to be left out.
+    private async Task Take(Windows.ApplicationModel.DataTransfer.DataPackageView carried)
     {
-        dropping = value;
-        dropNote.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-        Paint();
+        var taken = await PickedFiles.From(carried);
+
+        if (taken.Files.Count > 0)
+        {
+            await Hand(taken.Files);
+        }
+        else if (taken.Folders > 0)
+        {
+            model?.Notify(FileWords.FoldersOnly, ToastKind.Warning);
+        }
     }
 
     private async Task Hand(IReadOnlyList<IPickedFile> files)
