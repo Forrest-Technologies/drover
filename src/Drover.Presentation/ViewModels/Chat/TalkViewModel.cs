@@ -411,8 +411,8 @@ public sealed class TalkViewModel(
     /// <summary>Where the rail's first control leads: closed, or from a side chat back to the list of them.</summary>
     public string RailUp(Guid botId) => RailCloses ? Addresses.Talk(botId) : Addresses.SideChats(botId);
 
-    /// <summary>Reads the space again, after it could not be read.</summary>
-    public Task Retry() => Rendered(LoadSpace());
+    /// <summary>Reads the space again, after it could not be read, and then does what opening the address does.</summary>
+    public Task Retry() => Rendered(ReloadSpace());
 
     /// <summary>Opens something beside the conversation, from the conversation's menu.</summary>
     public void OpenSide(string target) => navigator.NavigateTo(target);
@@ -472,16 +472,30 @@ public sealed class TalkViewModel(
             await LoadSpace();
         }
 
-        if (address.FormerThreadId is { } former && bots is { Count: > 0 })
-        {
-            await FollowFormerAddress(former);
-        }
+        await FollowFormerAddressOnceKnown();
 
         KeepOrRenewSidePane();
 
         // The conversation starts loading now, beside the question of the bot's screen, not after it.
         Changed();
         await AskForScreen();
+    }
+
+    // The space was read again by a person, so the bot's screen is asked about now: the first try could not ask.
+    private async Task ReloadSpace()
+    {
+        await LoadSpace();
+        await FollowFormerAddressOnceKnown();
+        Changed();
+        await AskForScreen();
+    }
+
+    private async Task FollowFormerAddressOnceKnown()
+    {
+        if (address.FormerThreadId is { } former && bots is { Count: > 0 })
+        {
+            await FollowFormerAddress(former);
+        }
     }
 
     private async Task LoadSpace()
@@ -785,6 +799,9 @@ public sealed class TalkViewModel(
             screenAccess = screenAccess is ScreenAccess.Unknown ? ScreenAccess.Usable : screenAccess;
             hasScreenLink = false;
             screenKnownFor = bot.Id;
+
+            // Not answered, so the next visit to this bot asks again.
+            screenAskedFor = null;
             return;
         }
 
