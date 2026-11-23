@@ -44,6 +44,10 @@ public sealed class TalkViewModel(
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
 
+    // What the server last said of each thread, kept apart from the crew's own list, which a conversation on screen
+    // stamps with this device's clock. A conversation open here compares itself with these.
+    private readonly Dictionary<Guid, ThreadSummary> reported = [];
+
     private TalkAddress address = new();
 
     private IReadOnlyList<BotSummary>? bots;
@@ -518,9 +522,11 @@ public sealed class TalkViewModel(
         }
 
         threads.Clear();
+        reported.Clear();
         foreach (var (id, thread) in found)
         {
             threads[id] = thread;
+            reported[id] = thread;
         }
     }
 
@@ -597,13 +603,15 @@ public sealed class TalkViewModel(
             }
             else if (signal.ThreadId is { } threadId)
             {
-                threads[threadId] = await api.GetThread(SpaceId, threadId, cancellationToken);
+                var read = await api.GetThread(SpaceId, threadId, cancellationToken);
+                (threads[threadId], reported[threadId]) = (read, read);
             }
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound && signal.ThreadId is { } removed)
         {
             logger.LogInformation(exception, "Thread {ThreadId} is no longer visible on the {Screen} screen", removed, nameof(TalkViewModel));
             threads.Remove(removed);
+            reported.Remove(removed);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -638,6 +646,7 @@ public sealed class TalkViewModel(
                 HeldCallId = HeldCallId,
                 ScreenAccess = screenAccess,
                 ScreenSetupHref = screenSetupHref,
+                LatestThread = reported.GetValueOrDefault,
             },
             pane =>
             {
@@ -667,6 +676,7 @@ public sealed class TalkViewModel(
                 WorkAddress = WorkAddress,
                 ScreenAccess = screenAccess,
                 ScreenSetupHref = screenSetupHref,
+                LatestThread = reported.GetValueOrDefault,
             },
             pane =>
             {
