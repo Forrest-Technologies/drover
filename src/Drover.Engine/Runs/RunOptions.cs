@@ -11,6 +11,9 @@ public sealed class RunOptions
     /// <summary>How often the dispatcher looks for work when no signal arrives. A lost signal costs this long.</summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long the dispatcher waits to claim again after a claim failed. Stopping ends the wait.</summary>
+    public TimeSpan ClaimRetryDelay { get; set; } = TimeSpan.FromSeconds(2);
+
     /// <summary>How often a worker looks at its run for a cancel request or a lost lease.</summary>
     public TimeSpan WatchInterval { get; set; } = TimeSpan.FromSeconds(1);
 

@@ -38,6 +38,8 @@ public abstract class SandboxProviderConformance
         SandboxScenarios.ListsFiles,
         SandboxScenarios.DeniesNetwork,
         SandboxScenarios.PausesAndResumes,
+        SandboxScenarios.RefusesAPausedSandbox,
+        SandboxScenarios.PausesAPausedSandbox,
         SandboxScenarios.Destroys,
         SandboxScenarios.RefusesAnotherGroupsHandle,
         SandboxScenarios.RefusesAWrongToken,
@@ -71,6 +73,8 @@ public abstract class SandboxProviderConformance
             SandboxScenarios.ListsFiles => ListsFiles(subject),
             SandboxScenarios.DeniesNetwork => DeniesNetwork(subject),
             SandboxScenarios.PausesAndResumes => PausesAndResumes(subject),
+            SandboxScenarios.RefusesAPausedSandbox => RefusesAPausedSandbox(subject),
+            SandboxScenarios.PausesAPausedSandbox => PausesAPausedSandbox(subject),
             SandboxScenarios.Destroys => Destroys(subject),
             SandboxScenarios.RefusesAnotherGroupsHandle => RefusesAnotherGroupsHandle(subject),
             SandboxScenarios.RefusesAWrongToken => RefusesAWrongToken(subject),
@@ -127,6 +131,43 @@ public abstract class SandboxProviderConformance
         paused.State.Should().Be(ProviderSandboxState.Paused);
         resumed.ProviderSandboxId.Should().Be(handle.ProviderSandboxId);
         (await ReadAll(subject, resumed, path)).Should().Equal(FileContent, "a file written before the pause survives it");
+    }
+
+    private static async Task RefusesAPausedSandbox(SandboxUnderTest subject)
+    {
+        var handle = await Create(subject);
+        var path = $"{subject.WorkFolder}/data.bin";
+        await subject.Provider.WriteFile(handle, path, new MemoryStream(FileContent), Cancellation);
+        await subject.Provider.Pause(handle, Cancellation);
+
+        Func<Task>[] operations =
+        [
+            () => RunToEnd(subject, handle, CommandRequest.Shell("true")),
+            () => subject.Provider.ReadFile(handle, path, Cancellation),
+            () => subject.Provider.WriteFile(handle, path, new MemoryStream(FileContent), Cancellation),
+            () => subject.Provider.ListFiles(handle, subject.WorkFolder, Cancellation),
+        ];
+
+        foreach (var operation in operations)
+        {
+            var failure = (await operation.Should().ThrowAsync<SandboxProviderException>()).Which;
+            failure.Failure.Should().Be(SandboxFailure.NotRunning);
+        }
+
+        (await subject.Provider.Describe(handle, Cancellation)).State.Should().Be(ProviderSandboxState.Paused);
+        var resumed = await subject.Provider.Resume(handle, subject.Spec.IdleTimeout, Cancellation);
+
+        (await ReadAll(subject, resumed, path)).Should().Equal(FileContent, "a file written before the pause survives it");
+    }
+
+    private static async Task PausesAPausedSandbox(SandboxUnderTest subject)
+    {
+        var handle = await Create(subject);
+
+        await subject.Provider.Pause(handle, Cancellation);
+        await subject.Provider.Pause(handle, Cancellation);
+
+        (await subject.Provider.Describe(handle, Cancellation)).State.Should().Be(ProviderSandboxState.Paused);
     }
 
     private static async Task Destroys(SandboxUnderTest subject)

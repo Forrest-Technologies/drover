@@ -58,6 +58,14 @@ public static class Failures
         Find<McpProtocolException>(failure) is { ErrorCode: McpErrorCode.UnsupportedProtocolVersion or McpErrorCode.MethodNotFound };
 
     /// <summary>
+    /// True when a request failed at the socket because the server closed the pooled connection or was not listening.
+    /// The request never reached the server, so one that only reads is safe to send again on a fresh connection.
+    /// </summary>
+    public static bool IsConnectionResetOrRefused(Exception failure) =>
+        Find<HttpRequestException>(failure) is { StatusCode: null }
+        && Find<SocketException>(failure) is { SocketErrorCode: SocketError.ConnectionReset or SocketError.ConnectionRefused };
+
+    /// <summary>
     /// True when a server that was reached and answered would not open with the one protocol revision it was asked
     /// for. The library reports that as its own failure with no transport failure behind it.
     /// </summary>

@@ -6,21 +6,17 @@
 // for another host.
 self.importScripts("./service-worker-assets.js", "./push-worker.js");
 
-// Two clients share this origin, each with this worker: the web client at the root, and the native client's browser
-// build under /native/ while screens move to it. Each worker keeps to its own client: its own stored shell, and
-// never a request for the other's files.
-const scope = new URL(self.registration.scope).pathname;
-const clientPaths = ["/", "/native/"];
-const otherClients = clientPaths.filter(path => path !== scope && path.startsWith(scope));
-const shellPrefix = path => path === "/" ? "drover-shell-" : `drover-shell${path.replaceAll("/", "-")}`;
-
-const cacheNamePrefix = shellPrefix(scope);
+// Every shell this origin stored before is this worker's to remove once its own is stored: an older build's, and the
+// one the client stored while it was served under /native/ (until 2026-11-20).
+const cacheNamePrefix = "drover-shell-";
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
 const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/, /\.css$/, /\.woff2$/, /\.ttf$/, /\.manifest$/, /\.png$/, /\.svg$/, /\.webmanifest$/, /\.dat$/, /\.blat$/];
 // The color emoji font is large and nothing draws it yet. It ships with the build but is fetched only when a glyph
 // needs it, so a first visit does not pay for it. The UI fonts stay in the shell.
 const neverCached = [/^service-worker\.js$/, /NotoColorEmoji-Regular\.ttf$/];
-const serverPaths = ["/api/", "/health/", "/openapi/", "/oauth/"];
+// Addresses the server answers itself. /native/ is where the client was served until 2026-11-20; the server sends
+// it to the root.
+const serverPaths = ["/api/", "/health/", "/openapi/", "/oauth/", "/native/"];
 
 // A new build takes over as soon as its shell is stored, without waiting for every open tab to close: a person
 // who leaves Drover open would otherwise keep running the old build for as long as any tab lives. The page
@@ -46,7 +42,6 @@ async function dropOldShells() {
     const names = await caches.keys();
     await Promise.all(names
         .filter(name => name.startsWith(cacheNamePrefix) && name !== cacheName)
-        .filter(name => !otherClients.some(path => name.startsWith(shellPrefix(path))))
         .map(name => caches.delete(name)));
 }
 
@@ -55,8 +50,7 @@ function answersFor(request) {
     const url = new URL(request.url);
     return request.method === "GET"
         && url.origin === self.location.origin
-        && !serverPaths.some(path => url.pathname.startsWith(path))
-        && !otherClients.some(path => url.pathname.startsWith(path));
+        && !serverPaths.some(path => url.pathname.startsWith(path));
 }
 
 // Never rejects: a request the worker cannot answer gets a network error response, which the page sees as a failed

@@ -127,7 +127,7 @@ public sealed class ConversationSaverTests : IDisposable
     {
         server.Answer("GET", "/api/session", Samples.Session());
         var api = server.CreateApi();
-        var session = new SessionState(api);
+        var session = new SessionState(api, new ShareInbox());
         await session.Load(TestContext.Current.CancellationToken);
         var toasts = new ToastService(TimeProvider.System);
         return (new(api, session, toasts, NullLogger<ConversationSaver>.Instance), toasts);

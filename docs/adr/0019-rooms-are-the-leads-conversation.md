@@ -24,7 +24,7 @@ Between two messages from a person, bots may take at most four turns by default.
 
 ## Consequences
 
-Every member's contribution has its own head and voice in one conversation, and the run stays one tree with one person as principal. All existing safety checks apply without a second permission model. A cap is needed because bots can otherwise keep answering each other; a space can tighten it but not raise it above the deployment ceiling. The room view and the cap setting arrive in the later layers of [issue 155](https://github.com/Forrest-Technologies/drover/issues/155).
+Every member's contribution has its own head and voice in one conversation, and the run stays one tree with one person as principal. All existing safety checks apply without a second permission model. A cap is needed because bots can otherwise keep answering each other; a space cannot raise it above the deployment ceiling. The room view and the cap setting arrive in the later layers of [issue 155](https://github.com/Forrest-Technologies/drover/issues/155).
 
 ## Reopen when
 

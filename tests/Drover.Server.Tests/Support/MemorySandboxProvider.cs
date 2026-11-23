@@ -28,6 +28,12 @@ public sealed class MemorySandboxProvider : ISandboxProvider
     /// <summary>The first eight bytes of a PNG, then its header: a 1024 by 768 picture as far as its size goes.</summary>
     public static byte[] Picture { get; } = MakePicture();
 
+    /// <summary>What a screenshot command writes: the header-only picture unless a run sets a drawn one.</summary>
+    public byte[] Screen { get; set; } = Picture;
+
+    /// <summary>When set, a command fails at the provider after it started, as a refusal the person still attempted.</summary>
+    public bool FailCommands { get; set; }
+
     #endregion
 
     #region Public Methods
@@ -86,10 +92,15 @@ public sealed class MemorySandboxProvider : ISandboxProvider
         await Task.Yield();
         yield return new CommandStarted(1);
 
+        if (FailCommands)
+        {
+            throw new SandboxProviderException(SandboxFailure.Unavailable, "The provider stopped the command.");
+        }
+
         switch (command.Program)
         {
             case "scrot":
-                machine.Files[command.Arguments[^1]] = Picture;
+                machine.Files[command.Arguments[^1]] = Screen;
                 break;
             case "rm":
                 machine.Files.TryRemove(command.Arguments[^1], out _);
@@ -139,9 +150,14 @@ public sealed class MemorySandboxProvider : ISandboxProvider
     {
         var found = Find(sandbox);
 
-        return found.State is ProviderSandboxState.Running && found.Token == sandbox.AccessToken
+        if (found.State is not ProviderSandboxState.Running)
+        {
+            throw new SandboxProviderException(SandboxFailure.NotRunning, "The sandbox is paused.");
+        }
+
+        return found.Token == sandbox.AccessToken
             ? found
-            : throw new SandboxProviderException(SandboxFailure.Rejected, "The sandbox is paused or refused the token.");
+            : throw new SandboxProviderException(SandboxFailure.Unauthorized, "The sandbox refused the token.");
     }
 
     private static byte[] MakePicture()

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
+    <PackageReference Include="HtmlSanitizer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Npgsql" />
   </ItemGroup>
@@ -17,7 +17,11 @@
     <ProjectReference Include="..\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\Drover.Adapters.WebPush\Drover.Adapters.WebPush.csproj" />
     <ProjectReference Include="..\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
-    <ProjectReference Include="..\Drover.Web\Drover.Web.csproj" />
+  </ItemGroup>
+
+  <!-- What the browser client's former address, /native/, still answers (Clients/RetiredNativeAddress.cs). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Clients/retired-native-*" LogicalName="Drover.Server.Clients.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

@@ -152,8 +152,9 @@ public static class ToolConnectionEndpoints
             return TypedResults.Forbid();
         }
 
-        // The web client sends no body. Another client names where the browser comes back to: a native app its own
-        // scheme or listener, the native client's browser build its path. Only addresses this server knows are taken.
+        // A request with no body comes back to the browser client at the root. Otherwise the client names where the
+        // browser comes back to: a native app its own scheme or listener, the browser build its path. Only addresses
+        // this server knows are taken.
         var request = context.Request.HasJsonContentType() && context.Request.ContentLength is not 0
             ? await context.Request.ReadFromJsonAsync<BeginToolSignInRequest>(context.RequestAborted)
             : null;
@@ -189,7 +190,7 @@ public static class ToolConnectionEndpoints
         var tools = connection is null ? null : await connections.ListTools(connectionId, context.RequestAborted);
         return tools is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(tools.Select(tool => tool.ToSummary(connection!)).ToList());
+            : TypedResults.Ok(tools.Summaries(connection!));
     }
 
     private static async Task<Results<Created<ToolConnectionRefresh>, ProblemHttpResult>> CreateConnection(
@@ -303,7 +304,10 @@ public static class ToolConnectionEndpoints
         {
             null => TypedResults.NotFound(),
             { NeedsReview: true } => TypedResults.Problem(title: ChangedAgain, statusCode: StatusCodes.Status409Conflict),
-            _ => TypedResults.Ok(tool.ToSummary(connection!)),
+            _ => TypedResults.Ok(
+                (await connections.ListTools(connectionId, context.RequestAborted) ?? [])
+                    .Summaries(connection!)
+                    .Single(summary => summary.Id == tool.Tool.Id)),
         };
     }
 

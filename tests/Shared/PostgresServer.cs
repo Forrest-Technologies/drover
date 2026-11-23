@@ -11,6 +11,10 @@ public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
+    // A loaded runner can starve the harness's first connection. Bound it so one that never answers fails with one
+    // line, and one that answers late costs only the attempts it needed.
+    private static readonly TimeSpan connectionPatience = TimeSpan.FromSeconds(60);
+
     private readonly string ownerPassword = NewPassword();
 
     private readonly string appPassword = NewPassword();
@@ -41,7 +45,7 @@ public sealed class PostgresServer : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         server = [with(await FindServer())];
-        await ExecuteOnServer($"CREATE DATABASE {templateName}");
+        await CreateTemplateDatabase();
         await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);
         NpgsqlConnection.ClearAllPools();
@@ -103,6 +107,13 @@ public sealed class PostgresServer : IAsyncLifetime
         return container.GetConnectionString();
     }
 
+    private async Task CreateTemplateDatabase()
+    {
+        await using var connection = new NpgsqlConnection(server.ConnectionString);
+        await OpenWithPatience(connection);
+        await new NpgsqlCommand($"CREATE DATABASE {templateName}", connection).ExecuteNonQueryAsync();
+    }
+
     // Not ClearAllPools: other tests in this assembly are using their own pools at the same time.
     private Task Drop(string name) => ExecuteOnServer($"DROP DATABASE IF EXISTS {name} WITH (FORCE)");
 
@@ -112,6 +123,52 @@ public sealed class PostgresServer : IAsyncLifetime
         await connection.OpenAsync();
         await new NpgsqlCommand(sql, connection).ExecuteNonQueryAsync();
     }
+
+    private static async Task OpenWithPatience(NpgsqlConnection connection)
+    {
+        using var budget = new CancellationTokenSource(connectionPatience);
+        var delay = TimeSpan.FromMilliseconds(500);
+
+        while (true)
+        {
+            var failure = await TryOpen(connection, budget.Token);
+
+            if (failure is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(delay, budget.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new PostgresUnavailableException(connectionPatience, failure);
+            }
+
+            delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, 2000));
+        }
+    }
+
+    private static async Task<Exception?> TryOpen(NpgsqlConnection connection, CancellationToken token)
+    {
+        try
+        {
+            await connection.OpenAsync(token);
+            return null;
+        }
+        catch (Exception failure) when (IsConnectFailure(failure))
+        {
+            return failure;
+        }
+    }
+
+    private static bool IsConnectFailure(Exception failure) =>
+        failure is NpgsqlException { IsTransient: true }
+            or NpgsqlException { InnerException: OperationCanceledException }
+            or TimeoutException
+            or OperationCanceledException;
 
     private NpgsqlConnectionStringBuilder ForDatabase(string database) =>
         new(server.ConnectionString) { Database = database };
@@ -147,4 +204,12 @@ public sealed class TestDatabase(string adminConnectionString, string appConnect
     public async ValueTask DisposeAsync() => await drop();
 
     #endregion
+}
+
+/// <summary>The first connection to the test PostgreSQL did not succeed before the bound ran out.</summary>
+public sealed class PostgresUnavailableException(TimeSpan limit, Exception cause)
+    : Exception($"PostgreSQL did not accept a connection within {limit}.", cause)
+{
+    /// <summary>The total time the first connection was allowed.</summary>
+    public TimeSpan Limit { get; } = limit;
 }

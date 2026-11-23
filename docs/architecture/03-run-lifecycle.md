@@ -259,7 +259,7 @@ Both streams belong to the session that opened them. Before each write, a stream
 
 `Drover.Client` holds the other end: `DroverApi.WatchRun` reads the stream, reconnects with backoff (half a second, doubling to ten) and the last number it saw, and drops anything at or below that number, so a caller sees every event once and in order. `RunReducer.Apply` turns the events into the `RunView` a screen renders; the events of a run that a call handed work to go into a `DelegationView` under that call, so one stream gives the whole tree. It is a pure function and ignores an event it has already applied, so any prefix of a log followed by the rest ends in the same view as the whole log at once.
 
-Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
+Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the native apps' `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
 
 ### Past tool calls
 
@@ -355,6 +355,8 @@ The call passes the tool gate like any other. Then the child bot is exposed to i
 3. **Budget check.** The root's row is locked first, so two delegations in one tree take turns. Refuses with `budget_exceeded` if the tree would exceed the space's maximum delegation depth (default 5), maximum runs per tree (default 50), or cost budget per tree. Each is a deployment ceiling a space may only lower (`MaxDelegationDepth`, `MaxRunsPerDelegationTree`, `MaxDelegationTreeCostCents`, [16-deployment-policies.md](16-deployment-policies.md)); the cost is what every model call of the tree has recorded so far. A refusal's result names the limit and its value.
 4. Creates a thread for the child (origin `delegation`, the root thread's owner and audience, so exactly the people who can see the root thread can see it), a user-role message holding the task (authored by the calling bot, redacted of the run's secrets like any stored tool argument), and a child run with `trigger` `delegation`, `parent_run_id`, `root_run_id`, `parent_tool_call_id`, `depth + 1`, and the same `principal_user_id`. The child starts untainted.
 5. Saves the parent's tool call with `child_run_id`, and appends `delegation.started` to the parent's events.
+
+A conversation a child works in takes no messages from people: posting a message, asking for another version, showing a version and trying a failed child run again answer 409 with one sentence. A person may still read the conversation, its messages, its tool events and its export, and may set its model or project or upload a file, but none of those can start a run there while the refusals hold. To change the work, send the message in the conversation where the task was given.
 
 A refusal is the call's result, as `{"error": ..., "reason": ...}` with `reason` one of `no_grant`, `not_beneath`, `target_unavailable`, `loop_detected`, `budget_exceeded`, and for the last two of those a `detail`: `paused` or `removed` for the target, `depth`, `runs`, `handoffs` (the calling bot's own limit on one run, checked after the tree's `runs`), or `cost` for the limit, so a screen can say which in its own words. No child run is begun.
 

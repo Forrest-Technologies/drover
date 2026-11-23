@@ -136,3 +136,69 @@ for platform in ("linux", "windows", "macos"):
         raise SystemExit(f"The signed update feed must include {platform}.")
 if workflow.count("DroverReleaseVersion") != 3:
     raise SystemExit("Every packaged desktop build must carry the release channel version.")
+
+
+def glob_to_regex(pattern):
+    parts = []
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "*":
+            # GitHub's '*' matches within a path segment, never across a '/'.
+            parts.append("[^/]*")
+        elif char == "?":
+            parts.append("[^/]")
+        elif char == "[":
+            end = pattern.index("]", index + 1)
+            body = pattern[index + 1 : end]
+            if body.startswith("!"):
+                body = "^" + body[1:]
+            parts.append("[" + body + "]")
+            index = end
+        else:
+            parts.append(re.escape(char))
+        index += 1
+    return re.compile("".join(parts))
+
+
+def tags_match(tag, patterns):
+    matched = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        candidate = pattern[1:] if negated else pattern
+        if glob_to_regex(candidate).fullmatch(tag):
+            matched = not negated
+    return matched
+
+
+push = re.search(r"(?ms)^  push:\n(.*?)(?=^\S|\Z)", workflow)
+if push is None:
+    raise SystemExit("release.yml must define a push trigger.")
+tags_line = re.search(r"^    tags:\s*\[(.*)\]\s*$", push.group(1), re.M)
+if tags_line is None:
+    raise SystemExit("release.yml must define a push tag filter.")
+tag_patterns = [item.strip().strip("'\"") for item in tags_line.group(1).split(",")]
+
+# Prove the matcher follows GitHub's filter rules: '*' stays in its segment, '?' is one character,
+# '!' excludes, and the last matching pattern wins.
+if tags_match("release/v1.2.3", ["*v1.2.3"]):
+    raise SystemExit("A star must not cross a slash.")
+if not tags_match("v1.2.3", ["v?.?.?"]) or tags_match("v1.2.34", ["v?.?.?"]):
+    raise SystemExit("A question mark must match exactly one character.")
+if tags_match("v1.2.3", ["v*", "!v1.2.3"]):
+    raise SystemExit("A negated pattern must exclude a match.")
+if not tags_match("v1.2.3", ["!v1.2.3", "v*"]):
+    raise SystemExit("The last matching pattern must win.")
+
+release_tags = (
+    ("v0.1.0-android-preview.16", False),
+    ("v1.2.3", True),
+    ("v1.2.3-preview.1", True),
+)
+for tag, expected in release_tags:
+    actual = tags_match(tag, tag_patterns)
+    print(f"{tag}: {'match' if actual else 'no match'}")
+    if actual is not expected:
+        raise SystemExit(
+            f"Tag filter {tag_patterns} gives {actual} for {tag}, expected {expected}."
+        )

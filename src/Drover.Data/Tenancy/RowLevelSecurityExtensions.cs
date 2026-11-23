@@ -32,6 +32,21 @@ public static class RowLevelSecurityExtensions
         return migration;
     }
 
+    /// <summary>
+    /// For a table whose rows always act for one person: a second restrictive policy that also refuses the shared
+    /// audience, so no row can be read or written by anybody but the person it is addressed to.
+    /// </summary>
+    public static MigrationBuilder IsolateToOnePerson(this MigrationBuilder migration, string table)
+    {
+        migration.Sql(
+            $"""
+            CREATE POLICY one_person ON {table} AS RESTRICTIVE FOR ALL
+              USING (audience_user_id = sys.current_user_id())
+              WITH CHECK (audience_user_id = sys.current_user_id());
+            """);
+        return migration;
+    }
+
     public static MigrationBuilder IsolateByUser(this MigrationBuilder migration, string table)
     {
         migration.EnableForcedSecurity(table);

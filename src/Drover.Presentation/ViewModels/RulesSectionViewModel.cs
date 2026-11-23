@@ -9,6 +9,8 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     private string tryTool = string.Empty;
 
+    private RuleFocus? focus;
+
     #endregion
 
     #region Properties
@@ -160,6 +162,14 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     public static string RemoveLabel(BotRuleResponse rule) => $"Remove the rule {rule.Name}";
 
+    public static string RemovedAnnouncement(BotRuleResponse rule) => $"Rule removed: {rule.Name}.";
+
+    public static string PutBackAnnouncement(BotRuleResponse rule) => $"Rule put back: {rule.Name}.";
+
+    public static string UndoName(BotRuleResponse rule) => $"Undo removing {rule.Name}";
+
+    public static string PutBackFailed(string sentence) => $"The rule could not be put back. {sentence}";
+
     public static string ConditionName(int number) => $"Condition {number}";
 
     public static string IfLabel(int number) => number == 1 ? "If" : "And if";
@@ -238,6 +248,26 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
         editor.Notify();
     }
 
+    /// <summary>Where the focus should move now, once: the add button when a row went away.</summary>
+    public RuleFocus? TakeFocus()
+    {
+        var wanted = focus is RuleFocus.Add && Draft is null ? focus : null;
+        if (wanted is not null)
+        {
+            focus = null;
+        }
+
+        return wanted;
+    }
+
+    /// <summary>The undo came back while this section is on screen: put the rule in its place and say so here.</summary>
+    public void PutBack(BotRuleResponse saved)
+    {
+        Announcement = PutBackAnnouncement(saved);
+        editor.Rules = With(editor.Rules ?? [], saved);
+        editor.Notify();
+    }
+
     public Task Save()
     {
         var body = Draft!.ToBody();
@@ -279,7 +309,9 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
         Send(async () =>
         {
             await api.RemoveBotRule(editor.SpaceId, editor.BotId, rule.Id);
-            Announcement = $"Rule removed: {rule.Name}.";
+            Announcement = RemovedAnnouncement(rule);
+            editor.OfferRuleUndo(rule);
+            focus = RuleFocus.Add;
 
             if (EditedId == rule.Id)
             {
@@ -323,7 +355,7 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
     public void Reset()
     {
         starters = RuleStarters.For(TimeZone);
-        (Draft, EditedId, Busy, Problem, Announcement) = (null, null, false, null, null);
+        (Draft, EditedId, Busy, Problem, Announcement, focus) = (null, null, false, null, null, null);
         (TryCheckpoint, tryTool, TrySample, Trying, TryProblem, Trial) = (RuleWords.BeforeTool, string.Empty, string.Empty, false, null, null);
     }
 

@@ -30,7 +30,7 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
 
     public ExtensionEditorViewModelTests()
     {
-        session = new(server.CreateApi());
+        session = new(server.CreateApi(), new ShareInbox());
         services = new ServiceCollection()
             .AddLogging()
             .AddSingleton(server.CreateApi())

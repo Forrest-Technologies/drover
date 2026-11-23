@@ -9,12 +9,12 @@ namespace Drover.Engine.Tools;
 /// The address that brings the browser into a native app, without its ticket: one of Drover's own app schemes, or
 /// the desktop app's listener on the loopback address of the person's own computer. Null for a browser client.
 /// </param>
-/// <param name="WebPath">The browser client to come back to: the web client at <c>/</c>, or the native client's browser build.</param>
+/// <param name="WebPath">The path of the browser client to come back to.</param>
 public sealed record SignInReturn(string? App, string WebPath)
 {
     #region Private Fields
 
-    /// <summary>The web client, for a request that names nowhere.</summary>
+    /// <summary>The browser client at the root, for a request that names nowhere.</summary>
     public static readonly SignInReturn Web = new(null, "/");
 
     private const string Loopback = "http://127.0.0.1:";
