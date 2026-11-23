@@ -1,0 +1,165 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written from the E2B OpenAPI document and pause handler read on 2026-11-21. The pause answers 204, a pause of an already paused sandbox that wins the race answers 409, and the daemon refuses operations on a paused sandbox before any file call. No live key was available, so no answers were captured. Ids and tokens use the rig's placeholders.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/v2/sandboxes",
+      "status": 201,
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "sandboxID": "fixturesandbox0000001",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "trafficAccessToken": "fixture-traffic-token"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/sandboxes/fixturesandbox0000001",
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "cpuCount": 2,
+        "diskSizeMB": 23670,
+        "endAt": "2026-11-21T10:00:00.000000000Z",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "lifecycle": {
+          "autoResume": false,
+          "onTimeout": "pause"
+        },
+        "memoryMB": 512,
+        "metadata": {
+          "drover.group": "0193a8f0-0000-7000-8000-000000000002",
+          "drover.space": "0193a8f0-0000-7000-8000-000000000001"
+        },
+        "network": {
+          "allowPublicTraffic": false
+        },
+        "sandboxID": "fixturesandbox0000001",
+        "startedAt": "2026-11-21T09:55:00.000000000Z",
+        "state": "running",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "volumeMounts": []
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/sandboxes/fixturesandbox0000001/pause",
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "path": "/sandboxes/fixturesandbox0000001",
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "cpuCount": 2,
+        "diskSizeMB": 23670,
+        "endAt": "2026-11-21T10:00:00.000000000Z",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "lifecycle": {
+          "autoResume": false,
+          "onTimeout": "pause"
+        },
+        "memoryMB": 512,
+        "metadata": {
+          "drover.group": "0193a8f0-0000-7000-8000-000000000002",
+          "drover.space": "0193a8f0-0000-7000-8000-000000000001"
+        },
+        "network": {
+          "allowPublicTraffic": false
+        },
+        "sandboxID": "fixturesandbox0000001",
+        "startedAt": "2026-11-21T09:55:00.000000000Z",
+        "state": "running",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "volumeMounts": []
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/sandboxes/fixturesandbox0000001/pause",
+      "status": 409,
+      "body": {
+        "code": 409,
+        "message": "The sandbox changed state while it was being paused."
+      },
+      "headers": {
+        "Retry-After": "30"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/sandboxes/fixturesandbox0000001",
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "cpuCount": 2,
+        "diskSizeMB": 23670,
+        "endAt": "2026-11-21T09:57:00.000000000Z",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "lifecycle": {
+          "autoResume": false,
+          "onTimeout": "pause"
+        },
+        "memoryMB": 512,
+        "metadata": {
+          "drover.group": "0193a8f0-0000-7000-8000-000000000002",
+          "drover.space": "0193a8f0-0000-7000-8000-000000000001"
+        },
+        "network": {
+          "allowPublicTraffic": false,
+          "denyOut": [
+            "0.0.0.0/0"
+          ]
+        },
+        "sandboxID": "fixturesandbox0000001",
+        "startedAt": "2026-11-21T09:55:00.000000000Z",
+        "state": "paused",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "volumeMounts": [],
+        "pauseMode": "full"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/sandboxes/fixturesandbox0000001",
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "cpuCount": 2,
+        "diskSizeMB": 23670,
+        "endAt": "2026-11-21T09:57:00.000000000Z",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "lifecycle": {
+          "autoResume": false,
+          "onTimeout": "pause"
+        },
+        "memoryMB": 512,
+        "metadata": {
+          "drover.group": "0193a8f0-0000-7000-8000-000000000002",
+          "drover.space": "0193a8f0-0000-7000-8000-000000000001"
+        },
+        "network": {
+          "allowPublicTraffic": false,
+          "denyOut": [
+            "0.0.0.0/0"
+          ]
+        },
+        "sandboxID": "fixturesandbox0000001",
+        "startedAt": "2026-11-21T09:55:00.000000000Z",
+        "state": "paused",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "volumeMounts": [],
+        "pauseMode": "full"
+      }
+    }
+  ]
+}

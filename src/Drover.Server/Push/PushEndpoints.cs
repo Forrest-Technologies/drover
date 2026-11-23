@@ -19,6 +19,8 @@ public static class PushEndpoints
             .WithSummary("The public key a device subscribes with, or why this server cannot send notifications.");
         push.MapPut("/device", TurnOn).WithName("TurnOnPush")
             .WithSummary("Wakes this device for the signed-in person from now on.");
+        push.MapPost("/device/move", Move).WithName("MovePushDevice")
+            .WithSummary("Puts a device's new subscription in the place of its previous one, when that one was the signed-in person's.");
         push.MapPost("/device/state", GetDeviceState).WithName("GetPushDeviceState")
             .WithSummary("Whether this device is woken for the signed-in person.");
         push.MapPost("/device/off", TurnOff).WithName("TurnOffPush")
@@ -56,8 +58,26 @@ public static class PushEndpoints
                 [nameof(PushDeviceRequest.Endpoint)] = ["This is not a push subscription the server can use."],
             });
 
-    private static async Task<Ok<PushDeviceState>> GetDeviceState(PushDeviceQuery device, HttpContext context, PushService push) =>
-        TypedResults.Ok(new PushDeviceState(await push.IsOn(context.User.GetUserId(), device.Endpoint, context.RequestAborted)));
+    /// <summary>
+    /// A previous subscription that is not the signed-in person's is answered as missing: the request learns nothing
+    /// about whose it was, and nothing is written.
+    /// </summary>
+    private static async Task<Results<NoContent, NotFound, ValidationProblem>> Move(MovePushDeviceRequest move, HttpContext context, PushService push) =>
+        await push.Move(context.User.GetUserId(), move.PreviousEndpoint, move.Device, context.RequestAborted) switch
+        {
+            PushMove.Moved => TypedResults.NoContent(),
+            PushMove.NotThePersons => TypedResults.NotFound(),
+            _ => TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(PushDeviceRequest.Endpoint)] = ["This is not a push subscription the server can use."],
+            }),
+        };
+
+    private static async Task<Ok<PushDeviceState>> GetDeviceState(PushDeviceQuery device, HttpContext context, PushService push)
+    {
+        var userId = context.User.GetUserId();
+        return TypedResults.Ok(new PushDeviceState(await push.IsOn(userId, device.Endpoint, context.RequestAborted), userId));
+    }
 
     private static async Task<NoContent> TurnOff(PushDeviceQuery device, HttpContext context, PushService push)
     {

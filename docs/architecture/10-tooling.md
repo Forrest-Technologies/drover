@@ -150,7 +150,8 @@ Two more settings the checks themselves depend on, found on the first pull reque
 
 | Workflow | Triggers | Jobs |
 | --- | --- | --- |
-| `ci.yml` | Pull request, push to `main` | Restore, build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health. Apps: build the Android shell. |
+| `ci.yml` | Pull request, push to `main` | Restore, build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health, and check that the browser client is served at the root and `/native/` sends the browser there. |
+| `native.yml` | Pull request, push to `main` | The native client: Android build and emulator checks, desktop builds on Linux, macOS, and Windows, and the browser publish with its smoke check under the server's content security policy. |
 | `security.yml` | Pull request, push to `main`, weekly | CodeQL, dependency review, secret scan, workflow lint, Dockerfile lint |
 | `release.yml` | Version tag | Verify the tag is on `main`, build, test, SBOM, source archive, provenance and SBOM attestations, GitHub release. No images. |
 | `framework-canary.yml` | Weekly, and on demand | Move the agent framework packages to their newest versions, prerelease included, run the conformance and engine tests, and open an issue if they fail |

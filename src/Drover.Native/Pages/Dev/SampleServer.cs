@@ -82,7 +82,7 @@ internal sealed class SampleServer : HttpMessageHandler
 #pragma warning disable RS0030
         var api = new DroverApi(new HttpClient(this, disposeHandler: false) { BaseAddress = origin });
 #pragma warning restore RS0030
-        var session = new SessionState(api);
+        var session = new SessionState(api, new ShareInbox());
         session.Begin(new(
             Guid.Parse("00000000-0000-7000-8000-0000000000f1"),
             "sample@example.test",

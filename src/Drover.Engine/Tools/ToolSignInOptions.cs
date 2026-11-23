@@ -27,8 +27,9 @@ public sealed class ToolSignInOptions
         ["com.forresttechnologies.drover.preview", "com.forresttechnologies.drover.client"], StringComparer.Ordinal);
 
     /// <summary>
-    /// The paths of the browser clients this server serves: the web client, and the native client's browser build
-    /// (<c>NativeClientFiles.BasePath</c> in the server). A browser that started a sign-in in one comes back to it.
+    /// The paths a browser client may name to come back to: the root, where the server serves it, and
+    /// <c>/native/</c>, where it was served until 2026-11-20 and which the server now sends to the root
+    /// (<c>RetiredNativeAddress</c> in the server), so a sign-in started there before an upgrade still comes back.
     /// </summary>
     public static readonly FrozenSet<string> WebPaths = FrozenSet.ToFrozenSet(["/", "/native/"], StringComparer.Ordinal);
 

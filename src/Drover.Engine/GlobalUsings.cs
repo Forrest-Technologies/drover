@@ -92,9 +92,11 @@ global using Markdig.Extensions.EmphasisExtras;
 global using Markdig.Syntax;
 global using Markdig.Syntax.Inlines;
 global using Microsoft.AspNetCore.Identity;
+global using Microsoft.Extensions.Caching.Memory;
 global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Options;
+global using SkiaSharp;
 // Aliases, not namespaces: both libraries name types Run, Text, Paragraph, ImagePart, and Page, which Drover uses too.
 global using OpenXmlPackaging = DocumentFormat.OpenXml.Packaging;
 global using Pdf = UglyToad.PdfPig;

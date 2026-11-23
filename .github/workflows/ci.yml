@@ -92,19 +92,9 @@ jobs:
           dotnet test --project tests/Drover.Data.Tests -- --filter-class '*ThreadReadTests'
 
   compose:
-    name: ${{ matrix.name }}
+    name: Compose builds and starts within budget
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Compose builds and starts within budget
-            native: "false"
-          - name: Compose with Uno builds and starts within budget
-            native: "true"
-    env:
-      DROVER_BUILD_NATIVE: ${{ matrix.native }}
     permissions:
       contents: read
     steps:
@@ -139,11 +129,7 @@ jobs:
             test "$(wc -l < /proc/swaps)" = "1"
           fi
           start=$(date +%s)
-          build_args=()
-          if [ "$DROVER_BUILD_NATIVE" = false ]; then
-            build_args+=(--build-arg DROVER_BUILD_NATIVE=false)
-          fi
-          docker buildx build --builder budget "${build_args[@]}" --load -t drover:local .
+          docker buildx build --builder budget --load -t drover:local .
           build_seconds=$(( $(date +%s) - start ))
           image_bytes=$(docker image inspect drover:local --format '{{.Size}}')
           peak_bytes=$(cat "$cgroup/memory.peak")
@@ -158,6 +144,14 @@ jobs:
             echo "| Peak memory of the 2 GB builder, page cache included | ${peak_bytes} bytes |"
             echo "| Out-of-memory kills | ${oom_kills} |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check the image default for uploaded files
+        run: |
+          docker run --rm --network none --entrypoint sh drover:local -ec '
+            test "$(id -u)" != 0
+            test "$Files__Path" = /var/lib/drover/files
+            probe="$(mktemp "$Files__Path/.probe.XXXXXXXX")"
+            rm "$probe"
+          '
       - name: Scan the built Drover image with Grype
         env:
           GRYPE_VERSION: "0.121.3"
@@ -174,15 +168,20 @@ jobs:
           docker compose up -d --wait --wait-timeout 180 --no-build
           curl --fail --silent --show-error http://localhost:8080/health/ready
           curl --fail --silent --show-error http://localhost:8080/ | grep --quiet '<title>Drover</title>'
-      - name: Serve Uno entry point, deep link, and assets from the built image
-        if: matrix.native == 'true'
+      - name: Serve the browser client's entry point, deep link, and assets from the built image
         run: |
-          curl --fail --silent --show-error http://localhost:8080/native/ --output "$RUNNER_TEMP/native-index.html"
-          grep --quiet '<base href="/native/"' "$RUNNER_TEMP/native-index.html"
-          curl --fail --silent --show-error http://localhost:8080/native/sign-in --output "$RUNNER_TEMP/native-sign-in.html"
-          cmp "$RUNNER_TEMP/native-index.html" "$RUNNER_TEMP/native-sign-in.html"
-          curl --fail --silent --show-error http://localhost:8080/native/manifest.webmanifest
-          curl --fail --silent --show-error http://localhost:8080/native/service-worker.js --output /dev/null
+          curl --fail --silent --show-error http://localhost:8080/ --output "$RUNNER_TEMP/index.html"
+          grep --quiet '<base href="/"' "$RUNNER_TEMP/index.html"
+          curl --fail --silent --show-error http://localhost:8080/sign-in --output "$RUNNER_TEMP/sign-in.html"
+          cmp "$RUNNER_TEMP/index.html" "$RUNNER_TEMP/sign-in.html"
+          curl --fail --silent --show-error http://localhost:8080/manifest.webmanifest | grep --quiet '"scope": "/"'
+          curl --fail --silent --show-error http://localhost:8080/service-worker.js | grep --quiet 'service-worker-assets.js'
+          curl --fail --silent --show-error http://localhost:8080/service-worker-assets.js --output /dev/null
+      - name: Send the address the client was served under to the root
+        run: |
+          location=$(curl --silent --show-error --output /dev/null --write-out '%{redirect_url}' 'http://localhost:8080/native/sign-in?from=link')
+          test "${location}" = "http://localhost:8080/sign-in?from=link"
+          curl --fail --silent --show-error http://localhost:8080/native/service-worker.js | grep --quiet 'registration.unregister()'
       - name: The server runs as a non-root user
         run: |
           uid=$(docker compose exec -T drover id -u)

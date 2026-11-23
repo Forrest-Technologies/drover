@@ -124,9 +124,69 @@ public sealed partial class DroverApi
         return await response.Content.ReadAsByteArrayAsync(cancellationToken);
     }
 
-    /// <summary>One click, typed text, key press, or scroll on the sandbox's screen.</summary>
+    /// <summary>One click, typed text, key press, scroll, or pointer action on the sandbox's screen.</summary>
     public Task SendBotSandboxInput(Guid spaceId, Guid botId, SandboxInputRequest input, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/input", input, cancellationToken);
+
+    /// <summary>
+    /// Holds a mouse button (left, right or middle) down at a point on the sandbox's screen. The server lets go of it
+    /// when the sandbox is paused and after ten seconds with no move or release, so send a move now and then while it
+    /// is held, and a release when it is not.
+    /// </summary>
+    public Task PressBotSandboxButton(
+        Guid spaceId,
+        Guid botId,
+        int x,
+        int y,
+        string button = "left",
+        CancellationToken cancellationToken = default) =>
+        SendBotSandboxInput(
+            spaceId,
+            botId,
+            new SandboxInputRequest("down", X: x, Y: y, Button: button),
+            cancellationToken);
+
+    /// <summary>Moves the pointer. A button that is held stays held, and its ten seconds start again.</summary>
+    public Task MoveBotSandboxPointer(
+        Guid spaceId,
+        Guid botId,
+        int x,
+        int y,
+        CancellationToken cancellationToken = default) =>
+        SendBotSandboxInput(spaceId, botId, new SandboxInputRequest("move", X: x, Y: y), cancellationToken);
+
+    /// <summary>Lets go of a mouse button, at a point when one is given and where the pointer is when not.</summary>
+    public Task ReleaseBotSandboxButton(
+        Guid spaceId,
+        Guid botId,
+        string button = "left",
+        int? x = null,
+        int? y = null,
+        CancellationToken cancellationToken = default) =>
+        SendBotSandboxInput(
+            spaceId,
+            botId,
+            new SandboxInputRequest("up", X: x, Y: y, Button: button),
+            cancellationToken);
+
+    /// <summary>
+    /// Presses at the start, moves along a short line, and lets go at the end, in one request that always lets go. For
+    /// a client that cannot send a press, moves and a release as they happen.
+    /// </summary>
+    public Task DragBotSandboxPointer(
+        Guid spaceId,
+        Guid botId,
+        int fromX,
+        int fromY,
+        int toX,
+        int toY,
+        string button = "left",
+        CancellationToken cancellationToken = default) =>
+        SendBotSandboxInput(
+            spaceId,
+            botId,
+            new SandboxInputRequest("drag", X: fromX, Y: fromY, Button: button, X2: toX, Y2: toY),
+            cancellationToken);
 
     public Task<SandboxCommandResponse> RunBotSandboxCommand(Guid spaceId, Guid botId, string command, CancellationToken cancellationToken = default) =>
         Post<SandboxCommandResponse>($"{Space(spaceId)}/bots/{botId}/sandbox/commands", new SandboxCommandRequest(command), cancellationToken);

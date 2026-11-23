@@ -6,8 +6,8 @@ told to do the things the compose files do for you. This page lists them. The co
 ([architecture/13-deployment-and-push.md](architecture/13-deployment-and-push.md)) is unchanged and still the simplest.
 
 CapRover reads `captain-definition` and builds the root `Dockerfile`. The image listens on port 8080 and serves
-the Uno browser client at `/native/` beside the existing web client at `/`. After redeploying the Drover app,
-open `/native/` on the app's HTTPS domain.
+the browser client at `/`. The address it was served at before, `/native/`, sends the browser to the same address
+at `/`.
 
 ## What you set up
 
@@ -125,7 +125,7 @@ Volumes, both writable by the image's user:
 | Path | Holds |
 | --- | --- |
 | `/var/lib/drover/keys` | The key ring used by web cookies, native sessions, and stored secrets. Reuse the same mounted volume on every deploy. Back it up along with the database. |
-| `/var/lib/drover/files` | Files people attach to messages. Set `Files__Path` to this path. Back it up with the database: a message's file is read from here. Nothing scans these files for viruses. |
+| `/var/lib/drover/files` | Files people attach to messages. The image defaults `Files__Path` to this directory. Mount persistent storage here, or set `Files__Path` to the existing writable file volume. Back it up with the database: a message's file is read from here. Nothing scans these files for viruses. |
 
 The image runs as a non-root user (uid 1654) and owns these paths. Leave the user as it is. If the platform lets you,
 also make the root file system read-only (with `/tmp` writable), drop every Linux capability, and set

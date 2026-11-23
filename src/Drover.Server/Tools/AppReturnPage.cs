@@ -23,11 +23,10 @@ public static class AppReturnPage
                 <meta http-equiv="refresh" content="0;url={address}" />
                 <title>Return to Drover</title>
                 <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-                <link rel="stylesheet" href="/_content/Drover.Ui/tokens.css" />
-                <link rel="stylesheet" href="/_content/Drover.Ui/base.css" />
+                <link rel="stylesheet" href="/boot.css" />
             </head>
             <body>
-                <main class="dv-boot">
+                <main>
                     <h1>Return to Drover</h1>
                     <p>Go back to the Drover app to finish the sign-in.</p>
                     <p><a href="{address}">Open Drover</a></p>

@@ -25,6 +25,8 @@
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
     <Compile Include="..\Shared\TestRolePasswords.cs" Link="Shared\TestRolePasswords.cs" />
     <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
+    <Compile Include="..\Shared\PointerEvents.cs" Link="Shared\PointerEvents.cs" />
+    <Compile Include="..\Drover.Server.Tests\Support\MemorySandboxProvider.cs" Link="Shared\MemorySandboxProvider.cs" />
   </ItemGroup>
 
 </Project>

@@ -312,6 +312,23 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_working_tool_connection_shows_no_stale_error_in_the_tools_section()
+    {
+        var workingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000d");
+        Server.Answer("GET", $"{space}/tool-connections", (ToolConnectionSummary[])[
+            new(workingId, "Working server", "working", "https://working.example.test/mcp", "none", "untrusted", "automatic", "ready", null, null, "Sample old failure."),
+            new(failedId, "Failed server", "failed", "https://failed.example.test/mcp", "none", "untrusted", "automatic", "failed", null, null, "Sample current failure.")]);
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+
+        var groups = editor.ToolsPart.Groups;
+
+        groups.Single(group => group.ConnectionId == workingId).Problem.Should().BeNull("the last error is stale once the connection works");
+        groups.Single(group => group.ConnectionId == failedId).Problem.Should().Be("Sample current failure.");
+    }
+
+    [Fact]
     public async Task A_grant_the_server_refuses_is_said_in_its_words_and_the_control_goes_back()
     {
         Server.Refuse("PUT", $"{bot}/tools/{toolId}", HttpStatusCode.Conflict, "Sample parent has this tool set to ask. Raise it on Sample parent first.");
@@ -569,6 +586,42 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.CanSave.Should().BeTrue();
         BotEditorViewModel.Sections.Where(editor.ShowsSection).Should().Equal(Model, BotEditorViewModel.MemorySection, Team, Limits);
         Server.Requests.Should().NotContain(request => request.Method == "POST" || request.Method == "PUT", "nothing is stored until the person saves");
+    }
+
+    [Fact]
+    public async Task A_new_bot_prefers_a_working_connection_over_one_that_just_failed()
+    {
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var workingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000d");
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[
+            new(failedId, "Just failed", "venice", null, true, "failed", "sample-failed", [], null, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            new(workingId, "Working", "venice", null, true, "ready", "sample-working", [], null, DateTimeOffset.UtcNow.AddDays(-1))]);
+        Server.Answer("GET", $"{space}/model-connections/{failedId}/models", (ModelCatalogResponse[])[CatalogModel("sample-failed", toolCalling: true)]);
+        Server.Answer("GET", $"{space}/model-connections/{workingId}/models", (ModelCatalogResponse[])[CatalogModel("sample-working", toolCalling: true)]);
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.Draft!.ModelConnectionId.Should().Be(workingId, "a connection whose test just failed is not chosen over one that works");
+        editor.Draft.Model.Should().Be("sample-working");
+    }
+
+    [Fact]
+    public async Task A_new_bot_prefers_an_untested_connection_over_a_failed_one()
+    {
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var pendingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000e");
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[
+            new(failedId, "Just failed", "venice", null, true, "failed", "sample-failed", [], null, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            new(pendingId, "Not tested yet", "venice", null, true, "pending", "sample-pending", [], null, null)]);
+        Server.Answer("GET", $"{space}/model-connections/{failedId}/models", (ModelCatalogResponse[])[CatalogModel("sample-failed", toolCalling: true)]);
+        Server.Answer("GET", $"{space}/model-connections/{pendingId}/models", (ModelCatalogResponse[])[CatalogModel("sample-pending", toolCalling: true)]);
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.Draft!.ModelConnectionId.Should().Be(pendingId, "an untested connection outranks one that failed");
+        editor.Draft.Model.Should().Be("sample-pending");
     }
 
     [Fact]

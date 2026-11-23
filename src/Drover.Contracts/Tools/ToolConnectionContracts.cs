@@ -110,7 +110,7 @@ public sealed record ToolSignInStart(string Step, string? AuthorizationUrl, stri
 /// Input only: how a sign-in to a tool server should come back. <see cref="ReturnTo"/> is the address scheme of the
 /// native app that asks, or the desktop app's listener on the loopback address (<c>http://127.0.0.1:port</c>), so the
 /// browser is sent into that app when the tool server is done; or the path of the browser client that asks
-/// (<c>/native/</c>); null returns to the web app. The server accepts only Drover's own apps and clients.
+/// (<c>/</c>); null returns to the browser client too. The server accepts only Drover's own apps and clients.
 /// </summary>
 public sealed record BeginToolSignInRequest(string? ReturnTo);
 
