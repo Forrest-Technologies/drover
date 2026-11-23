@@ -161,13 +161,13 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
     }
 
     /// <summary>Follows a person's session, and clears what was staged for sharing when they sign out.</summary>
-    public static void ClearSharedCopiesOnSignOut(SessionState session) =>
+    public static void ClearSharedCopiesOnSignOut(SessionState session, ShareInbox inbox) =>
         session.Changed += () =>
         {
             if (session.Current is null)
             {
                 ClearSharedCopies();
-                ShareInbox.Process.Discard();
+                inbox.Discard();
             }
         };
 

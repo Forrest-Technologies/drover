@@ -445,7 +445,7 @@ public sealed class MovedNotificationsTests : IDisposable
     private async Task<MovedNotifications> Make(Guid? account = null)
     {
         var person = Samples.Session() with { UserId = account ?? accountA };
-        var session = new SessionState(server.CreateApi());
+        var session = new SessionState(server.CreateApi(), new ShareInbox());
         server.Answer("GET", "/api/session", person);
         await session.Load(Xunit.TestContext.Current.CancellationToken);
         server.Requests.Clear();
@@ -453,7 +453,7 @@ public sealed class MovedNotificationsTests : IDisposable
     }
 
     private SessionGateViewModel Gate(MovedNotifications moved) =>
-        new(new SessionState(server.CreateApi()), new Navigator(), NullLogger<SessionGateViewModel>.Instance, moved);
+        new(new SessionState(server.CreateApi(), new ShareInbox()), new Navigator(), NullLogger<SessionGateViewModel>.Instance, moved);
 
     #endregion
 }

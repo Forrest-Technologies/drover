@@ -3,7 +3,7 @@ namespace Drover.Ui.Session;
 /// <summary>
 /// Who is signed in, asked of the server once and kept for the life of the app.
 /// </summary>
-public sealed class SessionState(DroverApi api)
+public sealed class SessionState(DroverApi api, ShareInbox inbox)
 {
     #region Private Fields
 
@@ -122,7 +122,7 @@ public sealed class SessionState(DroverApi api)
         chosen = null;
         loaded = true;
         // A share waiting for the person who left must not reach the one who signs in now.
-        ShareInbox.Process.Discard();
+        inbox.Discard();
         Changed?.Invoke();
     }
 
@@ -131,7 +131,7 @@ public sealed class SessionState(DroverApi api)
         await api.SignOut(cancellationToken);
         Current = null;
         chosen = null;
-        ShareInbox.Process.Discard();
+        inbox.Discard();
         Changed?.Invoke();
     }
 

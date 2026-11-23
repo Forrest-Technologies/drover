@@ -36,7 +36,7 @@ public sealed class ExtensionsViewModelTests : IDisposable
 
     public ExtensionsViewModelTests()
     {
-        session = new(server.CreateApi());
+        session = new(server.CreateApi(), new ShareInbox());
         services = new ServiceCollection()
             .AddLogging()
             .AddSingleton(server.CreateApi())

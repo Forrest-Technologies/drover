@@ -23,29 +23,67 @@ public sealed class ShareInboxLifetimeTests : IDisposable
     }
 
     [Fact]
+    public async Task AShareOfferedWhileSignedInSurvivesALoad()
+    {
+        using var server = new FakeServer();
+        server.Answer("GET", "/api/session", Person());
+        var inbox = new ShareInbox();
+        var session = new SessionState(server.CreateApi(), inbox);
+        await session.Load(TestContext.Current.CancellationToken);
+        var draft = new SharedDraft("Sample words from another app", []);
+
+        inbox.Offer(draft);
+        await session.Load(TestContext.Current.CancellationToken);
+
+        inbox.Waiting.Should().BeSameAs(draft);
+    }
+
+    [Fact]
+    public void BeginningASessionForgetsWhatWasShared()
+    {
+        using var server = new FakeServer();
+        var inbox = new ShareInbox();
+        var session = new SessionState(server.CreateApi(), inbox);
+        inbox.Offer(new SharedDraft("Sample words from another app", []));
+
+        session.Begin(Person());
+
+        inbox.Waiting.Should().BeNull();
+    }
+
+    [Fact]
     public async Task EndingTheSessionForgetsWhatWasShared()
     {
         using var server = new FakeServer();
         server.Answer("POST", "/api/sign-out", HttpStatusCode.NoContent);
-        var session = new SessionState(server.CreateApi());
-        ShareInbox.Process.Offer(new SharedDraft("Sample words from another app", []));
+        var inbox = new ShareInbox();
+        var session = new SessionState(server.CreateApi(), inbox);
+        inbox.Offer(new SharedDraft("Sample words from another app", []));
 
         await session.End(TestContext.Current.CancellationToken);
 
-        ShareInbox.Process.Waiting.Should().BeNull();
+        inbox.Waiting.Should().BeNull();
     }
 
     [Fact]
     public async Task ChangingTheServerForgetsWhatWasShared()
     {
-        ShareInbox.Process.Offer(new SharedDraft("Sample words from another app", []));
+        var inbox = new ShareInbox();
+        inbox.Offer(new SharedDraft("Sample words from another app", []));
 
-        await new DeviceServerChoice(new ServerAddress()).Change();
+        await new DeviceServerChoice(new ServerAddress(), inbox).Change();
 
-        ShareInbox.Process.Waiting.Should().BeNull();
+        inbox.Waiting.Should().BeNull();
     }
 
     public void Dispose() => ShareInbox.Process.Discard();
+
+    #endregion
+
+    #region Private Methods
+
+    private static SessionResponse Person() =>
+        new(Guid.Parse("0196f1a0-0000-7000-8000-000000000002"), "sample@example.test", "Sample person", []);
 
     #endregion
 }
