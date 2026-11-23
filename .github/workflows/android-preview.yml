@@ -27,6 +27,8 @@ jobs:
     name: Build APK
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     permissions:
       contents: read
     steps:
@@ -34,6 +36,23 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Keep the key and paths exactly as in native.yml so both Android builds share one cache. The dependency
+      # declaration is in src/Drover.Native/Drover.Native.csproj, matched by **/*.csproj in the key below.
+      # This workflow publishes on tags, so the cache is only for pull request checks, never for a release build.
+      - name: Cache Android dependency downloads # zizmor: ignore[cache-poisoning] caches are ref-scoped and release jobs never restore this one
+        if: github.ref_type != 'tag'
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ${{ env.NUGET_PACKAGES }}
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.cache/dotnet-android/MavenCacheDirectory
+            ~/.local/share/Xamarin/zips
+          key: android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'global.json', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json', '**/*.gradle', '**/*.gradle.kts', '**/gradle.properties', '**/gradle-wrapper.properties', '**/libs.versions.toml', '**/gradle.lockfile', '**/pom.xml') }}
+          restore-keys: |
+            android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-
       - name: Check preview tag and version
         id: version
         shell: bash
@@ -193,5 +212,5 @@ jobs:
           apk="drover-$GITHUB_REF_NAME.apk"
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Drover Uno Android $GITHUB_REF_NAME" --prerelease --latest=false \
-            --notes 'Install the Uno APK and sign in with the HTTPS address of your Drover server. It installs alongside the earlier MAUI preview. See the [Android preview guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
+            --notes 'Install the Uno APK and sign in with the HTTPS address of your Drover server. It installs alongside the earlier Android preview. See the [Android preview guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
             "release/$apk" "release/$apk.sha256"

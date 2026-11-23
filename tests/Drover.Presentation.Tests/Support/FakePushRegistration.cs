@@ -23,6 +23,24 @@ public class FakePushRegistration : IPushRegistration
     /// <summary>The next check fails as a platform call does.</summary>
     public bool FailNextCheck { get; set; }
 
+    /// <summary>What moving the browser client to the root left on this device.</summary>
+    public MovedSubscription Moved { get; set; }
+
+    /// <summary>The push service address of the subscription the move ended.</summary>
+    public string? MovedEndpoint { get; set; } = "https://push.example.test/sample-moved";
+
+    /// <summary>How many times the device was asked whether moving left anything.</summary>
+    public int MovedAsked { get; private set; }
+
+    /// <summary>The subscription an attempt to take up the moved one made, kept with the note.</summary>
+    public string? MoveCandidate { get; set; }
+
+    /// <summary>The account the candidate was made for.</summary>
+    public Guid? MoveCandidateAccount { get; set; }
+
+    /// <summary>What happens on the device right after it subscribes, such as another tab replacing the subscription.</summary>
+    public Action? AfterSubscribe { get; set; }
+
     #endregion
 
     #region Interface Implementations
@@ -49,6 +67,7 @@ public class FakePushRegistration : IPushRegistration
         }
 
         Endpoint = Subscription.Endpoint;
+        AfterSubscribe?.Invoke();
         return Task.FromResult<PushDeviceRequest?>(Subscription);
     }
 
@@ -64,6 +83,32 @@ public class FakePushRegistration : IPushRegistration
         Endpoint = null;
         return Task.FromResult(ended);
     }
+
+    public Task<MovedPush> FindMovedSubscription(CancellationToken cancellationToken = default)
+    {
+        MovedAsked++;
+        return Task.FromResult(Moved is MovedSubscription.None
+            ? new MovedPush(Moved)
+            : new MovedPush(Moved, MovedEndpoint, MoveCandidate, MoveCandidateAccount));
+    }
+
+    public Task ForgetMovedSubscription(CancellationToken cancellationToken = default)
+    {
+        Moved = MovedSubscription.None;
+        MoveCandidate = null;
+        MoveCandidateAccount = null;
+        return Task.CompletedTask;
+    }
+
+    public Task RememberMoveCandidate(string endpoint, Guid account, CancellationToken cancellationToken = default)
+    {
+        MoveCandidate = endpoint;
+        MoveCandidateAccount = account;
+        return Task.CompletedTask;
+    }
+
+    public async Task<bool> UnsubscribeOnly(string endpoint, CancellationToken cancellationToken = default) =>
+        Endpoint == endpoint && await Unsubscribe(cancellationToken) is not null;
 
     #endregion
 }

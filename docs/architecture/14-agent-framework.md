@@ -20,7 +20,7 @@ Drover does this the way the framework intends: by implementing its storage abst
 | Rule | Reason |
 | --- | --- |
 | Framework types appear in `Drover.Agents` and in `Drover.Server`'s wiring. Nowhere else. | The framework ships breaking changes weekly. One project absorbs them. |
-| `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Ui`, and API responses stay free of framework types. | Clients and the database schema must not change when the framework does. |
+| `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Presentation`, `Drover.Native`, and API responses stay free of framework types. | Clients and the database schema must not change when the framework does. |
 | Conversation content is stored in Drover's own `messages` schema. | It is the product's data and must outlive any framework version. |
 | Framework session state and workflow checkpoints are stored as opaque JSON with the framework version beside them. | They are working state, not records. If a new framework version cannot read an old blob, Drover discards it and rebuilds from `messages`. An in-flight run restarts its current step. |
 
@@ -60,6 +60,8 @@ The engine still talks to the framework through one small interface, `IAgentRunt
 | MCP tasks (`ListAgentToolsWithTasksAsync`) | alpha | Long-running MCP tools with polling and cancel, shown in the activity view as a tool that is still working. |
 | Shell tool with a policy and pluggable executor | preview | Not used. `sandbox.run` is a Drover built-in tool (`SandboxTools`), because a tool the framework adds has no catalog row, so it has no grant and the tool gate refuses it. The command goes through `SandboxBroker` to `ISandboxProvider`. The local executor is never registered. |
 | Micro virtual machine code execution | preview | Candidate for a second sandbox adapter that needs no account and no Docker, for "run this snippet" use. Evaluated in Phase 1; it does not replace a full environment. |
+
+The owner chose the lead's conversation as the room for teams ([ADR 0019](../adr/0019-rooms-are-the-leads-conversation.md)). This is decided and not built: group chat and the other team patterns will stay workflows of the lead; a member's contribution will be shown in the lead's conversation from that member's own character, and the person will be able to name any member to address it directly. Every member will still be a bot beneath the lead, so `GovernedAgent`, grants, budgets, the loop check, and cancel are reused without a second permission model. A default cap of four bot turns between two messages of a person, configurable per space under a deployment ceiling, will bound a room; it arrives with the layers of [issue 155](https://github.com/Forrest-Technologies/drover/issues/155).
 
 ### Skills and reach, Phase 2
 

@@ -208,7 +208,11 @@ public sealed class UsageViewModelTests : IDisposable
     private UsagePageViewModel Model()
     {
         server.Answer("GET", "/api/session", Samples.Session());
-        return new(server.CreateApi(), new(server.CreateApi()), navigator, NullLogger<UsagePageViewModel>.Instance);
+        return new(
+            server.CreateApi(),
+            new(server.CreateApi(), new ShareInbox()),
+            navigator,
+            NullLogger<UsagePageViewModel>.Instance);
     }
 
     #endregion

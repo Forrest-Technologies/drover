@@ -411,8 +411,8 @@ public sealed class TalkViewModel(
     /// <summary>Where the rail's first control leads: closed, or from a side chat back to the list of them.</summary>
     public string RailUp(Guid botId) => RailCloses ? Addresses.Talk(botId) : Addresses.SideChats(botId);
 
-    /// <summary>Reads the space again, after it could not be read.</summary>
-    public Task Retry() => Rendered(LoadSpace());
+    /// <summary>Reads the space again after it could not be read, then does what opening the address does.</summary>
+    public Task Retry() => Rendered(ReloadSpace());
 
     /// <summary>Opens something beside the conversation, from the conversation's menu.</summary>
     public void OpenSide(string target) => navigator.NavigateTo(target);
@@ -472,10 +472,7 @@ public sealed class TalkViewModel(
             await LoadSpace();
         }
 
-        if (address.FormerThreadId is { } former && bots is { Count: > 0 })
-        {
-            await FollowFormerAddress(former);
-        }
+        await FollowFormerAddressOnceKnown();
 
         KeepOrRenewSidePane();
 
@@ -483,6 +480,25 @@ public sealed class TalkViewModel(
         Changed();
         await AskForScreen();
     }
+
+    // The space was read again by a person, so the bot's screen is asked about now: the first try could not ask.
+    private async Task ReloadSpace()
+    {
+        await LoadSpace();
+        await FollowFormerAddressOnceKnown();
+        Changed();
+        await AskForScreen();
+    }
+
+    private async Task FollowFormerAddressOnceKnown()
+    {
+        if (!gone && address.FormerThreadId is { } former && bots is { Count: > 0 })
+        {
+            await FollowFormerAddress(former);
+        }
+    }
+
+    private bool StillShows(TalkAddress origin) => !gone && address == origin;
 
     private async Task LoadSpace()
     {
@@ -529,20 +545,38 @@ public sealed class TalkViewModel(
     private async Task FollowFormerAddress(Guid threadId)
     {
         formerMissing = false;
+        var origin = address;
         try
         {
             var thread = threads.GetValueOrDefault(threadId) ?? await api.GetThread(SpaceId, threadId);
+
+            // A slow answer can arrive after the person has left this screen or opened another address. The redirect
+            // replaces the current history entry, so it is only made while the old address is still the one shown.
+            if (!StillShows(origin))
+            {
+                return;
+            }
+
             navigator.NavigateTo(thread.IsMain ? Addresses.Talk(thread.BotId) : Addresses.SideChat(thread.BotId, thread.Id), replace: true);
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
         {
             logger.LogInformation(exception, "Thread {ThreadId} was not found", threadId);
-            formerMissing = true;
+
+            // A late answer about the old address says nothing about the one the person opened since, so it neither
+            // sets nor clears that address's notice.
+            if (StillShows(origin))
+            {
+                formerMissing = true;
+            }
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(TalkViewModel));
-            spaceProblem = Failures.Sentence(exception);
+            if (StillShows(origin))
+            {
+                spaceProblem = Failures.Sentence(exception);
+            }
         }
     }
 
@@ -594,6 +628,20 @@ public sealed class TalkViewModel(
                 var crew = await api.ListBots(SpaceId, cancellationToken);
                 await LoadThreads(crew, cancellationToken);
                 bots = crew;
+
+                // A connection that came back may have missed the answers these panes waited for. Reading them again
+                // here fixes the screen without asking the person to press anything.
+                ui.Post(() =>
+                {
+                    ConversationViewModel?[] panes = [MainPane, SidePane, WorkPane];
+                    foreach (var pane in panes)
+                    {
+                        if (pane is { LoadFailed: true })
+                        {
+                            _ = pane.Reload();
+                        }
+                    }
+                });
             }
             else if (signal.ThreadId is { } threadId)
             {
@@ -785,6 +833,9 @@ public sealed class TalkViewModel(
             screenAccess = screenAccess is ScreenAccess.Unknown ? ScreenAccess.Usable : screenAccess;
             hasScreenLink = false;
             screenKnownFor = bot.Id;
+
+            // Not answered, so the next visit to this bot asks again.
+            screenAskedFor = null;
             return;
         }
 

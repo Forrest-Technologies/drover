@@ -4,7 +4,9 @@ namespace Drover.Native.Bots;
 /// The picture of a sandbox's screen, drawn in a frame that keeps the screen's shape. Enlarged, the picture is moved
 /// inside the frame; the frame never grows. A pinch enlarges it and a drag moves it, shown at once. While the person
 /// drives the screen it is a button: a click or a tap clicks the sandbox pixel under it, the arrow keys move a pointer
-/// over it, and Enter or Space clicks there. While the person only looks, an enlarged picture takes the focus so the
+/// over it, and Enter or Space clicks there. A finger follows the touch model of <see cref="ScreenGesture"/>: a tap
+/// clicks, a long press right-clicks, a press and move drags, two fingers scroll or zoom; the picture keeps the finger
+/// so the page does not scroll under it. While the person only looks, an enlarged picture takes the focus so the
 /// arrow keys can move the view. Tab is never taken, so the keyboard enters and leaves the picture as it does any
 /// other control.
 /// </summary>
@@ -30,6 +32,20 @@ internal sealed class SandboxPicture : UserControl
 
     private (double X, double Y) pressedAt;
 
+    // The time of each pointer event, read by the gesture, which keeps no clock of its own.
+    private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+    // Waits once, while a still finger rests, to say that lifting it now right-clicks. Nothing repeats. Each wait is
+    // numbered; a finger that lifts or a second finger moves the number on, so an older wait says nothing.
+    private int rest;
+
+    private bool resting;
+
+    private bool pressedByMouse;
+
+    // Whether the gesture under way began while the person drove the screen.
+    private bool gestureInControl;
+
     #endregion
 
     #region Constructors
@@ -53,6 +69,9 @@ internal sealed class SandboxPicture : UserControl
         PointerCanceled += (_, pointer) => Lifted(pointer, cancelled: true);
         PointerCaptureLost += (_, pointer) => Lifted(pointer, cancelled: true);
         KeyDown += Typed;
+        AutomationProperties.SetAutomationId(this, "SandboxPicture");
+        LostFocus += (_, _) => LetGo();
+        Unloaded += (_, _) => LetGo();
         this.WhenShownOrRethemed(Show);
     }
 
@@ -67,6 +86,10 @@ internal sealed class SandboxPicture : UserControl
     public event Action? Released;
 
     private bool Enlarged => !model.Zoom.IsFit;
+
+    private bool KeepsFinger => Enlarged || model.Control;
+
+    private TimeSpan Now => clock.Elapsed;
 
     private static bool ShiftIsDown =>
         Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
@@ -85,8 +108,9 @@ internal sealed class SandboxPicture : UserControl
         frame.BorderBrush = Tokens.Brush(this, model.Control ? "DvEmber" : "DvLine");
         IsTabStop = focusable;
 
-        // Enlarged, a finger on the picture moves the picture, not the page.
-        ManipulationMode = Enlarged ? ManipulationModes.None : ManipulationModes.System;
+        // Enlarged, a finger on the picture moves the picture, not the page; in control it drives the sandbox. Either
+        // way the picture keeps the finger. Looking at a picture at fit, the finger scrolls the page as anywhere else.
+        ManipulationMode = KeepsFinger ? ManipulationModes.None : ManipulationModes.System;
         ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
             model.Control ? Microsoft.UI.Input.InputSystemCursorShape.Cross
             : Enlarged ? Microsoft.UI.Input.InputSystemCursorShape.SizeAll
@@ -95,6 +119,13 @@ internal sealed class SandboxPicture : UserControl
         Describe();
         ShowRing();
         InvalidateMeasure();
+
+        // Control ended while a finger was down: the whole gesture ends (a held drag is let go of), so a press or a
+        // scroll can never carry on when control comes back. A gesture that began while only looking is left alone.
+        if (!model.Control && gestureInControl && gesture.IsActive)
+        {
+            LetGo();
+        }
 
         if (!gesture.IsActive && model.Zoom != placed)
         {
@@ -180,15 +211,30 @@ internal sealed class SandboxPicture : UserControl
             return;
         }
 
-        pressedAt = (point.Position.X, point.Position.Y);
-        gesture.Down(pointer.Pointer.PointerId, point.Position.X, point.Position.Y, placed);
-
-        // A finger on a picture that is not enlarged may be scrolling the page, which the system decides.
-        if (isMouse || Enlarged)
+        // The picture keeps the finger only when it holds it. A finger the picture could not capture is left to the
+        // page and starts nothing here, so the gesture never waits for a lift it may not be told of. A finger on a
+        // picture at fit, only looked at, may be scrolling the page, which the system decides.
+        var keeps = isMouse || KeepsFinger;
+        if (keeps && !CapturePointer(pointer.Pointer))
         {
-            CapturePointer(pointer.Pointer);
-            pointer.Handled = true;
+            return;
         }
+
+        if (gesture.IsActive)
+        {
+            // A second finger is never a long press.
+            CalmLongPress();
+        }
+        else
+        {
+            (pressedByMouse, gestureInControl) = (isMouse, model.Control);
+        }
+
+        pressedAt = (point.Position.X, point.Position.Y);
+        gesture.Down(pointer.Pointer.PointerId, point.Position.X, point.Position.Y, placed, model.Control, Now);
+        SendTouches();
+        WatchForLongPress();
+        pointer.Handled = keeps;
 
         if (IsTabStop)
         {
@@ -199,18 +245,32 @@ internal sealed class SandboxPicture : UserControl
     private void Moved(object sender, PointerRoutedEventArgs pointer)
     {
         var point = pointer.GetCurrentPoint(box).Position;
-        if (gesture.Move(pointer.Pointer.PointerId, point.X, point.Y, box.ActualWidth, box.ActualHeight) is { } view)
+        var view = gesture.Move(pointer.Pointer.PointerId, point.X, point.Y, box.ActualWidth, box.ActualHeight, Now);
+        if (gesture.IsActive && KeepsFinger)
         {
             pointer.Handled = true;
-            Place(view, settle: false);
-            layer.Show(model.Picture, model.Control ? model.PointerAt : null, model.PictureWidth, model.PictureHeight, view.Scale);
+        }
+
+        SendTouches();
+        if (view is { } shown)
+        {
+            pointer.Handled = true;
+            Place(shown, settle: false);
+            var pointerAt = model.Control ? model.PointerAt : ((int X, int Y)?)null;
+            layer.Show(model.Picture, pointerAt, model.PictureWidth, model.PictureHeight, shown.Scale);
         }
     }
 
     private async void Lifted(PointerRoutedEventArgs pointer, bool cancelled)
     {
         var wasActive = gesture.IsActive;
-        var end = gesture.Up(pointer.Pointer.PointerId, cancelled);
+        var end = gesture.Up(pointer.Pointer.PointerId, cancelled, Now);
+        if (!gesture.IsActive)
+        {
+            CalmLongPress();
+        }
+
+        SendTouches();
         if (!cancelled)
         {
             ReleasePointerCapture(pointer.Pointer);
@@ -227,8 +287,67 @@ internal sealed class SandboxPicture : UserControl
         }
         else if (end.Tapped && model.Control)
         {
-            // The tap lands where the finger went down, measured on the frame as it was then.
+            // Control came on while the finger was down, so the gesture was a look: the tap still clicks there.
             await model.Tap(pressedAt.X, pressedAt.Y, box.ActualWidth, box.ActualHeight);
+        }
+    }
+
+    // What the gesture sends goes to the model at once, measured on the frame as it is now. A mouse that is held still
+    // clicks, as a mouse does; only a finger right-clicks by resting.
+    private void SendTouches()
+    {
+        var touches = gesture.TakeInput();
+        if (touches.Count == 0)
+        {
+            return;
+        }
+
+        List<ScreenTouch> sent =
+        [
+            .. touches.Select(touch => pressedByMouse && touch.Kind is ScreenTouchKind.LongPress
+                ? touch with { Kind = ScreenTouchKind.Tap }
+                : touch),
+        ];
+        model.Touch(sent, box.ActualWidth, box.ActualHeight);
+    }
+
+    // The picture lost the focus, went away, or control ended: a held drag is let go of where the finger last was.
+    private void LetGo()
+    {
+        CalmLongPress();
+        if (gesture.Release())
+        {
+            SendTouches();
+        }
+
+        ReleasePointerCaptures();
+    }
+
+    private void WatchForLongPress()
+    {
+        if (model.Control && !pressedByMouse && gesture.IsActive && !resting)
+        {
+            resting = true;
+            _ = SayLongPressAfterRest(++rest);
+        }
+    }
+
+    private async Task SayLongPressAfterRest(int wait)
+    {
+        await Task.Delay(ScreenGesture.LongPressTime);
+        if (resting && wait == rest && gesture.IsLongPress(Now))
+        {
+            model.LongPressReady(true);
+        }
+    }
+
+    private void CalmLongPress()
+    {
+        resting = false;
+        rest++;
+        if (model.TouchWords == SandboxScreenViewModel.LongPressWords)
+        {
+            model.LongPressReady(false);
         }
     }
 

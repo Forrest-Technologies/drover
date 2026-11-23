@@ -160,8 +160,14 @@ public sealed class ScreenPanelViewModel(
     /// <summary>Reads the sandbox's state, then keeps reading it until the panel closes.</summary>
     public async Task Open()
     {
+        // Asked once, before the first await: the panel can close while its first read is on its way.
+        var stop = disposal.LeavingToken();
         await Load();
-        watching = Watch(disposal.Token);
+
+        if (!stop.IsCancellationRequested)
+        {
+            watching = Watch(stop);
+        }
     }
 
     // The answer is the call's result. Once it is stored, or was stored already, the request no longer waits here.
@@ -192,7 +198,7 @@ public sealed class ScreenPanelViewModel(
 
         try
         {
-            Status = await api.GetBotSandbox(SpaceId, Bot.Id, disposal.Token);
+            Status = await api.GetBotSandbox(SpaceId, Bot.Id, disposal.LeavingToken());
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
         {
@@ -213,7 +219,7 @@ public sealed class ScreenPanelViewModel(
     }
 
     /// <summary>Reads the sandbox's state again now, as the screen's surface asks when it changed the sandbox.</summary>
-    public Task Refresh() => Refresh(disposal.Token);
+    public Task Refresh() => Refresh(disposal.LeavingToken());
 
     #endregion
 
@@ -261,6 +267,12 @@ public sealed class ScreenPanelViewModel(
     // one read, the next one still comes: only closing the screen ends the reads.
     private async Task Refresh(CancellationToken stop)
     {
+        // A panel that was closed has nothing to show a state to.
+        if (stop.IsCancellationRequested)
+        {
+            return;
+        }
+
         try
         {
             Status = await api.GetBotSandbox(SpaceId, Bot.Id, stop);

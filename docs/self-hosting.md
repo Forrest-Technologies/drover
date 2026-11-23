@@ -23,8 +23,11 @@ Where a section below covers an untested part, it says so.
 docker compose logs drover
 ```
 
-The image serves Uno at `/native/` and the existing web client at `/`. Set `DROVER_BUILD_NATIVE=false` in
-Compose's `.env` file before building to omit the Uno client.
+The image serves the browser client at `/`. Until 2026-11-20 it was served at `/native/`; that address now sends the
+browser to the same address at `/`. An app installed from `/native/` is moved to `/` the next time it is opened and
+keeps its own window. Notifications a browser had on at `/native/` are turned on again at `/` the next time the
+person signs in, when the browser still allows them; otherwise Drover says to turn them on again. `DROVER_BUILD_NATIVE` no
+longer exists: the image always includes the browser client.
 
 ## Reaching Drover from other devices
 
@@ -71,6 +74,40 @@ provided overlay discards access logs for the preview name because its query car
 
 Without the trusted-address setting Drover still works, but every person shares the proxy's address for the sign-in
 limit. Never set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
+
+## Sandboxes
+
+A sandbox is an isolated computer in which a bot can run code, keep files and drive a screen. Sandboxes are off until you give the server a provider; bots without one work as before.
+
+### Docker
+
+Docker sandboxes need no account and no steps. Their setup is written by [#657](https://github.com/Forrest-Technologies/drover/issues/657), with the hardening and provider settings from [#658](https://github.com/Forrest-Technologies/drover/issues/658) and [#659](https://github.com/Forrest-Technologies/drover/issues/659).
+
+### E2B
+
+E2B runs each sandbox as a remote machine at the provider. You need an account there, and the provider bills you for the time sandboxes run; a sandbox with a screen is a much larger machine than one without ([sandboxes](architecture/07-sandbox.md)).
+
+1. Create an API key at the provider.
+2. Put `E2B_API_KEY=e2b_...` in `.env` beside `compose.yaml` and run `docker compose up -d`. The key is held in memory only; `.env` is not tracked by git.
+
+If you need more than that one line, these settings go beside it on the `drover` service:
+
+| Setting | What it does |
+| --- | --- |
+| `Drover__Sandbox__E2B__ApiKeyFile` | Use a file holding the key instead of the value above. Never set both; the server stops at start if you do. |
+| `Drover__Sandbox__E2B__Domain` | The provider's domain. Default `e2b.app`. |
+| `Drover__Sandbox__E2B__Template` | The machine a sandbox starts from. Default `base`. |
+| `Drover__Sandbox__E2B__DesktopTemplate` | The machine a sandbox with a screen starts from. Default `desktop`. |
+
+The server stops at start, naming the setting, when a key does not start with `e2b_`, when both key settings are set, or when the key file is not readable. No key means no sandboxes, which is not an error.
+
+### Other providers
+
+Daytona ([#660](https://github.com/Forrest-Technologies/drover/issues/660)) and Novita ([#141](https://github.com/Forrest-Technologies/drover/issues/141)) each add their own subsection when they land.
+
+### After it is on
+
+Turn Sandbox on in the bot's editor, then grant the sandbox tools the bot may use. The bot's sandbox page is at `/bots/{botId}/sandbox`. Self-hosted limits are `MaxSandboxCommandSeconds` (3600), `MaxSandboxFileBytes` (50 MB) and `MaxSandboxIdleMinutes` (60); what they bound is in [deployment policies](architecture/16-deployment-policies.md). To turn sandboxes off again, remove `E2B_API_KEY` from `.env` and run `docker compose up -d`; an empty value means no provider is registered. Nothing then clears sandboxes that already exist: with no key the server registers no sandbox provider, no sandbox tools and no sweep, so the rows stay in Drover and the sandboxes stay at the provider with their files until someone removes them in the provider's own console; check the provider's pricing for paused sandboxes. Leave the key in until they have been cleared if you want the server's sweep to handle them. [Issue 649](https://github.com/Forrest-Technologies/drover/issues/649) covers sandboxes left at a previous provider.
 
 ## Before you expose it
 

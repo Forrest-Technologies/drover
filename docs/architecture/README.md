@@ -31,9 +31,9 @@ Files that already sit at their final paths: [`/AGENTS.md`](../../AGENTS.md), [`
 ## The shape in one page
 
 ```
- Web (Blazor WASM, PWA)      Android / Windows (MAUI Blazor Hybrid)      [iOS / macOS: switched off]
-          \                              |                                   /
-           +------------ Drover.Ui (Razor components) + Drover.Client -------+
+ Web (WebAssembly, PWA)      Desktop: Linux, macOS, Windows      Android      [iOS: switched off]
+          \                              |                          |          /
+           +---- Drover.Native (Uno, Skia) + Drover.Presentation + Drover.Client ----+
                                          |
                          HTTPS: JSON API + Server-Sent Events
                                          |
@@ -53,7 +53,7 @@ Files that already sit at their final paths: [`/AGENTS.md`](../../AGENTS.md), [`
 Five decisions carry most of the weight:
 
 1. **The agent framework runs the agent; Drover governs it.** Drover builds on Microsoft Agent Framework fully: sessions, history, compaction, context providers, skills, workflows, orchestration, approval. Drover adds what the framework does not have: tenant isolation, per-bot grants down a hierarchy, the run as a durable job, and the event log clients resume from. All framework code sits in one project, and conversation content stays in Drover's own schema, so a weekly framework update cannot reach the rest of the code or the data.
-2. **One data path for every client.** The web UI is Blazor WebAssembly with global interactivity, so web and the MAUI shell both talk to the server through the same typed client over JSON and SSE. No screen has a server-only code path. The official template imposes global interactivity for the same reason (verified).
+2. **One data path for every client.** One native client draws the interface on every target, the browser included, and talks to the server through the same typed client over JSON and SSE. No screen has a server-only code path. The Blazor web client and the Android shell that came first were retired on 2026-11-20 ([18-native-client.md](18-native-client.md)); what they decided here stands.
 3. **Isolation between users lives in PostgreSQL.** Every user has a personal space. A shared space is a group, and inside it a row belongs to one user or to the group. The app role cannot bypass row-level security, identity is set per transaction, and a missing setting returns zero rows. A catalog-driven test fails the build when a table has no policy.
 4. **Permissions are enforced outside the model.** A tool with no grant is never sent to the model. Grants narrow down the bot tree and are resolved at call time, so a prompt injection can only reach what the bot was already allowed to do.
 5. **Stateless first.** No UI circuits on the server, MCP's stateless protocol preferred, short database transactions, runs resumable from stored state. Any server instance can pick up any work after a restart.
@@ -67,7 +67,7 @@ None are blocking. Four need the owner's eye:
 | MCP OAuth "just works" | The official C# SDK's OAuth client awaits one in-process callback and has no begin/complete split (verified in source at 2.4.0). A pending sign-in is lost on restart and needs routing help across instances. | Use the SDK with a small bridge now; see [06-mcp.md](06-mcp.md). Accept "click connect again after a restart". |
 | E2B first sandbox adapter | No official .NET SDK exists. The one community package is small. | Drover owns a thin client in the adapter project, generated from E2B's published OpenAPI and proto files. See [07-sandbox.md](07-sandbox.md). |
 | Phase split | Phase 0 ships an "ask" grant effect but puts approval prompts in Phase 2. | Move the plain approval prompt into Phase 0. See [11-phase-0-plan.md](11-phase-0-plan.md). |
-| Android push through UnifiedPush | No .NET or MAUI binding exists for the Android connector. No better open option was found. | Keep UnifiedPush, implement its small protocol directly in C#, and add a zero-setup fallback that needs no account. One Web Push adapter on the server covers all of it. |
+| Android push through UnifiedPush | No .NET binding exists for the Android connector. No better open option was found. | Keep UnifiedPush, implement its small protocol directly in C#, and add a zero-setup fallback that needs no account. One Web Push adapter on the server covers all of it. |
 
 ## Owner decisions recorded 2026-11-11
 
@@ -97,7 +97,7 @@ Subscription sign-in by provider, as verified:
 
 | Topic | Finding (2026-11-11) |
 | --- | --- |
-| .NET | .NET 11 shipped 2026-11-10. Drover targets `net11.0` and tracks the newest generally available .NET once MAUI supports it ([ADR 0013](../adr/0013-track-the-newest-generally-available-dotnet.md)). |
+| .NET | .NET 11 shipped 2026-11-10. Drover targets `net11.0` and tracks the newest generally available .NET ([ADR 0013](../adr/0013-track-the-newest-generally-available-dotnet.md); its MAUI condition no longer applies since the Android shell was retired). |
 | EF Core on PostgreSQL | EF Core 10.0.x with `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.3, running on `net11.0` (data and isolation tests, and `dotnet ef migrations has-pending-model-changes`, pass). The 11.0 provider is still a release candidate, and EF Core moves with its provider. |
 | `.slnx` | Default for `dotnet new sln` since the .NET 10 SDK. Supported by Visual Studio 17.14, C# Dev Kit, CodeQL (CLI 2.24.0), and Dependabot discovery. Tested here with `dotnet build` and `dotnet format` on SDK 11.0.100. |
 | Microsoft Agent Framework | GA since 2026-04-03, now 1.28.0, MIT. Weekly releases with breaking changes. Read in source: pluggable session store, history provider, checkpoint store, and skills source; function middleware; approval content; orchestration builders; harness capabilities. No PostgreSQL stores are built in. The durable extension targets a cloud scheduler. |

@@ -57,8 +57,10 @@ namespace Drover.Data.Migrations
                 unique: true,
                 filter: "ended_at IS NULL");
 
-            // A window belongs to one space and is visible only to the person it acts for.
+            // A window belongs to one space and is visible only to the person it acts for. It is never shared, so the
+            // shared audience is refused as well.
             migrationBuilder.IsolateBySpace("allow_all_windows", audience: true);
+            migrationBuilder.IsolateToOnePerson("allow_all_windows");
         }
 
         /// <inheritdoc />

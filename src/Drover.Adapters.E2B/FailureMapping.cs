@@ -31,10 +31,15 @@ internal static class FailureMapping
             401 when plane == Plane.ControlPlane => new(
                 SandboxFailure.InvalidKey,
                 "The sandbox provider rejected the server's API key. Check the key in the server's sandbox settings."),
+            403 when plane == Plane.ControlPlane => new(
+                SandboxFailure.Forbidden,
+                "The server's sandbox account is not allowed to do this."),
             401 or 403 when plane == Plane.Sandbox => new(
                 SandboxFailure.Unauthorized,
                 "The sandbox refused the access token, so nothing was done."),
             402 => new(SandboxFailure.QuotaExceeded, "The sandbox provider account is at a plan or spend limit."),
+            408 => new(SandboxFailure.RetryLater, "The sandbox provider did not answer in time. Try again shortly.", retryAfter),
+            409 => new(SandboxFailure.Conflict, "The sandbox is changing state. Try again shortly.", retryAfter),
             404 => new(SandboxFailure.NotFound, "The sandbox provider has no such sandbox, file, or folder."),
             413 or 507 => new(SandboxFailure.TooLarge, "The content is larger than the sandbox accepts."),
             429 => new(
@@ -82,7 +87,7 @@ internal static class FailureMapping
             "The provider's record of this sandbox names another space or sharing group, so nothing was done.");
 
     public static SandboxProviderException Paused() =>
-        new(SandboxFailure.Rejected, "The sandbox is paused. Resume it before using it.");
+        new(SandboxFailure.NotRunning, "The sandbox is paused. Resume it before using it.");
 
     public static SandboxProviderException MissingKey() =>
         new(SandboxFailure.InvalidKey, "No sandbox provider key is set. Add one in the server's sandbox settings.");

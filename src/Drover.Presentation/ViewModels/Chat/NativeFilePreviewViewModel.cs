@@ -175,7 +175,7 @@ public sealed class NativeFilePreviewViewModel(ILogger<NativeFilePreviewViewMode
     public static string RefusalSentence(NativePreviewRefusal? refusal) => refusal switch
     {
         NativePreviewRefusal.TooLarge =>
-            "Preview limits are 16 KiB for text, 1 MiB and 4 million pixels for pictures, and 1 MiB and 10 pages for PDF files. Download the file to keep it.",
+            "This file exceeds the preview limits. Download the original to keep it.",
         NativePreviewRefusal.Malformed =>
             "This file contains invalid preview data. Download it to keep it.",
         NativePreviewRefusal.Unsupported =>

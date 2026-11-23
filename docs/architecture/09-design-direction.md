@@ -13,7 +13,7 @@ Working name for the look: **Night Yard**. A dark workspace, calm at rest, where
 
 ## Tokens
 
-One file, `Drover.Ui/wwwroot/tokens.css`, as CSS custom properties. Web and the MAUI shell load the same file. Components reference semantic tokens only, never raw values.
+One file, `src/Drover.Native/Theme/tokens.css`, as CSS custom properties: the specification. The native client carries every token in `Theme/Tokens.xaml` under a predictable name, and a test fails when the two differ ([18-native-client.md](18-native-client.md), "Tokens"). Controls reference semantic tokens only, never raw values.
 
 ### Color, dark (primary)
 
@@ -75,7 +75,7 @@ Each bot gets a hue derived from its id, carried by the head of its character (`
 | Scale | 12, 13, 14 (base), 16, 20, 28 px, with line heights 1.5 for text and 1.25 for headings |
 | Weights | 400 body, 500 labels, 600 headings |
 
-Both fonts are bundled (SIL OFL 1.1). Nothing loads from a third-party host, which matters for privacy on self-hosted servers and for the MAUI shell offline. Monospace is used for tool arguments, commands, and output, so "what the machine did" always looks different from "what was said".
+Both fonts are bundled (SIL OFL 1.1). Nothing loads from a third-party host, which matters for privacy on self-hosted servers and for the apps offline. Monospace is used for tool arguments, commands, and output, so "what the machine did" always looks different from "what was said".
 
 ### Space, shape, depth
 
@@ -131,7 +131,7 @@ The dark values sit on `:root` and on any element marked `data-theme="dark"`; th
 
 Its job: pick the bot to talk to, and talk to it in its one main conversation.
 
-A person talks to a bot, not to a thread. Three regions on a wide window: the crew, the main conversation with the chosen bot, and, only when asked for, that bot's side chats. A phone shows one of the three at a time. The crew and other workspace pages share a bottom dock for Chats, Bots, Tools, and Account. In a conversation, one menu opens the bot’s summary, memory, screen, files, and side chats; the composer keeps the bottom of the screen.
+A person talks to a bot, not to a thread. This is decided and not built: when a bot leads a team, its one main conversation will be the room, members will speak there from their own characters, and the person will be able to name any member to address it directly ([issue 155](https://github.com/Forrest-Technologies/drover/issues/155), [ADR 0019](../adr/0019-rooms-are-the-leads-conversation.md)). Three regions on a wide window: the crew, the main conversation with the chosen bot, and, only when asked for, that bot's side chats. A phone shows one of the three at a time. The crew and other workspace pages share a bottom dock for Chats, Bots, Tools, and Account. In a conversation, one menu opens the bot’s summary, memory, screen, files, and side chats; the composer keeps the bottom of the screen.
 
 - **The crew** is the first column: the space's bots as the hierarchy they form, each under the bot that manages it, joined by a thin connector. A row is the bot's head at 32 px, its name, "Paused" in words when it is, and one word for what the bot has for this person: "Waiting for you" (a run of theirs waits for their answer), "Failed" (their newest run failed and they have not looked since), or "New" (a reply they have not seen), in that order, only the first that applies. The word carries the attention or failure color, is part of the row's spoken name ("Marshal, waiting for you"), and never glows or moves: these are facts, not live states. A side chat shows its own word the same way, so a word in the crew can be traced to the chat it came from. The browser tab's title starts with how many bots wait for the person, "(2) Marshal · Drover". The head's visor breathes while the bot works for this person. Choosing a bot opens its main conversation; the bot being talked to is framed. The start page talks to the lead: the first bot at the top of the tree that can answer.
 - **The main conversation** is the one continuing conversation a person has with a bot. The server keeps exactly one for each person and bot and opens it through the bot, so there is no list to pick from and nothing to name. Its header is the bot: the head at 48 px, the name as the page's heading, and one way to the side chats that says how many there are.
@@ -218,7 +218,7 @@ Required for every component, and tested:
 
 ## Component approach
 
-**Recommendation: Drover's own small component set on plain CSS with custom properties and Blazor CSS isolation.**
+**Recommendation: Drover's own small component set on plain CSS with custom properties and Blazor CSS isolation.** This was the choice for the web client, which was retired on 2026-11-20. The native client keeps the same idea, Drover's own controls drawn from the tokens, on Uno Platform ([ADR 0015](../adr/0015-one-native-client.md), [18-native-client.md](18-native-client.md)). The table below is the original comparison.
 
 | Option | Finding | Verdict |
 | --- | --- | --- |
@@ -227,7 +227,7 @@ Required for every component, and tested:
 | Headless primitives package | One credible candidate exists (Apache-2.0, active, single maintainer). Useful for hard widgets: combobox, menu, popover positioning. | Not at the start. Adopt for a specific widget only if building it accessibly costs more than a day. |
 | **Own components, plain CSS** | Full control of the aesthetic. No dependency to restyle or outgrow. Uses native elements that are accessible by default: `dialog`, the popover attribute, `details`, real buttons and inputs. | **Yes.** |
 
-Icons are one set at one stroke weight (1.75 on a 24 unit grid), drawn as inline SVG by the `Icon` component from shapes held in `Drover.Ui/Icons`. The set is Drover's own and is cut like the bot heads and the faceted frame: straight segments, square ends, mitered joins, and a cut corner where a shape closes (copy, stop, the box of an outside link). What is round elsewhere is an octagon here (info, search). Settings is two sliders, not a gear, so it holds at 16 px. An icon-only control is an `IconButton`, which refuses to render without a label.
+Icons are one set at one stroke weight (1.75 on a 24 unit grid), drawn by the `Icon` control from shapes held in `Drover.Presentation/Icons` (`IconShapes`). The set is Drover's own and is cut like the bot heads and the faceted frame: straight segments, square ends, mitered joins, and a cut corner where a shape closes (copy, stop, the box of an outside link). What is round elsewhere is an octagon here (info, search). Settings is two sliders, not a gear, so it holds at 16 px. An icon-only control is an `IconButton`, which refuses to render without a label.
 
 The gallery is the page `/dev/gallery`. It renders only when the host reports a development environment (`UiEnvironment`); a published build, which is what the compose deployment runs, shows the not-found page there.
 
@@ -242,5 +242,5 @@ Markdig, as decided. No reason was found to do otherwise.
 - **Streaming**: the message is re-parsed on each flushed chunk (at most ten times a second). An unclosed code fence renders as a code block to the end of the text, which is the right look mid-stream. Completed messages are parsed once and cached.
 - **Safety**: the pipeline disables raw HTML, and the output then passes through HtmlSanitizer with a short allowlist of elements and attributes. Links open in a new context with `rel="noopener noreferrer"`. Only `http`, `https`, and `mailto` addresses survive.
 - **Remote images** are not loaded automatically ([06-mcp.md](06-mcp.md)).
-- **MAUI web view**: same component, same code. Nothing platform-specific.
+- **Every target**: the native client draws the same `MarkdownDocument` nodes on web, desktop, and Android. Nothing platform-specific.
 - Code blocks get a copy button and syntax coloring from a small bundled highlighter, loaded on first use.
