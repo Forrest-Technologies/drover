@@ -2143,7 +2143,8 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     [InlineData("pause")]
     [InlineData("rebuild")]
     [InlineData("turn off")]
-    public async Task A_power_control_whose_bot_moved_to_another_sandbox_while_it_waited_lets_go_of_nothing(string power)
+    public async Task A_power_control_whose_bot_moved_to_another_sandbox_while_it_waited_lets_go_of_nothing(
+        string power)
     {
         var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
