@@ -80,6 +80,9 @@ jobs:
       # No emulator is needed: prove a failing display reset is raised only when no check already failed.
       - name: Check the Android cleanup error handling
         run: python3 scripts/check-native-android-text-editing.py --self-test-cleanup
+      # No emulator is needed: prove the safe-area check measures only a settled frame.
+      - name: Check settled safe-area capture
+        run: python3 scripts/test-check-native-android-text-editing.py
       - name: Check Android address editing, safe-area layout, and the shared screen checks
         timeout-minutes: 20
         run: |

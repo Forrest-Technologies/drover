@@ -16,6 +16,7 @@ PACKAGE = "com.forresttechnologies.drover.client"
 IME_PACKAGE = "org.drover.tests.keyboard"
 IME = f"{IME_PACKAGE}/.TestKeyboard"
 DUMP = "/data/local/tmp/drover-text-editing.xml"
+SETTLE_MAX_TRIES = 10
 
 
 def shell(*args):
@@ -78,6 +79,19 @@ def capture(*args):
             wait_for_boot()
 
     raise AssertionError(f"Could not capture {' '.join(args)} from Android: {detail}")
+
+
+def settled_capture(take_capture, max_tries=SETTLE_MAX_TRIES):
+    """Return a frame only once two consecutive captures match, so a layout still moving is not measured."""
+    previous = take_capture()
+    for _ in range(1, max_tries):
+        current = take_capture()
+        if current == previous:
+            return current
+        previous = current
+    raise AssertionError(
+        f"The Android screen did not settle after {max_tries} captures; the yard kept changing between frames."
+    )
 
 
 def start_app():
@@ -190,7 +204,8 @@ def check_yard_edges(theme):
     displays = shell("dumpsys", "window", "displays")
     status_bottom = system_bar_edge(displays, "statusBars", 2)
     navigation_top = system_bar_edge(displays, "navigationBars", 1)
-    pixels = capture("screencap")
+    # Measure only once the frame stops changing; the first capture can still be mid-layout.
+    pixels = settled_capture(lambda: capture("screencap"))
     width, height, format_id, _ = struct.unpack_from("<4I", pixels)
     if (width, height, format_id) != (720, 1600, 1):
         raise AssertionError(f"Expected a 720 × 1600 RGBA emulator image, got {width} × {height} format {format_id}.")
