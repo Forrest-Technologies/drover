@@ -492,7 +492,7 @@ public sealed class TalkViewModel(
 
     private async Task FollowFormerAddressOnceKnown()
     {
-        if (address.FormerThreadId is { } former && bots is { Count: > 0 })
+        if (!gone && address.FormerThreadId is { } former && bots is { Count: > 0 })
         {
             await FollowFormerAddress(former);
         }
@@ -543,9 +543,18 @@ public sealed class TalkViewModel(
     private async Task FollowFormerAddress(Guid threadId)
     {
         formerMissing = false;
+        var origin = address;
         try
         {
             var thread = threads.GetValueOrDefault(threadId) ?? await api.GetThread(SpaceId, threadId);
+
+            // A slow answer can arrive after the person has left this screen or opened another address. The redirect
+            // replaces the current history entry, so it is only made while the old address is still the one shown.
+            if (gone || address != origin)
+            {
+                return;
+            }
+
             navigator.NavigateTo(thread.IsMain ? Addresses.Talk(thread.BotId) : Addresses.SideChat(thread.BotId, thread.Id), replace: true);
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
