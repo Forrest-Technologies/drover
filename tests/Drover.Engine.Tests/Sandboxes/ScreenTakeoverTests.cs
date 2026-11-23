@@ -362,6 +362,46 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_screen_is_not_handed_back_while_a_button_on_it_cannot_be_let_go_of(bool done)
+    {
+        var provider = ComputerToolsTests.DesktopProvider();
+        var desktop = provider.Behaviour;
+        var failing = true;
+        provider.Behaviour = (command, token, cancellationToken) =>
+            Volatile.Read(ref failing) && IsPointer(command, "mouseup") && !IsPointer(command, "mousedown")
+                ? ExitWith(1)
+                : desktop(command, token, cancellationToken);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "computer_handover", Asking)],
+            [new TextOutput("Done.")]);
+        await using var world = await TakeoverWorld(provider, script);
+        var host = world.StartHost();
+        var runId = await world.Post(await world.NewThread(), "Read my mail");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+        var call = (await world.ReadToolCalls(runId)).Single();
+        var control = host.Services.GetRequiredService<SandboxControlService>();
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal
+            .Should().Be(SandboxControlRefusal.None);
+        (await control.Input(
+            world.SpaceId,
+            world.UserId,
+            world.BotId,
+            new SandboxInputRequest("down", X: 5, Y: 6),
+            RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+
+        var refused = await HandBackOn(host, world, call.Id, done);
+
+        refused.Outcome.Should().Be(DecisionOutcome.ButtonHeld, "a screen is never handed back with a button down");
+        (await world.ReadToolCalls(runId)).Single().Status.Should().Be(ToolCallStatus.PendingApproval);
+        (await world.ReadRun(runId)).StatusReason.Should().Be(RunReasons.AwaitingTakeover, "the bot still waits");
+        Volatile.Write(ref failing, false);
+        (await HandBackOn(host, world, call.Id, done)).Outcome.Should().Be(DecisionOutcome.Recorded);
+        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+    }
+
     #endregion
 
     #region Conversation Audience
@@ -489,6 +529,13 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
         return await scope.ServiceProvider.GetRequiredService<ApprovalService>()
             .HandBack(toolCallId, done, null, world.UserId, isSpaceAdmin: true, RunWorld.Token);
+    }
+
+    private static async IAsyncEnumerable<CommandOutput> ExitWith(int exitCode)
+    {
+        await Task.Yield();
+        yield return new CommandStarted(1);
+        yield return new CommandExited(exitCode, null);
     }
 
     private static bool IsPointer(CommandRequest command, string step) =>

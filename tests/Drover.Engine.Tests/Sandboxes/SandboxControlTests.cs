@@ -1965,6 +1965,108 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     #endregion
 
+    #region Round Fourteen: Authority Right Before Dispatch, Role Loss, The Bot's Screenshot
+
+    [Fact]
+    public async Task A_person_demoted_while_a_due_button_is_let_go_of_before_their_input_sends_nothing()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        RunWorld? made = null;
+        var admin = Guid.Empty;
+        var demoted = 0;
+        var provider = DesktopProvider();
+        var desktop = provider.Behaviour;
+        provider.Behaviour = (command, token, cancellationToken) =>
+            IsRelease(command) && Interlocked.Exchange(ref demoted, 1) is 0
+                ? DemoteThenRun(() => Demote(made!, admin), desktop(command, token, cancellationToken))
+                : desktop(command, token, cancellationToken);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        made = world;
+        admin = await world.AddMember(MembershipRole.Admin);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token);
+        var resumed = 0;
+        provider.BeforeResume = (_, _) =>
+        {
+            // The owner's button comes due while the admin's click acquires the sandbox, so the gate lets go of it
+            // after the acquisition, and the admin is demoted while that release runs.
+            if (Interlocked.Exchange(ref resumed, 1) is 0)
+            {
+                clock.Advance(SandboxPointerHolds.Limit);
+            }
+
+            return Task.CompletedTask;
+        };
+
+        var clicked = await control.Input(world.SpaceId, admin, world.BotId, new("click", X: 1, Y: 1), RunWorld.Token);
+        await control.Holds.Quiet();
+
+        clicked.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        clicked.Problem.Should().Contain("Owners and admins");
+        demoted.Should().Be(1, "the demotion happened during the release after the sandbox was acquired");
+        provider.Commands.Should().NotContain(
+            command => command.Program == "xdotool" && command.Arguments.Contains("click"),
+            "the role is read again right before the input is sent");
+    }
+
+    [Fact]
+    public async Task A_person_who_lost_their_role_has_their_held_button_let_go_of_at_their_next_input()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var admin = await world.AddMember(MembershipRole.Admin);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        (await control.Input(world.SpaceId, admin, world.BotId, new("down", X: 5, Y: 6), RunWorld.Token)).Refusal
+            .Should().Be(SandboxControlRefusal.None);
+        await Demote(world, admin);
+
+        var moved = await control.Input(world.SpaceId, admin, world.BotId, new("move", X: 7, Y: 8), RunWorld.Token);
+
+        moved.Refusal.Should().NotBe(SandboxControlRefusal.None);
+        Pointer(provider).Should().HaveCount(2, "the press, then its release at once, and no move");
+        Pointer(provider)[1].Should().Equal("mouseup", "1");
+        control.Holds.IsHeldOn(world.SpaceId, await SandboxId(world)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_bots_screenshot_holds_the_command_lock_so_no_person_press_comes_between_its_cleanup_and_capture()
+    {
+        var shooting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shot = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holding = false;
+        var provider = DesktopProvider(async cancellationToken =>
+        {
+            if (Volatile.Read(ref holding))
+            {
+                shooting.TrySetResult();
+                await shot.Task.WaitAsync(cancellationToken);
+            }
+        });
+        await using var world = await ControlWorld(
+            provider,
+            desktop: true,
+            locks: new SandboxCommandLimits { MaxQueuedPerSandbox = 1 });
+        var control = Control(world);
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        await broker.Screenshot(BotCall(world), RunWorld.Token);
+        provider.Commands.Clear();
+        Volatile.Write(ref holding, true);
+
+        var screenshot = broker.Screenshot(BotCall(world), RunWorld.Token);
+        await shooting.Task.WaitAsync(RunWorld.Token);
+        var pressed = await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6),
+            RunWorld.Token);
+        shot.SetResult();
+        await screenshot;
+
+        pressed.Refusal.Should().Be(SandboxControlRefusal.Refused, "the bot's capture had the sandbox's command lock");
+        Pointer(provider).Should().BeEmpty("no press reached the screen while the bot was taking its picture");
+    }
+
+    #endregion
+
     #region Terminal
 
     [Fact]
@@ -2272,7 +2374,8 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         bool desktop = false,
         NetworkAccess network = NetworkAccess.Off,
         DeploymentPolicy? policy = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        SandboxCommandLimits? locks = null)
     {
         var world = await RunWorld.Create(
             postgres,
@@ -2281,6 +2384,14 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             {
                 services.AddSingleton<ISandboxProvider>(provider);
                 services.AddSandboxTools();
+
+                if (locks is not null)
+                {
+                    services.AddSingleton(services => new SandboxCommandLocks(
+                        AppConnectionString(services),
+                        services.GetRequiredService<ILogger<SandboxCommandLocks>>(),
+                        locks));
+                }
 
                 if (clock is not null)
                 {
@@ -2423,6 +2534,38 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             db.BotAncestors.Add(new BotAncestor { AncestorBotId = group.Id, DescendantBotId = bot.Id, Distance = 1 });
             return group.Id;
         });
+
+    /// <summary>The connection string the host's own database context uses.</summary>
+    private static string AppConnectionString(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database.GetConnectionString()
+            ?? throw new InvalidOperationException("The host's database has no connection string.");
+    }
+
+    /// <summary>Makes the person a member who may not use the bot's sandbox.</summary>
+    private static Task<bool> Demote(RunWorld world, Guid userId) =>
+        world.Read(async db =>
+        {
+            var membership = await db.Memberships.SingleAsync(
+                row => row.SpaceId == world.SpaceId && row.UserId == userId,
+                RunWorld.Token);
+            membership.Role = MembershipRole.Member;
+            return true;
+        });
+
+    /// <summary>Runs <paramref name="first"/>, then the command's own output.</summary>
+    private static async IAsyncEnumerable<CommandOutput> DemoteThenRun(
+        Func<Task> first,
+        IAsyncEnumerable<CommandOutput> then)
+    {
+        await first();
+
+        await foreach (var output in then)
+        {
+            yield return output;
+        }
+    }
 
     private static Task<Guid> SandboxId(RunWorld world) =>
         world.Read(async db => (await db.Sandboxes.OrderBy(row => row.Id).LastAsync(RunWorld.Token)).Id);

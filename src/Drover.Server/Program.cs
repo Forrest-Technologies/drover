@@ -77,6 +77,9 @@ builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
 builder.Services.AddHostedService<MigrationStartupCheck>();
 
+// Registered last, so it stops first: held mouse buttons are let go of while the rest of the server still works.
+builder.Services.AddHostedService<SandboxHoldsRelease>();
+
 var app = builder.Build();
 try
 {

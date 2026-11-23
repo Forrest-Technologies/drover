@@ -334,7 +334,7 @@ public sealed class SandboxPointerHoldsTests
     public async Task Work_started_by_the_timer_is_registered_before_anything_else_is_done_for_it()
     {
         var world = new World();
-        var registered = new List<bool>();
+        List<bool> registered = [];
         world.Watching = message =>
         {
             if (message.Contains("is being let go of", StringComparison.Ordinal))
@@ -1429,7 +1429,7 @@ public sealed class SandboxPointerHoldsTests
             return ReleaseOutcome.Unreachable;
         }
 
-        private static Guid Identity(int number) => new(number, 0, 0, new byte[8]);
+        private static Guid Identity(int number) => new(number, 0, 0, [0, 0, 0, 0, 0, 0, 0, 0]);
 
         private Task<ReleaseOutcome> Release(PointerPress held, CancellationToken cancellationToken)
         {

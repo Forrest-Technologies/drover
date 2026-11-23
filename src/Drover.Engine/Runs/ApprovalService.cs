@@ -12,6 +12,12 @@ public enum DecisionOutcome
     /// and any other call with approve or deny.
     /// </summary>
     WrongKind,
+
+    /// <summary>
+    /// The screen was not handed back: a mouse button a person holds on it could not be let go of, and a screen is
+    /// never handed back with a button down. The call still waits.
+    /// </summary>
+    ButtonHeld,
 }
 
 public sealed record ToolDecision(DecisionOutcome Outcome, Run? Run = null);
@@ -155,7 +161,11 @@ public sealed class ApprovalService(
             return await Answering();
         }
 
-        return await broker.HandOver(screen, Answering, cancellationToken);
+        return await broker.HandOver(
+            screen,
+            Answering,
+            () => new ToolDecision(DecisionOutcome.ButtonHeld),
+            cancellationToken);
     }
 
     #endregion

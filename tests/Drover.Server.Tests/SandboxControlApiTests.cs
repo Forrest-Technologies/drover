@@ -197,6 +197,22 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         provider.Commands.Last(command => command.Program == "xdotool").Arguments.Should().Equal("mouseup", "1");
     }
 
+    [Fact]
+    public async Task A_button_held_down_is_let_go_of_when_the_server_host_stops()
+    {
+        var (client, spaceId, botId) = await DesktopBot("stopper");
+        var sandbox = $"{Space(spaceId)}/bots/{botId}/sandbox";
+        await client.Post($"{sandbox}/commands", new SandboxCommandRequest("true"));
+        (await client.Post($"{sandbox}/input", new SandboxInputRequest("down", X: 10, Y: 20, Button: "middle")))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await RestartServer();
+
+        provider.Commands.Last(command => command.Program == "xdotool").Arguments.Should().Equal(
+            ["mouseup", "2"],
+            "the host's stop lets go of the button while a release can still reach the database");
+    }
+
     [Theory]
     [InlineData("down", 1024, 10)]
     [InlineData("down", 10, -1)]

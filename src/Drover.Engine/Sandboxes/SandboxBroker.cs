@@ -360,17 +360,31 @@ public sealed class SandboxBroker(
         var lease = wake
             ? await AcquireScreen(caller, create: true, cancellationToken) ?? throw MadeSandboxMissing()
             : await FindRunningScreen(caller, cancellationToken);
-        await LetGoForBot(caller, lease.SandboxId, cancellationToken);
+        // A bot's capture holds the sandbox's command lock, which person input takes before the screen's gate, so no
+        // press can begin between letting go of a person's buttons and the picture.
+        var png = caller.Call is null
+            ? await Capture(lease, cancellationToken)
+            : await CaptureForBot(caller, lease, cancellationToken);
+        var (width, height) = DesktopCommands.ReadPngSize(png) ?? throw new BuiltinToolException("The screenshot did not come out as a PNG image.");
+        if (wake)
+        {
+            await Finish(caller, lease, readsSandbox: true, cancellationToken);
+        }
+
+        return new SandboxScreenshot(png, width, height, lease.NewSandbox);
+    }
+
+    /// <summary>Takes the picture on the screen of the leased sandbox and reads it, removing the file after.</summary>
+    private async Task<byte[]> Capture(SandboxLease lease, CancellationToken cancellationToken)
+    {
         var path = $"/tmp/drover-screen-{Guid.NewGuid():N}.png";
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
-        byte[] png;
-
         await RunOnScreen(lease, DesktopCommands.Screenshot(path), "take the screenshot", cancellationToken);
 
         try
         {
             await using var content = await provider.ReadFile(lease.Handle, path, cancellationToken);
-            png = await ReadAtMost(content, maxBytes, cancellationToken)
+            return await ReadAtMost(content, maxBytes, cancellationToken)
                 ?? throw new BuiltinToolException($"The screenshot is larger than {maxBytes} bytes, the most this server reads from a sandbox.");
         }
         catch (SandboxProviderException failure)
@@ -381,14 +395,18 @@ public sealed class SandboxBroker(
         {
             await RemoveQuietly(lease, path);
         }
+    }
 
-        var (width, height) = DesktopCommands.ReadPngSize(png) ?? throw new BuiltinToolException("The screenshot did not come out as a PNG image.");
-        if (wake)
+    /// <summary>
+    /// A bot's picture of the screen, taken under the sandbox's command lock, which lets go of every button a person
+    /// holds on it first.
+    /// </summary>
+    private async Task<byte[]> CaptureForBot(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    {
+        await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            await Finish(caller, lease, readsSandbox: true, cancellationToken);
+            return await Capture(lease, cancellationToken);
         }
-
-        return new SandboxScreenshot(png, width, height, lease.NewSandbox);
     }
 
     /// <summary>
@@ -516,10 +534,15 @@ public sealed class SandboxBroker(
     /// <summary>
     /// Hands the bot's screen back from a person: <paramref name="work"/> (storing the answer) runs under the gate of
     /// the bot's sandbox's screen, after any input under way on it has ended and every mouse button a person holds on
-    /// it is let go of, so no bot is woken with a button down. Input that waited for the gate is refused. A button that
-    /// cannot be let go of does not stop the handback: every bot use of the sandbox lets go first or is refused.
+    /// it is let go of, so no bot is woken with a button down. Input that waited for the gate is refused. When a button
+    /// cannot be confirmed let go of, nothing is stored and the answer is <paramref name="refused"/>: the screen is
+    /// never handed back with a button down.
     /// </summary>
-    internal async Task<T> HandOver<T>(SandboxCaller person, Func<Task<T>> work, CancellationToken cancellationToken)
+    internal async Task<T> HandOver<T>(
+        SandboxCaller person,
+        Func<Task<T>> work,
+        Func<T> refused,
+        CancellationToken cancellationToken)
     {
         if (await CurrentSandbox(person, cancellationToken) is not { } sandboxId)
         {
@@ -527,17 +550,26 @@ public sealed class SandboxBroker(
         }
 
         var answer = default(T)!;
-        await Holds.RunWhileReleased(
+        var released = await Holds.RunWhileReleased(
             person.Tenant.SpaceId,
             sandboxId,
-            required: false,
+            required: true,
             async begin =>
             {
                 begin();
                 answer = await work();
             },
             cancellationToken);
-        return answer;
+
+        if (released)
+        {
+            return answer;
+        }
+
+        logger.LogWarning(
+            "A screen was not handed back: a mouse button on sandbox {SandboxId} could not be let go of",
+            sandboxId);
+        return refused();
     }
 
     /// <summary>The id of the sandbox the bot's input would reach now, or null when there is none to reach.</summary>
@@ -555,10 +587,11 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
-    /// Lets go of every held button as the server stops. Holds exist only once a person's input or power control
-    /// asked for them, through <see cref="SandboxControlService"/>, which stops them as it is disposed.
+    /// Lets go of every held button as the server stops, within the stop's bound and <paramref name="host"/>. Called
+    /// from the host's stop, while a release can still open its tenant scope, and again as the control service is
+    /// disposed, where it does nothing more.
     /// </summary>
-    internal ValueTask StopHolds() => holds?.DisposeAsync() ?? ValueTask.CompletedTask;
+    internal Task StopHolds(CancellationToken host) => holds?.Stop(host) ?? Task.CompletedTask;
 
     /// <summary>
     /// The pressed sandbox's row, read by its id, and a handle to it when a release can be sent now; otherwise why
@@ -602,11 +635,16 @@ public sealed class SandboxBroker(
     /// </summary>
     private async Task<ReleaseOutcome?> AskProvider(SandboxHandle handle, CancellationToken cancellationToken)
     {
-        SandboxInfo info;
-
         try
         {
-            info = await provider.Describe(handle, cancellationToken);
+            var info = await provider.Describe(handle, cancellationToken);
+
+            return info.State switch
+            {
+                ProviderSandboxState.Running => null,
+                ProviderSandboxState.Gone => ReleaseOutcome.Gone,
+                _ => ReleaseOutcome.Unreachable,
+            };
         }
         catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.NotFound)
         {
@@ -618,13 +656,6 @@ public sealed class SandboxBroker(
             logger.LogInformation("A held sandbox could not be described: {Failure}", failure.Failure);
             return ReleaseOutcome.Unreachable;
         }
-
-        return info.State switch
-        {
-            ProviderSandboxState.Running => null,
-            ProviderSandboxState.Gone => ReleaseOutcome.Gone,
-            _ => ReleaseOutcome.Unreachable,
-        };
     }
 
     /// <summary>
@@ -1510,16 +1541,7 @@ public sealed class SandboxBroker(
     /// </summary>
     private async Task<SandboxCommandGate> HoldCommands(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
     {
-        SandboxCommandGate gate;
-
-        try
-        {
-            gate = await commandLocks.Hold(caller.Tenant.SpaceId, sandboxId, cancellationToken);
-        }
-        catch (SandboxBusyException busy)
-        {
-            throw new BuiltinToolException(busy.Message);
-        }
+        var gate = await TakeCommandLock(caller, sandboxId, cancellationToken);
 
         try
         {
@@ -1530,6 +1552,21 @@ public sealed class SandboxBroker(
         {
             await gate.DisposeAsync();
             throw;
+        }
+    }
+
+    private async Task<SandboxCommandGate> TakeCommandLock(
+        SandboxCaller caller,
+        Guid sandboxId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await commandLocks.Hold(caller.Tenant.SpaceId, sandboxId, cancellationToken);
+        }
+        catch (SandboxBusyException busy)
+        {
+            throw new BuiltinToolException(busy.Message);
         }
     }
 

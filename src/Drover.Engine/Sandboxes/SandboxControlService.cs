@@ -223,7 +223,7 @@ public sealed class SandboxControlService(
             var owner = new PointerOwner(userId, sessionId ?? Guid.Empty);
             var audit = new Audit("sandbox.input", new JsonObject { ["input"] = input.Kind });
 
-            return await Control(
+            var result = await Control(
                 spaceId,
                 userId,
                 botId,
@@ -238,13 +238,22 @@ public sealed class SandboxControlService(
                         pointer,
                         epoch,
                         () => RecordDone(person.Tenant, userId, botId, audit),
-                        () => Authorize(person.Tenant, spaceId, userId, botId, cancellationToken),
+                        () => Refusal(person.Tenant, spaceId, userId, botId, cancellationToken),
                         cancellationToken);
                     return await sandbox.Act(person, action, doing, steps, cancellationToken) is not null
                         ? true
                         : throw new BuiltinToolException(NoSandboxYet);
                 },
                 cancellationToken);
+
+            if (result.Refusal is SandboxControlRefusal.NotPermitted or SandboxControlRefusal.NotFound
+                && broker is not null)
+            {
+                // The person may no longer use this space's sandboxes: what they hold is let go of now, not later.
+                await broker.Holds.ReleaseHeldBy(spaceId, userId, CancellationToken.None);
+            }
+
+            return result;
         }
         finally
         {
@@ -281,8 +290,14 @@ public sealed class SandboxControlService(
             cancellationToken);
     }
 
-    /// <summary>Lets go of every button a person still holds down, as this server stops.</summary>
-    public ValueTask DisposeAsync() => broker?.StopHolds() ?? ValueTask.CompletedTask;
+    /// <summary>
+    /// Lets go of every button a person still holds down, as the host stops, while a release can still reach the
+    /// database. Bounded by ten seconds and by <paramref name="host"/>; what stays held is logged.
+    /// </summary>
+    public Task LetGoOfEverything(CancellationToken host) => broker?.StopHolds(host) ?? Task.CompletedTask;
+
+    /// <summary>The same as the server stops, for a host that did not stop first; once stopped, it does nothing.</summary>
+    public ValueTask DisposeAsync() => new(LetGoOfEverything(CancellationToken.None));
 
     #endregion
 
@@ -468,19 +483,14 @@ public sealed class SandboxControlService(
         PointerAction? pointer,
         PowerSample epoch,
         Func<Task> recordDone,
-        Func<Task> authorize,
+        Func<Task<string?>> refusal,
         CancellationToken cancellationToken) =>
         use =>
         {
             var guarded = use with
             {
-                Acquire = async () =>
-                {
-                    await authorize();
-                    var acquired = await use.Acquire();
-                    await authorize();
-                    return acquired;
-                },
+                Refusal = refusal,
+                Person = pressed.Owner.UserId,
                 Run = async () =>
                 {
                     await use.Run();
@@ -519,11 +529,12 @@ public sealed class SandboxControlService(
     }
 
     /// <summary>
-    /// Checks again, at the screen's gate, that the person may still change the bot, before the sandbox is acquired
-    /// and again before the input is sent: a person demoted while the input waited sends nothing. Letting go of a
-    /// button never depends on this.
+    /// Whether the person may still change the bot, read again at the screen's gate: before the sandbox is acquired,
+    /// so a refused person wakes nothing, and last of all right before the input is sent, so a person demoted while the
+    /// input waited sends nothing. Null when they may; otherwise the sentence that refuses them. Letting go of a button
+    /// by the server never depends on this.
     /// </summary>
-    private static async Task Authorize(
+    private static async Task<string?> Refusal(
         RunTenant tenant,
         Guid spaceId,
         Guid userId,
@@ -534,10 +545,7 @@ public sealed class SandboxControlService(
             services => Check(services, spaceId, userId, botId, cancellationToken),
             cancellationToken);
 
-        if (refusal is { } refused)
-        {
-            throw new BuiltinToolException(Refuse<bool>(refused).Problem!);
-        }
+        return refusal is { } refused ? Refuse<bool>(refused).Problem : null;
     }
 
     /// <summary>

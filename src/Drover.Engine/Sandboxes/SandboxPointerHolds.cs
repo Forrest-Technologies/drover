@@ -30,13 +30,17 @@ internal sealed record PointerPress(
 /// A person's input on one physical sandbox, in the steps it runs in under that sandbox's gate. <see cref="Acquire"/>
 /// gets the sandbox ready (resumes it and starts its display) and answers the provider's id for it. <see cref="Run"/>
 /// is the input's own work. <see cref="LetGo"/>, once acquired, lets go of buttons on the exact sandbox that was
-/// acquired, whatever its row says; without it, the release every hold uses is used.
+/// acquired, whatever its row says; without it, the release every hold uses is used. <see cref="Refusal"/> asks
+/// whether the person <see cref="Person"/> still may, before the sandbox is acquired and again right before
+/// <see cref="Run"/> is sent: it answers the sentence that refuses them, or null.
 /// </summary>
 internal sealed record ScreenUse(
     Guid SandboxId,
     Func<Task<string>> Acquire,
     Func<Task> Run,
-    Func<IReadOnlyList<MouseButton>, CancellationToken, Task<ReleaseOutcome>>? LetGo = null);
+    Func<IReadOnlyList<MouseButton>, CancellationToken, Task<ReleaseOutcome>>? LetGo = null,
+    Func<Task<string?>>? Refusal = null,
+    Guid? Person = null);
 
 
 /// <summary>
@@ -207,8 +211,10 @@ internal sealed class SandboxPointerHolds(
                 await ReleaseDue(screen, refuse: false);
                 Admit(screen, press, epoch);
                 RefuseDue(screen);
+                await RefuseUnauthorized(screen, use);
                 var acquired = press with { ProviderSandboxId = await use.Acquire() };
                 await ReleaseDue(screen, refuse: true);
+                await RefuseUnauthorized(screen, use);
                 var held = Register(screen, acquired);
                 await RunPressed(screen, held, use);
                 Settle(screen, held, staysDown);
@@ -240,8 +246,11 @@ internal sealed class SandboxPointerHolds(
                 await ReleaseDue(screen, refuse: false);
                 RefuseUnsafe(screen, spaceId, sandboxId, epoch, refuseStuck: true);
                 RefuseDue(screen);
+                await RefuseUnauthorized(screen, use);
                 await use.Acquire();
-                var at = await ReleaseDue(screen, refuse: true);
+                await ReleaseDue(screen, refuse: true);
+                await RefuseUnauthorized(screen, use);
+                var at = time.GetTimestamp();
                 await use.Run();
                 Renew(screen, owner, at);
                 return true;
@@ -270,8 +279,10 @@ internal sealed class SandboxPointerHolds(
                 await ReleaseDue(screen, refuse: false);
                 RefuseUnsafe(screen, spaceId, sandboxId, epoch, refuseStuck: true);
                 RefuseDue(screen);
+                await RefuseUnauthorized(screen, use);
                 await use.Acquire();
                 await ReleaseDue(screen, refuse: true);
+                await RefuseUnauthorized(screen, use);
                 await use.Run();
                 return true;
             },
@@ -306,8 +317,10 @@ internal sealed class SandboxPointerHolds(
             {
                 await ReleaseDue(screen, refuse: false);
                 RefuseUnsafe(screen, spaceId, sandboxId, epoch, refuseStuck: false);
+                await RefuseUnauthorized(screen, use);
                 await use.Acquire();
                 await ReleaseDue(screen, refuse: false);
+                await RefuseUnauthorized(screen, use);
                 await use.Run();
 
                 lock (sync)
@@ -333,6 +346,27 @@ internal sealed class SandboxPointerHolds(
                 return !IsHeld(screen);
             },
             cancellationToken);
+
+    /// <summary>
+    /// Lets go of every button <paramref name="userId"/> holds on any screen of <paramref name="spaceId"/>, each under
+    /// its screen's gate: the person may no longer use the space's sandboxes. Each release has its own deadline; one
+    /// that cannot be confirmed is logged and stays with its record, whose deadlines still apply.
+    /// </summary>
+    public async Task ReleaseHeldBy(Guid spaceId, Guid userId, CancellationToken cancellationToken)
+    {
+        foreach (var sandboxId in ScreensHeldBy(spaceId, userId))
+        {
+            await OnScreen(
+                spaceId,
+                sandboxId,
+                async screen =>
+                {
+                    await ReleaseOwned(screen, userId);
+                    return true;
+                },
+                cancellationToken);
+        }
+    }
 
     /// <summary>Whether a button is held on this sandbox now. Cheap, so a bot's call asks before every use.</summary>
     public bool IsHeldOn(Guid spaceId, Guid sandboxId)
@@ -376,26 +410,40 @@ internal sealed class SandboxPointerHolds(
     /// <see cref="Limit"/> on the clock, whether or not the provider honours cancellation. A screen whose gate is still
     /// held then lets go of what is held on it when that work ends, since the server has stopped.
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(Stop(CancellationToken.None));
+
+    /// <summary>
+    /// As <see cref="DisposeAsync"/>, from the host's stop, while the services a release needs still work. The wait
+    /// also ends when <paramref name="host"/> does. Each button still held when the wait ends is logged by sandbox.
+    /// </summary>
+    public async Task Stop(CancellationToken host)
     {
         if (Close() is not { } stop)
         {
             return;
         }
 
-        using var budget = new CancellationTokenSource(limit, time);
-        List<Task> waiting = [.. stop.Screens.Select(screen => ReleaseOnStop(screen, budget.Token)), .. stop.Running];
+        using var outer = new CancellationTokenSource(limit, time);
+        using var bound = CancellationTokenSource.CreateLinkedTokenSource(host, outer.Token);
+        List<Task> waiting = [.. stop.Screens.Select(screen => ReleaseOnStop(screen, bound.Token)), .. stop.Running];
         Stopping?.Invoke();
 
         try
         {
-            await Task.WhenAll(waiting).WaitAsync(limit, time);
+            await Task.WhenAll(waiting).WaitAsync(limit, time, host);
         }
-        catch (TimeoutException)
+        catch (Exception ended) when (ended is TimeoutException or OperationCanceledException)
         {
             logger.LogError(
                 "Letting go of held mouse buttons was still running after {Seconds} seconds as the server stopped",
                 limit.TotalSeconds);
+        }
+
+        foreach (var held in StillHeld())
+        {
+            logger.LogError(
+                "A mouse button on sandbox {SandboxId} was still held when the server stopped",
+                held.Request.SandboxId);
         }
 
         lock (sync)
@@ -705,6 +753,67 @@ internal sealed class SandboxPointerHolds(
                 held.IdleFrom = Math.Max(held.IdleFrom, at);
                 Arm(screen, held, Remaining(held));
             }
+        }
+    }
+
+    /// <summary>
+    /// The last check before an input is sent, after every slower step: whether the person still may. When they may
+    /// not (their role was taken away, or the bot is gone), every button they hold on this screen is let go of here,
+    /// under the gate, before the input is refused, so losing the role ends their holds at once. A release that cannot
+    /// be confirmed is logged and stays with its record, whose deadlines still apply.
+    /// </summary>
+    private async Task RefuseUnauthorized(Screen screen, ScreenUse use)
+    {
+        if (use.Refusal is not { } check || await check() is not { } refused)
+        {
+            return;
+        }
+
+        if (use.Person is { } person)
+        {
+            await ReleaseOwned(screen, person);
+        }
+
+        throw new BuiltinToolException(refused);
+    }
+
+    /// <summary>Lets go of every button <paramref name="userId"/> holds on this screen, called with its gate held.</summary>
+    private async Task ReleaseOwned(Screen screen, Guid userId)
+    {
+        foreach (var held in Snapshot(screen).Where(held => held.Request.Owner.UserId == userId))
+        {
+            using var bound = new CancellationTokenSource(limit, time);
+
+            try
+            {
+                if (!await ReleaseHeld(screen, held, bound.Token))
+                {
+                    logger.LogWarning(
+                        "A mouse button on sandbox {SandboxId} held by a person who may no longer use it was not let go of",
+                        held.Request.SandboxId);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning(
+                    "Letting go of a mouse button on sandbox {SandboxId} for a person who lost their role ran out of time",
+                    held.Request.SandboxId);
+                Fail(screen, held);
+            }
+        }
+    }
+
+    private Guid[] ScreensHeldBy(Guid spaceId, Guid userId)
+    {
+        lock (sync)
+        {
+            return
+            [
+                .. screens.Values
+                    .Where(screen => screen.Key.SpaceId == spaceId
+                        && screen.Presses.Values.Any(held => held.Request.Owner.UserId == userId))
+                    .Select(screen => screen.Key.SandboxId),
+            ];
         }
     }
 
@@ -1262,6 +1371,14 @@ internal sealed class SandboxPointerHolds(
             }
 
             return new StopWork([.. expiring], held);
+        }
+    }
+
+    private PressRecord[] StillHeld()
+    {
+        lock (sync)
+        {
+            return [.. screens.Values.SelectMany(screen => screen.Presses.Values)];
         }
     }
 
