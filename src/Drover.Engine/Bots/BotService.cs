@@ -8,6 +8,7 @@ public sealed class BotService(
     BotRepository bots,
     ModelConnectionRepository connections,
     ToolRepository tools,
+    BotRuleRepository rules,
     ToolCatalog catalog,
     AccountRepository accounts,
     TenantContext tenant,
@@ -440,10 +441,12 @@ public sealed class BotService(
         }
 
         var ceilings = await tools.ListEffectiveGrants(removed.Id, cancellationToken);
+        var removedRules = await rules.GetRules(removed.Id, cancellationToken);
 
         foreach (var child in children)
         {
             await LowerGrants(child, ceilings, actor, cancellationToken);
+            await CopyRules(removed, child, removedRules, actor, cancellationToken);
             await bots.MoveUp(child.Id, removed.Id, newParent?.Id, cancellationToken);
             audit.Record(
                 actor,
@@ -504,6 +507,45 @@ public sealed class BotService(
 
             var about = new JsonObject { ["tool_id"] = grant.ToolId, ["tool"] = names.GetValueOrDefault(grant.ToolId, grant.ToolId.ToString()) };
             audit.Record(actor, "grant.changed", AuditTargets.Bot, moved.Id, before, GrantService.Snapshot(lowered is null ? null : grant), about);
+        }
+    }
+
+    /// <summary>
+    /// The removed bot's switched-on rules become the moved bot's own, ahead of the rules it already had, so a bot
+    /// that moves up follows every rule it followed before. Rules switched off bound nothing and are not copied; a
+    /// rule of a bot above still applies through the closure rows. Only direct children get copies.
+    /// </summary>
+    private async Task CopyRules(
+        Bot removed,
+        Bot moved,
+        IReadOnlyList<BotRule> removedRules,
+        AuditActor actor,
+        CancellationToken cancellationToken)
+    {
+        var own = await rules.GetRules(moved.Id, cancellationToken);
+        var position = 0;
+
+        foreach (var source in removedRules.Where(rule => rule.Enabled))
+        {
+            var copy = new BotRule
+            {
+                BotId = moved.Id,
+                Name = source.Name,
+                Enabled = true,
+                Checkpoint = source.Checkpoint,
+                Effect = source.Effect,
+                Conditions = [.. source.Conditions],
+                CreatedByUserId = source.CreatedByUserId,
+            };
+            rules.Add(copy);
+            RuleService.Place(own, copy, position++);
+            var about = new JsonObject
+            {
+                ["rule_id"] = copy.Id,
+                ["copied_from_rule_id"] = source.Id,
+                ["removed_bot_id"] = removed.Id,
+            };
+            audit.Record(actor, "rule.added", AuditTargets.Bot, moved.Id, null, RuleService.Snapshot(copy), about);
         }
     }
 
