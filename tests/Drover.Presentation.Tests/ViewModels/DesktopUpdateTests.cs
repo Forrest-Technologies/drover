@@ -23,7 +23,7 @@ public sealed class DesktopUpdateTests
     {
         using var server = new FakeServer();
         var settings = new MemorySettings();
-        var session = new SessionState(server.CreateApi());
+        var session = new SessionState(server.CreateApi(), new ShareInbox());
         var theme = new ThemeModel(settings, NullLogger<ThemeModel>.Instance);
         var updates = new MemoryDesktopUpdates(new(true, true, DesktopUpdatePhase.Available, "1.2.3"), settings);
         using var menu = new AccountMenuViewModel(
@@ -2768,7 +2768,7 @@ public sealed class DesktopUpdateTests
     {
         using var server = new FakeServer();
         return new AccountMenuViewModel(
-            new SessionState(server.CreateApi()),
+            new SessionState(server.CreateApi(), new ShareInbox()),
             new ThemeModel(new MemorySettings(), NullLogger<ThemeModel>.Instance),
             new ToastService(TimeProvider.System),
             new Navigator(),

@@ -75,6 +75,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool missing;
 
+    private bool loadFailed;
+
     private bool reportedBusy;
 
     private Takeover? reportedTakeover;
@@ -102,6 +104,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.OnSend = text => Rendered(Send(text));
         Composer.OnCancel = () => Rendered(Stop());
         Composer.OnFiles = files => Rendered(Attach(files));
+        Composer.OnNotice = (words, kind) => toasts.Show(words, kind);
         Composer.OnRemoveFile = id => Rendered(RemoveFile(id));
         Composer.OnModelChosen = model => Rendered(ChooseModel(model));
         List.OnRetry = () => Rendered(Retry());
@@ -141,6 +144,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     public bool Missing => missing;
 
     public bool Loading => loading;
+
+    /// <summary>
+    /// True while files chosen, pasted, dropped or shared would be taken. A conversation that is only read, is not
+    /// there, is still being read, could not be read, or was left takes none.
+    /// </summary>
+    public bool AcceptsFiles => !gone && !ReadOnly && !Missing && !loading && !loadFailed;
 
     /// <summary>The new conversation's first load, and each later change of what the screen tells it, as one task to wait for.</summary>
     public Task Ready { get; private set; } = Task.CompletedTask;
@@ -229,6 +238,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         gone = true;
+        Composer.TakesFiles = false;
         watch?.Cancel();
         watch?.Dispose();
         leaving.Cancel();
@@ -274,6 +284,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         loading = true;
+        loadFailed = false;
         try
         {
             thread = Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await api.GetThread(SpaceId, parameters.ThreadId!.Value);
@@ -312,6 +323,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
             problem = Failures.Sentence(exception, "Check that the server is running.");
+            loadFailed = true;
         }
         finally
         {
@@ -416,10 +428,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     }
 
     // What another app shared, once the person has chosen this bot for it, becomes this conversation's draft: the
-    // words in the field, the files uploaded as any chosen file is. Sending stays the person's own act.
+    // words in the field, the files uploaded as any chosen file is. Sending stays the person's own act. A conversation
+    // that takes no files now (it could not be read, say) leaves the share waiting for the next time it is opened.
     private async Task TakeWhatWasShared()
     {
-        if (!Main || ReadOnly || loading || missing || inbox.TakeFor(Bot.Id) is not { } shared)
+        if (!Main || !AcceptsFiles || inbox.TakeFor(Bot.Id) is not { } shared)
         {
             return;
         }
@@ -437,7 +450,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Changed();
     }
 
-    private async Task Send(string text)
+    private async Task<bool> Send(string text)
     {
         sending = true;
         (problem, notice) = (null, null);
@@ -461,11 +474,13 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             await ReportBusy();
 
             ShowNewest();
+            return true;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"Your message was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
+            problem = $"Your message was not sent. {Failures.Sentence(exception)} It is back in the message field.";
+            return false;
         }
         finally
         {
@@ -736,17 +751,36 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     // new side chat gets its thread now, from its first file, since a file belongs to a conversation.
     private async Task Attach(IReadOnlyList<IPickedFile> files)
     {
+        // However the files arrived, a conversation that does not take them (read only, missing, still being read, not
+        // read, or left) takes none: the cursor refusing a drop is only a hint to the person. It is asked again after
+        // each wait, since the person may leave while the thread or the rules are on their way.
+        if (!AcceptsFiles)
+        {
+            return;
+        }
+
         problem = null;
         ThreadSummary shown;
         try
         {
             shown = await OpenThread();
+
+            if (!AcceptsFiles)
+            {
+                return;
+            }
+
             rules ??= await api.GetAttachmentRules(SpaceId, shown.Id);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
             problem = $"The files were not attached. {Failures.Sentence(exception, "Check that the server is running.")}";
+            return;
+        }
+
+        if (!AcceptsFiles)
+        {
             return;
         }
 
@@ -1078,6 +1112,24 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private static Task Tell<T>(Func<T, Task>? listener, T value) => listener?.Invoke(value) ?? Task.CompletedTask;
 
+    // The same change around a handler's work, keeping what it answers for the composer to hear.
+    private async Task<T> Rendered<T>(Task<T> work)
+    {
+        if (!work.IsCompleted)
+        {
+            Changed();
+        }
+
+        try
+        {
+            return await work;
+        }
+        finally
+        {
+            Changed();
+        }
+    }
+
     private IReadOnlyList<ChatMessage> Build() => ChatTimeline.Merge(stored, run)
         .ToChatMessages(
             history.With(run),
@@ -1149,6 +1201,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.Running = Working;
         Composer.Waiting = Waiting;
         Composer.Disabled = loading;
+        Composer.TakesFiles = AcceptsFiles;
         Composer.Sending = sending;
 
         var items = draft.Items;
