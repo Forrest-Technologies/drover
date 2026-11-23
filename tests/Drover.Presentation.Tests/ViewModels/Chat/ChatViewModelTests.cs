@@ -226,6 +226,53 @@ public sealed class ChatViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_send_that_fails_puts_the_words_back_in_the_field()
+    {
+        var sending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var composer = new ComposerViewModel { OnSend = _ => sending.Task };
+        var focused = 0;
+        composer.FocusRequested += () => focused++;
+
+        composer.Text = "  Hello there \n";
+        var send = composer.Send();
+        composer.Text.Should().BeEmpty("the field clears while the request is on its way");
+
+        sending.SetResult(false);
+        await send;
+
+        composer.Text.Should().Be("Hello there");
+        focused.Should().Be(1, "the restore puts the cursor back once");
+    }
+
+    [Fact]
+    public async Task Words_typed_while_a_failed_send_was_on_its_way_follow_the_restored_message()
+    {
+        var sending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var composer = new ComposerViewModel { OnSend = _ => sending.Task };
+
+        composer.Text = "Hello there";
+        var send = composer.Send();
+        composer.Text = "And a question";
+
+        sending.SetResult(false);
+        await send;
+
+        composer.Text.Should().Be("Hello there\n\nAnd a question", "what the person wrote meanwhile is kept after the failed words");
+    }
+
+    [Fact]
+    public async Task A_send_that_throws_restores_the_words_and_lets_the_failure_go_on()
+    {
+        var composer = new ComposerViewModel { OnSend = _ => throw new InvalidOperationException("Unexpected failure.") };
+        composer.Text = "Hello there";
+
+        var send = async () => await composer.Send();
+        await send.Should().ThrowAsync<InvalidOperationException>();
+
+        composer.Text.Should().Be("Hello there");
+    }
+
+    [Fact]
     public async Task While_a_run_is_active_stop_takes_the_place_of_send()
     {
         var stopped = 0;
@@ -483,7 +530,7 @@ public sealed class ChatViewModelTests : IDisposable
         OnSend = text =>
         {
             onSend?.Invoke(text);
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         },
         OnCancel = () =>
         {

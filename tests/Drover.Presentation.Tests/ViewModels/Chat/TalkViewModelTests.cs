@@ -949,6 +949,21 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task The_first_message_of_a_new_side_chat_is_back_in_the_field_when_its_thread_cannot_be_made()
+    {
+        Server.Refuse("POST", $"{Space}/bots/{botId}/threads", HttpStatusCode.Conflict, "This bot cannot open another side chat.");
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SideTitle.Should().Be("New side chat"));
+
+        await Send(() => SidePane, "First sample words");
+
+        await Until(() => SidePane.List.Problem.Should().Be("Your message was not sent. This bot cannot open another side chat. It is back in the message field."));
+        SidePane.Composer.Text.Should().Be("First sample words");
+        SidePane.Composer.CanSend.Should().BeTrue();
+        Server.Sent("POST", $"{Space}/threads/{sideId}/messages").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Going_from_one_side_chat_to_another_gives_the_other_a_conversation_of_its_own()
     {
         var otherId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000e1");
@@ -1126,7 +1141,60 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Send(() => MainPane, "Another sample question");
 
-        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. The bot is still working on this thread."));
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. The bot is still working on this thread. It is back in the message field."));
+        MainPane.Messages.Should().HaveCount(2);
+        MainPane.Composer.Text.Should().Be("Another sample question");
+    }
+
+    [Fact]
+    public async Task A_steer_the_server_refuses_puts_the_words_back_in_the_field()
+    {
+        var events = RunStarts();
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+
+        Server.Refuse("POST", $"{Space}/threads/{threadId}/messages", HttpStatusCode.Conflict, "The bot is still working on this thread.");
+        await Send(() => MainPane, "Keep it short");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. The bot is still working on this thread. It is back in the message field."));
+        MainPane.Composer.Text.Should().Be("Keep it short");
+        MainPane.Messages.Should().NotContain(message => message.Pending);
+    }
+
+    [Fact]
+    public async Task A_message_that_could_not_reach_the_server_is_back_in_the_field_with_its_files()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3, Preview: "one"), HttpStatusCode.Created);
+        Server.Fail("POST", $"{Space}/threads/{threadId}/messages", new HttpRequestException("The server cannot be reached."));
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+        await Until(() => Status(MainPane).Should().Equal("3 bytes"));
+        await Send(() => MainPane, "Another sample question");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. Drover could not reach its server. It is back in the message field."));
+        MainPane.Composer.Text.Should().Be("Another sample question");
+        MainPane.Composer.Attachments.Should().ContainSingle().Which.Id.Should().Be(fileId);
+        MainPane.Composer.CanSend.Should().BeTrue("one press of Send tries the same message with the same files");
+    }
+
+    [Fact]
+    public async Task A_message_that_timed_out_is_back_in_the_field()
+    {
+        Server.TimeOut("POST", $"{Space}/threads/{threadId}/messages");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Send(() => MainPane, "Another sample question");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. Drover's server did not answer in time. It is back in the message field."));
+        MainPane.Composer.Text.Should().Be("Another sample question");
         MainPane.Messages.Should().HaveCount(2);
     }
 
