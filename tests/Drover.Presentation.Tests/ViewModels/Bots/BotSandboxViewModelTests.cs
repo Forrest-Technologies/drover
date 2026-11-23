@@ -1084,7 +1084,10 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
     public async Task A_command_that_ends_after_the_page_was_left_does_not_throw()
     {
         Answer(Status("running") with { Desktop = false });
-        server.Answer("POST", $"{sandbox}/commands", new SandboxCommandResponse(0, "done\n", string.Empty, false, false, false));
+        server.Answer(
+            "POST",
+            $"{sandbox}/commands",
+            new SandboxCommandResponse(0, "done\n", string.Empty, false, false, false));
         var answer = server.Hold("POST", $"{sandbox}/commands");
         await Open();
         Page.Command = "sleep 10";
@@ -1095,7 +1098,8 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
         answer.SetResult();
 
         var ending = () => run;
-        await ending.Should().NotThrowAsync("the person left the page, and nothing that ends afterwards may reach the platform");
+        await ending.Should().NotThrowAsync(
+            "the person left the page, and nothing that ends afterwards may reach the platform");
         Requests("GET", sandbox).Should().ContainSingle("the page that was left does not read the state again");
     }
 
