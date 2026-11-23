@@ -11,16 +11,16 @@ Wording follows the [copy guide](copy-guide.md).
 ```mermaid
 flowchart LR
     pick[Pick, paste, drop or share a file] --> waiting[Waiting]
-    waiting --> sending[Sending]
-    sending -->|connection lost| paused[Paused]
-    paused -->|connection back| sending
-    sending -->|all bytes sent| checking[Checking]
+    waiting --> uploading[Uploading]
+    uploading -->|connection lost| paused[Paused]
+    paused -->|connection back| uploading
+    uploading -->|all bytes sent| checking[Checking]
     checking --> ready[Ready]
-    sending -->|refused or failed| failed[Failed]
+    uploading -->|refused or failed| failed[Failed]
     checking -->|hash does not match| failed
-    failed -->|Retry| sending
+    failed -->|Retry| uploading
     waiting -->|Cancel| gone[Removed]
-    sending -->|Cancel| gone
+    uploading -->|Cancel| gone
     paused -->|Cancel| gone
     ready -->|Remove| gone
     failed -->|Remove| gone
@@ -39,22 +39,22 @@ One chip per file, in the `FlowPanel` of `AttachmentTray` above the message fiel
 ```text
 +--------------------------------------------------+
 | [icon] holiday-video.mov              [ Cancel ] |
-|        Sending · 12.4 MB of 96 MB                |
+|        Uploading · 12.4 MB of 96 MB                |
 | ============--------------------------------     |
 +--------------------------------------------------+
 ```
 
 - Line 1: a file-kind icon (decorative, no name), the file name in `text`, cut in the middle with an ellipsis when long so the extension stays visible, then one `IconButton`.
 - Line 2: the state sentence in `text-2`, 12 px.
-- Progress line: 2 px along the bottom edge inside the facet, `ember` on `line`, drawn only in Sending and Paused when the total size is known. It does not animate between updates and never loops.
+- Progress line: 2 px along the bottom edge inside the facet, `ember` on `line`, drawn only in Uploading and Paused when the total size is known. It does not animate between updates and never loops.
 
 ### States and words
 
 | State | Line 2 | Progress line | Button (accessible name) |
 | --- | --- | --- | --- |
-| Waiting | `Waiting to send` | none | Cancel (`Cancel {file name}`) |
-| Sending, size known | `Sending · {sent} of {total}` | filled to sent ÷ total | Cancel (`Cancel {file name}`) |
-| Sending, size not known | `Sending · {sent} sent` | none | Cancel (`Cancel {file name}`) |
+| Waiting | `Waiting to upload` | none | Cancel (`Cancel {file name}`) |
+| Uploading, size known | `Uploading · {sent} of {total}` | filled to sent ÷ total | Cancel (`Cancel {file name}`) |
+| Uploading, size not known | `Uploading · {sent} uploaded` | none | Cancel (`Cancel {file name}`) |
 | Paused | `Paused. It continues when the connection is back.` | kept where it stopped, `text-3` in place of `ember` | Cancel (`Cancel {file name}`) |
 | Checking | `Checking the file` | full | none |
 | Ready | `{total}` | none | Remove (`Remove {file name}`) |
@@ -65,22 +65,26 @@ Sizes use the largest unit that keeps one decimal below 100 (`840 KB`, `12.4 MB`
 
 ### Causes
 
-`{cause}` is one of these fixed sentences. Nothing from a response body, a header or an upload id is shown.
+`{cause}` is one fixed sentence. Sentences that `FileWords` already has on `main` are kept as they are. Nothing from a response body, a header or an upload id is shown.
 
 | Cause | Sentence | Retry |
 | --- | --- | --- |
-| The file is larger than the server takes | `It is larger than {limit}, the most this server takes.` | no |
-| The person's or the space's storage is full | `There is no room left for files. Remove some files, or ask the owner of the space.` | no |
-| The kind of file is not accepted | `This kind of file cannot be attached.` | no |
-| The file could not be read on the device | `This device could not read the file.` | yes |
-| The server did not answer, after the retries | `{failure sentence}` | yes |
-| The file changed or was damaged on the way | `The file did not arrive whole.` | yes |
-| The upload ran out of time on the server | `It took too long and was dropped.` | yes |
-| The session ended | handled by the session screen (#562); the chip is kept for the return |
+| The file is larger than the server takes | `Larger than this server takes.` (existing) | no |
+| The space's storage is full | `This space has no room left for files on this server.` (existing) | no |
+| Too many files on one message | `More files than one message may carry.` (existing) | no |
+| The server could not store it | `The server could not store this file. Contact the server administrator.` (existing) | no |
+| The bot's model cannot read pictures, or the bot cannot open this kind of file | the two existing sentences | no |
+| The upload ran out of time on the server | `This upload took too long before finishing, so its space was released. Upload it again.` (existing) | yes |
+| The file could not be read on the device | `This device could not read the file.` (new) | yes |
+| The server did not answer, after the retries | `{failure sentence}` (new use) | yes |
+| The file changed or was damaged on the way | `The file did not arrive whole.` (new) | yes |
+| The session ended | handled by the session screen (#562). The chip is kept for the return |
+
+The line on `main` today, `Not uploaded. Remove it and attach it again.`, is replaced: Retry does that in one press. `Uploading, {n} percent` becomes the `Uploading` rows above.
 
 ## The composer around the chips
 
-- While any chip is Waiting, Sending, Paused or Checking, Send is disabled. Its accessible description is `Send is ready when the files have uploaded.` The same sentence shows as a `StatusNote` (`Info`) under the chips only after the person presses Enter or Send while it is disabled, and leaves when the last upload ends.
+- While any chip is Waiting, Uploading, Paused or Checking, Send is disabled. Its accessible description is `Send is ready when the files have uploaded.` The same sentence shows as a `StatusNote` (`Info`) under the chips only after the person presses Enter or Send while it is disabled, and leaves when the last upload ends.
 - While any chip is Failed, Send is enabled only if at least one other chip is Ready or the field has text, and the message goes without the failed files. Before it goes, a `Dialog` asks once: title `Send without {n} files`, body `{n} files were not uploaded and will not go with this message.`, buttons `Go back` (focused) and `Send without them`. With one file: `Send without 1 file` and `1 file was not uploaded and will not go with this message.`
 - Stop, the message field and Attach work as today.
 
@@ -119,7 +123,7 @@ Tokens only: `bg-2` fill, `line` edge, `text`, `text-2`, `ember` progress, `dang
 
 ## Settings and defaults
 
-This spec adds no optional element. Upload progress is part of sending a file and is always shown. Nothing here has a switch.
+This spec adds no optional element. Upload progress is part of uploading a file and is always shown. Nothing here has a switch.
 
 ## Acceptance checks
 
