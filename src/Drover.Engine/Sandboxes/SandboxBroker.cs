@@ -117,6 +117,12 @@ public sealed class SandboxBroker(
     internal Func<CancellationToken, Task>? BeforePowerLookup { get; set; }
 
     /// <summary>
+    /// Runs in a power control's lookup right after the caller's role was read and before the bot's sharing group and
+    /// sandbox are, so a test can change them in between. Not used outside tests.
+    /// </summary>
+    internal Func<CancellationToken, Task>? AfterPowerAuthorized { get; set; }
+
+    /// <summary>
     /// Runs in a rebuild once its sandbox is checked and before it is taken out of use, so a test can take it out of
     /// use first. Not used outside tests.
     /// </summary>
@@ -793,10 +799,12 @@ public sealed class SandboxBroker(
         SandboxCaller person,
         CancellationToken cancellationToken,
         Guid? only = null,
-        Action? begin = null)
+        Action? begin = null,
+        Func<IServiceProvider, Task>? authorize = null)
     {
         await LookingForPower(cancellationToken);
-        var found = await Locate(person, null, create: false, cancellationToken);
+        var found = await Locate(person, null, create: false, cancellationToken, authorize: authorize);
+        RefuseWhenGone(found, only);
 
         if (found is { } located)
         {
@@ -851,9 +859,16 @@ public sealed class SandboxBroker(
     /// Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made. With
     /// <paramref name="only"/>, it is that sandbox or nothing is done, and one the provider lost is not replaced here.
     /// </summary>
-    public async Task<bool> Resume(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
+    public async Task<bool> Resume(
+        SandboxCaller person,
+        CancellationToken cancellationToken,
+        Guid? only = null,
+        Func<IServiceProvider, Task>? authorize = null)
     {
-        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken, only) is not { } lease)
+        await LookingForPower(cancellationToken);
+
+        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken, only, authorize)
+            is not { } lease)
         {
             return false;
         }
@@ -873,10 +888,11 @@ public sealed class SandboxBroker(
         SandboxCaller person,
         CancellationToken cancellationToken,
         Guid? only = null,
-        Action? begin = null)
+        Action? begin = null,
+        Func<IServiceProvider, Task>? authorize = null)
     {
         await LookingForPower(cancellationToken);
-        var target = await Locate(person, null, create: false, cancellationToken);
+        var target = await Locate(person, null, create: false, cancellationToken, authorize: authorize);
 
         if (target is null && only is { } meant && meant != Guid.Empty)
         {
@@ -947,10 +963,14 @@ public sealed class SandboxBroker(
         SandboxCaller person,
         CancellationToken cancellationToken,
         Guid? only = null,
-        Action? begin = null)
+        Action? begin = null,
+        Func<IServiceProvider, Task>? authorize = null)
     {
         await LookingForPower(cancellationToken);
-        if (await Locate(person, null, create: false, cancellationToken) is not { } target)
+        var located = await Locate(person, null, create: false, cancellationToken, authorize: authorize);
+        RefuseWhenGone(located, only);
+
+        if (located is not { } target)
         {
             return false;
         }
@@ -1003,9 +1023,10 @@ public sealed class SandboxBroker(
         bool screen,
         bool create,
         CancellationToken cancellationToken,
-        Guid? only = null)
+        Guid? only = null,
+        Func<IServiceProvider, Task>? authorize = null)
     {
-        if (await Locate(caller, environment, create, cancellationToken) is not { } target)
+        if (await Locate(caller, environment, create, cancellationToken, authorize: authorize) is not { } target)
         {
             return null;
         }
@@ -1073,12 +1094,13 @@ public sealed class SandboxBroker(
         string? environment,
         bool create,
         CancellationToken cancellationToken,
-        Guid? owner = null)
+        Guid? owner = null,
+        Func<IServiceProvider, Task>? authorize = null)
     {
         try
         {
             return await caller.Tenant.Transact(
-                services => LocateIn(services, caller, environment, create, owner, cancellationToken),
+                services => LocateIn(services, caller, environment, create, owner, authorize, cancellationToken),
                 cancellationToken);
         }
         catch (Exception raced) when (SandboxRepository.IsAlreadyLive(raced))
@@ -1086,7 +1108,7 @@ public sealed class SandboxBroker(
             // Another call made the owner's first sandbox row at the same moment. Its row is the one to use.
             logger.LogDebug("Bot {BotId} met another call creating the same sandbox; using that one", caller.BotId);
             return await caller.Tenant.Transact(
-                services => LocateIn(services, caller, environment, create, owner, cancellationToken),
+                services => LocateIn(services, caller, environment, create, owner, authorize, cancellationToken),
                 cancellationToken);
         }
     }
@@ -1113,7 +1135,9 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// With <paramref name="expectedOwner"/>, the caller's sharing group must still be owned by that bot, checked
-    /// before any row is made.
+    /// before any row is made. <paramref name="authorize"/> is the caller's own check that they may still do this,
+    /// run first in the same transaction, so the check and the target it resolves are one step and nothing waits
+    /// between the target's validation and the provider call.
     /// </summary>
     private async Task<SandboxTarget?> LocateIn(
         IServiceProvider services,
@@ -1121,8 +1145,19 @@ public sealed class SandboxBroker(
         string? environment,
         bool create,
         Guid? expectedOwner,
+        Func<IServiceProvider, Task>? authorize,
         CancellationToken cancellationToken)
     {
+        if (authorize is not null)
+        {
+            await authorize(services);
+
+            if (AfterPowerAuthorized is { } authorized)
+            {
+                await authorized(cancellationToken);
+            }
+        }
+
         var bots = services.GetRequiredService<BotRepository>();
         var bot = await bots.FindBot(caller.BotId, cancellationToken);
 
@@ -1303,6 +1338,18 @@ public sealed class SandboxBroker(
 
     private Task LookingForPower(CancellationToken cancellationToken) =>
         BeforePowerLookup?.Invoke(cancellationToken) ?? Task.CompletedTask;
+
+    /// <summary>
+    /// A power control that was made ready for one sandbox finds none now: the bot's sandbox changed, so nothing is
+    /// done. An empty id means none was found to gate, which is still none.
+    /// </summary>
+    private static void RefuseWhenGone(SandboxTarget? target, Guid? only)
+    {
+        if (target is null && only is { } meant && meant != Guid.Empty)
+        {
+            throw new BuiltinToolException(MovedSentence);
+        }
+    }
 
     /// <summary>
     /// A power control that was made ready for one sandbox does not act on another: if the bot's sandbox is not the one

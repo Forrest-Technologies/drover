@@ -74,3 +74,5 @@ global using NetSparkleUpdater.Enums;
 global using NetSparkleUpdater.SignatureVerifiers;
 global using SkiaSharp;
 global using Xunit;
+global using DeviceServerChoice = Drover.Native.Platform.DeviceServerChoice;
+global using ServerAddress = Drover.Native.Platform.ServerAddress;

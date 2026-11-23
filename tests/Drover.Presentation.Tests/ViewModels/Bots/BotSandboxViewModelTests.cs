@@ -56,7 +56,7 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
         services = new ServiceCollection()
             .AddLogging()
             .AddSingleton(server.CreateApi())
-            .AddSingleton(new SessionState(server.CreateApi()))
+            .AddSingleton(new SessionState(server.CreateApi(), new ShareInbox()))
             .AddSingleton(navigator)
             .AddSingleton<TimeProvider>(time)
             .AddSingleton(toasts)

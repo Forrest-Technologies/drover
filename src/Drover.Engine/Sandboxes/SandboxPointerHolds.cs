@@ -479,19 +479,27 @@ internal sealed class SandboxPointerHolds(
     /// <paramref name="required"/> is set and a button could not be let go of. The work calls the action it is given
     /// once it has checked that the sandbox is still the one gated and is about to ask the provider to change it: from
     /// then on, and again when it ends however it ended, any input that read <see cref="PowerEpoch"/> before is
-    /// refused. A control that ends before that point changed nothing and refuses nothing.
+    /// refused. A control that ends before that point changed nothing and refuses nothing. <paramref name="admit"/>
+    /// runs first, once the gate is taken and before anything is let go of: a control it refuses lets go of nothing
+    /// and fences nothing.
     /// </summary>
     public Task<bool> RunWhileReleased(
         Guid spaceId,
         Guid sandboxId,
         bool required,
         Func<Action, Task> work,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        Func<Task>? admit = null) =>
         OnScreen(
             spaceId,
             sandboxId,
             async screen =>
             {
+                if (admit is not null)
+                {
+                    await admit();
+                }
+
                 await ReleaseEach(screen, cancellationToken);
 
                 if (required && IsHeld(screen))

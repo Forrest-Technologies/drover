@@ -450,7 +450,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Changed();
     }
 
-    private async Task Send(string text)
+    private async Task<bool> Send(string text)
     {
         sending = true;
         (problem, notice) = (null, null);
@@ -474,11 +474,13 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             await ReportBusy();
 
             ShowNewest();
+            return true;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"Your message was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
+            problem = $"Your message was not sent. {Failures.Sentence(exception)} It is back in the message field.";
+            return false;
         }
         finally
         {
@@ -1109,6 +1111,24 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     }
 
     private static Task Tell<T>(Func<T, Task>? listener, T value) => listener?.Invoke(value) ?? Task.CompletedTask;
+
+    // The same change around a handler's work, keeping what it answers for the composer to hear.
+    private async Task<T> Rendered<T>(Task<T> work)
+    {
+        if (!work.IsCompleted)
+        {
+            Changed();
+        }
+
+        try
+        {
+            return await work;
+        }
+        finally
+        {
+            Changed();
+        }
+    }
 
     private IReadOnlyList<ChatMessage> Build() => ChatTimeline.Merge(stored, run)
         .ToChatMessages(
