@@ -35,7 +35,7 @@
     <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />
   </ItemGroup>
 
-  <!-- The bounds the native client puts on a picture pasted from the clipboard, checked with the same drawing library. -->
+  <!-- The bounds the native client puts on a picture pasted from the clipboard, checked with its drawing library. -->
   <ItemGroup>
     <Compile Include="..\..\src\Drover.Native\Chat\PastedPicture.cs" Link="Native\PastedPicture.cs" />
   </ItemGroup>

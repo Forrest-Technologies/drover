@@ -488,7 +488,7 @@ public sealed class FileComponentTests : IDisposable
         var local = new DateTimeOffset(2026, 11, 20, 14, 3, 0, TimeSpan.Zero);
 
         FileWords.PastedFileName("image.png", madeForThePaste: true, local)
-            .Should().Be("Pasted image 2026-11-20 14.03.png", "a screenshot has no name, only the one the device gave it");
+            .Should().Be("Pasted image 2026-11-20 14.03.png", "a screenshot has only the name the device gave it");
         FileWords.PastedFileName(" ", madeForThePaste: false, local).Should().Be("Pasted image 2026-11-20 14.03.png");
     }
 

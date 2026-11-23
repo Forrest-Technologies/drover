@@ -68,16 +68,16 @@ internal static partial class PlatformPaste
             return;
         }
 
-        var handed = Described(batch);
-
-        if (handed.Files.Count == 0)
-        {
-            destination.Notify(FileWords.PasteFailed, ToastKind.Error);
-            return;
-        }
-
         try
         {
+            var handed = Described(batch);
+
+            if (handed.Files.Count == 0)
+            {
+                destination.Notify(FileWords.PasteFailed, ToastKind.Error);
+                return;
+            }
+
             await destination.Hand(handed);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

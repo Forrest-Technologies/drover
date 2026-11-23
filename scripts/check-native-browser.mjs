@@ -277,7 +277,7 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
-            // The names of the files the conversation uploaded, in order: a pasted picture and a dropped file each add one.
+            // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
             const uploadedFiles = [];
             let projectMoved = false;
             let previewFrameRequests = [];
@@ -439,13 +439,14 @@ try {
                 }
                 else if (address.endsWith(`/threads/${thread.id}/files`) && route.request().method() === 'POST') {
                     const uploaded = new URL(route.request().url()).searchParams.get('name') ?? '';
-                    uploadedFiles.push(uploaded);
+                    const bytes = route.request().postDataBuffer() ?? Buffer.alloc(0);
+                    uploadedFiles.push({ name: uploaded, bytes });
+                    const number = String(uploadedFiles.length).padStart(3, '0');
                     await route.fulfill({
                         status: 201,
                         json: {
-                            id: `0196f1a0-0000-7000-8000-0000000001${String(uploadedFiles.length).padStart(2, '0')}`, name: uploaded,
-                            contentType: 'image/png', kind: 'image', size: route.request().postDataBuffer()?.length ?? 0,
-                            width: 1, height: 1,
+                            id: `0196f1a0-0000-7000-8000-000000000${number}`, name: uploaded,
+                            contentType: 'image/png', kind: 'image', size: bytes.length, width: 16, height: 16,
                         },
                     });
                     return;
@@ -697,7 +698,7 @@ try {
                 }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
-                    await checkPastedAndDroppedFiles(page, uploadedFiles);
+                    await checkPastedAndDroppedFiles(page, uploadedFiles, width, theme);
                     await checkStopBounds(page, width);
                 }
                 if (name === 'conversation') {
@@ -990,19 +991,31 @@ async function checkComposerBounds(page) {
 }
 
 // A picture on the clipboard arrives with the page's paste event, and files dropped anywhere on the conversation
-// attach to it. The page is given a paste event whose clipboard holds one PNG, then the same with text beside the
-// picture (the text is what was meant, so nothing is attached), then a drop of one file over the message list.
-async function checkPastedAndDroppedFiles(page, uploadedFiles) {
+// attach to it. Each step waits for what the page did, never for a set time: a paste reports whether the page took
+// it from the field, an upload is waited for by count, and the drop line is waited for as it comes and goes.
+async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
-    const png = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137];
-    const pasteWith = (text) => page.evaluate(({ bytes, text }) => {
+    const dropLine = page.getByText('Drop the files to attach them.', { exact: true });
+    const pasteFailed = page.getByText('What was pasted could not be attached.', { exact: true });
+    // A complete PNG (signature, header, pixels, end), so what is uploaded can be checked byte for byte.
+    const png = [...Buffer.from(samplePng, 'base64')];
+    // A file copied from storage carries the time it was last changed; a picture the browser made for the paste, now.
+    const longAgo = Date.parse('2024-03-01T09:00:00Z');
+    // Dispatches a paste on the element with the focus, as Ctrl+V does. True when the page took it from the field.
+    const paste = (files, text) => page.evaluate(({ files, text }) => {
         const clipboardData = new DataTransfer();
-        clipboardData.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+        for (const file of files) {
+            clipboardData.items.add(new File([new Uint8Array(file.bytes)], file.name, {
+                type: 'image/png',
+                lastModified: file.lastModified ?? Date.now(),
+            }));
+        }
         if (text) {
             clipboardData.setData('text/plain', text);
         }
-        document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
-    }, { bytes: png, text });
+        const event = new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true });
+        return !document.activeElement.dispatchEvent(event);
+    }, { files, text });
     const uploadsAre = async (count, message) => {
         const deadline = Date.now() + 10000;
         while (uploadedFiles.length < count && Date.now() < deadline) {
@@ -1010,44 +1023,132 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles) {
         }
         assert.equal(uploadedFiles.length, count, message);
     };
-
-    await field.focus();
-    await pasteWith('some words');
-    await page.waitForTimeout(500);
-    assert.equal(uploadedFiles.length, 0, 'A picture pasted with text beside it attaches nothing: the text is what was meant.');
-
-    await pasteWith(null);
-    await uploadsAre(1, 'A picture pasted with no text uploads once.');
-    assert.match(uploadedFiles[0], /^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.png$/);
-
-    // The platform reads a drop from the document's drag events by where the pointer is, so the events carry the point.
-    await page.evaluate(async bytes => {
+    const held = () => page.evaluate(() => globalThis.droverPaste.held());
+    // The platform reads a drag from the document's drag events by where the pointer is, so the events carry the point.
+    const holdOver = (files, text) => page.evaluate(({ files, text }) => {
         // A drop made by script has no file-system handle behind its item; the platform then reads the file itself.
-        Object.defineProperty(DataTransferItem.prototype, 'getAsFileSystemHandle', { value: undefined, configurable: true });
+        Object.defineProperty(
+            DataTransferItem.prototype, 'getAsFileSystemHandle', { value: undefined, configurable: true });
         const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(new File([new Uint8Array(bytes)], 'dropped.png', { type: 'image/png' }));
+        for (const file of files) {
+            dataTransfer.items.add(new File([new Uint8Array(file.bytes)], file.name, { type: 'image/png' }));
+        }
+        if (text) {
+            dataTransfer.setData('text/plain', text);
+        }
         const point = { clientX: Math.round(innerWidth * 0.6), clientY: Math.round(innerHeight * 0.25) };
         const target = document.elementFromPoint(point.clientX, point.clientY) ?? document.body;
-        for (const type of ['dragenter', 'dragover', 'dragover', 'drop']) {
-            target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...point }));
-            await new Promise(resolve => setTimeout(resolve, 100));
+        globalThis.droverCheckDrag = { dataTransfer, point, target };
+    }, { files, text });
+    const dragEvent = type => page.evaluate(type => {
+        const { dataTransfer, point, target } = globalThis.droverCheckDrag;
+        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...point }));
+    }, type);
+    // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
+    const dragUntilShown = async message => {
+        const deadline = Date.now() + 10000;
+        await dragEvent('dragenter');
+        while (await dropLine.count() === 0) {
+            assert.ok(Date.now() < deadline, message);
+            await dragEvent('dragover');
         }
-    }, png);
-    await uploadsAre(2, 'A file dropped on the message list uploads to the conversation.');
-    assert.equal(uploadedFiles[1], 'dropped.png');
+    };
+
+    // Text and a picture together: the text is what was meant, so the page leaves the paste to the field.
+    await field.focus();
+    assert.equal(await paste([{ name: 'mixed.png', bytes: png, lastModified: longAgo }], 'some words'), false,
+        'A picture pasted with text beside it is left to the text field.');
+
+    // A screenshot alone: the browser names it image.png at the moment of the paste, and it is named for that moment.
+    assert.equal(await paste([{ name: 'image.png', bytes: png }]), true,
+        'A picture pasted alone is taken by the page.');
+    await uploadsAre(1, 'A picture pasted with no text uploads once, and the mixed paste before it uploaded nothing.');
+    assert.match(uploadedFiles[0].name, /^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.png$/);
+    assert.deepEqual([...uploadedFiles[0].bytes], png, 'The picture is uploaded byte for byte.');
+    await page.getByRole('button', { name: `Remove ${uploadedFiles[0].name}`, exact: true })
+        .waitFor({ state: 'attached', timeout: 10000 });
+    await page.screenshot({ path: path.join(pictures, `pasted-picture-${width}-${theme}.png`) });
+
+    // A file copied from storage keeps its own name, even image.png.
+    assert.equal(await paste([{ name: 'image.png', bytes: png, lastModified: longAgo }]), true);
+    await uploadsAre(2, 'A file copied from storage and pasted uploads once.');
+    assert.equal(uploadedFiles[1].name, 'image.png', 'A copied file named image.png keeps its name.');
+
+    // The paste belongs to the field it was made in: the cursor leaves while the file is read, and it still arrives.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let open;
+        const gate = new Promise(resolve => { open = resolve; });
+        Blob.prototype.arrayBuffer = async function () {
+            await gate;
+            return reading.call(this);
+        };
+        globalThis.droverCheckRead = () => {
+            Blob.prototype.arrayBuffer = reading;
+            open();
+        };
+    });
+    await field.focus();
+    assert.equal(await paste([{ name: 'held.png', bytes: png, lastModified: longAgo }]), true);
+    await page.keyboard.press('Tab');
+    await page.evaluate(() => globalThis.droverCheckRead());
+    await uploadsAre(3, 'A paste read after the cursor left its field still goes to that conversation.');
+    assert.equal(uploadedFiles[2].name, 'held.png');
+
+    // A file that cannot be read fails the whole paste once, and every byte held for it is let go.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let calls = 0;
+        Blob.prototype.arrayBuffer = function () {
+            calls++;
+            return calls === 2 ? Promise.reject(new Error('Sample read failure')) : reading.call(this);
+        };
+        globalThis.droverCheckRead = () => { Blob.prototype.arrayBuffer = reading; };
+    });
+    await field.focus();
+    assert.equal(await paste([
+        { name: 'first.png', bytes: png, lastModified: longAgo },
+        { name: 'second.png', bytes: png, lastModified: longAgo },
+    ]), true);
+    await pasteFailed.first().waitFor({ state: 'attached', timeout: 10000 });
+    await page.evaluate(() => globalThis.droverCheckRead());
+    assert.equal(await held(), 0, 'A paste that failed holds no bytes.');
+    await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
+    await pasteFailed.first().waitFor({ state: 'detached', timeout: 5000 });
+    assert.equal(uploadedFiles.length, 3, 'Nothing of a paste that failed is uploaded.');
+
+    // Files held over the message list: the drop line shows, and goes when the files leave the conversation.
+    await holdOver([{ name: 'left.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list show the drop line.');
+    await page.screenshot({ path: path.join(pictures, `drop-cue-${width}-${theme}.png`) });
+    await dragEvent('dragleave');
+    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+
+    // Words dragged over the conversation are refused at release: nothing is uploaded and no line is left behind.
+    await holdOver([], 'Sample dragged words');
+    await dragEvent('dragenter');
+    await dragEvent('dragover');
+    await dragEvent('drop');
+    assert.equal(await dropLine.count(), 0, 'Words held over the conversation never show the drop line.');
+
+    // Files dropped on the message list attach to the conversation, and the line goes with the drop.
+    await holdOver([{ name: 'dropped.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list after a refused drag show the drop line.');
+    await dragEvent('drop');
+    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await uploadsAre(4, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
+    assert.equal(uploadedFiles[3].name, 'dropped.png');
+    assert.deepEqual([...uploadedFiles[3].bytes], png);
 
     // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
     await field.focus();
-    await page.evaluate(bytes => {
-        const clipboardData = new DataTransfer();
-        for (let number = 1; number <= 150; number++) {
-            clipboardData.items.add(new File([new Uint8Array(bytes)], `many ${number}.png`, { type: 'image/png' }));
-        }
-        document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
-    }, png);
+    assert.equal(await paste(Array.from({ length: 150 }, (_, index) => ({
+        name: `many ${index + 1}.png`, bytes: png, lastModified: longAgo,
+    }))), true);
     await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'attached', timeout: 10000 });
     const remove = page.getByRole('button', { name: /^Remove / });
-    assert.equal(await remove.count(), 102, 'The hundred files taken stand beside the two attached before.');
+    assert.equal(await remove.count(), 104, 'The hundred files taken stand beside the four attached before.');
+    assert.equal(await held(), 0, 'Bytes the conversation did not collect are let go once the paste is reported.');
     while (await remove.count() > 0) {
         await remove.first().dispatchEvent('click');
     }
