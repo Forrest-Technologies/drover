@@ -12,6 +12,12 @@ public enum DecisionOutcome
     /// and any other call with approve or deny.
     /// </summary>
     WrongKind,
+
+    /// <summary>
+    /// The screen was not handed back: a mouse button a person holds on it could not be let go of, and a screen is
+    /// never handed back with a button down. The call still waits.
+    /// </summary>
+    ButtonHeld,
 }
 
 public sealed record ToolDecision(DecisionOutcome Outcome, Run? Run = null);
@@ -32,6 +38,8 @@ public sealed class ApprovalService(
     RunSignal signal,
     RunEventHub hub,
     UserSignalHub signals,
+    IEnumerable<SandboxBroker> brokers,
+    RunScopes runScopes,
     TimeProvider time,
     ILogger<ApprovalService> logger)
 {
@@ -115,16 +123,19 @@ public sealed class ApprovalService(
     /// <summary>
     /// The person hands the screen back: done, or could not, with a line for the bot that may be empty. Answered by
     /// the same people and in the same way as an approval: done lets the call run, and its result says so; could not
-    /// ends it with the person's line as its result. The screen is no longer held once the answer is stored.
+    /// ends it with the person's line as its result. The screen is no longer held once the answer is stored. The answer
+    /// is stored under the gate of the screen it hands back, once every mouse button a person holds on it is let go of
+    /// and any input under way on it has ended; input that waited behind it is refused.
     /// </summary>
-    public Task<ToolDecision> HandBack(
+    public async Task<ToolDecision> HandBack(
         Guid toolCallId,
         bool done,
         string? note,
         Guid userId,
         bool isSpaceAdmin,
-        CancellationToken cancellationToken) =>
-        Answer(
+        CancellationToken cancellationToken)
+    {
+        Task<ToolDecision> Answering() => Answer(
             new Answering(toolCallId, userId, isSpaceAdmin, Handover: true),
             (call, now) =>
             {
@@ -143,6 +154,19 @@ public sealed class ApprovalService(
                 return done;
             },
             cancellationToken);
+
+        if (brokers.SingleOrDefault() is not { } broker
+            || await FindScreen(toolCallId, userId, isSpaceAdmin, cancellationToken) is not { } screen)
+        {
+            return await Answering();
+        }
+
+        return await broker.HandOver(
+            screen,
+            Answering,
+            () => new ToolDecision(DecisionOutcome.ButtonHeld),
+            cancellationToken);
+    }
 
     #endregion
 
@@ -207,6 +231,24 @@ public sealed class ApprovalService(
         signals.Publish(root.SpaceId, root.PrincipalUserId, new UserSignal(UserSignalKinds.ThreadChanged, root.ThreadId, root.Id));
         logger.LogInformation("Tool call {ToolCallId} of run {RunId} was {Decision}", answering.ToolCallId, root.Id, approved ? "approved" : "denied");
         return new ToolDecision(DecisionOutcome.Recorded, root);
+    }
+
+    /// <summary>
+    /// The screen a handover call would give back, as the bot that asked reaches it, or null when this person cannot
+    /// answer the call at all. Read in its own short transaction, before the screen's gate is taken.
+    /// </summary>
+    private async Task<SandboxCaller?> FindScreen(
+        Guid toolCallId,
+        Guid userId,
+        bool isSpaceAdmin,
+        CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var found = await Find(toolCallId, userId, isSpaceAdmin, cancellationToken);
+
+        return found is { Refusal: null, Run: { } run, Call: { } call } && ComputerTools.IsHandover(call.ToolName)
+            ? new SandboxCaller(runScopes.For(run.SpaceId, userId), run.BotId)
+            : null;
     }
 
     /// <summary>

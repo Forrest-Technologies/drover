@@ -713,6 +713,172 @@ public sealed class DelegationTests(PostgresServer postgres)
 
     #endregion
 
+    #region Read Only Handoffs
+
+    [Fact]
+    public async Task A_message_posted_into_a_childs_conversation_is_refused_and_starts_no_run()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Finder");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", childId, "Find the answer.")],
+            [new TextOutput("The answer is 42.")],
+            [new TextOutput("Finder says 42.")],
+            [new TextOutput("The root answers again.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var rootId = await world.Post(threadId, "Ask Finder.");
+        await world.WaitForStatus(rootId, RunStatus.Completed);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        var started = RunWorld.Data<DelegationStarted>(
+            (await world.ReadEvents(rootId)).Single(stored => stored.Type == RunEventTypes.DelegationStarted));
+        started.ChildThreadId.Should().Be(child.ThreadId);
+        var runsBefore = await world.Read(db => db.Runs.CountAsync(RunWorld.Token));
+        var messagesBefore = await world.Read(db => db.Messages.CountAsync(RunWorld.Token));
+
+        var posted = await world.PostRaw(child.ThreadId, "Let me steer this.");
+
+        posted.Problem.Should().Be(PostProblem.ReadOnly);
+        (await world.Read(db => db.Runs.CountAsync(RunWorld.Token))).Should().Be(runsBefore);
+        (await world.Read(db => db.Messages.CountAsync(RunWorld.Token)))
+            .Should().Be(messagesBefore, "nothing is stored in a bot's conversation");
+        var again = await world.Post(threadId, "Another question.");
+        (await world.WaitForStatus(again, RunStatus.Completed, RunStatus.Failed)).Status
+            .Should().Be(RunStatus.Completed);
+    }
+
+    [Fact]
+    public async Task A_post_while_the_child_waits_for_a_person_leaves_its_approval_pending()
+    {
+        var tools = new TestTools().Add("test.write", ToolSensitivity.Write);
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), tools);
+        var childId = await world.NewBotBeneath(world.BotId, "Writer");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.Grant("test.write", GrantEffect.Allow);
+        await world.GrantTo(childId, "test.write", GrantEffect.Ask);
+        world.Script.Then(
+            [Delegate("d1", childId, "Write the file.")],
+            [new ToolCallOutput("w1", "test_write")],
+            [new TextOutput("Written.")],
+            [new TextOutput("Writer wrote it.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var rootId = await world.Post(threadId, "Have it written.");
+        var waiting = await world.WaitForStatus(rootId, RunStatus.Waiting, RunStatus.Failed, RunStatus.Completed);
+        waiting.Status.Should().Be(RunStatus.Waiting, waiting.Error?.Message);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        var asked = RunWorld.Data<ToolApprovalRequested>(
+            (await world.ReadEvents(rootId)).Single(stored =>
+                stored.Type == RunEventTypes.ToolApprovalRequested && stored.RunId == child.Id));
+        (await world.ReadToolCalls(child.Id)).Should().ContainSingle().Which.Status
+            .Should().Be(ToolCallStatus.PendingApproval);
+
+        var posted = await world.PostRaw(child.ThreadId, "Let me answer in here.");
+
+        posted.Problem.Should().Be(PostProblem.ReadOnly);
+        (await world.ReadToolCalls(child.Id)).Should().ContainSingle().Which.Status
+            .Should().Be(ToolCallStatus.PendingApproval);
+        (await world.Decide(asked.ToolCallId, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
+        var root = await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed);
+
+        root.Status.Should().Be(RunStatus.Completed, root.Error?.Message);
+        tools.Count("test.write").Should().Be(1);
+        world.Script.Requests[3].Should().Contain(new SeenMessage("tool", "d1 = \"Written.\""));
+    }
+
+    [Fact]
+    public async Task Another_version_cannot_be_asked_for_or_shown_in_a_childs_conversation()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Finder");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", childId, "Find the answer.")],
+            [new TextOutput("The answer is 42.")],
+            [new TextOutput("Finder says 42.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var rootId = await world.Post(threadId, "Ask Finder.");
+        await world.WaitForStatus(rootId, RunStatus.Completed);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        var childThreadId = child.ThreadId;
+        var messages = await world.ReadMessages(childThreadId);
+        var task = messages.Single(message => message.Role is MessageRole.User);
+        var reply = messages.Last(message => message.Role is MessageRole.Assistant);
+
+        var regenerated = await world.WithService<RunService, VersionChange>(runs =>
+            runs.Regenerate(childThreadId, reply.Id, world.UserId, RunWorld.Token));
+        var edited = await world.WithService<RunService, VersionChange>(runs =>
+            runs.Edit(childThreadId, task.Id, "Change the task.", world.UserId, RunWorld.Token));
+        var shown = await world.WithService<RunService, VersionChange>(runs =>
+            runs.ShowVersion(childThreadId, task.Id, world.UserId, RunWorld.Token));
+
+        regenerated.Outcome.Should().Be(VersionOutcome.ReadOnly);
+        edited.Outcome.Should().Be(VersionOutcome.ReadOnly);
+        shown.Outcome.Should().Be(VersionOutcome.ReadOnly);
+    }
+
+    [Fact]
+    public async Task A_failed_child_run_cannot_be_tried_again_on_its_own()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Fragile");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", childId, "Try this.")],
+            [new TextOutput("Fragile failed, so I answer myself.")]);
+        world.Model.BeforeCall = call =>
+        {
+            if (call == 1)
+            {
+                world.Model.FailNext = ModelProviderException.FromStatus(503);
+            }
+
+            return Task.CompletedTask;
+        };
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var rootId = await world.Post(threadId, "Delegate it.");
+        (await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed)).Status
+            .Should().Be(RunStatus.Completed);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        child.Status.Should().Be(RunStatus.Failed, "the child's failure is what the parent recovered from");
+
+        var retry = await world.WithService<RunService, RunRetry>(runs =>
+            runs.Retry(child.Id, world.UserId, RunWorld.Token));
+
+        retry.Outcome.Should().Be(RetryOutcome.ReadOnly);
+    }
+
+    [Fact]
+    public async Task Queueing_a_run_in_a_childs_conversation_throws()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Finder");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", childId, "Find the answer.")],
+            [new TextOutput("Found.")],
+            [new TextOutput("Done.")]);
+        world.StartHost();
+        var rootId = await world.Post(await world.NewThread(), "Ask Finder.");
+        await world.WaitForStatus(rootId, RunStatus.Completed);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        var childThread = await world.ReadThread(child.ThreadId);
+
+        var queue = () => world.WithService<ThreadLine, QueuedRun>(line =>
+            line.Queue(childThread, new Message(), world.UserId, RunWorld.Token));
+
+        await queue.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    #endregion
+
     #region Private Methods
 
     /// <summary>The call that waits for a person: the root's own, or one of its child's.</summary>

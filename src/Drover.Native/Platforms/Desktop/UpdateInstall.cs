@@ -81,9 +81,9 @@ internal sealed class SparkleInstaller(SparkleUpdater updater, AppCastItem item)
         InstallUpdateFailureReason? failure = null;
         var started = false;
 
-        // The library reads the whole file again to check it. A file replaced by a larger one since it was checked
-        // here is not handed over.
-        if (new FileInfo(path).Length > UpdatePackageTrust.PackageLimit)
+        // The library reads the file again to check it, through the bounded verifier. A file replaced by a larger one
+        // or by a link since it was checked here is not handed over.
+        if (!UpdatePackageTrust.IsWithinLimit(path, UpdatePackageTrust.PackageLimit))
         {
             return InstallUpdateFailureReason.InvalidSignature;
         }

@@ -10,6 +10,11 @@ public static class RunEndpoints
 
     private const string NotAHandover = "This call does not ask a person to take over the screen.";
 
+    private const string ButtonHeldWhat =
+        "A mouse button on this screen could not be let go of, so the screen was not handed back.";
+
+    private const string ButtonHeldSentence = $"{ButtonHeldWhat} Try again, or rebuild the sandbox.";
+
     #endregion
 
     #region Public Methods
@@ -79,6 +84,9 @@ public static class RunEndpoints
             RetryOutcome.BotUnavailable => TypedResults.Problem(
                 title: "This bot is paused or removed, so it cannot answer.",
                 statusCode: StatusCodes.Status409Conflict),
+            RetryOutcome.ReadOnly => TypedResults.Problem(
+                title: RunService.HandoffIsReadOnly,
+                statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Accepted($"/api/spaces/{access.SpaceId}/runs/{retry.Run!.Id}", retry.Run.ToSummary()),
         };
     }
@@ -139,6 +147,9 @@ public static class RunEndpoints
             DecisionOutcome.Forbidden => TypedResults.Forbid(),
             DecisionOutcome.NotWaiting => TypedResults.Problem(title: "This call is not waiting for an answer any more.", statusCode: StatusCodes.Status409Conflict),
             DecisionOutcome.WrongKind => TypedResults.Problem(title: wrongKind, statusCode: StatusCodes.Status409Conflict),
+            DecisionOutcome.ButtonHeld => TypedResults.Problem(
+                title: ButtonHeldSentence,
+                statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Ok(decision.Run!.ToSummary()),
         };
 

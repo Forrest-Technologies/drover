@@ -16,7 +16,7 @@ public abstract class ViewModelTest : IDisposable
 
     protected ViewModelTest()
     {
-        Session = new(Server.CreateApi());
+        Session = new(Server.CreateApi(), Inbox);
         services = new ServiceCollection()
             .AddLogging()
             .AddSingleton(Server.CreateApi())

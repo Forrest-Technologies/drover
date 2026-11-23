@@ -9,6 +9,10 @@ public sealed class FileCard : Grid
 {
     #region Private Fields
 
+    private const int MaxPictureAttempts = 2;
+
+    private static readonly SemaphoreSlim pictureReadSlots = new(NativeFilePreview.MaxPicturesPerUser);
+
     private readonly FileCardViewModel model;
 
     private readonly Batch batch;
@@ -21,7 +25,11 @@ public sealed class FileCard : Grid
 
     private readonly Border pictureFrame = new();
 
+    private readonly Grid pictureBody = new();
+
     private readonly Image image = new() { Stretch = Stretch.Uniform };
+
+    private readonly TextBlock pictureProblem = Styles.Text(FileCardViewModel.PictureFailed, "DvTextSecondary");
 
     private readonly OutputBox preview = new();
 
@@ -61,6 +69,12 @@ public sealed class FileCard : Grid
 
     private Guid? loadedPicture;
 
+    private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? pictureSource;
+
+    private bool pictureFailed;
+
+    private int pictureGeneration;
+
     private double room = double.NaN;
 
     #endregion
@@ -84,7 +98,14 @@ public sealed class FileCard : Grid
         // web client's file does; it never takes its width from where it happens to sit.
         column.MaxWidth = Tokens.Number("DvImageWidth");
 
-        pictureFrame.Child = image;
+        pictureProblem.HorizontalAlignment = HorizontalAlignment.Center;
+        pictureProblem.VerticalAlignment = VerticalAlignment.Center;
+        pictureProblem.TextAlignment = TextAlignment.Center;
+        pictureProblem.TextWrapping = TextWrapping.Wrap;
+        pictureProblem.Margin = Tokens.Space("DvSpace3", "DvSpace3");
+        pictureBody.Children.Add(image);
+        pictureBody.Children.Add(pictureProblem);
+        pictureFrame.Child = pictureBody;
         pictureFrame.BorderThickness = new(Tokens.Number("DvBorder"));
         pictureFrame.HorizontalAlignment = HorizontalAlignment.Left;
         picture.Content = pictureFrame;
@@ -158,6 +179,7 @@ public sealed class FileCard : Grid
 
         Unloaded += async (_, _) =>
         {
+            ClearPicture();
             previewSurface.Clear();
             await model.ClosePreview();
         };
@@ -217,6 +239,7 @@ public sealed class FileCard : Grid
     {
         if (File is null || model.File is null)
         {
+            ClearPicture();
             nativePreview.SetFile(null);
             Visibility = Visibility.Collapsed;
             return;
@@ -273,20 +296,35 @@ public sealed class FileCard : Grid
         picture.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
         if (!shown)
         {
+            ClearPicture();
             return;
         }
 
         pictureFrame.BorderBrush = Tokens.Brush(this, "DvLine");
         pictureFrame.Background = Tokens.Brush(this, "DvBg2");
-        AutomationProperties.SetName(picture, model.PictureName);
         AutomationProperties.SetName(image, model.PictureName);
         KeepPictureShape();
 
         if (loadedPicture != model.File.Id)
         {
+            pictureGeneration++;
             loadedPicture = model.File.Id;
-            LoadPicture(model.File);
+            pictureSource = null;
+            pictureFailed = false;
+            LoadPicture(model.File, pictureGeneration, attempt: 1);
         }
+
+        image.Source = pictureSource;
+        image.Visibility = pictureSource is null ? Visibility.Collapsed : Visibility.Visible;
+        pictureProblem.Visibility = pictureFailed ? Visibility.Visible : Visibility.Collapsed;
+        if (pictureFailed)
+        {
+            (pictureFrame.Width, pictureFrame.Height) = (double.NaN, double.NaN);
+        }
+
+        var pictureName = pictureFailed ? $"{model.PictureName}. {FileCardViewModel.PictureFailed}" : model.PictureName;
+        AutomationProperties.SetName(picture, pictureName);
+        AutomationProperties.SetName(pictureFrame, pictureName);
     }
 
     protected override Size MeasureOverride(Size availableSize)
@@ -299,7 +337,8 @@ public sealed class FileCard : Grid
     // The frame has the picture's own shape from the start, so nothing below it moves when the picture arrives.
     private void KeepPictureShape()
     {
-        if (model.File is not { Width: > 0 and var wide, Height: > 0 and var high } || double.IsNaN(room) || room <= 0)
+        if (pictureFailed || model.File is not { Width: > 0 and var wide, Height: > 0 and var high }
+            || double.IsNaN(room) || room <= 0)
         {
             return;
         }
@@ -313,23 +352,116 @@ public sealed class FileCard : Grid
     }
 
     // The server checks who asks for a file, so the picture is read through the same client every request uses.
-    private async void LoadPicture(SharedFile file)
+    private async void LoadPicture(SharedFile file, int generation, int attempt)
     {
         try
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var preview = await api.ReadNativePreview(file.Href, timeout.Token);
-            if (preview is { Refusal: null, Image: { } bytes }
-                && NativeFilePreviewControl.DecodePicture(bytes, timeout.Token) is { } bitmap
-                && model.File.Id == file.Id)
+            var result = await ReadPicture(file, generation);
+            if (!result.Current)
             {
-                image.Source = bitmap;
+                return;
+            }
+
+            if (result.Retry
+                && await RetryPicture(file, generation, attempt))
+            {
+                return;
+            }
+
+            FinishPicture(file, generation, result.Source);
+        }
+        catch (OperationCanceledException exception)
+        {
+            Log.For<FileCard>().LogDebug(
+                "A picture preview timed out on attempt {Attempt} with {ExceptionType}",
+                attempt,
+                exception.GetType().Name);
+            if (!await RetryPicture(file, generation, attempt))
+            {
+                FinishPicture(file, generation, source: null);
             }
         }
-        catch (Exception exception) when (Failures.IsReportable(exception) || exception is OperationCanceledException or ArgumentException or IOException or InvalidOperationException)
+        catch (Exception exception) when (Failures.IsReportable(exception)
+            || exception is ArgumentException or IOException or InvalidOperationException)
         {
             Log.For<FileCard>().LogWarning(exception, "A picture in the conversation could not be read");
+            FinishPicture(file, generation, source: null);
         }
+    }
+
+    private async Task<(
+        Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? Source,
+        bool Current,
+        bool Retry)> ReadPicture(SharedFile file, int generation)
+    {
+        await pictureReadSlots.WaitAsync();
+        try
+        {
+            if (!IsCurrentPicture(file, generation))
+            {
+                return (null, Current: false, Retry: false);
+            }
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var preview = await api.ReadNativePreview(file.Href, timeout.Token);
+            var source = preview is { Refusal: null, Image: { } bytes }
+                ? NativeFilePreviewControl.DecodePicture(bytes, timeout.Token)
+                : null;
+            return (source, Current: true, Retry: preview.Refusal is NativePreviewRefusal.TooComplex);
+        }
+        finally
+        {
+            pictureReadSlots.Release();
+        }
+    }
+
+    private async Task<bool> RetryPicture(SharedFile file, int generation, int attempt)
+    {
+        if (attempt >= MaxPictureAttempts || !IsCurrentPicture(file, generation))
+        {
+            return false;
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(Tokens.Number("DvDur3")));
+        if (IsCurrentPicture(file, generation))
+        {
+            LoadPicture(file, generation, attempt + 1);
+        }
+
+        return true;
+    }
+
+    private void FinishPicture(
+        SharedFile file,
+        int generation,
+        Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? source)
+    {
+        if (!IsCurrentPicture(file, generation))
+        {
+            return;
+        }
+
+        pictureSource = source;
+        pictureFailed = source is null;
+        batch.Draw();
+    }
+
+    private bool IsCurrentPicture(SharedFile file, int generation) =>
+        generation == pictureGeneration && loadedPicture == file.Id && model.File.Id == file.Id;
+
+    private void ClearPicture()
+    {
+        if (loadedPicture is not null)
+        {
+            pictureGeneration++;
+        }
+
+        loadedPicture = null;
+        pictureSource = null;
+        pictureFailed = false;
+        image.Source = null;
+        image.Visibility = Visibility.Collapsed;
+        pictureProblem.Visibility = Visibility.Collapsed;
     }
 
     private void DrawText()

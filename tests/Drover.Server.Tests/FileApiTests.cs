@@ -39,6 +39,67 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     #region Uploading And Sending
 
     [Fact]
+    public async Task A_native_bearer_uploads_a_picture_without_an_antiforgery_cookie_until_its_access_expires()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        using var exchange = await client.Post("/api/native/session");
+        exchange.EnsureSuccessStatusCode();
+        var session = await exchange.Content.ReadFromJsonAsync<JsonElement>(Token);
+        using var http = NewRelay(NewClient());
+        http.DefaultRequestHeaders.Authorization = new("Bearer", session.GetProperty("accessToken").GetString());
+        var api = new DroverApi(http);
+        var png = PngHeader(3, 2);
+        using var source = new MemoryStream(png);
+
+        var stored = await api.UploadFileWithUnverifiedSize(spaceId, threadId, "dot.png", source,
+            DeploymentPolicy.SelfHostedMaxFileBytes, cancellationToken: Token);
+        stored.Size.Should().Be(png.Length);
+        stored.Kind.Should().Be(FileKinds.Image);
+
+        Time.Advance(TimeSpan.FromMinutes(11));
+        source.Position = 0;
+        var expired = () => api.UploadFileWithUnverifiedSize(spaceId, threadId, "dot.png", source,
+            DeploymentPolicy.SelfHostedMaxFileBytes, cancellationToken: Token);
+        var refusal = (await expired.Should().ThrowAsync<DroverApiException>()).Which;
+        refusal.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task An_unwritable_store_reports_the_directory_at_startup_and_a_safe_upload_problem()
+    {
+        var root = DroverFactory.FilesPath(KeyRingPath);
+        await File.WriteAllTextAsync(root, string.Empty, Token);
+        try
+        {
+            var (client, spaceId, threadId, _) = await Conversation("alice");
+            var diagnostic = $"Files directory not writable: {root}";
+            Logs.Entries.Should().ContainSingle(entry =>
+                entry.Level == LogLevel.Error && entry.Text.TrimEnd() == diagnostic);
+            var name = $"private-{Guid.NewGuid():N}.txt";
+            var words = $"private-{Guid.NewGuid():N}";
+            using var http = NewRelay(client);
+            var api = new DroverApi(http) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
+            using var body = new MemoryStream(Encoding.UTF8.GetBytes(words));
+            var upload = () => api.UploadFile(spaceId, threadId, name, body, body.Length, cancellationToken: Token);
+
+            var failure = (await upload.Should().ThrowAsync<DroverApiException>()).Which;
+            failure.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+            failure.Refusal.Should().Be("storage_unavailable");
+            failure.Message.Should().Be("The server could not store this file. Contact the server administrator.");
+            var warning = Logs.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Warning
+                && entry.Text.StartsWith("The file store could not save an upload", StringComparison.Ordinal)).Which;
+            warning.Text.TrimEnd().Should().MatchRegex(
+                @"^The file store could not save an upload \(\w+Exception, result -?\d+\)$");
+            Logs.AllText().Should().NotContain(name).And.NotContain(words);
+        }
+        finally
+        {
+            File.Delete(root);
+        }
+    }
+
+    [Fact]
     public async Task A_person_uploads_a_text_file_and_sends_it_with_a_message()
     {
         var (client, spaceId, threadId, _) = await Conversation("alice");
@@ -142,6 +203,154 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
         shown.Content.Headers.ContentDisposition.FileNameStar.Should().Be("dot.png");
         ShouldBeSafe(shown);
         saved.Content.Headers.ContentDisposition!.DispositionType.Should().Be("attachment");
+    }
+
+    [Theory]
+    [InlineData(PreviewPictureCase.CameraJpeg)]
+    [InlineData(PreviewPictureCase.PhoneScreenshot)]
+    [InlineData(PreviewPictureCase.ByteHeavyPng)]
+    [InlineData(PreviewPictureCase.Webp)]
+    [InlineData(PreviewPictureCase.AnimatedGif)]
+    public async Task Large_phone_pictures_have_bounded_decodable_previews_without_changing_the_originals(
+        PreviewPictureCase pictureCase)
+    {
+        var (name, original, width, height) = Picture(pictureCase);
+        var (client, spaceId, threadId, botId) = await Conversation($"picture-{pictureCase}");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, name, new ByteArrayContent(original));
+        var sent = await client.Post(
+            $"{Space(spaceId)}/threads/{threadId}/messages",
+            new SendMessageRequest(null, FileIds: [file.Id]));
+
+        (file.Kind, file.Width, file.Height).Should().Be((FileKinds.Image, width, height));
+        sent.StatusCode.Should().Be(HttpStatusCode.Accepted, await sent.Content.ReadAsStringAsync(Token));
+        if (pictureCase is PreviewPictureCase.CameraJpeg or PreviewPictureCase.PhoneScreenshot)
+        {
+            ((long)width * height).Should().BeGreaterThan(NativeFilePreview.MaxImagePixels);
+        }
+
+        if (pictureCase is PreviewPictureCase.CameraJpeg or PreviewPictureCase.ByteHeavyPng)
+        {
+            original.Length.Should().BeGreaterThan(2 * 1024 * 1024);
+        }
+
+        await PreviewIsBoundedAndOriginalIsIntact(client, spaceId, file, original, width, height);
+        if (pictureCase is PreviewPictureCase.PhoneScreenshot)
+        {
+            await WarmPreviewDoesNotBroadenAccess(client, spaceId, file.Id);
+        }
+    }
+
+    [Fact]
+    public async Task Image_dimensions_above_the_decoder_budget_are_refused_before_decoding()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("oversized-image");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(
+            client,
+            spaceId,
+            threadId,
+            "huge.png",
+            new ByteArrayContent(PngHeader(20_000, 20_000)));
+
+        var preview = await Read<NativeFilePreview>(
+            await client.Get($"{Space(spaceId)}/files/{file.Id}/native-preview"));
+
+        preview.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        preview.Image.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_png_inside_the_source_cap_but_above_the_decode_cap_is_refused()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("decode-cap");
+        await GiveSandbox(client, spaceId, botId);
+        var original = SolidPng(5000, 4000);
+        var file = await Upload(client, spaceId, threadId, "large-raster.png", new ByteArrayContent(original));
+
+        var preview = await Read<NativeFilePreview>(
+            await client.Get($"{Space(spaceId)}/files/{file.Id}/native-preview"));
+
+        ((long)file.Width!.Value * file.Height!.Value).Should().Be(20_000_000);
+        preview.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        preview.Image.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_cached_picture_is_reused_until_its_content_hash_changes()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("picture-cache");
+        await GiveSandbox(client, spaceId, botId);
+        var blue = SolidPng(640, 480, SKColors.CornflowerBlue);
+        var red = SolidPng(640, 480, SKColors.IndianRed);
+        var file = await Upload(client, spaceId, threadId, "color.png", new ByteArrayContent(blue));
+        var address = $"{Space(spaceId)}/files/{file.Id}/native-preview";
+        var first = await Read<NativeFilePreview>(await client.Get(address));
+        first.Refusal.Should().BeNull();
+        first.Image.Should().NotBeNull();
+        var stored = Path.Combine(
+            DroverFactory.FilesPath(KeyRingPath),
+            spaceId.ToString("N"),
+            file.Id.ToString("N"));
+        await File.WriteAllBytesAsync(stored, red, Token);
+
+        var cached = await Read<NativeFilePreview>(await client.Get(address));
+        cached.Image.Should().Equal(first.Image!, "the unchanged hash identifies the warm copy");
+        await ChangeStoredFile(spaceId, file.Id, new string('1', 64), red.Length);
+        var changed = await Read<NativeFilePreview>(await client.Get(address));
+
+        changed.Refusal.Should().BeNull();
+        changed.Image.Should().NotBeNull();
+        changed.Image!.SequenceEqual(first.Image!).Should().BeFalse("a changed hash must miss the old copy");
+        using var bitmap = SKBitmap.Decode(changed.Image!);
+        bitmap.Should().NotBeNull();
+        var pixel = bitmap!.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
+        pixel.Red.Should().BeGreaterThan(pixel.Blue);
+    }
+
+    [Fact]
+    public async Task A_picture_preview_carries_no_location_or_compressed_metadata()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("picture-metadata");
+        await GiveSandbox(client, spaceId, botId);
+        var location = "GPS=40.7128,-74.0060";
+        var original = WithPngChunks(
+            SolidPng(640, 480, SKColors.CornflowerBlue),
+            [
+                ("eXIf", TiffOrientation(1)),
+                ("tEXt", Encoding.Latin1.GetBytes($"Location\0{location}")),
+                ("iTXt", Encoding.UTF8.GetBytes($"Location\0\0\0\0\0{location}")),
+                ("zTXt", CompressedPngMetadata("Comment", location)),
+                ("iCCP", CompressedPngMetadata("Sample profile", "ordinary profile")),
+            ]);
+        var file = await Upload(client, spaceId, threadId, "metadata.png", new ByteArrayContent(original));
+
+        var preview = await Read<NativeFilePreview>(
+            await client.Get($"{Space(spaceId)}/files/{file.Id}/native-preview"));
+
+        preview.Refusal.Should().BeNull();
+        var image = preview.Image!;
+        ShouldContainOnlyPictureDataChunks(image);
+        image.AsSpan().IndexOf(Encoding.UTF8.GetBytes(location)).Should().BeNegative();
+        (await (await client.Get($"{Space(spaceId)}/files/{file.Id}")).Content.ReadAsByteArrayAsync(Token))
+            .Should().Equal(original);
+    }
+
+    [Fact]
+    public async Task A_truncated_png_chunk_list_is_refused_as_malformed()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("truncated-png");
+        await GiveSandbox(client, spaceId, botId);
+        var original = SolidPng(32, 32);
+        var truncated = new byte[original.Length - 4];
+        original.AsSpan(0, truncated.Length).CopyTo(truncated);
+        var file = await Upload(client, spaceId, threadId, "truncated.png", new ByteArrayContent(truncated));
+
+        var preview = await Read<NativeFilePreview>(
+            await client.Get($"{Space(spaceId)}/files/{file.Id}/native-preview"));
+
+        preview.Refusal.Should().Be(NativePreviewRefusal.Malformed);
+        preview.Image.Should().BeNull();
     }
 
     [Fact]
@@ -368,8 +577,350 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     private static byte[] PngHeader(int width, int height) =>
     [
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, .. "IHDR"u8,
-        0, 0, 0, (byte)width, 0, 0, 0, (byte)height, 8, 6, 0, 0, 0,
+        (byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width,
+        (byte)(height >> 24), (byte)(height >> 16), (byte)(height >> 8), (byte)height,
+        8, 6, 0, 0, 0,
     ];
+
+    private static byte[] Png(int width, int height, bool noise)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        Fill(bitmap, noise);
+        return Encode(bitmap, SKEncodedImageFormat.Png, quality: 100);
+    }
+
+    private static byte[] Jpeg(int width, int height)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Opaque);
+        Fill(bitmap, noise: true);
+        using var red = new SKPaint { Color = SKColors.IndianRed };
+        using var blue = new SKPaint { Color = SKColors.RoyalBlue };
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.DrawRect(0, 0, 800, 800, red);
+            canvas.DrawRect(width - 800, height - 800, 800, 800, blue);
+        }
+
+        return WithJpegOrientation(Encode(bitmap, SKEncodedImageFormat.Jpeg, quality: 80), orientation: 6);
+    }
+
+    private static byte[] Webp(int width, int height)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        Fill(bitmap, noise: false);
+        return Encode(bitmap, SKEncodedImageFormat.Webp, quality: 90);
+    }
+
+    private static void Fill(SKBitmap bitmap, bool noise)
+    {
+        if (!noise)
+        {
+            bitmap.Erase(SKColors.CornflowerBlue);
+            return;
+        }
+
+        var pixels = new SKColor[bitmap.Width * bitmap.Height];
+        var value = 0x12345678u;
+        for (var index = 0; index < pixels.Length; index++)
+        {
+            value = (1664525u * value) + 1013904223u;
+            pixels[index] = new((byte)value, (byte)(value >> 8), (byte)(value >> 16));
+        }
+
+        bitmap.Pixels = pixels;
+    }
+
+    private static byte[] Encode(SKBitmap bitmap, SKEncodedImageFormat format, int quality)
+    {
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, quality)
+            ?? throw new InvalidOperationException("Skia did not encode the test image.");
+        return data.ToArray();
+    }
+
+    private static byte[] SolidPng(int width, int height, SKColor? color = null)
+    {
+        var chosen = color ?? SKColors.Transparent;
+        var header = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(header, width);
+        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), height);
+        header[8] = 8;
+        header[9] = 6;
+        var row = new byte[1 + (width * 4)];
+        for (var offset = 1; offset < row.Length; offset += 4)
+        {
+            row[offset] = chosen.Red;
+            row[offset + 1] = chosen.Green;
+            row[offset + 2] = chosen.Blue;
+            row[offset + 3] = chosen.Alpha;
+        }
+
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            for (var line = 0; line < height; line++)
+            {
+                zlib.Write(row);
+            }
+        }
+
+        using var png = new MemoryStream();
+        png.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        WritePngChunk(png, "IHDR", header);
+        WritePngChunk(png, "IDAT", compressed.ToArray());
+        WritePngChunk(png, "IEND", []);
+        return png.ToArray();
+    }
+
+    private static byte[] WithJpegOrientation(byte[] jpeg, ushort orientation)
+    {
+        var tiff = TiffOrientation(orientation);
+        var exif = "Exif\0\0"u8;
+        var result = new byte[jpeg.Length + tiff.Length + exif.Length + 4];
+        jpeg.AsSpan(0, 2).CopyTo(result);
+        result[2] = 0xFF;
+        result[3] = 0xE1;
+        BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(4), checked((ushort)(tiff.Length + exif.Length + 2)));
+        exif.CopyTo(result.AsSpan(6));
+        tiff.CopyTo(result.AsSpan(6 + exif.Length));
+        jpeg.AsSpan(2).CopyTo(result.AsSpan(6 + exif.Length + tiff.Length));
+        return result;
+    }
+
+    private static byte[] TiffOrientation(ushort orientation)
+    {
+        var tiff = new byte[92];
+        tiff[0] = 0x4D;
+        tiff[1] = 0x4D;
+        tiff[3] = 0x2A;
+        BinaryPrimitives.WriteInt32BigEndian(tiff.AsSpan(4), 8);
+        BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(8), 2);
+        WriteTiffEntry(tiff.AsSpan(10), 0x0112, type: 3, count: 1, (uint)orientation << 16);
+        WriteTiffEntry(tiff.AsSpan(22), 0x8825, type: 4, count: 1, value: 38);
+        BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(38), 2);
+        WriteTiffEntry(tiff.AsSpan(40), tag: 1, type: 2, count: 2, value: 0x4E000000);
+        WriteTiffEntry(tiff.AsSpan(52), tag: 2, type: 5, count: 3, value: 68);
+        WriteTiffRational(tiff.AsSpan(68), 40);
+        WriteTiffRational(tiff.AsSpan(76), 42);
+        WriteTiffRational(tiff.AsSpan(84), 46);
+        return tiff;
+    }
+
+    private static void WriteTiffEntry(
+        Span<byte> target,
+        ushort tag,
+        ushort type,
+        uint count,
+        uint value)
+    {
+        BinaryPrimitives.WriteUInt16BigEndian(target, tag);
+        BinaryPrimitives.WriteUInt16BigEndian(target[2..], type);
+        BinaryPrimitives.WriteUInt32BigEndian(target[4..], count);
+        BinaryPrimitives.WriteUInt32BigEndian(target[8..], value);
+    }
+
+    private static void WriteTiffRational(Span<byte> target, uint value)
+    {
+        BinaryPrimitives.WriteUInt32BigEndian(target, value);
+        BinaryPrimitives.WriteUInt32BigEndian(target[4..], 1);
+    }
+
+    private static byte[] WithPngChunks(byte[] png, IReadOnlyList<(string Type, byte[] Data)> chunks)
+    {
+        const int AfterHeader = 33;
+        using var output = new MemoryStream();
+        output.Write(png.AsSpan(0, AfterHeader));
+        foreach (var (type, data) in chunks)
+        {
+            WritePngChunk(output, type, data);
+        }
+
+        output.Write(png.AsSpan(AfterHeader));
+        return output.ToArray();
+    }
+
+    private static byte[] CompressedPngMetadata(string name, string value)
+    {
+        using var output = new MemoryStream();
+        output.Write(Encoding.Latin1.GetBytes(name));
+        output.WriteByte(0);
+        output.WriteByte(0);
+        using (var zlib = new ZLibStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            zlib.Write(Encoding.UTF8.GetBytes(value));
+        }
+
+        return output.ToArray();
+    }
+
+    private static void WritePngChunk(Stream output, string type, ReadOnlySpan<byte> data)
+    {
+        var kind = Encoding.ASCII.GetBytes(type);
+        var number = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(number, data.Length);
+        output.Write(number);
+        output.Write(kind);
+        output.Write(data);
+        BinaryPrimitives.WriteUInt32BigEndian(number, PngCrc(kind, data));
+        output.Write(number);
+    }
+
+    private static uint PngCrc(ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
+    {
+        var crc = uint.MaxValue;
+        foreach (var value in type)
+        {
+            crc = PngCrcByte(crc, value);
+        }
+
+        foreach (var value in data)
+        {
+            crc = PngCrcByte(crc, value);
+        }
+
+        return ~crc;
+    }
+
+    private static uint PngCrcByte(uint crc, byte value)
+    {
+        crc ^= value;
+        for (var bit = 0; bit < 8; bit++)
+        {
+            crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xEDB88320u : 0);
+        }
+
+        return crc;
+    }
+
+    private static IEnumerable<string> PngChunkTypes(byte[] png)
+    {
+        var position = 8;
+        while (position <= png.Length - 12)
+        {
+            var length = BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(position));
+            var type = Encoding.ASCII.GetString(png, position + 4, 4);
+            yield return type;
+            position = checked(position + length + 12);
+            if (type == "IEND")
+            {
+                break;
+            }
+        }
+    }
+
+    private static void ShouldContainOnlyPictureDataChunks(byte[] png)
+    {
+        var chunks = PngChunkTypes(png).ToArray();
+        chunks.Should().StartWith("IHDR").And.EndWith("IEND");
+        chunks.Skip(1).SkipLast(1).Should().NotBeEmpty().And.OnlyContain(type => type == "IDAT");
+    }
+
+    // A three-by-two animation. Frame one is blue and frame two is red.
+    private static byte[] AnimatedGif() => Convert.FromBase64String("""
+        R0lGODlhAwACAIEAAGSV7QAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQA
+        CgAAACwAAAAAAwACAAAIBgABCBwYEAAh+QQBCgABACwAAAAAAwACAIH/AAAAAAAA
+        AAAAAAAIBgABCBwYEAA7
+        """);
+
+    private static (string Name, byte[] Content, int Width, int Height) Picture(PreviewPictureCase pictureCase) =>
+        pictureCase switch
+        {
+            PreviewPictureCase.CameraJpeg => ("camera.jpg", Jpeg(4000, 3000), 4000, 3000),
+            PreviewPictureCase.PhoneScreenshot => ("phone-screenshot.png", Png(1344, 2992, noise: false), 1344, 2992),
+            PreviewPictureCase.ByteHeavyPng => ("large-screenshot.png", Png(1080, 2400, noise: true), 1080, 2400),
+            PreviewPictureCase.AnimatedGif => ("motion.gif", AnimatedGif(), 3, 2),
+            PreviewPictureCase.Webp => ("camera.webp", Webp(640, 480), 640, 480),
+            _ => throw new ArgumentOutOfRangeException(nameof(pictureCase), pictureCase, null),
+        };
+
+    private static async Task PreviewIsBoundedAndOriginalIsIntact(
+        ApiClient client,
+        Guid spaceId,
+        FileResponse file,
+        byte[] original,
+        int originalWidth,
+        int originalHeight)
+    {
+        var address = $"{Space(spaceId)}/files/{file.Id}";
+        var previewResponse = await client.Get($"{address}/native-preview");
+        var preview = await Read<NativeFilePreview>(previewResponse);
+
+        preview.Refusal.Should().BeNull();
+        preview.Image.Should().NotBeNull().And.HaveCountLessThanOrEqualTo(NativeFilePreview.MaxImageBytes);
+        var bytes = preview.Image!;
+        var inspector = new FileInspector();
+        inspector.Append(bytes);
+        var facts = inspector.Finish(string.Empty);
+        facts.Kind.Should().Be(FileKind.Image);
+        facts.Width.Should().NotBeNull();
+        facts.Height.Should().NotBeNull();
+        var previewWidth = facts.Width!.Value;
+        var previewHeight = facts.Height!.Value;
+        previewWidth.Should().BePositive();
+        previewHeight.Should().BePositive();
+        ((long)previewWidth * previewHeight)
+            .Should().BeLessThanOrEqualTo(NativeFilePreview.MaxImagePixels);
+        using var bitmap = SKBitmap.Decode(bytes);
+        bitmap.Should().NotBeNull("the native client must be able to decode the preview response");
+        ((long)bitmap!.Width * bitmap.Height).Should().BeLessThanOrEqualTo(NativeFilePreview.MaxImagePixels);
+        Math.Max(bitmap.Width, bitmap.Height).Should().Be(Math.Min(480, Math.Max(originalWidth, originalHeight)));
+        if (file.Name == "camera.jpg")
+        {
+            (bitmap.Width, bitmap.Height).Should().Be((360, 480), "orientation 6 turns the camera frame clockwise");
+            var topRight = bitmap.GetPixel(bitmap.Width - 24, 24);
+            topRight.Red.Should().BeGreaterThan(topRight.Blue, "the source top left turns into the preview top right");
+            var bottomLeft = bitmap.GetPixel(24, bitmap.Height - 24);
+            bottomLeft.Blue.Should().BeGreaterThan(
+                bottomLeft.Red,
+                "the source bottom right turns into the preview bottom left");
+        }
+        else
+        {
+            Math.Abs(((long)bitmap.Width * originalHeight) - ((long)bitmap.Height * originalWidth))
+                .Should().BeLessThanOrEqualTo(
+                    Math.Max(originalWidth, originalHeight),
+                    "only pixel rounding may change the aspect ratio");
+        }
+        if (file.Name is "phone-screenshot.png" or "camera.webp" or "motion.gif")
+        {
+            var pixel = bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
+            pixel.Red.Should().BeInRange((byte)92, (byte)108);
+            pixel.Green.Should().BeInRange((byte)141, (byte)157);
+            pixel.Blue.Should().BeInRange((byte)229, byte.MaxValue);
+        }
+
+        ShouldContainOnlyPictureDataChunks(bytes);
+
+        (await (await client.Get(address)).Content.ReadAsByteArrayAsync(Token)).Should().Equal(original);
+    }
+
+    private async Task WarmPreviewDoesNotBroadenAccess(ApiClient owner, Guid spaceId, Guid fileId)
+    {
+        var address = $"{Space(spaceId)}/files/{fileId}/native-preview";
+        (await Read<NativeFilePreview>(await owner.Get(address))).Image.Should().NotBeNull("the cache is warm");
+        var member = await SeedMember(spaceId, $"member-{Guid.NewGuid():N}", MembershipRole.Admin);
+        var memberClient = await SignIn(member.Email, member.Password);
+        var (stranger, strangerSpace, _, _) = await Conversation($"stranger-{Guid.NewGuid():N}");
+
+        (await memberClient.Get(address)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await stranger.Get(address)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await stranger.Get($"{Space(strangerSpace)}/files/{fileId}/native-preview"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    private async Task ChangeStoredFile(Guid spaceId, Guid fileId, string hash, long size)
+    {
+        await using var connection = new NpgsqlConnection(AdminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand(
+            "update files set sha256 = @hash, size = @size where space_id = @space and id = @file",
+            connection);
+        command.Parameters.AddWithValue("hash", hash);
+        command.Parameters.AddWithValue("size", size);
+        command.Parameters.AddWithValue("space", spaceId);
+        command.Parameters.AddWithValue("file", fileId);
+        (await command.ExecuteNonQueryAsync(Token)).Should().Be(1);
+    }
 
     private static void ShouldBeSafe(HttpResponseMessage response)
     {
@@ -427,6 +978,15 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     #endregion
 
     #region Nested Types
+
+    public enum PreviewPictureCase
+    {
+        CameraJpeg,
+        PhoneScreenshot,
+        ByteHeavyPng,
+        Webp,
+        AnimatedGif,
+    }
 
     /// <summary>Reports on the caller's thread, so a test reads every report as soon as the call returns.</summary>
     private sealed class SynchronousProgress(Action<long> report) : IProgress<long>

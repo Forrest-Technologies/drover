@@ -53,6 +53,9 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>Awaited with the handle before a pause, so a test can retire the sandbox midway through one.</summary>
     public Func<SandboxHandle, CancellationToken, Task>? BeforePause { get; set; }
 
+    /// <summary>Awaited with the handle before a resume, so a test can hold one midway.</summary>
+    public Func<SandboxHandle, CancellationToken, Task>? BeforeResume { get; set; }
+
     /// <summary>Awaited with the path before a file is read, as a slow provider or one that hangs would make the caller wait.</summary>
     public Func<string, CancellationToken, Task>? BeforeRead { get; set; }
 
@@ -146,8 +149,13 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         Check(sandbox).State = ProviderSandboxState.Paused;
     }
 
-    public Task<SandboxHandle> Resume(SandboxHandle sandbox, TimeSpan idle, CancellationToken cancellationToken)
+    public async Task<SandboxHandle> Resume(SandboxHandle sandbox, TimeSpan idle, CancellationToken cancellationToken)
     {
+        if (BeforeResume is { } before)
+        {
+            await before(sandbox, cancellationToken);
+        }
+
         var found = Check(sandbox);
 
         if (found.State is ProviderSandboxState.Paused && NewTokenOnResume)
@@ -157,7 +165,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
         found.State = ProviderSandboxState.Running;
         found.KeptFor = idle;
-        return Task.FromResult(sandbox with { AccessToken = found.Token });
+        return sandbox with { AccessToken = found.Token };
     }
 
     public Task Destroy(SandboxHandle sandbox, CancellationToken cancellationToken)
