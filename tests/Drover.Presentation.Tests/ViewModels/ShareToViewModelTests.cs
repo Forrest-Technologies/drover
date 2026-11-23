@@ -44,6 +44,19 @@ public sealed class ShareToViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_share_waiting_without_a_signed_in_person_is_not_shown()
+    {
+        Server.Answer("GET", "/api/session", HttpStatusCode.Unauthorized);
+        Inbox.Offer(new SharedDraft("Sample words from another app", []));
+        var screen = Make<ShareToViewModel>();
+
+        await screen.Open();
+
+        screen.ShowNothing.Should().BeTrue();
+        screen.ShowShared.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task What_was_shared_is_shown_and_choosing_a_bot_opens_its_conversation_with_the_share_for_it_alone()
     {
         SignedIn();

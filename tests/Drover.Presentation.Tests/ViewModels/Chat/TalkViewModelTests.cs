@@ -402,6 +402,107 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_second_try_that_answers_after_the_person_moved_on_does_not_replace_where_they_went()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var bots = Server.Hold("GET", $"{Space}/bots");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        var retry = Ui.Run(Talk.Retry);
+
+        // The person leaves the conversations for another screen, which closes this one.
+        await Go("/tools");
+        await Ui.Run(Talk.Dispose);
+        bots.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be("/tools");
+    }
+
+    [Fact]
+    public async Task A_second_try_that_answers_after_another_conversation_was_opened_does_not_replace_it()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var thread = Server.Hold("GET", $"{Space}/threads/{threadId}");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{threadId}", Thread(null));
+        var retry = Ui.Run(Talk.Retry);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}"));
+
+        await Go(Addresses.SideChats(botId));
+        thread.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task A_second_try_whose_lookup_fails_after_another_conversation_was_opened_leaves_it_alone(
+        HttpStatusCode failure)
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var thread = Server.Hold("GET", $"{Space}/threads/{threadId}");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{threadId}", failure);
+        var retry = Ui.Run(Talk.Retry);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}"));
+
+        await Go(Addresses.SideChats(botId));
+        thread.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+        Talk.FormerMissing.Should().BeFalse();
+        Talk.NotReady.Should().NotBe(WorkspaceState.Failed);
+    }
+
+    [Fact]
+    public async Task A_late_not_found_for_an_older_kept_address_keeps_the_notice_of_the_current_one()
+    {
+        var older = Guid.Parse("0196f1a0-0000-7000-8000-00000000000b");
+        var current = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var olderLookup = Server.Hold("GET", $"{Space}/threads/{older}");
+        Server.Answer("GET", $"{Space}/threads/{older}", HttpStatusCode.NotFound);
+        Server.Answer("GET", $"{Space}/threads/{current}", HttpStatusCode.NotFound);
+
+        await Go($"/threads/{older}");
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{older}"));
+        await Go($"/threads/{current}");
+        await Until(() => Talk.FormerMissing.Should().BeTrue());
+
+        olderLookup.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        await Ui.Run(() => { });
+
+        Talk.FormerMissing.Should().BeTrue("the late answer was about the older address");
+    }
+
+    [Fact]
+    public async Task A_second_try_that_stays_on_a_kept_address_still_goes_to_its_conversation()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        await Do(Talk.Retry);
+
+        await Until(() => Address.Should().Be($"talk/{botId}"));
+    }
+
+    [Fact]
     public async Task An_address_kept_from_before_whose_conversation_is_gone_says_so()
     {
         var gone = Guid.Parse("0196f1a0-0000-7000-8000-00000000000a");
@@ -607,6 +708,54 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Until(() => MainPane.Takeovers.Access.Should().Be(ScreenAccess.NotPermitted));
         MainPane.ReadOnly.Should().BeFalse();
         await Until(() => MainPane.Composer.Disabled.Should().BeFalse());
+    }
+
+    [Fact]
+    public async Task A_space_tried_again_after_it_failed_to_load_asks_about_the_bots_screen()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Do(Talk.Retry);
+
+        await Until(() => MainPane.Takeovers.Access.Should().Be(ScreenAccess.Usable));
+        Talk.OffersScreen.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_takeover_already_waiting_when_the_space_is_tried_again_offers_its_buttons()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        Main(Thread(null));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", (List<MessageResponse>)[Handover()]);
+        await Go($"/talk/{botId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Do(Talk.Retry);
+
+        await Until(() => Waiting()!.Phase.Should().Be(TakeoverPhase.Asked));
+        await Until(() => MainPane.Takeovers.Access.Should().Be(ScreenAccess.Usable));
+        Talk.OffersScreen.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_failed_ask_for_a_bots_screen_is_asked_again_on_the_next_visit_to_that_bot()
+    {
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Talk.OffersScreen.Should().BeFalse("the ask failed, so the screen is not known");
+
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Go($"/talk/{botId}/side/new");
+
+        await Until(() => Talk.OffersScreen.Should().BeTrue());
+        Server.Sent("GET", $"{Space}/bots/{botId}/sandbox").Should().HaveCount(2);
     }
 
     #endregion
@@ -949,6 +1098,21 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task The_first_message_of_a_new_side_chat_is_back_in_the_field_when_its_thread_cannot_be_made()
+    {
+        Server.Refuse("POST", $"{Space}/bots/{botId}/threads", HttpStatusCode.Conflict, "This bot cannot open another side chat.");
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SideTitle.Should().Be("New side chat"));
+
+        await Send(() => SidePane, "First sample words");
+
+        await Until(() => SidePane.List.Problem.Should().Be("Your message was not sent. This bot cannot open another side chat. It is back in the message field."));
+        SidePane.Composer.Text.Should().Be("First sample words");
+        SidePane.Composer.CanSend.Should().BeTrue();
+        Server.Sent("POST", $"{Space}/threads/{sideId}/messages").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Going_from_one_side_chat_to_another_gives_the_other_a_conversation_of_its_own()
     {
         var otherId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000e1");
@@ -1126,7 +1290,60 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Send(() => MainPane, "Another sample question");
 
-        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. The bot is still working on this thread."));
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. The bot is still working on this thread. It is back in the message field."));
+        MainPane.Messages.Should().HaveCount(2);
+        MainPane.Composer.Text.Should().Be("Another sample question");
+    }
+
+    [Fact]
+    public async Task A_steer_the_server_refuses_puts_the_words_back_in_the_field()
+    {
+        var events = RunStarts();
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+
+        Server.Refuse("POST", $"{Space}/threads/{threadId}/messages", HttpStatusCode.Conflict, "The bot is still working on this thread.");
+        await Send(() => MainPane, "Keep it short");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. The bot is still working on this thread. It is back in the message field."));
+        MainPane.Composer.Text.Should().Be("Keep it short");
+        MainPane.Messages.Should().NotContain(message => message.Pending);
+    }
+
+    [Fact]
+    public async Task A_message_that_could_not_reach_the_server_is_back_in_the_field_with_its_files()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3, Preview: "one"), HttpStatusCode.Created);
+        Server.Fail("POST", $"{Space}/threads/{threadId}/messages", new HttpRequestException("The server cannot be reached."));
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+        await Until(() => Status(MainPane).Should().Equal("3 bytes"));
+        await Send(() => MainPane, "Another sample question");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. Drover could not reach its server. It is back in the message field."));
+        MainPane.Composer.Text.Should().Be("Another sample question");
+        MainPane.Composer.Attachments.Should().ContainSingle().Which.Should().Match<AttachmentItem>(item => item.Name == "notes.txt" && item.Phase == UploadPhase.Ready);
+        MainPane.Composer.CanSend.Should().BeTrue("one press of Send tries the same message with the same files");
+    }
+
+    [Fact]
+    public async Task A_message_that_timed_out_is_back_in_the_field()
+    {
+        Server.TimeOut("POST", $"{Space}/threads/{threadId}/messages");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Send(() => MainPane, "Another sample question");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. Drover's server did not answer in time. It is back in the message field."));
+        MainPane.Composer.Text.Should().Be("Another sample question");
         MainPane.Messages.Should().HaveCount(2);
     }
 
@@ -1359,6 +1576,197 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_pasted_picture_is_uploaded_like_a_chosen_file()
+    {
+        var fileId = Guid.CreateVersion7();
+        var name = FileWords.PastedPictureName(new(2026, 11, 20, 14, 3, 0, TimeSpan.Zero));
+        AttachmentsAllowed();
+        Server.Answer(
+            "POST",
+            $"{Space}/threads/{threadId}/files",
+            new FileResponse(fileId, name, "image/png", FileKinds.Image, 3, 1, 1),
+            HttpStatusCode.Created);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Attach(() => MainPane, new SamplePickedFile(name, [1, 2, 3]));
+
+        await Until(() => Status(MainPane).Should().Equal("3 bytes"));
+        MainPane.Composer.Attachments.Should().ContainSingle()
+            .Which.Name.Should().Be("Pasted image 2026-11-20 14.03.png");
+        Server.Addresses.Should()
+            .Contain($"POST {Space}/threads/{threadId}/files?name=Pasted%20image%202026-11-20%2014.03.png");
+    }
+
+    [Fact]
+    public async Task Files_are_taken_once_the_conversation_is_read_and_not_while_it_is_being_read()
+    {
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+        MainPane.AcceptsFiles.Should().BeFalse("it is still being read");
+        MainPane.Composer.TakesFiles.Should().BeFalse("Attach is not offered while nothing would take the files");
+
+        messages.SetResult();
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.AcceptsFiles.Should().BeTrue();
+        MainPane.Composer.TakesFiles.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_side_chat_that_is_not_there_takes_no_files()
+    {
+        Server.Answer("GET", $"{Space}/threads/{sideId}", HttpStatusCode.NotFound);
+
+        await Go($"/talk/{botId}/side/{sideId}");
+
+        await Until(() => SidePane.Missing.Should().BeTrue());
+        SidePane.AcceptsFiles.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_bots_side_of_handed_work_is_only_read_so_it_takes_no_files()
+    {
+        var workThread = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+        BotSummary[] crew = [Marshal, Helper];
+        ThreadSummary[] helpersThreads = [];
+        MessageResponse[] said = [Said("user", "Sample task") with { ThreadId = workThread }];
+        Server.Answer("GET", $"{Space}/bots", crew);
+        Server.Answer("GET", $"{Space}/bots/{helperId}/threads", helpersThreads);
+        Server.Answer(
+            "GET",
+            $"{Space}/threads/{workThread}",
+            new ThreadSummary(workThread, helperId, null, false, DateTimeOffset.UnixEpoch, null));
+        Server.Answer("GET", $"{Space}/threads/{workThread}/messages", said);
+
+        await Go(Addresses.Work(botId, helperId, workThread));
+
+        await Until(() => Talk.WorkPane!.Messages.Should().ContainSingle());
+        Talk.WorkPane!.AcceptsFiles.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Files_handed_to_a_conversation_that_does_not_take_them_are_not_uploaded()
+    {
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        AttachmentsAllowed();
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+
+        MainPane.Composer.Attachments.Should()
+            .BeEmpty("a conversation still being read takes no files, however they arrived");
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+        messages.SetResult();
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+    }
+
+    [Fact]
+    public async Task A_conversation_that_could_not_be_read_takes_no_files_even_when_they_are_handed_over()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+        AttachmentsAllowed();
+
+        await Go("/");
+        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+
+        MainPane.Composer.Attachments.Should().BeEmpty();
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_conversation_that_could_not_be_read_takes_no_files()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+
+        await Go("/");
+
+        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        MainPane.AcceptsFiles.Should().BeFalse();
+        MainPane.Composer.TakesFiles.Should().BeFalse("Attach is not offered when the files would go nowhere");
+    }
+
+    [Fact]
+    public async Task A_share_waits_while_the_conversation_could_not_be_read()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+        AttachmentsAllowed();
+        Inbox.Offer(new SharedDraft("Sample words from another app", [new SamplePickedFile("notes.txt", "one")]));
+        Inbox.SendTo(botId);
+
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Do(() => Task.CompletedTask);
+
+        Inbox.Waiting.Should().NotBeNull("the share is kept for when the conversation can be read");
+        MainPane.Composer.TakesFiles.Should().BeFalse();
+        MainPane.Composer.Text.Should().BeEmpty();
+        MainPane.Composer.Attachments.Should().BeEmpty();
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Files_handed_to_a_conversation_that_was_left_make_no_thread_and_ask_nothing()
+    {
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/bots/{botId}/threads", Side with { Title = null }, HttpStatusCode.Created);
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SideTitle.Should().Be("New side chat"));
+        var pane = SidePane;
+        var file = new SamplePickedFile("notes.txt", "one");
+
+        await Do(() =>
+        {
+            Talk.Dispose();
+            return Task.CompletedTask;
+        });
+        await Attach(() => pane, file);
+
+        pane.AcceptsFiles.Should().BeFalse("a conversation that was left takes nothing");
+        Server.Sent("POST", $"{Space}/bots/{botId}/threads").Should().BeEmpty();
+        Server.Addresses.Should().NotContain(address => address.Contains("attachment-rules"));
+        file.Opened.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_file_handed_over_as_the_conversation_is_left_is_never_opened()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
+        var rules = Server.Hold("GET", $"{Space}/threads/{threadId}/attachment-rules");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        var pane = MainPane;
+        var file = new SamplePickedFile("notes.txt", "one");
+
+        var attached = Attach(() => pane, file);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}/attachment-rules"));
+        await Do(() =>
+        {
+            Talk.Dispose();
+            return Task.CompletedTask;
+        });
+        rules.SetResult();
+        await attached;
+
+        file.Opened.Should().Be(0, "the conversation was left before the rules came back, so nothing is added to it");
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_notice_from_the_composer_reaches_the_person()
+    {
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        MainPane.Composer.Notify("What was pasted could not be attached.", ToastKind.Error);
+
+        Toasts.Toasts.Should().ContainSingle().Which.Should().Match<ToastMessage>(toast =>
+            toast.Kind == ToastKind.Error && toast.Message == "What was pasted could not be attached.");
+    }
     [Fact]
     public async Task Removing_an_uploaded_file_removes_it_from_the_server_too()
     {

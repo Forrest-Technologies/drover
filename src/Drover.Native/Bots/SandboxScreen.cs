@@ -32,6 +32,8 @@ public sealed class SandboxScreen : StackPanel
 
     private readonly TextBlock screenNote = Hint(live: false);
 
+    private readonly TextBlock touchHelp = Hint(live: false);
+
     private readonly Button wake = new() { HorizontalAlignment = HorizontalAlignment.Left };
 
     private readonly SandboxGroup zoom = new(SandboxScreenViewModel.ZoomLabel, "DvSpace1") { HorizontalAlignment = HorizontalAlignment.Right };
@@ -96,10 +98,13 @@ public sealed class SandboxScreen : StackPanel
         BuildTyping();
         BuildKeys();
 
-        foreach (var part in new UIElement[]
-        {
-            controlBar, controlWords, working, screenNote, wake, zoom, picture, progress, problem, options, typeForm, typeHint, keys, scroll,
-        })
+        UIElement[] parts =
+        [
+            controlBar, controlWords, working, screenNote, wake, zoom, picture, touchHelp, progress, problem, options,
+            typeForm, typeHint, keys, scroll,
+        ];
+
+        foreach (var part in parts)
         {
             Children.Add(part);
         }
@@ -292,6 +297,8 @@ public sealed class SandboxScreen : StackPanel
         Show(clickMode, model.Control);
         clickMode.Value = model.ClickMode;
         Say(controlWords, ready ? model.ControlWords : null);
+        touchHelp.Text = SandboxScreenViewModel.TouchHelp;
+        Show(touchHelp, driving && Targets.IsCoarse);
         working.Text = model.WorkingNote;
         Show(working, model.WorkingNote is not null);
         Say(screenNote, model.ScreenNote);

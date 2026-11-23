@@ -3,7 +3,7 @@ namespace Drover.Native.Chat;
 /// <summary>
 /// One conversation with a bot: what was said, what the bot is doing, and the field to write in. It fills the
 /// column it is put in: the messages scroll, the composer stays at the foot. A bot's side of work handed to it has
-/// a line of words where the field would be.
+/// a line of words where the field would be. Files dropped anywhere on it are attached to it.
 /// </summary>
 public sealed class ConversationPane : Grid
 {
@@ -50,6 +50,11 @@ public sealed class ConversationPane : Grid
         Children.Add(center);
         Children.Add(composer);
         Children.Add(readBox);
+        AllowDrop = true;
+        DragOver += Carried;
+        DragLeave += (_, _) => composer.ShowDropping(false);
+        Drop += async (_, dropped) => await Dropped(dropped);
+
         this.WhenShownOrRethemed(Paint);
         Show();
     }
@@ -130,6 +135,39 @@ public sealed class ConversationPane : Grid
 
         Paint();
     }
+
+    // Files held over the conversation, its messages as much as its field: the composer's frame and a line of words say
+    // it will take them. Anything else, or a conversation that cannot take files now, is refused, the cursor says so,
+    // and the line goes if it was shown.
+    private void Carried(object sender, DragEventArgs held)
+    {
+        var takes = Takes(held.DataView);
+        held.AcceptedOperation = takes
+            ? Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy
+            : Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+        composer.ShowDropping(takes);
+    }
+
+    // The same check as while the files were held: a drop can come without a hover that was accepted, or the
+    // conversation can stop taking files between hover and release. Such a drop attaches nothing.
+    private async Task Dropped(DragEventArgs dropped)
+    {
+        composer.ShowDropping(false);
+
+        if (!Takes(dropped.DataView))
+        {
+            dropped.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            return;
+        }
+
+        await composer.TakeDropped(dropped.DataView);
+    }
+
+    // A drop is taken only when it carries files and the conversation takes files now. A picture dragged with no file
+    // behind it is not one.
+    private bool Takes(Windows.ApplicationModel.DataTransfer.DataPackageView carried) =>
+        model is { AcceptsFiles: true }
+        && carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems);
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
 
