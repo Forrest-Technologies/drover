@@ -53,7 +53,7 @@ public sealed class ConversationPane : Grid
         AllowDrop = true;
         DragOver += Carried;
         DragLeave += (_, _) => composer.ShowDropping(false);
-        Drop += async (_, dropped) => await composer.TakeDropped(dropped.DataView);
+        Drop += async (_, dropped) => await Dropped(dropped);
 
         this.WhenShownOrRethemed(Paint);
         Show();
@@ -150,6 +150,21 @@ public sealed class ConversationPane : Grid
         {
             held.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
         }
+    }
+
+    // The gate is checked again here: a drop can come without a hover that was accepted, or the conversation can stop
+    // taking files between hover and release. Such a drop attaches nothing.
+    private async Task Dropped(DragEventArgs dropped)
+    {
+        composer.ShowDropping(false);
+
+        if (model is not { AcceptsFiles: true })
+        {
+            dropped.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            return;
+        }
+
+        await composer.TakeDropped(dropped.DataView);
     }
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;

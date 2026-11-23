@@ -1417,6 +1417,36 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task Files_handed_to_a_conversation_that_does_not_take_them_are_not_uploaded()
+    {
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        AttachmentsAllowed();
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+
+        MainPane.Composer.Attachments.Should().BeEmpty("a conversation still being read takes no files, however they arrived");
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+        messages.SetResult();
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+    }
+
+    [Fact]
+    public async Task A_conversation_that_could_not_be_read_takes_no_files_even_when_they_are_handed_over()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+        AttachmentsAllowed();
+
+        await Go("/");
+        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+
+        MainPane.Composer.Attachments.Should().BeEmpty();
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_conversation_that_could_not_be_read_takes_no_files()
     {
         Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));

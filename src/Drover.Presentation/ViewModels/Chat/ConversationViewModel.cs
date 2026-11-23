@@ -747,6 +747,13 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     // new side chat gets its thread now, from its first file, since a file belongs to a conversation.
     private async Task Attach(IReadOnlyList<IPickedFile> files)
     {
+        // However the files arrived, a conversation that does not take them (read only, missing, still being read, or
+        // not read) takes none: the cursor refusing a drop is only a hint to the person.
+        if (!AcceptsFiles)
+        {
+            return;
+        }
+
         problem = null;
         ThreadSummary shown;
         try
