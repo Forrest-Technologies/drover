@@ -45,6 +45,9 @@ public sealed class SandboxControlService(
     private const string NotPausedWhileHeld =
         "A mouse button on this screen could not be let go of, so it was not paused. Try again or rebuild it.";
 
+    private const string MovedSentence =
+        "The bot's sandbox changed while this was under way, so nothing was done. Try again.";
+
     private const string NoSandboxYet = "This bot has no sandbox yet. Run a command in the terminal to start one.";
 
     private const string TooMuchInput =
@@ -131,7 +134,13 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.paused",
-            (sandbox, person, only, begin) => sandbox.Pause(person, cancellationToken, only, begin),
+            (sandbox, person, only, begin) =>
+                sandbox.Pause(
+                    person,
+                    cancellationToken,
+                    only,
+                    begin,
+                    services => RequireRole(services, person, cancellationToken)),
             ButtonsOnPower.LetGoFirst,
             cancellationToken);
 
@@ -141,7 +150,12 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.resumed",
-            (sandbox, person, only, _) => sandbox.Resume(person, cancellationToken, only),
+            (sandbox, person, only, _) =>
+                sandbox.Resume(
+                    person,
+                    cancellationToken,
+                    only,
+                    services => RequireRole(services, person, cancellationToken)),
             ButtonsOnPower.LetGoAfter,
             cancellationToken);
 
@@ -153,7 +167,12 @@ public sealed class SandboxControlService(
             "sandbox.rebuilt",
             async (sandbox, person, only, begin) =>
             {
-                await sandbox.Rebuild(person, cancellationToken, only, begin);
+                await sandbox.Rebuild(
+                    person,
+                    cancellationToken,
+                    only,
+                    begin,
+                    services => RequireRole(services, person, cancellationToken));
                 return true;
             },
             ButtonsOnPower.Reset,
@@ -165,7 +184,13 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.turned_off",
-            (sandbox, person, only, begin) => sandbox.TurnOff(person, cancellationToken, only, begin),
+            (sandbox, person, only, begin) =>
+                sandbox.TurnOff(
+                    person,
+                    cancellationToken,
+                    only,
+                    begin,
+                    services => RequireRole(services, person, cancellationToken)),
             ButtonsOnPower.Reset,
             cancellationToken);
 
@@ -365,6 +390,12 @@ public sealed class SandboxControlService(
         {
             value = await work(broker, new SandboxCaller(tenant, botId));
         }
+        catch (RoleLostException lost)
+        {
+            logger.LogInformation("A person's action on the sandbox of bot {BotId} was refused at its gate", botId);
+            await Record<T>(tenant, userId, botId, audit, auditWhen, value: default!, "refused", rethrowing: false);
+            return Refuse<T>(lost.Refusal);
+        }
         catch (BuiltinToolException refused)
         {
             logger.LogInformation("A person's action on the sandbox of bot {BotId} was refused", botId);
@@ -529,6 +560,30 @@ public sealed class SandboxControlService(
     }
 
     /// <summary>
+    /// Reads the person's role and the bot again and throws when they may no longer change it. A power control calls
+    /// it under the screen's gate before it lets go of or fences anything; <see cref="RequireRole"/> does the same
+    /// inside the broker's own lookup of the sandbox to act on.
+    /// </summary>
+    private static Task RecheckRole(SandboxCaller person, CancellationToken cancellationToken) =>
+        person.Tenant.Transact(services => RequireRole(services, person, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// As <see cref="RecheckRole"/>, inside a transaction the caller already has open: the broker runs it first in the
+    /// transaction that resolves the bot's sharing group and sandbox, so the check and the target are one step.
+    /// </summary>
+    private static async Task RequireRole(
+        IServiceProvider services,
+        SandboxCaller person,
+        CancellationToken cancellationToken)
+    {
+        if (await Check(services, person.Tenant.SpaceId, person.Tenant.UserId, person.BotId, cancellationToken)
+            is { } refused)
+        {
+            throw new RoleLostException(refused);
+        }
+    }
+
+    /// <summary>
     /// Whether the person may still change the bot, read again at the screen's gate: before the sandbox is acquired,
     /// so a refused person wakes nothing, and last of all right before the input is sent, so a person demoted while the
     /// input waited sends nothing. Null when they may; otherwise the sentence that refuses them. Letting go of a button
@@ -571,10 +626,26 @@ public sealed class SandboxControlService(
             await afterLookup();
         }
 
+        // The role was read before the gate was waited for. Under the gate it is read again, with the check that the
+        // bot still reaches the display that was gated, before anything is let go of or fenced; a control refused there
+        // changes nothing, and held buttons stay with their records, whose deadlines let go of them in the background.
+        // The broker reads the role once more, last, in the same transaction that finds the sandbox to act on; the work
+        // that follows (retiring rows, finding or making a replacement, the provider call) runs on that read.
+        async Task Admit()
+        {
+            await RecheckRole(person, cancellationToken);
+
+            if (found is { } gated && await sandbox.CurrentSandbox(person, cancellationToken) != gated)
+            {
+                throw new BuiltinToolException(MovedSentence);
+            }
+        }
+
         if (found is not { } sandboxId)
         {
             // Nothing was found to gate. A sandbox that has gone live since is a different display than the one
             // that was looked at, so the control is told to expect none and does nothing if it finds one.
+            await Admit();
             return await work(Guid.Empty, () => { });
         }
 
@@ -582,7 +653,15 @@ public sealed class SandboxControlService(
 
         if (buttons is ButtonsOnPower.LetGoAfter)
         {
-            return await holds.RunThenRelease(spaceId, sandboxId, () => work(sandboxId, () => { }), cancellationToken);
+            return await holds.RunThenRelease(
+                spaceId,
+                sandboxId,
+                async () =>
+                {
+                    await Admit();
+                    return await work(sandboxId, () => { });
+                },
+                cancellationToken);
         }
 
         var done = false;
@@ -591,7 +670,8 @@ public sealed class SandboxControlService(
             sandboxId,
             required: buttons is ButtonsOnPower.LetGoFirst,
             async begin => done = await work(sandboxId, begin),
-            cancellationToken);
+            cancellationToken,
+            Admit);
 
         if (!ran)
         {
@@ -813,6 +893,16 @@ public sealed class SandboxControlService(
     #endregion
 
     #region Nested Types
+
+    /// <summary>The person may no longer change the bot, found under a screen's gate; nothing was done.</summary>
+    private sealed class RoleLostException(SandboxControlRefusal refusal) : Exception("The person's role changed.")
+    {
+        #region Properties
+
+        public SandboxControlRefusal Refusal { get; } = refusal;
+
+        #endregion
+    }
 
     /// <summary>An input ready to run: its command, what it does, and the pointer action when it is one.</summary>
     private sealed record BuiltInput(CommandRequest Action, string Doing, PointerAction? Pointer);
