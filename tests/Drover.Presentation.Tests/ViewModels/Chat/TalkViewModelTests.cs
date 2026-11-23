@@ -609,6 +609,54 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Until(() => MainPane.Composer.Disabled.Should().BeFalse());
     }
 
+    [Fact]
+    public async Task A_space_tried_again_after_it_failed_to_load_asks_about_the_bots_screen()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Do(Talk.Retry);
+
+        await Until(() => MainPane.Takeovers.Access.Should().Be(ScreenAccess.Usable));
+        Talk.OffersScreen.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_takeover_already_waiting_when_the_space_is_tried_again_offers_its_buttons()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        Main(Thread(null));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", (List<MessageResponse>)[Handover()]);
+        await Go($"/talk/{botId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Do(Talk.Retry);
+
+        await Until(() => Waiting()!.Phase.Should().Be(TakeoverPhase.Asked));
+        await Until(() => MainPane.Takeovers.Access.Should().Be(ScreenAccess.Usable));
+        Talk.OffersScreen.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_failed_ask_for_a_bots_screen_is_asked_again_on_the_next_visit_to_that_bot()
+    {
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Talk.OffersScreen.Should().BeFalse("the ask failed, so the screen is not known");
+
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Go($"/talk/{botId}/side/new");
+
+        await Until(() => Talk.OffersScreen.Should().BeTrue());
+        Server.Sent("GET", $"{Space}/bots/{botId}/sandbox").Should().HaveCount(2);
+    }
+
     #endregion
 
     #region Beside The Conversation
