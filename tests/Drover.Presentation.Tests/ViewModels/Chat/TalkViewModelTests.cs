@@ -68,8 +68,9 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Go("/");
 
-        await Until(() => MainPane.List.Problem.Should().Be("Drover could not reach its server. Check that the server is running."));
-        MainPane.Problem.Should().Be("Drover could not reach its server. Check that the server is running.");
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        MainPane.LoadFailedNotice.Cause.Should().Be("Drover could not reach its server.");
+        MainPane.List.Problem.Should().BeNull("the failure is the pane's state, not a line under the messages");
     }
 
 
@@ -196,6 +197,25 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_reconnected_signal_stream_reads_a_failed_conversation_again()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        var failed = MainPane;
+
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { Said("user", "Sample question"), Said("assistant", "Sample **answer**") });
+        await signals.Send(new UserSignal(UserSignalKinds.Reconnected, null, null));
+
+        await Until(() => failed.LoadFailed.Should().BeFalse("a connection that came back reads the conversation again"));
+        await Until(() => failed.Messages.Should().HaveCount(2));
+        failed.Composer.Disabled.Should().BeFalse();
+        MainPane.Should().BeSameAs(failed);
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task Opening_a_conversation_marks_it_seen_and_its_bot_has_nothing_new_while_it_is_open()
     {
         Server.Answer("GET", $"{Space}/bots/{botId}/threads", new[] { Thread(null) with { Attention = new(false, false, true, null) } });
@@ -318,6 +338,122 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Until(() => MainPane.Loading.Should().BeFalse());
         await Until(() => MainPane.List.IsEmpty.Should().BeTrue());
         MainPane.List.StartHint.Should().Be("Nothing said yet. Write to Marshal below.");
+    }
+
+    [Theory]
+    [InlineData("messages")]
+    [InlineData("main-thread")]
+    public async Task A_conversation_that_fails_to_load_says_so_and_never_that_nothing_was_said(string request)
+    {
+        if (request is "messages")
+        {
+            Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        }
+        else
+        {
+            Server.Answer("PUT", $"{Space}/bots/{botId}/main-thread", HttpStatusCode.InternalServerError);
+        }
+
+        List<(bool Failed, bool Empty)> shown = [];
+        Talk.PropertyChanged += (_, _) =>
+        {
+            if (Talk.MainPane is { } pane)
+            {
+                shown.Add((pane.LoadFailed, pane.List.IsEmpty));
+                pane.List.PropertyChanged += (_, _) => shown.Add((pane.LoadFailed, pane.List.IsEmpty));
+            }
+        };
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        MainPane.LoadFailedNotice.Title.Should().Be("Drover could not load this conversation");
+        MainPane.LoadFailedNotice.Cause.Should().Be("The server failed to answer. Try again, and check the server log if it keeps happening.");
+        MainPane.LoadFailedNotice.ActionLabel.Should().Be("Try again");
+        MainPane.LoadFailedNotice.ActionHref.Should().BeNull("the action is here, not a link away");
+        MainPane.List.Problem.Should().BeNull("the failure is the pane's state, not a line under the messages");
+        MainPane.Composer.Disabled.Should().BeTrue("nothing can be written into a conversation that was not read");
+        shown.Should().Contain(state => state.Failed);
+        shown.Should().NotContain(
+            state => !state.Failed && state.Empty,
+            "the list's empty hint is not what a conversation that was never read shows");
+    }
+
+    [Fact]
+    public async Task Try_again_reads_the_conversation_and_shows_its_messages()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        var failed = MainPane;
+
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { Said("user", "Sample question"), Said("assistant", "Sample **answer**") });
+        await Do(failed.Reload);
+
+        await Until(() => failed.Messages.Should().HaveCount(2));
+        failed.LoadFailed.Should().BeFalse();
+        failed.Composer.Disabled.Should().BeFalse();
+        MainPane.Should().BeSameAs(failed, "the conversation stays, it is read again");
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_second_try_while_the_first_is_loading_asks_the_server_once()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+
+        var held = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        var retry = Ui.Run(() => MainPane.Reload());
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2));
+        await Until(() => MainPane.Loading.Should().BeTrue());
+
+        await Do(() =>
+        {
+            _ = MainPane.Reload();
+            return Task.CompletedTask;
+        });
+
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2, "a second press while loading asks nothing");
+        held.SetResult();
+        await retry;
+    }
+
+    [Fact]
+    public async Task A_retry_that_fails_again_shows_the_new_sentence_and_keeps_the_way_to_try_again()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        var first = MainPane.LoadFailedNotice;
+
+        Server.TimeOut("GET", $"{Space}/threads/{threadId}/messages");
+        await Do(MainPane.Reload);
+
+        await Until(() => MainPane.LoadFailedNotice.Cause.Should().Be("Drover's server did not answer in time."));
+        MainPane.LoadFailedNotice.Cause.Should().NotBe(first.Cause);
+        MainPane.LoadFailedNotice.Title.Should().Be("Drover could not load this conversation");
+        MainPane.LoadFailedNotice.ActionLabel.Should().Be("Try again");
+        MainPane.Composer.Disabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_handed_work_conversation_that_fails_to_load_shows_the_same_failed_state()
+    {
+        var workThread = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d2");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal, Helper });
+        Server.Answer("GET", $"{Space}/bots/{helperId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{workThread}", new ThreadSummary(workThread, helperId, null, false, DateTimeOffset.UnixEpoch, null));
+        Server.Answer("GET", $"{Space}/threads/{workThread}/messages", HttpStatusCode.InternalServerError);
+
+        await Go(Addresses.Work(botId, helperId, workThread));
+
+        await Until(() => Talk.WorkPane!.LoadFailed.Should().BeTrue());
+        var work = Talk.WorkPane!;
+        work.LoadFailedNotice.Title.Should().Be("Drover could not load this conversation");
+        work.ReadOnly.Should().BeTrue();
+        Server.Sent("GET", $"{Space}/threads/{workThread}/messages").Should().ContainSingle();
     }
 
     #endregion
@@ -1061,6 +1197,34 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_side_chat_that_fails_to_load_can_be_tried_again_and_one_that_is_gone_still_says_so()
+    {
+        Server.Answer("GET", $"{Space}/threads/{sideId}", Side);
+        Server.Answer("GET", $"{Space}/threads/{sideId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}/side/{sideId}");
+        await Until(() => SidePane.LoadFailed.Should().BeTrue());
+        SidePane.Composer.Disabled.Should().BeTrue();
+
+        Server.Answer("GET", $"{Space}/threads/{sideId}/messages", new[] { Said("user", "Sample aside") with { ThreadId = sideId } });
+        await Do(SidePane.Reload);
+
+        await Until(() => SidePane.Messages.Should().ContainSingle());
+        SidePane.LoadFailed.Should().BeFalse();
+        SidePane.Composer.Disabled.Should().BeFalse();
+        Server.Sent("GET", $"{Space}/threads/{sideId}/messages").Should().HaveCount(2);
+
+        var gone = Guid.Parse("0196f1a0-0000-7000-8000-0000000000e2");
+        Server.Answer("GET", $"{Space}/threads/{gone}", HttpStatusCode.NotFound);
+        await Go($"/talk/{botId}/side/{gone}");
+
+        await Until(() => Talk.SidePane!.Missing.Should().BeTrue());
+        var gonePane = Talk.SidePane!;
+        gonePane.LoadFailed.Should().BeFalse();
+        gonePane.MissingNotice.Title.Should().Be("This side chat is not here");
+        Server.Sent("GET", $"{Space}/threads/{gone}/messages").Should().BeEmpty("a side chat that is gone is not read");
+    }
+
+    [Fact]
     public async Task A_side_chat_that_belongs_to_another_bot_is_not_shown_under_this_one()
     {
         Server.Answer("GET", $"{Space}/threads/{sideId}", Side with { BotId = helperId });
@@ -1671,7 +1835,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         AttachmentsAllowed();
 
         await Go("/");
-        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
         await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
 
         MainPane.Composer.Attachments.Should().BeEmpty();
@@ -1685,7 +1849,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Go("/");
 
-        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
         MainPane.AcceptsFiles.Should().BeFalse();
         MainPane.Composer.TakesFiles.Should().BeFalse("Attach is not offered when the files would go nowhere");
     }
@@ -1699,7 +1863,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Inbox.SendTo(botId);
 
         await Go($"/talk/{botId}");
-        await Until(() => MainPane.Problem.Should().NotBeNullOrEmpty());
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
         await Do(() => Task.CompletedTask);
 
         Inbox.Waiting.Should().NotBeNull("the share is kept for when the conversation can be read");

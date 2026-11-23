@@ -15,6 +15,9 @@ public sealed class ConversationPane : Grid
 
     private readonly TextBlock loading = Styles.Text(ConversationViewModel.LoadingHint);
 
+    // One state for a conversation that could not be read, kept while it is read again so the button keeps the focus.
+    private readonly EmptyState loadFailed = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+
     private readonly Border center = new() { Padding = new(Tokens.Number("DvSpace4")) };
 
     private readonly Border readBox = new();
@@ -24,6 +27,8 @@ public sealed class ConversationPane : Grid
     private ConversationViewModel? model;
 
     private EmptyNotice? shownMissing;
+
+    private EmptyNotice? shownLoadFailed;
 
     private bool drawQueued;
 
@@ -54,6 +59,10 @@ public sealed class ConversationPane : Grid
         DragOver += Carried;
         DragLeave += (_, _) => composer.ShowDropping(false);
         Drop += async (_, dropped) => await Dropped(dropped);
+
+        // The button stays pressable while the conversation is read again: Reload does nothing until the read ends,
+        // so a second press neither asks again nor takes the focus off the way forward.
+        loadFailed.Action += (_, _) => model?.Reload();
 
         this.WhenShownOrRethemed(Paint);
         Show();
@@ -95,8 +104,10 @@ public sealed class ConversationPane : Grid
     {
         drawQueued = false;
         var (missing, waiting, reading) = (model?.Missing ?? false, model?.Loading ?? true, model?.ReadOnly ?? false);
+        var failed = model?.LoadFailed ?? false;
+        var retrying = waiting && shownLoadFailed is not null;
 
-        var listShown = !missing && !waiting;
+        var listShown = !missing && !failed && !waiting;
 
         // The list draws what it has before it is shown, so the first frame of a loaded conversation is its messages,
         // not what the list drew while the conversation was still being read.
@@ -106,31 +117,54 @@ public sealed class ConversationPane : Grid
         }
 
         list.Visibility = Shown(listShown);
-        center.Visibility = Shown(missing || waiting);
+        center.Visibility = Shown(missing || waiting || failed);
         composer.Visibility = Shown(!missing && !reading && model is not null);
         readBox.Visibility = Shown(!missing && reading);
         readHint.Text = model?.ReadHint ?? string.Empty;
 
-        if (!missing)
+        if (missing)
+        {
+            shownLoadFailed = null;
+            if (model!.MissingNotice != shownMissing)
+            {
+                var notice = shownMissing = model.MissingNotice;
+                center.Child = new EmptyState
+                {
+                    Title = notice.Title,
+                    Cause = notice.Cause,
+                    ActionLabel = notice.ActionLabel,
+                    ActionHref = notice.ActionHref,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+        }
+        else if (failed || retrying)
+        {
+            if (failed && model!.LoadFailedNotice != shownLoadFailed)
+            {
+                shownLoadFailed = model.LoadFailedNotice;
+                loadFailed.ActionLabel = shownLoadFailed.ActionLabel;
+                loadFailed.ActionHref = shownLoadFailed.ActionHref;
+            }
+
+            // While the read is on its way the loading line takes the place of the failure words. The state and its
+            // button stay, so a second failure with a new sentence does not move the person's place.
+            loadFailed.Title = retrying ? null : shownLoadFailed!.Title;
+            loadFailed.Cause = retrying ? ConversationViewModel.LoadingHint : shownLoadFailed!.Cause;
+            if (!ReferenceEquals(center.Child, loadFailed))
+            {
+                center.Child = loadFailed;
+            }
+        }
+        else
         {
             shownMissing = null;
+            shownLoadFailed = null;
             if (!ReferenceEquals(center.Child, loading))
             {
                 center.Child = loading;
             }
-        }
-        else if (model!.MissingNotice != shownMissing)
-        {
-            var notice = shownMissing = model.MissingNotice;
-            center.Child = new EmptyState
-            {
-                Title = notice.Title,
-                Cause = notice.Cause,
-                ActionLabel = notice.ActionLabel,
-                ActionHref = notice.ActionHref,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
         }
 
         Paint();

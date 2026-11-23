@@ -542,7 +542,8 @@ Opening reads what does not depend on something else at the same time: the model
 every bot's threads; the conversation starts loading as soon as the bots are known, beside the question of whether the
 bot has a screen; a conversation's messages and its tool calls are read together; and the conversation is shown before
 the server is told it was seen. Until the conversation has been read the screen says it is loading, never that nothing
-was said.
+was said. If the read fails, the screen says so in place of the messages and offers "Try again"; it says nothing into
+which a person can write until the read succeeds.
 
 A run is still the server's: these only watch it and ask. Three seams replace what the web client took from its
 framework:

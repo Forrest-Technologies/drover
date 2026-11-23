@@ -75,7 +75,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool missing;
 
-    private bool loadFailed;
+    // The failure of the first read, or of a later try: different from a failure after a good read, which leaves the
+    // messages on screen and says what failed under them.
+    private string? loadProblem;
 
     private bool reportedBusy;
 
@@ -143,13 +145,16 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     /// <summary>The side chat is not there: it was removed, or it belongs to someone else.</summary>
     public bool Missing => missing;
 
+    /// <summary>The conversation could not be read, so what is on screen is not what was said.</summary>
+    public bool LoadFailed => loadProblem is not null;
+
     public bool Loading => loading;
 
     /// <summary>
     /// True while files chosen, pasted, dropped or shared would be taken. A conversation that is only read, is not
     /// there, is still being read, could not be read, or was left takes none.
     /// </summary>
-    public bool AcceptsFiles => !gone && !ReadOnly && !Missing && !loading && !loadFailed;
+    public bool AcceptsFiles => !gone && !ReadOnly && !Missing && !loading && !LoadFailed;
 
     /// <summary>The new conversation's first load, and each later change of what the screen tells it, as one task to wait for.</summary>
     public Task Ready { get; private set; } = Task.CompletedTask;
@@ -195,6 +200,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     /// <summary>What is said in place of a side chat that is not there, with the way on.</summary>
     public EmptyNotice MissingNotice =>
         new("This side chat is not here", "It was removed, or it belongs to someone else.", $"Back to {Bot.Name}", Addresses.Talk(Bot.Id));
+
+    /// <summary>What stands in for a conversation that could not be read, with the way to try again.</summary>
+    public EmptyNotice LoadFailedNotice =>
+        new("Drover could not load this conversation", loadProblem!, "Try again", null);
 
     /// <summary>Said, politely, while the conversation is read.</summary>
     public static string LoadingHint => "Loading the conversation.";
@@ -256,9 +265,27 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         return Ready = Rendered(started ? ParametersSet() : StartThenParametersSet());
     }
 
+    /// <summary>Reads a conversation that could not be read again. A second press while one is running does nothing.</summary>
+    public Task Reload()
+    {
+        if (!LoadFailed || loading)
+        {
+            return Ready;
+        }
+
+        loadProblem = null;
+        return Ready = ReadAgain();
+    }
+
     #endregion
 
     #region Loading
+
+    private async Task ReadAgain()
+    {
+        await Rendered(Start());
+        await ParametersSet();
+    }
 
     private async Task StartThenParametersSet()
     {
@@ -270,6 +297,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     private async Task Start()
     {
         left = leaving.Token;
+
+        // A try starts from nothing: what an earlier read left must not appear beside what this one reads.
+        loadProblem = null;
+        stored = [];
+        history = [];
+        thread = null;
 
         // A new conversation has handed nothing out yet; the one shown before may have.
         if (!ReadOnly)
@@ -284,7 +317,6 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         loading = true;
-        loadFailed = false;
         try
         {
             thread = Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await api.GetThread(SpaceId, parameters.ThreadId!.Value);
@@ -322,8 +354,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = Failures.Sentence(exception, "Check that the server is running.");
-            loadFailed = true;
+            loadProblem = Failures.Sentence(exception);
         }
         finally
         {
@@ -1137,7 +1168,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             fileId => api.FileAddress(SpaceId, fileId),
             new Handover(Bot.Name, parameters.Crew.ToDictionary(bot => bot.Id, bot => bot.Name), parameters.WorkAddress),
             Reader)
-        .OfferingVersions(idle: !ReadOnly && !loading && !sending && !changing && !Working && thread is not null);
+        .OfferingVersions(idle: !ReadOnly && !loading && !LoadFailed && !sending && !changing && !Working && thread is not null);
 
     // What a handler changed is shown when it first waits and again when it is done, as a screen does.
     private async Task Rendered(Task work)
@@ -1200,7 +1231,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.BotName = Bot.Name;
         Composer.Running = Working;
         Composer.Waiting = Waiting;
-        Composer.Disabled = loading;
+        Composer.Disabled = loading || LoadFailed;
         Composer.TakesFiles = AcceptsFiles;
         Composer.Sending = sending;
 

@@ -177,6 +177,7 @@ const screens = [
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
+    ['conversation-load-failed', `/talk/${botId}`, 'Sample bot'],
     ['share-empty', '/share', 'Share to Drover'],
     ['models', '/models', 'Model connections'],
     ['status', '/status', 'Status'],
@@ -246,6 +247,7 @@ try {
             let completePreview;
             const previewGate = new Promise(resolve => { completePreview = resolve; });
             let extensionFailures = 0;
+            let conversationLoadRequests = 0;
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
                 if (message.location().url.startsWith(previewOrigin)) { return; }
@@ -276,6 +278,11 @@ try {
                 } else if (current === 'project-missing'
                     && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
                     && message.text().includes('404 (Not Found)')) {
+                    return;
+                } else if (current === 'conversation-load-failed'
+                    && message.location().url === `${origin}/api/spaces/${spaceId}/threads/${thread.id}/messages`
+                    && message.text().includes('500 (Internal Server Error)')) {
+                    // The first read of this scene fails on purpose, so the retry state can be checked.
                     return;
                 } else { errors.push(`${message.location().url}: ${message.text()}`); }
             });
@@ -480,6 +487,14 @@ try {
                     await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
                     return;
                 }
+                else if (address.endsWith('/messages') && route.request().method() === 'GET') {
+                    if (current === 'conversation-load-failed' && ++conversationLoadRequests === 1) {
+                        await route.fulfill({ status: 500, json: { title: 'Sample: the server is unavailable.', status: 500 } });
+                        return;
+                    }
+
+                    body = current === 'conversation-search' ? searchMessages : messages;
+                }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
                 else if (address.endsWith(`/files/${htmlFileId}/preview`) && route.request().method() === 'POST') {
@@ -546,13 +561,15 @@ try {
                 current = name;
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
+                if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok()
                         && response.request().method() === 'GET'
                         && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
                     : null;
                 const target = address;
-                if (name === 'account' || name === 'sign-in' || name === 'project-member') {
+                if (name === 'account' || name === 'sign-in' || name === 'project-member' || name === 'conversation-load-failed') {
+                    // A fresh runtime, so the conversation reads from the start and meets the failed answer.
                     await page.goto(`${origin}${target}`);
                     await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
                 } else {
@@ -664,8 +681,28 @@ try {
                     await page.getByRole('button', { name: 'Download brief.txt', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                     await page.getByRole('button', { name: 'Start with Sample bot', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                 }
+                if (name === 'conversation-load-failed') {
+                    await page.getByRole('heading', { name: 'Drover could not load this conversation', exact: true })
+                        .waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByText('Nothing said yet.', { exact: false }).count(), 0,
+                        'a conversation that was never read must not say nothing was said');
+                    assert.equal(await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).isDisabled(), true);
+                }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+                if (name === 'conversation-load-failed') {
+                    const reread = page.waitForResponse(reply => reply.request().method() === 'GET'
+                        && new URL(reply.url()).pathname === `/api/spaces/${spaceId}/threads/${thread.id}/messages`
+                        && reply.status() === 200);
+                    // Enter on a wide window, Space on a phone: both keys take the one action.
+                    await page.getByRole('button', { name: 'Try again', exact: true }).press(width === 360 ? 'Space' : 'Enter');
+                    await reread;
+                    await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached', timeout: 10000 });
+                    assert.equal(conversationLoadRequests, 2, 'the first read failed and the retry read once');
+                    assert.equal(await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).isDisabled(), false,
+                        'the field is open once the conversation has been read');
+                }
                 if (name === 'extension-editor') {
                     // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
                     await page.mouse.move(width / 2, 500);
