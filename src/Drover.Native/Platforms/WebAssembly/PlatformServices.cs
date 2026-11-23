@@ -4,8 +4,7 @@ namespace Drover.Native.Platform;
 /// What the app is given in a browser. It is served by its server, so it talks to its own origin: the browser
 /// holds the session cookie, which script cannot read, and every request that changes something carries the
 /// antiforgery token. No token is kept in storage. There is no server to choose. Notifications go through the
-/// service worker the page registers, as in the web client. A tool server's sign-in comes back to the path the app is
-/// served under, not to the web client at the root.
+/// service worker the page registers. A tool server's sign-in comes back to the path the app is served under.
 /// </summary>
 internal static class PlatformServices
 {

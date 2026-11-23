@@ -13,11 +13,9 @@ internal static class UpdatePackageTrust
 {
     #region Private Fields
 
-    private const int AtCurrentDirectory = -100;
-
-    private const int DoNotFollowLinks = 0x100;
-
-    private const uint UserIdMask = 0x8;
+    /// <summary>Attempt directories whose download has not stopped yet. No cleanup ever removes one.</summary>
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, byte> activeAttempts =
+        new(StringComparer.Ordinal);
 
     #endregion
 
@@ -41,6 +39,35 @@ internal static class UpdatePackageTrust
 
     public const string StaleProblem = "This signed feed is older than one this installation has already verified.";
 
+    public const string LinkProblem = "The downloaded update is a link, so Drover does not read it.";
+
+    public const string TimeoutProblem = "The update download took too long and did not stop cleanly.";
+
+    public const string TeardownProblem = "The update download did not stop in time, so its partial file may remain.";
+
+    public const string StopProblem = "The update download failed in more than one way while it stopped.";
+
+    public const string RemovalProblem = "The stopped update download's attempt directory could not be removed.";
+
+    public const string SettingProblem = "Drover could not save the update setting.";
+
+    /// <summary>The start of the name of each download attempt's own directory.</summary>
+    public const string AttemptPrefix = "attempt-";
+
+    /// <summary>
+    /// How old an entry of the update folder must be before a check removes it. Another running copy of Drover may
+    /// still be using a newer one, and no download or installer handoff takes this long, so the age bounds what is
+    /// left behind without any lock shared between copies.
+    /// </summary>
+    public static readonly TimeSpan OldAttemptAge = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// The longest a download that ran past its time limit is given to stop, close its file, and remove it before the
+    /// timeout is reported. A download that has not stopped by then is reported with the timeout, so this wait cannot
+    /// hang, and its attempt directory is never given to another download.
+    /// </summary>
+    public static readonly TimeSpan TeardownLimit = TimeSpan.FromSeconds(10);
+
     /// <summary>The setting that holds the newest verified feed version for one release channel.</summary>
     public static string FeedSettingName(string channel) => $"drover-update-feed-{channel}";
 
@@ -59,10 +86,10 @@ internal static class UpdatePackageTrust
     public static FeedVerdict AcceptFeed(IDeviceSettings settings, string channel, string? offered)
     {
         var name = FeedSettingName(channel);
-        var seen = settings.Read(name);
-        Exception? notSaved = null;
+        var seen = FloorFor(channel, settings.Read(name));
+        var notSaved = default(Exception);
 
-        if (string.IsNullOrWhiteSpace(seen) && settings.Read(LegacyFeedSettingName) is { Length: > 0 } legacy)
+        if (string.IsNullOrWhiteSpace(seen) && FloorFor(channel, settings.Read(LegacyFeedSettingName)) is { } legacy)
         {
             seen = legacy;
             notSaved = MoveLegacyRecord(settings, name, legacy);
@@ -88,6 +115,17 @@ internal static class UpdatePackageTrust
             return new FeedVerdict(false, exception, Recorded: false);
         }
     }
+
+    /// <summary>
+    /// <paramref name="recorded"/> when it can be a version floor for <paramref name="channel"/>, otherwise null. A
+    /// stable install never takes a preview version as its floor: one recorded by an earlier build, in the shared
+    /// record or in its own, is ignored and not imported, so it can never refuse a legitimate stable release.
+    /// </summary>
+    public static string? FloorFor(string channel, string? recorded) =>
+        string.IsNullOrWhiteSpace(recorded)
+        || (channel is "stable" && DesktopUpdateChannel.FromVersion(recorded) is not "stable")
+            ? null
+            : recorded;
 
     /// <summary>
     /// A newer offer whose version could not be recorded is not offered: nothing is handed to the installer, and a
@@ -130,31 +168,171 @@ internal static class UpdatePackageTrust
         return new Ed25519Checker(SecurityMode.Strict, key, null, true, 25 * 1024 * 1024);
     }
 
+    /// <summary>
+    /// The updater for one check. Every entry from another release channel is removed before the library chooses an
+    /// update, so it never reaches the version record or the installer. The feed, its signature, and the package are
+    /// read through <paramref name="client"/> with fixed byte limits, and every file the library checks is read
+    /// through <see cref="BoundedFileVerifier"/>, so no package over <paramref name="packageLimit"/> is read whole.
+    /// </summary>
     public static SparkleUpdater CreateUpdater(
         string feed,
         string? publicKey,
         string referenceAssembly,
         string downloadDirectory,
-        string installedVersion)
+        string installedVersion,
+        HttpClient client,
+        long packageLimit = PackageLimit)
     {
-        var built = new SparkleUpdater(feed, CreateVerifier(publicKey), referenceAssembly)
+        var verifier = new BoundedFileVerifier(CreateVerifier(publicKey), packageLimit);
+        var built = new SparkleUpdater(feed, verifier, referenceAssembly)
         {
+            AppCastDataDownloader = new BoundedFeedDownloader(
+                client,
+                UpdateReads.FeedLimit,
+                UpdateReads.ReadDeadline),
+            UpdateDownloader = new BoundedPackageDownloader(client, packageLimit),
             CheckServerFileName = false,
             RelaunchAfterUpdate = true,
             ShouldKillParentProcessWhenStartingInstaller = true,
             UserInteractionMode = UserInteractionMode.DownloadNoInstall,
             TmpDownloadFilePath = PrepareDownloadDirectory(downloadDirectory),
         };
-        if (DesktopUpdateChannel.FromVersion(installedVersion) is "preview")
+        var channel = DesktopUpdateChannel.FromVersion(installedVersion);
+        built.AppCastHelper.AppCastFilter = new ReleaseChannelFilter(channel);
+        return built;
+    }
+
+    /// <summary>
+    /// The newest update a check found that belongs to <paramref name="channel"/>, or null. The filter has already
+    /// removed every other channel; this holds the version record to the same rule if it ever did not.
+    /// </summary>
+    public static AppCastItem? Offer(UpdateInfo result, string channel) =>
+        result.Status is UpdateStatus.UpdateAvailable
+            ? result.Updates.FirstOrDefault(item => ReleaseChannelFilter.IsOnChannel(item, channel))
+            : null;
+
+    /// <summary>
+    /// True when <paramref name="path"/> is a regular file, not a link or reparse point, no larger than
+    /// <paramref name="limit"/>. The type and the size come from the opened file.
+    /// </summary>
+    public static bool IsWithinLimit(string path, long limit)
+    {
+        if (IsLinkOrReparsePoint(path))
         {
-            built.AppCastHelper.AppCastFilter = new ChannelAppCastFilter
-            {
-                ChannelSearchNames = ["preview"],
-                KeepItemsWithNoChannelInfo = false,
-            };
+            return false;
         }
 
-        return built;
+        using var handle = OpenPackage(path, FileOptions.None);
+        return RandomAccess.GetLength(handle) <= limit;
+    }
+
+    /// <summary>
+    /// Opens a downloaded package for reading. A link or reparse point at the path is refused first. The length and
+    /// every byte read come from this one handle. A process of the same user that swaps the name between the check and
+    /// the open is outside the threat model (docs/desktop-updates.md).
+    /// </summary>
+    public static Microsoft.Win32.SafeHandles.SafeFileHandle OpenPackage(string path, FileOptions options) =>
+        IsLinkOrReparsePoint(path)
+            ? throw new InvalidDataException(LinkProblem)
+            : File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, options);
+
+    /// <summary>
+    /// Creates a new package file for writing, shared with no one. The create fails if anything, a link included, is
+    /// already at the path, so a write never goes through to another file.
+    /// </summary>
+    public static Microsoft.Win32.SafeHandles.SafeFileHandle CreatePackage(string path) =>
+        File.OpenHandle(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, FileOptions.Asynchronous);
+
+    /// <summary>True when <paramref name="path"/> names a symbolic link or reparse point, even a broken one.</summary>
+    public static bool IsLinkOrReparsePoint(string path)
+    {
+        var info = new FileInfo(path);
+        var attributes = info.Attributes;
+        return info.LinkTarget is not null
+            || (attributes != (FileAttributes)(-1) && attributes.HasFlag(FileAttributes.ReparsePoint));
+    }
+
+    /// <summary>The problem shown for a failed check or install: why data was refused, or a general reason.</summary>
+    public static string ProblemFor(Exception exception) => exception is InvalidDataException
+        ? exception.Message
+        : "Drover could not check or install the update. Try again when this device is online.";
+
+    /// <summary>
+    /// The state after the checks setting could not be saved. A download or install in progress is left as it is;
+    /// anything else shows why the setting did not change.
+    /// </summary>
+    public static DesktopUpdateState AfterSettingNotSaved(DesktopUpdateState state) =>
+        state.Phase is DesktopUpdatePhase.Downloading or DesktopUpdatePhase.Installing
+            ? state
+            : state with { Phase = DesktopUpdatePhase.Failed, Problem = SettingProblem };
+
+    /// <summary>
+    /// The state after the checks setting changes. A download or install in progress keeps its phase, so no new
+    /// check can start beside it. Any other state returns to idle.
+    /// </summary>
+    public static DesktopUpdateState AfterChecksSwitch(DesktopUpdateState state, bool enabled) =>
+        state.Phase is DesktopUpdatePhase.Downloading or DesktopUpdatePhase.Installing
+            ? state with { ChecksEnabled = enabled }
+            : state with { ChecksEnabled = enabled, Phase = DesktopUpdatePhase.Idle, Problem = null };
+
+    /// <summary>
+    /// A new directory for one download attempt, inside <paramref name="root"/> and private to this user. No other
+    /// attempt, from this updater or another, ever uses it, so an attempt that is still stopping can never touch the
+    /// file of the next one.
+    /// </summary>
+    public static string PrepareAttemptDirectory(string root)
+    {
+        PrepareDownloadDirectory(root);
+        var attempt = global::System.IO.Path.Combine(root, $"{AttemptPrefix}{Guid.NewGuid():N}");
+
+        if (global::System.IO.Path.Exists(attempt) || IsLinkOrReparsePoint(attempt))
+        {
+            throw new InvalidOperationException("The update download attempt directory already exists.");
+        }
+
+        return PrepareDownloadDirectory(attempt);
+    }
+
+    /// <summary>
+    /// Removes, as far as it can, entries of <paramref name="root"/> last written more than <see cref="OldAttemptAge"/>
+    /// before <paramref name="now"/>, and any link, which is removed and never followed. It never removes an attempt
+    /// of this process whose download has not stopped, or the attempt that holds <paramref name="keep"/>. Returns what
+    /// could not be removed, so the caller can log it.
+    /// </summary>
+    public static List<Exception> RemoveOldAttempts(string root, string? keep, DateTimeOffset now)
+    {
+        List<Exception> problems = [];
+
+        if (!Directory.Exists(root) || IsLinkOrReparsePoint(root))
+        {
+            return problems;
+        }
+
+        var kept = keep is null
+            ? null
+            : global::System.IO.Path.GetDirectoryName(global::System.IO.Path.GetFullPath(keep));
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
+        {
+            var full = global::System.IO.Path.GetFullPath(entry);
+
+            if (string.Equals(full, kept, StringComparison.Ordinal) || activeAttempts.ContainsKey(full))
+            {
+                continue;
+            }
+
+            if (!IsLinkOrReparsePoint(entry) && now - File.GetLastWriteTimeUtc(entry) <= OldAttemptAge)
+            {
+                continue;
+            }
+
+            if (RemoveEntry(entry) is { } problem)
+            {
+                problems.Add(problem);
+            }
+        }
+
+        return problems;
     }
 
     public static string DownloadDirectory() => global::System.IO.Path.Combine(
@@ -164,7 +342,7 @@ internal static class UpdatePackageTrust
 
     public static string PrepareDownloadDirectory(string path)
     {
-        if (IsLink(path))
+        if (IsLinkOrReparsePoint(path))
         {
             throw new InvalidOperationException("The update download directory is a link.");
         }
@@ -176,12 +354,12 @@ internal static class UpdatePackageTrust
             return path;
         }
 
-        // An existing directory keeps its mode. A shared or foreign directory is refused, not repaired.
+        // An existing directory keeps its mode. A shared directory is refused, not repaired.
         Directory.CreateDirectory(path, privateMode);
         var mode = File.GetUnixFileMode(path);
         var shared = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
             | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
-        if ((mode & privateMode) != privateMode || (mode & shared) != 0 || !OwnedByCurrentUser(path))
+        if ((mode & privateMode) != privateMode || (mode & shared) != 0)
         {
             throw new InvalidOperationException("The update download directory is not private.");
         }
@@ -201,6 +379,39 @@ internal static class UpdatePackageTrust
         }
 
         return address;
+    }
+
+    /// <summary>
+    /// The address of the signed preview feed named <paramref name="assetName"/> in the release list at
+    /// <paramref name="releases"/>. The list is read through <see cref="UpdateReads.Read"/>, at most
+    /// <see cref="UpdateReads.ReleaseListLimit"/> bytes within <paramref name="deadline"/>.
+    /// </summary>
+    public static async Task<string> FindPreviewFeed(
+        HttpClient client,
+        string releases,
+        string assetName,
+        TimeSpan deadline)
+    {
+        var list = await UpdateReads.Read(client, releases, UpdateReads.ReleaseListLimit, deadline);
+        using var document = JsonDocument.Parse(list);
+
+        foreach (var release in document.RootElement.EnumerateArray())
+        {
+            if (!release.GetProperty("prerelease").GetBoolean())
+            {
+                continue;
+            }
+
+            foreach (var asset in release.GetProperty("assets").EnumerateArray())
+            {
+                if (asset.GetProperty("name").GetString() == assetName)
+                {
+                    return RequireReleaseDownload(asset.GetProperty("browser_download_url").GetString());
+                }
+            }
+        }
+
+        throw new InvalidDataException("No signed preview feed is published yet.");
     }
 
     public static DesktopUpdateState AfterCheck(
@@ -261,11 +472,48 @@ internal static class UpdatePackageTrust
         return stream.ReadByte() >= 0 ? null : package;
     }
 
-    /// <summary>The package at <paramref name="path"/> through <see cref="ReadPackage"/>, or null when it is over the limit.</summary>
+    /// <summary>
+    /// The package at <paramref name="path"/>, read through one opened handle by
+    /// <see cref="ReadPackage(Stream, long)"/>, or null when it is over the limit. A link is refused.
+    /// </summary>
     public static async Task<byte[]?> ReadPackageFile(string path, long limit)
     {
-        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var handle = OpenPackage(path, FileOptions.Asynchronous);
+        await using var file = new FileStream(handle, FileAccess.Read, 81920, isAsync: true);
         return await ReadPackage(file, limit);
+    }
+
+    /// <summary>
+    /// The same bounded read as <see cref="ReadPackage(Stream, long)"/>, on an opened handle, for a caller that cannot
+    /// wait asynchronously. The length is read from the handle once and sizes the buffer; a file that grew since is
+    /// refused after one more byte.
+    /// </summary>
+    public static byte[]? ReadPackage(Microsoft.Win32.SafeHandles.SafeFileHandle handle, long limit)
+    {
+        var length = RandomAccess.GetLength(handle);
+
+        if (length > limit)
+        {
+            return null;
+        }
+
+        var package = new byte[length];
+        var read = 0;
+
+        while (read < package.Length)
+        {
+            var count = RandomAccess.Read(handle, package.AsSpan(read), read);
+
+            if (count == 0)
+            {
+                return package[..read];
+            }
+
+            read += count;
+        }
+
+        var extra = new byte[1];
+        return RandomAccess.Read(handle, extra, read) > 0 ? null : package;
     }
 
     public static DownloadDecision Decide(
@@ -294,29 +542,162 @@ internal static class UpdatePackageTrust
         return new DownloadDecision(state with { Phase = DesktopUpdatePhase.Installing, Problem = null }, true);
     }
 
-    public static async Task<string> Download(SparkleUpdater updater, AppCastItem item, TimeSpan limit)
+    /// <summary>
+    /// Downloads <paramref name="item"/> into a new attempt directory of its own inside
+    /// <paramref name="downloadRoot"/>, and returns the verified file. A download that runs past
+    /// <paramref name="limit"/> is cancelled. Its timeout is reported once the download has stopped, waiting at most
+    /// <paramref name="teardownLimit"/>, or <see cref="TeardownLimit"/>, for that. If it did not stop in time, or
+    /// stopping failed, the timeout and that failure are reported together. A download that stops only after that
+    /// wait has its final outcome logged to <paramref name="logger"/> with its attempt directory, so a late cleanup
+    /// failure is never lost.
+    /// </summary>
+    public static async Task<string> Download(
+        SparkleUpdater updater,
+        AppCastItem item,
+        string downloadRoot,
+        TimeSpan limit,
+        ILogger logger,
+        TimeSpan? teardownLimit = null,
+        TimeProvider? time = null)
     {
-        var downloaded = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Finished(AppCastItem item, string path) => downloaded.TrySetResult(path);
-        void Failed(AppCastItem item, string? path, Exception exception) => downloaded.TrySetException(exception);
-        void Corrupt(AppCastItem item, string path) => downloaded.TrySetException(new InvalidDataException(SignatureProblem));
+        var clock = time ?? TimeProvider.System;
+        var wait = teardownLimit ?? TeardownLimit;
+        var downloader = updater.UpdateDownloader as BoundedPackageDownloader;
+        var attempt = global::System.IO.Path.GetFullPath(PrepareAttemptDirectory(downloadRoot));
+        activeAttempts[attempt] = 0;
+        updater.TmpDownloadFilePath = attempt;
 
-        updater.DownloadFinished += Finished;
-        updater.DownloadHadError += Failed;
-        updater.DownloadedFileIsCorrupt += Corrupt;
-        updater.DownloadedFileThrewWhileCheckingSignature += Corrupt;
-        try
+        // The update library's verdict on this attempt. Callbacks for any other attempt are ignored.
+        var verdict = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Finished(AppCastItem item, string path) => _ = IsInAttempt(path, attempt) && verdict.TrySetResult(path);
+        void Reject(string? path, Exception rejection)
         {
-            await updater.InitAndBeginDownload(item);
-            return await downloaded.Task.WaitAsync(limit);
+            // The same exception settles this call's verdict and is published to the download's stop, so a rejection
+            // reported with a timeout can be recognised by identity and is never reported twice.
+            if (IsInAttempt(path, attempt) && verdict.TrySetException(rejection))
+            {
+                downloader?.PublishVerdict(rejection);
+            }
         }
-        finally
+
+        void Failed(AppCastItem item, string? path, Exception exception) => Reject(path, exception);
+        void Corrupt(AppCastItem item, string path) => Reject(path, new InvalidDataException(SignatureProblem));
+        void Cancelled(AppCastItem item, string path) => _ = IsInAttempt(path, attempt) && verdict.TrySetCanceled();
+
+        void Unsubscribe()
         {
             updater.DownloadFinished -= Finished;
             updater.DownloadHadError -= Failed;
+            updater.DownloadCanceled -= Cancelled;
             updater.DownloadedFileIsCorrupt -= Corrupt;
             updater.DownloadedFileThrewWhileCheckingSignature -= Corrupt;
         }
+
+        updater.DownloadFinished += Finished;
+        updater.DownloadHadError += Failed;
+        updater.DownloadCanceled += Cancelled;
+        updater.DownloadedFileIsCorrupt += Corrupt;
+        updater.DownloadedFileThrewWhileCheckingSignature += Corrupt;
+        var timedOut = false;
+        try
+        {
+            await updater.InitAndBeginDownload(item);
+            return await verdict.Task.WaitAsync(limit, clock);
+        }
+        catch (TimeoutException timeout)
+        {
+            // The deadline won, so the timeout is the result. The verdict may still arrive while the download stops;
+            // the callbacks stay subscribed until then, and the verdict is reported with the teardown, never lost.
+            timedOut = true;
+            updater.CancelFileDownload();
+            var teardown = downloader is null
+                ? null
+                : await ObserveTeardown(downloader.Stop, verdict.Task, wait, clock, attempt, logger);
+
+            if (teardown is null)
+            {
+                throw;
+            }
+
+            throw new AggregateException(TimeoutProblem, timeout, teardown);
+        }
+        catch (Exception)
+        {
+            // A rejected package (a bad signature, a corrupt file) or any other failed download leaves nothing behind.
+            await RemoveRejectedAttempt(attempt, downloader, wait, clock, logger);
+            throw;
+        }
+        finally
+        {
+            if (timedOut && downloader is not null)
+            {
+                _ = UnsubscribeWhenStopped(downloader.Stopped, Unsubscribe);
+            }
+            else
+            {
+                Unsubscribe();
+            }
+
+            _ = ReleaseWhenStopped(attempt, downloader?.Stopped);
+        }
+    }
+
+    /// <summary>
+    /// After a download ran past its time limit and was cancelled, waits at most <paramref name="wait"/> for
+    /// <paramref name="stop"/>. The update library checks a finished file inside the download's completion, before the
+    /// stop completes, so once it completes nothing uses the attempt any more. A timed-out attempt's path is never
+    /// returned, so it is never a kept package, and its directory is always removed then, whatever the library decided
+    /// about the file; a directory that cannot be removed is logged.
+    /// <para>
+    /// Whether the download stopped in time is decided once, by <see cref="DownloadStop"/>: the download claims it in
+    /// the same call that completes the stop, and the deadline timer claims the other side. In time, this returns the
+    /// download's failure and the library's rejection, each once, or null. Late, it returns the teardown timeout with
+    /// any rejection the library had given by the deadline, and logs the rest once the download stops.
+    /// </para>
+    /// </summary>
+    public static async Task<Exception?> ObserveTeardown(
+        DownloadStop stop,
+        Task<string> verdict,
+        TimeSpan wait,
+        TimeProvider time,
+        string attempt,
+        ILogger logger)
+    {
+        if (!await StoppedWithin(stop, wait, time))
+        {
+            var early = stop.VerdictAtDeadline;
+            List<Exception> reported = early is null ? [] : [early];
+            _ = RemoveAfterLateStop(stop.Stopped, verdict, reported, attempt, logger);
+            var timeout = new TimeoutException(TeardownProblem);
+            return early is null ? timeout : new AggregateException(TeardownProblem, timeout, early);
+        }
+
+        var outcome = await stop.Stopped;
+        var causes = Causes(outcome, FaultOf(verdict));
+
+        // Every cause is returned to the caller, so only a failure to remove the attempt is left to log.
+        RemoveTimedOutAttempt(attempt, outcome, [], late: false, logger);
+        return causes switch
+        {
+            [] => null,
+            [var only] => only,
+            var several => new AggregateException(StopProblem, several),
+        };
+    }
+
+    /// <summary>
+    /// True when <paramref name="stop"/> completes before <paramref name="wait"/> passes on <paramref name="time"/>,
+    /// false when the time passes first. The decision is the one <see cref="DownloadStop"/> records; it is never
+    /// read again from the stop task, and no continuation of the caller's takes part in it.
+    /// </summary>
+    public static async Task<bool> StoppedWithin(DownloadStop stop, TimeSpan wait, TimeProvider time)
+    {
+        using var deadline = time.CreateTimer(
+            _ => stop.ClaimDeadline(),
+            null,
+            wait,
+            Timeout.InfiniteTimeSpan);
+        return await stop.StoppedInTime;
     }
 
     #endregion
@@ -340,62 +721,286 @@ internal static class UpdatePackageTrust
         }
     }
 
-    private static bool IsLink(string path) =>
-        global::System.IO.Path.Exists(path)
-        && (File.ResolveLinkTarget(path, returnFinalTarget: false) is not null
-            || Directory.ResolveLinkTarget(path, returnFinalTarget: false) is not null);
-
-    private static bool OwnedByCurrentUser(string path) => Owner(path) == CurrentUser();
-
-    private static uint Owner(string path)
+    /// <summary>Removes one entry of the download directory. A link is removed, never what it points to.</summary>
+    private static Exception? RemoveEntry(string entry)
     {
-        // libc writes the whole status record. 256 bytes covers the macOS and Linux records.
-        var buffer = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(256);
         try
         {
-            var read = OperatingSystem.IsLinux()
-                ? LinuxOwner(path, buffer)
-                : DarwinOwner(path, buffer);
-            if (read != 0)
+            var link = IsLinkOrReparsePoint(entry);
+
+            if (link && OperatingSystem.IsWindows() && Directory.Exists(entry))
             {
-                throw new InvalidOperationException("The update download directory could not be checked.");
+                Directory.Delete(entry);
+            }
+            else if (!link && Directory.Exists(entry))
+            {
+                Directory.Delete(entry, recursive: true);
+            }
+            else
+            {
+                File.Delete(entry);
             }
 
-            // macOS stat.st_uid is at 16. Linux statx.stx_uid is at 20.
-            var offset = OperatingSystem.IsLinux() ? 20 : 16;
-            return (uint)global::System.Runtime.InteropServices.Marshal.ReadInt32(buffer, offset);
+            return null;
         }
-        finally
+        catch (Exception exception)
         {
-            global::System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+            return exception;
         }
     }
 
-    private static int DarwinOwner(string path, nint buffer) => DarwinStat(path, buffer);
+    /// <summary>Lets cleanup remove <paramref name="attempt"/> once its download has stopped, however late.</summary>
+    private static async Task ReleaseWhenStopped(string attempt, Task<DownloadOutcome>? stopped)
+    {
+        if (stopped is not null)
+        {
+            await stopped;
+        }
 
-    private static int LinuxOwner(string path, nint buffer) =>
-        LinuxStatX(AtCurrentDirectory, path, DoNotFollowLinks, UserIdMask, buffer);
+        activeAttempts.TryRemove(attempt, out _);
+    }
 
-    private static uint CurrentUser() => CurrentEffectiveUser();
+    /// <summary>Removes a timed-out attempt once its download stopped after the deadline, and logs it.</summary>
+    /// <remarks>
+    /// An exception already returned to the caller with the timeout is not logged again, whether it came as the
+    /// update library's rejection or as the download's own failure; every other cause is kept.
+    /// </remarks>
+    private static async Task RemoveAfterLateStop(
+        Task<DownloadOutcome> stopped,
+        Task<string> verdict,
+        List<Exception> reported,
+        string attempt,
+        ILogger logger)
+    {
+        var outcome = await stopped;
+        List<Exception> unreported =
+        [
+            .. Causes(outcome, FaultOf(verdict)).Where(cause => !reported.Any(seen => ReferenceEquals(seen, cause))),
+        ];
+        RemoveTimedOutAttempt(attempt, outcome, unreported, late: true, logger);
+    }
 
-    [global::System.Runtime.InteropServices.DllImport("libc", EntryPoint = "geteuid")]
-    private static extern uint CurrentEffectiveUser();
+    private static async Task UnsubscribeWhenStopped(Task<DownloadOutcome> stopped, Action unsubscribe)
+    {
+        await stopped;
+        unsubscribe();
+    }
 
-    [global::System.Runtime.InteropServices.DllImport("libc", EntryPoint = "stat")]
-    private static extern int DarwinStat(
-        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string path,
-        nint buffer);
+    /// <summary>True when the update library's callback is about a file in <paramref name="attempt"/>.</summary>
+    private static bool IsInAttempt(string? path, string attempt)
+    {
+        var separator = global::System.IO.Path.DirectorySeparatorChar;
+        return path is null
+            || global::System.IO.Path.GetFullPath(path).StartsWith($"{attempt}{separator}", StringComparison.Ordinal);
+    }
 
-    [global::System.Runtime.InteropServices.DllImport("libc", EntryPoint = "statx")]
-    private static extern int LinuxStatX(
-        int directory,
-        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string path,
-        int flags,
-        uint mask,
-        nint buffer);
+    /// <summary>The exception a settled verdict failed with, read so it is never an unobserved task fault.</summary>
+    private static Exception? FaultOf(Task<string> verdict) => verdict.Exception switch
+    {
+        null => null,
+        { InnerExceptions: [var only] } => only,
+        var several => several,
+    };
+
+    /// <summary>
+    /// The download's own failure, never a plain cancellation, and the update library's rejection, each once: the
+    /// library passes a download failure on unchanged, so the same exception can arrive both ways.
+    /// </summary>
+    private static List<Exception> Causes(DownloadOutcome outcome, Exception? rejected)
+    {
+        List<Exception> causes = outcome is { Cancelled: false, Error: { } error } ? [error] : [];
+        if (rejected is not null && !causes.Any(cause => ReferenceEquals(cause, rejected)))
+        {
+            causes.Add(rejected);
+        }
+
+        return causes;
+    }
+
+    /// <summary>
+    /// Removes the directory of a timed-out attempt. A directory that cannot be removed is logged as a warning with
+    /// <paramref name="causes"/>, the failures not yet reported to the caller. A late stop is logged when its attempt
+    /// was removed, with those causes, and says so when a partial file that could not be removed then was removed with
+    /// the attempt.
+    /// </summary>
+    private static void RemoveTimedOutAttempt(
+        string attempt,
+        DownloadOutcome outcome,
+        List<Exception> causes,
+        bool late,
+        ILogger logger)
+    {
+        var ended = outcome.Finished ? "finished" : outcome.Cancelled ? "was cancelled" : "failed";
+        var problem = late ? TeardownProblem : RemovalProblem;
+        var notRemoved = RemoveDirectory(attempt);
+
+        if (notRemoved is not null)
+        {
+            logger.LogWarning(
+                new AggregateException(problem, [.. causes, notRemoved]),
+                "A timed-out update download in {Attempt} {Ended} and its attempt could not be removed",
+                attempt,
+                ended);
+            return;
+        }
+
+        if (!late)
+        {
+            return;
+        }
+
+        var reported = causes.Count == 0 ? null : new AggregateException(TeardownProblem, causes);
+        if (outcome.NotRemoved is not null)
+        {
+            logger.LogInformation(
+                reported,
+                "A timed-out update download in {Attempt} {Ended} late; its stuck partial file went with its attempt",
+                attempt,
+                ended);
+        }
+        else
+        {
+            logger.LogInformation(
+                reported,
+                "A timed-out update download in {Attempt} {Ended} after its deadline and its attempt was removed",
+                attempt,
+                ended);
+        }
+    }
+
+    /// <summary>Removes a directory and everything in it, and returns why it could not be, if it could not.</summary>
+    private static Exception? RemoveDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    /// <summary>
+    /// Removes the attempt of a download that failed or was rejected, once the update library and the downloader are
+    /// done with it, waiting at most <paramref name="wait"/> for that. One that is not done in time, or cannot be
+    /// removed, is logged and left for a later check to remove.
+    /// </summary>
+    private static async Task RemoveRejectedAttempt(
+        string attempt,
+        BoundedPackageDownloader? downloader,
+        TimeSpan wait,
+        TimeProvider time,
+        ILogger logger)
+    {
+        if (downloader is not null && !await StoppedWithin(downloader.Stop, wait, time))
+        {
+            logger.LogWarning("A rejected update download in {Attempt} did not stop, so it is left for now", attempt);
+            return;
+        }
+
+        if (RemoveDirectory(attempt) is { } notRemoved)
+        {
+            logger.LogWarning(notRemoved, "A rejected update download in {Attempt} could not be removed", attempt);
+        }
+    }
 
     #endregion
 }
+
+
+/// <summary>
+/// Keeps only entries for one release channel that are newer than the installed version, newest first. An entry is on
+/// a channel when the channel its version names matches and any channel the entry declares matches too, so a preview
+/// entry is refused by a stable install whichever of the two marks it, and a stable entry by a preview install.
+/// </summary>
+internal sealed class ReleaseChannelFilter(string channel) : NetSparkleUpdater.Interfaces.IAppCastFilter
+{
+    #region Properties
+
+    public string Channel => channel;
+
+    #endregion
+
+    #region Public Methods
+
+    public static bool IsOnChannel(AppCastItem item, string channel) =>
+        !string.IsNullOrWhiteSpace(item.Version)
+        && DesktopUpdateChannel.FromVersion(item.Version) == channel
+        && (string.IsNullOrWhiteSpace(item.Channel)
+            || string.Equals(item.Channel.Trim(), channel, StringComparison.OrdinalIgnoreCase));
+
+    #endregion
+
+    #region Interface Implementations
+
+    public IEnumerable<AppCastItem> GetFilteredAppCastItems(SemVerLike installed, IEnumerable<AppCastItem> items) =>
+        items
+            .Where(item => IsOnChannel(item, channel) && SemVerLike.Parse(item.Version).CompareTo(installed) > 0)
+            .OrderByDescending(item => item.SemVerLikeVersion);
+
+    #endregion
+}
+
+
+/// <summary>
+/// Checks a file's signature for the update library with the strict Ed25519 checker, reading the file through one
+/// opened handle and at most <paramref name="limit"/> bytes. The library checks a file in three places (a file already
+/// downloaded, a fresh download, and again before the installer starts); every one of them comes here. A link, a
+/// reparse point, or a file over the limit is invalid and is not read.
+/// </summary>
+internal sealed class BoundedFileVerifier(NetSparkleUpdater.Interfaces.ISignatureVerifier inner, long limit)
+    : NetSparkleUpdater.Interfaces.ISignatureVerifier
+{
+    #region Properties
+
+    public long Limit => limit;
+
+    /// <summary>Always the checker's strict mode. A request to change it is refused.</summary>
+    public SecurityMode SecurityMode
+    {
+        get => inner.SecurityMode;
+        set
+        {
+            if (value != inner.SecurityMode)
+            {
+                throw new NotSupportedException("Drover checks update signatures only in strict mode.");
+            }
+        }
+    }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public bool HasValidKeyInformation() => inner.HasValidKeyInformation();
+
+    public ValidationResult VerifySignature(string signature, byte[] dataToVerify) =>
+        inner.VerifySignature(signature, dataToVerify);
+
+    public ValidationResult VerifySignatureOfString(string signature, string data) =>
+        inner.VerifySignatureOfString(signature, data);
+
+    public ValidationResult VerifySignatureOfFile(string signature, string binaryPath)
+    {
+        if (UpdatePackageTrust.IsLinkOrReparsePoint(binaryPath))
+        {
+            return ValidationResult.Invalid;
+        }
+
+        using var handle = UpdatePackageTrust.OpenPackage(binaryPath, FileOptions.None);
+        var package = UpdatePackageTrust.ReadPackage(handle, limit);
+        return package is null ? ValidationResult.Invalid : inner.VerifySignature(signature, package);
+    }
+
+    #endregion
+}
+
 
 /// <summary>Whether the downloaded package may be handed to an installer.</summary>
 internal readonly record struct DownloadDecision(DesktopUpdateState State, bool StartInstaller);

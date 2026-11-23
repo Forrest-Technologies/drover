@@ -14,7 +14,7 @@ If alerts arrive late, open **Notifications arriving late? → Open battery sett
 
 ## Build and release
 
-The Uno Android app uses the `net11.0-android` target in `Drover.Native.slnx`. It installs alongside the earlier MAUI preview, so enter your server address and sign in on first launch.
+The Uno Android app uses the `net11.0-android` target in `Drover.Native.slnx`. It installs alongside the earlier Android preview, so enter your server address and sign in on first launch.
 
 Install JDK 21, the Android workload, and the SDK packages pinned in the Android preview workflow. Build the APK with:
 

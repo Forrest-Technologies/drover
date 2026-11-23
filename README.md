@@ -2,7 +2,7 @@
 
 # Drover
 
-<img src="src/Drover.App/Resources/AppIcon/drover.svg" width="64" height="64" alt="Drover robot head" />
+<img src="docs/drover.svg" width="64" height="64" alt="Drover robot head" />
 
 **Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a browser or the Android preview.
 
@@ -79,10 +79,13 @@ Every bot is a character. Its visor lights up as it works, and it speaks from be
 ```sh
 dotnet build Drover.slnx -warnaserror
 dotnet test --solution Drover.slnx
-dotnet run --project src/Drover.Server
+dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -o artifacts/native
+NativeClient__Path=artifacts/native/wwwroot dotnet run --project src/Drover.Server
 ```
 
-The browser tests in `Drover.Ui.Tests` drive a real browser. They look first at `DROVER_TEST_CHROMIUM` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when set, then at the usual Chrome, Chromium and Edge paths for this system, then at the newest Chromium in Playwright's download folder. If none is there the failure lists everything tried and the three ways to fix it. To install the Playwright browser, run `pwsh tests/Drover.Ui.Tests/bin/Debug/net11.0/playwright.ps1 install chromium`.
+The server serves the browser client from the folder `NativeClient__Path` names, at the root; without one it serves the API alone. Publishing the browser client needs the `wasm-tools` workload. The client's own build and its other targets are in [the native client guide](docs/architecture/18-native-client.md).
+
+The service worker and file preview tests in `Drover.Presentation.Tests` drive a real browser. They look first at `DROVER_TEST_CHROMIUM` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when set, then at the usual Chrome, Chromium and Edge paths for this system, then at the newest Chromium in Playwright's download folder. If none is there the failure lists everything tried and the three ways to fix it. To install the Playwright browser, run `pwsh tests/Drover.Presentation.Tests/bin/Debug/net11.0/playwright.ps1 install chromium`.
 
 </details>
 

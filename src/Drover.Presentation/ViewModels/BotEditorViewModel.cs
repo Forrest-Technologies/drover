@@ -764,17 +764,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
                 return;
             }
 
-            if (Connections.Count == 0)
+            if (ConnectionChoice.Preferred(Connections) is not { } connection)
             {
                 LoadProblem = NoModelCause;
                 Notify();
                 return;
             }
 
-            var connection = Connections
-                .OrderByDescending(candidate => candidate.Status is "connected")
-                .ThenByDescending(candidate => candidate.LastCheckedAt)
-                .First();
             Models = await api.ListModels(SpaceId, connection.Id);
             var model = connection.DefaultModel
                 ?? bots.FirstOrDefault(bot => bot.ModelConnectionId == connection.Id)?.Model

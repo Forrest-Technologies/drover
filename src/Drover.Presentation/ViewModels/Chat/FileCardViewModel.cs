@@ -268,6 +268,8 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
 
     public const string PreviewFile = "Preview";
 
+    public const string PictureFailed = "This picture could not be shown.";
+
     #endregion
 
     #region Private Methods

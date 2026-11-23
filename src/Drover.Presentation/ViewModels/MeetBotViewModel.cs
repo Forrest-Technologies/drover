@@ -70,7 +70,7 @@ public sealed partial class MeetBotViewModel(
         try
         {
             Bot = (await api.ListBots(SpaceId)).FirstOrDefault();
-            Connection = Bot is null ? PickConnection(await api.ListModelConnections(SpaceId)) : null;
+            Connection = Bot is null ? ConnectionChoice.Preferred(await api.ListModelConnections(SpaceId)) : null;
             if (Connection is not null)
             {
                 await ListModels(Connection);
@@ -84,10 +84,6 @@ public sealed partial class MeetBotViewModel(
             LoadProblem = Failures.Sentence(exception);
         }
     }
-
-    // The Connection that last answered a test comes first: it is the one the person just set up.
-    private static ModelConnectionSummary? PickConnection(IReadOnlyList<ModelConnectionSummary> connections) =>
-        connections.OrderByDescending(candidate => candidate.Status is "connected").ThenByDescending(candidate => candidate.LastCheckedAt).FirstOrDefault();
 
     private async Task ListModels(ModelConnectionSummary chosen)
     {

@@ -88,9 +88,10 @@ public sealed partial class ShareToViewModel(
 
     public async Task Open()
     {
-        Shared = inbox.Waiting;
+        var signedIn = await session.Load() is not null;
+        Shared = signedIn ? inbox.Waiting : null;
 
-        if (Shared is not null && await session.Load() is not null)
+        if (Shared is not null)
         {
             await Load();
         }

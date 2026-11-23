@@ -28,6 +28,8 @@
     <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />
     <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
     <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
+    <Compile Include="..\Shared\PointerEvents.cs" Link="Shared\PointerEvents.cs" />
+    <Compile Include="..\Drover.Server.Tests\Support\MemorySandboxProvider.cs" Link="Shared\MemorySandboxProvider.cs" />
   </ItemGroup>
 
 </Project>

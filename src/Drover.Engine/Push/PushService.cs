@@ -59,6 +59,43 @@ public sealed class PushService(
         return true;
     }
 
+    /// <summary>
+    /// Puts the device's new subscription in the place of the one it had at <paramref name="previousEndpoint"/>, in one
+    /// transaction for one person: only when that previous subscription is the person's. The person's own row of it is
+    /// the proof, read under the same identity that writes the new one, so a request can never move a subscription
+    /// another account held.
+    /// </summary>
+    public async Task<PushMove> Move(Guid userId, string previousEndpoint, PushDeviceRequest device, CancellationToken cancellationToken)
+    {
+        if (!IsSubscription(device))
+        {
+            return PushMove.NotASubscription;
+        }
+
+        tenant.SetUser(userId);
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (!await push.HasSubscription(previousEndpoint, cancellationToken))
+        {
+            return PushMove.NotThePersons;
+        }
+
+        await push.RemoveSubscription(previousEndpoint, cancellationToken);
+        await push.SaveSubscription(
+            new PushSubscription
+            {
+                UserId = userId,
+                Endpoint = device.Endpoint,
+                PublicKey = device.PublicKey,
+                AuthSecret = device.AuthSecret,
+                CreatedAt = time.GetUtcNow(),
+            },
+            MaxDevicesPerPerson,
+            cancellationToken);
+        await work.Commit(cancellationToken);
+        return PushMove.Moved;
+    }
+
     public async Task TurnOff(Guid userId, string endpoint, CancellationToken cancellationToken)
     {
         tenant.SetUser(userId);
