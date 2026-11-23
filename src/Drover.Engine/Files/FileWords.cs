@@ -3,6 +3,13 @@ namespace Drover.Engine.Files;
 /// <summary>Sizes and file refusals in a person's words, for the sentences the server answers with.</summary>
 public static class FileWords
 {
+    #region Properties
+
+    public static string StorageUnavailable =>
+        "The server could not store this file. Contact the server administrator.";
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>"512 bytes", "40 KB", "3.4 MB", "25 MB".</summary>

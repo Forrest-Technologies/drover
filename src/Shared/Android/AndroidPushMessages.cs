@@ -4,40 +4,13 @@ internal sealed class AndroidPushMessages(DroverApi api, AndroidPushRegistration
 {
     #region Public Methods
 
-    public async Task Show(AndroidPushSubscription saved, byte[] payload, CancellationToken cancellationToken)
-    {
-        var (kind, thread) = Read(saved.Open(payload));
-        if (kind.Length == 0 || (await api.GetSession(cancellationToken))?.UserId != saved.UserId
-            || !await registration.BelongsTo(saved.UserId, saved.Token))
-        {
-            return;
-        }
-
-        if (kind == "device.test")
-        {
-            AndroidNotifications.ShowTest();
-            return;
-        }
-
-        try
-        {
-            if (await api.ReadPushWake(kind, thread, cancellationToken) is { } wake
-                && await registration.BelongsTo(saved.UserId, saved.Token))
-            {
-                AndroidNotifications.Show(wake, saved, canReply: kind == "run.finished");
-            }
-        }
-        catch (Exception exception) when (exception is HttpRequestException or DroverApiException or OperationCanceledException)
-        {
-            // The wake-up is the signed-in person's own, and it is acknowledged already. Losing it silently
-            // would look like notifications had stopped.
-            logger.LogWarning("Drover could not read what a notification is about");
-            if (await registration.BelongsTo(saved.UserId, saved.Token))
-            {
-                AndroidNotifications.ShowChange();
-            }
-        }
-    }
+    public Task Show(AndroidPushSubscription saved, byte[] payload, CancellationToken cancellationToken) =>
+        new PushWakeFlow(api, logger).Show(
+            saved,
+            saved.Open(payload),
+            () => registration.BelongsTo(saved.UserId, saved.Token),
+            new AndroidPushNotices(),
+            cancellationToken);
 
     public async Task Reply(Intent intent, CancellationToken cancellationToken)
     {
@@ -79,26 +52,6 @@ internal sealed class AndroidPushMessages(DroverApi api, AndroidPushRegistration
         {
             AndroidNotifications.ShowReplyResult(bot, thread, intent.GetBooleanExtra("main", true), body, user, token, space);
         }
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private static (string Kind, Guid Thread) Read(byte[] clear)
-    {
-        using var document = JsonDocument.Parse(clear);
-        var root = document.RootElement;
-        if (root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("kind", out var kind) && kind.ValueKind == JsonValueKind.String
-            && kind.GetString() is ("device.test" or "run.finished" or "run.failed" or "approval.waiting") and var name
-            && root.TryGetProperty("thread", out var thread) && thread.ValueKind == JsonValueKind.String
-            && thread.TryGetGuid(out var id) && (id != Guid.Empty || name == "device.test"))
-        {
-            return (name, id);
-        }
-
-        return (string.Empty, Guid.Empty);
     }
 
     #endregion

@@ -3,24 +3,29 @@ namespace Drover.Native.UITests;
 /// <summary>
 /// The real server, in process, listening on a loopback port over HTTPS with a certificate made for this run, over
 /// a database of its own. A scripted model answers every message with <see cref="Reply"/>, so a conversation runs
-/// through the real engine with no network.
+/// through the real engine with no network. Given a sandbox provider, which records what it is asked to do, bots can
+/// have a desktop sandbox too, as the Android proof needs.
 /// </summary>
-internal sealed class CheckServer(TestDatabase database, X509Certificate2 certificate, string folder)
+internal sealed class CheckServer(
+    TestDatabase database,
+    X509Certificate2 certificate,
+    string folder,
+    MemorySandboxProvider? sandbox = null)
     : WebApplicationFactory<global::Program>
 {
     #region Private Fields
 
     public const string Reply = "Hello from the check bot.";
 
-    // The app sends one message and gets its reply. The second turn holds its run in progress until the run is
+    // The screen checks send one message and get its reply. The second turn holds its run in progress until the run is
     // stopped, so the composer shows Stop for as long as a check needs to look at it. The rest are spare, in case
-    // the engine asks the model for anything else.
+    // the engine asks the model for anything else. The Android proof sends more messages and holds none.
     private readonly LogTail log = new();
 
-    private static readonly ScriptedModel script = new(
+    private readonly ScriptedModel script = new(
     [
         [new TextOutput(Reply)],
-        [new PauseOutput()],
+        sandbox is null ? [new PauseOutput()] : [new TextOutput(Reply)],
         .. Enumerable.Repeat<IReadOnlyList<ModelOutput>>([new TextOutput(Reply)], 8),
     ]);
 
@@ -127,7 +132,15 @@ internal sealed class CheckServer(TestDatabase database, X509Certificate2 certif
             logging.AddProvider(log);
         });
         builder.ConfigureServices(services =>
-            services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(script)));
+        {
+            services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(script));
+
+            if (sandbox is not null)
+            {
+                services.AddSingleton<ISandboxProvider>(sandbox);
+                services.AddSandboxTools();
+            }
+        });
     }
 
     #endregion
