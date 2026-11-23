@@ -36,13 +36,6 @@ public sealed record ConversationParameters(BotSummary Bot)
     /// <summary>The request whose screen the person took over and has open beside the conversation, if any.</summary>
     public Guid? HeldCallId { get; init; }
 
-    /// <summary>
-    /// What the server last said of a thread, as the signal stream and a fresh read of the lists reported it: a
-    /// conversation that is open takes in a change made elsewhere (a message sent from a notification or another
-    /// device, a run started somewhere else) when the thread here is newer than what it shows.
-    /// </summary>
-    public Func<Guid, ThreadSummary?>? LatestThread { get; init; }
-
     /// <summary>Whether this person can open the bot's screen, for a request to take it over.</summary>
     public ScreenAccess ScreenAccess { get; init; }
 
