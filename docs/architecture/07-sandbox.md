@@ -124,11 +124,11 @@ Limits come from the deployment policy and only narrow ([16-deployment-policies.
 
 ### Operator key
 
-The operator's E2B key is server configuration, not a secret in the vault: the vault is per space under row-level security, and this key belongs to the whole server. It is read at start from `Drover:Sandbox:E2B:ApiKey` (environment `Drover__Sandbox__E2B__ApiKey`) or from the file named by `Drover:Sandbox:E2B:ApiKeyFile` (a container secret, the same pattern as `Database:AppPasswordFile`), and held only in the adapter's options in memory. It is never written to the database or the vault, never returned by an endpoint, and never logged. Optional: `Drover:Sandbox:E2B:Domain` (default `e2b.app`), `Drover:Sandbox:E2B:Template` (default `base`), and `Drover:Sandbox:E2B:DesktopTemplate` (default `desktop`, the template a sandbox with a screen starts from; see [Computer use](#computer-use)).
+The operator's E2B key is server configuration, not a secret in the vault: the vault is per space under row-level security, and this key belongs to the whole server. `compose.yaml` passes `E2B_API_KEY` from `.env` as `Drover:Sandbox:E2B:ApiKey` (environment `Drover__Sandbox__E2B__ApiKey`); a file named by `Drover:Sandbox:E2B:ApiKeyFile` works instead, never both. The key is held only in the adapter's options in memory. It is never written to the database or the vault, never returned by an endpoint, and never logged. Optional: `Drover:Sandbox:E2B:Domain` (default `e2b.app`), `Drover:Sandbox:E2B:Template` (default `base`), and `Drover:Sandbox:E2B:DesktopTemplate` (default `desktop`, the template a sandbox with a screen starts from; see [Computer use](#computer-use)). The steps are in [the self-hosting guide](../self-hosting.md#sandboxes).
 
-- No key: no provider, no sandbox tools, and not an error. The bot editor's Sandbox section says no provider is set up, and the status page's `Sandboxes` row says "Not configured".
+- No key: no provider, no sandbox tools, and not an error. The bot editor's Sandbox section says no provider is set up; the status page's `Sandboxes` row says "Not configured" and names `E2B_API_KEY` and the guide's Sandboxes section.
 - A key without the `e2b_` prefix, both settings at once, or a key file that is not there stops the server at start, naming the setting and never the value.
-- The status page shows only "configured" or "not configured", and names no provider. `GET /api/spaces/{spaceId}/bots/{botId}/sandbox/options` tells the editor whether a provider exists, whether open network is allowed, and the most idle minutes.
+- The configured status row says only "Configured" and names no provider. `GET /api/spaces/{spaceId}/bots/{botId}/sandbox/options` tells the editor whether a provider exists, whether open network is allowed, and the most idle minutes.
 
 `SecretKind.SandboxProviderKey` stays reserved for a future hosted service where a space brings its own provider key.
 
