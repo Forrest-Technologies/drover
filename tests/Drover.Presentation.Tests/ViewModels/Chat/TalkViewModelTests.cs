@@ -442,6 +442,45 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Navigator.Current.Should().Be(Addresses.SideChats(botId));
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task A_second_try_whose_lookup_fails_after_another_conversation_was_opened_leaves_it_alone(
+        HttpStatusCode failure)
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        var thread = Server.Hold("GET", $"{Space}/threads/{threadId}");
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", Array.Empty<ThreadSummary>());
+        Server.Answer("GET", $"{Space}/threads/{threadId}", failure);
+        var retry = Ui.Run(Talk.Retry);
+        await Until(() => Server.Addresses.Should().Contain($"GET {Space}/threads/{threadId}"));
+
+        await Go(Addresses.SideChats(botId));
+        thread.SetResult();
+        await retry;
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+        Talk.FormerMissing.Should().BeFalse();
+        Talk.NotReady.Should().NotBe(WorkspaceState.Failed);
+    }
+
+    [Fact]
+    public async Task A_second_try_that_stays_on_a_kept_address_still_goes_to_its_conversation()
+    {
+        Server.Answer("GET", $"{Space}/bots", HttpStatusCode.InternalServerError);
+        await Go($"/threads/{threadId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Failed));
+
+        Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
+        await Do(Talk.Retry);
+
+        await Until(() => Address.Should().Be($"talk/{botId}"));
+    }
+
     [Fact]
     public async Task An_address_kept_from_before_whose_conversation_is_gone_says_so()
     {

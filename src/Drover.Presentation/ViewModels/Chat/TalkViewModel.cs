@@ -498,6 +498,8 @@ public sealed class TalkViewModel(
         }
     }
 
+    private bool StillShows(TalkAddress origin) => !gone && address == origin;
+
     private async Task LoadSpace()
     {
         spaceProblem = null;
@@ -550,7 +552,7 @@ public sealed class TalkViewModel(
 
             // A slow answer can arrive after the person has left this screen or opened another address. The redirect
             // replaces the current history entry, so it is only made while the old address is still the one shown.
-            if (gone || address != origin)
+            if (!StillShows(origin))
             {
                 return;
             }
@@ -560,12 +562,17 @@ public sealed class TalkViewModel(
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
         {
             logger.LogInformation(exception, "Thread {ThreadId} was not found", threadId);
-            formerMissing = true;
+
+            // A late answer about the old address says nothing about the one the person opened since.
+            formerMissing = StillShows(origin);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(TalkViewModel));
-            spaceProblem = Failures.Sentence(exception);
+            if (StillShows(origin))
+            {
+                spaceProblem = Failures.Sentence(exception);
+            }
         }
     }
 
