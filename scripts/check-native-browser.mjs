@@ -450,6 +450,10 @@ try {
                     });
                     return;
                 }
+                else if (/\/files\/[^/]+$/.test(address) && route.request().method() === 'DELETE') {
+                    await route.fulfill({ status: 204 });
+                    return;
+                }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
                     body = {
@@ -1031,6 +1035,25 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles) {
     }, png);
     await uploadsAre(2, 'A file dropped on the message list uploads to the conversation.');
     assert.equal(uploadedFiles[1], 'dropped.png');
+
+    // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
+    await field.focus();
+    await page.evaluate(bytes => {
+        const clipboardData = new DataTransfer();
+        for (let number = 1; number <= 150; number++) {
+            clipboardData.items.add(new File([new Uint8Array(bytes)], `many ${number}.png`, { type: 'image/png' }));
+        }
+        document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    }, png);
+    await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'attached', timeout: 10000 });
+    const remove = page.getByRole('button', { name: /^Remove / });
+    assert.equal(await remove.count(), 102, 'The hundred files taken stand beside the two attached before.');
+    while (await remove.count() > 0) {
+        await remove.first().dispatchEvent('click');
+    }
+    // A warning stays until it is dismissed, and it would stand over the buttons the next check measures.
+    await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
+    await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'detached', timeout: 5000 });
 }
 
 // While a run is in progress Stop stands where Send was, and the options button beside the field is still there. The

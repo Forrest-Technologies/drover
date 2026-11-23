@@ -8,8 +8,8 @@ internal static class PlatformPaste
 {
     #region Public Methods
 
-    /// <summary>Raised for each file a paste carried. Never raised on a device.</summary>
-    public static event Action<IPickedFile>? Received
+    /// <summary>Raised once for each paste, with the files it carried. Never raised on a device.</summary>
+    public static event Action<IReadOnlyList<IPickedFile>>? Received
     {
         add { }
         remove { }

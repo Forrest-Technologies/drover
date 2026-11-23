@@ -10,9 +10,6 @@ public sealed partial class ComposerViewModel : ObservableObject
 {
     #region Private Fields
 
-    // More than a message may carry is still taken, so each one past the limit can say why it cannot go.
-    private const int MaxFilesAtOnce = 100;
-
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FieldName), nameof(Placeholder))]
     private string botName = string.Empty;
@@ -54,6 +51,9 @@ public sealed partial class ComposerViewModel : ObservableObject
     #endregion
 
     #region Properties
+
+    /// <summary>The most files taken from one choice, paste or drop. A person who hands over more is told.</summary>
+    public const int MaxFilesAtOnce = 100;
 
     /// <summary>What the person wrote, trimmed, when they send it.</summary>
     public Func<string, Task>? OnSend { get; set; }

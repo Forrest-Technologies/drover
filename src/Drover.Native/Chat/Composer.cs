@@ -50,15 +50,7 @@ public sealed class Composer : Grid
 
     private readonly TextBlock dropNote = Styles.Text("Drop the files to attach them.", "DvTextLabel");
 
-    // The formats a text field takes by itself. Anything else on the clipboard is something it cannot use.
-    private static readonly HashSet<string> readable =
-    [
-        Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text,
-        Windows.ApplicationModel.DataTransfer.StandardDataFormats.Html,
-        Windows.ApplicationModel.DataTransfer.StandardDataFormats.Rtf,
-        Windows.ApplicationModel.DataTransfer.StandardDataFormats.WebLink,
-        Windows.ApplicationModel.DataTransfer.StandardDataFormats.ApplicationLink,
-    ];
+    private static readonly string[] pictureFormats = ["image", "png", "jpeg", "bitmap", "dib", "tiff"];
 
     private ComposerViewModel? model;
 
@@ -467,9 +459,9 @@ public sealed class Composer : Grid
                 pasted.Handled = true;
                 await Take(carried);
             }
-            else if (carried.AvailableFormats.Any(format => !readable.Contains(format)))
+            else if (carried.AvailableFormats.Any(IsPictureFormat))
             {
-                // Something is on the clipboard that this device did not hand over as a file or a picture.
+                // A picture is listed on the clipboard that this device did not hand over.
                 model?.Notify(FileWords.PictureNotHandedOver, ToastKind.Warning);
             }
         }
@@ -484,14 +476,18 @@ public sealed class Composer : Grid
         }
     }
 
-    // A file the browser's paste event brought. It goes to the composer whose field has the cursor.
-    private async void PastedInBrowser(IPickedFile file)
+    // The files of one paste the browser brought, together. They go to the composer whose field has the cursor.
+    private async void PastedInBrowser(IReadOnlyList<IPickedFile> files)
     {
         if (fieldFocused)
         {
-            await Hand([file]);
+            await Hand(files);
         }
     }
+
+    // A format a device lists for a picture it holds but did not hand over as a bitmap.
+    private static bool IsPictureFormat(string format) =>
+        pictureFormats.Any(word => format.Contains(word, StringComparison.OrdinalIgnoreCase));
 
     private static bool Offers(Windows.ApplicationModel.DataTransfer.DataPackageView carried) =>
         carried.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)
