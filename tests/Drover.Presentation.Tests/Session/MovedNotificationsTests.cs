@@ -453,7 +453,11 @@ public sealed class MovedNotificationsTests : IDisposable
     }
 
     private SessionGateViewModel Gate(MovedNotifications moved) =>
-        new(new SessionState(server.CreateApi(), new ShareInbox()), new Navigator(), NullLogger<SessionGateViewModel>.Instance, moved);
+        new(
+            new SessionState(server.CreateApi(), new ShareInbox()),
+            new Navigator(),
+            NullLogger<SessionGateViewModel>.Instance,
+            moved);
 
     #endregion
 }

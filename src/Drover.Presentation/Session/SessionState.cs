@@ -122,7 +122,7 @@ public sealed class SessionState(DroverApi api, ShareInbox inbox)
         chosen = null;
         loaded = true;
         // A share waiting for the person who left must not reach the one who signs in now.
-        inbox.Discard();
+        inbox.Reset();
         Changed?.Invoke();
     }
 
@@ -131,7 +131,7 @@ public sealed class SessionState(DroverApi api, ShareInbox inbox)
         await api.SignOut(cancellationToken);
         Current = null;
         chosen = null;
-        inbox.Discard();
+        inbox.Reset();
         Changed?.Invoke();
     }
 

@@ -24,16 +24,11 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
     {
         try
         {
-            var text = intent.GetStringExtra(Intent.ExtraText)?.Trim() ?? string.Empty;
-            var files = await Task.Run(() => Stage(intent));
-
-            if (text.Length == 0 && files.Count == 0)
+            // The inbox places the share only if the person and the server are still the ones it arrived for.
+            if (await inbox.Receive(() => Stage(intent)))
             {
-                return;
+                navigation.Open(Addresses.Share);
             }
-
-            inbox.Offer(new SharedDraft(text, files));
-            navigation.Open(Addresses.Share);
         }
         catch (Exception exception) when (exception is Java.Lang.Exception or IOException or UnauthorizedAccessException)
         {
@@ -45,9 +40,17 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
 
     #region Private Methods
 
+    private async Task<SharedDraft?> Stage(Intent intent)
+    {
+        var text = intent.GetStringExtra(Intent.ExtraText)?.Trim() ?? string.Empty;
+        var files = await Task.Run(() => CopyFiles(intent));
+
+        return text.Length == 0 && files.Count == 0 ? null : new SharedDraft(text, files);
+    }
+
     // Android puts the shared streams on the intent's clip. Only content addresses are read: a file address could
     // name one of this app's own files, and another app must not be able to have those attached.
-    private List<IPickedFile> Stage(Intent intent)
+    private List<IPickedFile> CopyFiles(Intent intent)
     {
         var root = System.IO.Path.Combine(FileSystem.CacheDirectory, Folder);
 
@@ -63,14 +66,15 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
         {
             if (intent.ClipData!.GetItemAt(index)?.Uri is { Scheme: ContentResolver.SchemeContent } address)
             {
-                files.Add(Copy(resolver, address, Directory.CreateDirectory(System.IO.Path.Combine(root, Guid.NewGuid().ToString("N")))));
+                var folder = Directory.CreateDirectory(System.IO.Path.Combine(root, Guid.NewGuid().ToString("N")));
+                files.Add(Copy(resolver, address, folder, logger));
             }
         }
 
         return files;
     }
 
-    private static StagedFile Copy(ContentResolver resolver, AndroidUri address, DirectoryInfo folder)
+    private static StagedFile Copy(ContentResolver resolver, AndroidUri address, DirectoryInfo folder, ILogger logger)
     {
         var path = System.IO.Path.Combine(folder.FullName, NameOf(resolver, address));
 
@@ -80,7 +84,8 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
             source.CopyTo(target);
         }
 
-        return new StagedFile(new FileInfo(path), resolver.GetType(address) ?? "application/octet-stream");
+        var contentType = resolver.GetType(address) ?? "application/octet-stream";
+        return new StagedFile(new FileInfo(path), contentType, logger);
     }
 
     private static string NameOf(ContentResolver resolver, AndroidUri address)
@@ -98,7 +103,10 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
 
     #region Nested Types
 
-    private sealed class StagedFile(FileInfo file, string contentType) : IBrowserFile, IPickedFile
+    // Each copy lives in a folder of its own. Releasing it removes that folder, which the inbox does when the share
+    // is dropped because the person or the server changed.
+    private sealed class StagedFile(FileInfo file, string contentType, ILogger logger)
+        : IBrowserFile, IPickedFile, IDisposable
     {
         #region Interface Implementations
 
@@ -113,6 +121,22 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
         public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default) => file.OpenRead();
 
         public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(file.OpenRead());
+
+        public void Dispose()
+        {
+            try
+            {
+                if (file.Directory is { Exists: true } folder)
+                {
+                    folder.Delete(recursive: true);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // It is in the app's own cache, and the next share or start of the app tries again.
+                logger.LogWarning(exception, "A staged copy of a shared file could not be removed");
+            }
+        }
 
         #endregion
     }

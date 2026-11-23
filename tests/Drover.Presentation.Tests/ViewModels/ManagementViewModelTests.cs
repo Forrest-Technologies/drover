@@ -161,7 +161,10 @@ public sealed class ManagementViewModelTests : IDisposable
         model.CanMarkVision(Connection).Should().BeFalse("a provider that reports its own capabilities keeps its own value");
 
         server.Answer("GET", "/api/session", Samples.Session("member"));
-        var asMember = new ModelConnectionsViewModel(server.CreateApi(), new(server.CreateApi(), new ShareInbox()), NullLogger<ModelConnectionsViewModel>.Instance);
+        var asMember = new ModelConnectionsViewModel(
+            server.CreateApi(),
+            new(server.CreateApi(), new ShareInbox()),
+            NullLogger<ModelConnectionsViewModel>.Instance);
         await asMember.Open();
 
         asMember.CanMarkVision(compatible).Should().BeFalse("the server decides, and a member is not offered the control");

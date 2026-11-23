@@ -23,6 +23,25 @@ public sealed class ShareInboxLifetimeTests : IDisposable
     }
 
     [Fact]
+    public async Task AShareStagedByTheColdStartContainerIsPlacedWhileTheInterfaceContainerStarts()
+    {
+        using var coldStart = global::Drover.Native.Shell.AppServices.Build();
+        var draft = new SharedDraft("Sample words from another app", []);
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var receiving = coldStart.GetRequiredService<ShareInbox>().Receive(async () =>
+        {
+            await held.Task;
+            return draft;
+        });
+
+        using var restarted = global::Drover.Native.Shell.AppServices.Build();
+        held.SetResult();
+
+        (await receiving).Should().BeTrue();
+        restarted.GetRequiredService<ShareInbox>().Waiting.Should().BeSameAs(draft);
+    }
+
+    [Fact]
     public async Task AShareOfferedWhileSignedInSurvivesALoad()
     {
         using var server = new FakeServer();
