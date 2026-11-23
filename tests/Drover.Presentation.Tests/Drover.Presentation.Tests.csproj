@@ -9,6 +9,8 @@
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
     <PackageReference Include="Microsoft.Playwright" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
@@ -38,6 +40,11 @@
     <Compile Include="..\Drover.Native.UITests\AndroidCheckGuard.cs" Link="Rules\AndroidCheckGuard.cs" />
     <Compile Include="..\Drover.Native.UITests\IosCheckReport.cs" Link="Rules\IosCheckReport.cs" />
     <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />
+  </ItemGroup>
+
+  <!-- The bounds the native client puts on a picture pasted from the clipboard, checked with its drawing library. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Drover.Native\Chat\PastedPicture.cs" Link="Native\PastedPicture.cs" />
   </ItemGroup>
 
   <!-- Event logs recorded from a real server. -->
