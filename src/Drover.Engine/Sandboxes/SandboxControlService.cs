@@ -45,6 +45,9 @@ public sealed class SandboxControlService(
     private const string NotPausedWhileHeld =
         "A mouse button on this screen could not be let go of, so it was not paused. Try again or rebuild it.";
 
+    private const string MovedSentence =
+        "The bot's sandbox changed while this was under way, so nothing was done. Try again.";
+
     private const string NoSandboxYet = "This bot has no sandbox yet. Run a command in the terminal to start one.";
 
     private const string TooMuchInput =
@@ -131,7 +134,8 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.paused",
-            (sandbox, person, only, begin) => sandbox.Pause(person, cancellationToken, only, begin),
+            (sandbox, person, only, begin) =>
+                sandbox.Pause(person, cancellationToken, only, begin, () => RecheckRole(person, cancellationToken)),
             ButtonsOnPower.LetGoFirst,
             cancellationToken);
 
@@ -141,7 +145,8 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.resumed",
-            (sandbox, person, only, _) => sandbox.Resume(person, cancellationToken, only),
+            (sandbox, person, only, _) =>
+                sandbox.Resume(person, cancellationToken, only, () => RecheckRole(person, cancellationToken)),
             ButtonsOnPower.LetGoAfter,
             cancellationToken);
 
@@ -153,7 +158,12 @@ public sealed class SandboxControlService(
             "sandbox.rebuilt",
             async (sandbox, person, only, begin) =>
             {
-                await sandbox.Rebuild(person, cancellationToken, only, begin);
+                await sandbox.Rebuild(
+                    person,
+                    cancellationToken,
+                    only,
+                    begin,
+                    () => RecheckRole(person, cancellationToken));
                 return true;
             },
             ButtonsOnPower.Reset,
@@ -165,7 +175,8 @@ public sealed class SandboxControlService(
             userId,
             botId,
             "sandbox.turned_off",
-            (sandbox, person, only, begin) => sandbox.TurnOff(person, cancellationToken, only, begin),
+            (sandbox, person, only, begin) =>
+                sandbox.TurnOff(person, cancellationToken, only, begin, () => RecheckRole(person, cancellationToken)),
             ButtonsOnPower.Reset,
             cancellationToken);
 
@@ -535,14 +546,9 @@ public sealed class SandboxControlService(
     }
 
     /// <summary>
-    /// Whether the person may still change the bot, read again at the screen's gate: before the sandbox is acquired,
-    /// so a refused person wakes nothing, and last of all right before the input is sent, so a person demoted while the
-    /// input waited sends nothing. Null when they may; otherwise the sentence that refuses them. Letting go of a button
-    /// by the server never depends on this.
-    /// </summary>
-    /// <summary>
-    /// Reads the person's role and the bot again, under a screen's gate, and throws when they may no longer change it.
-    /// Called before a power control lets go of, fences, retires or asks the provider anything.
+    /// Reads the person's role and the bot again and throws when they may no longer change it. A power control calls
+    /// it under the screen's gate before it lets go of or fences anything, and the broker calls it again right before
+    /// each provider power call and each retirement of the row.
     /// </summary>
     private static async Task RecheckRole(SandboxCaller person, CancellationToken cancellationToken)
     {
@@ -556,6 +562,12 @@ public sealed class SandboxControlService(
         }
     }
 
+    /// <summary>
+    /// Whether the person may still change the bot, read again at the screen's gate: before the sandbox is acquired,
+    /// so a refused person wakes nothing, and last of all right before the input is sent, so a person demoted while the
+    /// input waited sends nothing. Null when they may; otherwise the sentence that refuses them. Letting go of a button
+    /// by the server never depends on this.
+    /// </summary>
     private static async Task<string?> Refusal(
         RunTenant tenant,
         Guid spaceId,
@@ -593,11 +605,19 @@ public sealed class SandboxControlService(
             await afterLookup();
         }
 
-        // The role was read before the gate was waited for; it is read again under the gate, before anything is let
-        // go of, fenced, retired or asked of the provider, and again right before the power operation, since letting
-        // go of a held button can wait. A refused caller changes nothing: held buttons stay with their records, whose
-        // deadlines let go of them in the background whoever pressed them.
-        Task Admit() => RecheckRole(person, cancellationToken);
+        // The role was read before the gate was waited for. Under the gate it is read again, with the check that the
+        // bot still reaches the display that was gated, before anything is let go of or fenced; a control refused there
+        // changes nothing, and held buttons stay with their records, whose deadlines let go of them in the background.
+        // The broker reads the role once more right before each provider power call and retirement of the row.
+        async Task Admit()
+        {
+            await RecheckRole(person, cancellationToken);
+
+            if (found is { } gated && await sandbox.CurrentSandbox(person, cancellationToken) != gated)
+            {
+                throw new BuiltinToolException(MovedSentence);
+            }
+        }
 
         if (found is not { } sandboxId)
         {
@@ -627,11 +647,7 @@ public sealed class SandboxControlService(
             spaceId,
             sandboxId,
             required: buttons is ButtonsOnPower.LetGoFirst,
-            async begin =>
-            {
-                await Admit();
-                done = await work(sandboxId, begin);
-            },
+            async begin => done = await work(sandboxId, begin),
             cancellationToken,
             Admit);
 

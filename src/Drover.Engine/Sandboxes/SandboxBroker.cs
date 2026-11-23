@@ -793,7 +793,8 @@ public sealed class SandboxBroker(
         SandboxCaller person,
         CancellationToken cancellationToken,
         Guid? only = null,
-        Action? begin = null)
+        Action? begin = null,
+        Func<Task>? authorize = null)
     {
         await LookingForPower(cancellationToken);
         var found = await Locate(person, null, create: false, cancellationToken);
@@ -808,6 +809,7 @@ public sealed class SandboxBroker(
             return false;
         }
 
+        await Authorize(authorize);
         begin?.Invoke();
 
         try
@@ -851,9 +853,16 @@ public sealed class SandboxBroker(
     /// Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made. With
     /// <paramref name="only"/>, it is that sandbox or nothing is done, and one the provider lost is not replaced here.
     /// </summary>
-    public async Task<bool> Resume(SandboxCaller person, CancellationToken cancellationToken, Guid? only = null)
+    public async Task<bool> Resume(
+        SandboxCaller person,
+        CancellationToken cancellationToken,
+        Guid? only = null,
+        Func<Task>? authorize = null)
     {
-        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken, only) is not { } lease)
+        await LookingForPower(cancellationToken);
+
+        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken, only, authorize)
+            is not { } lease)
         {
             return false;
         }
@@ -873,7 +882,8 @@ public sealed class SandboxBroker(
         SandboxCaller person,
         CancellationToken cancellationToken,
         Guid? only = null,
-        Action? begin = null)
+        Action? begin = null,
+        Func<Task>? authorize = null)
     {
         await LookingForPower(cancellationToken);
         var target = await Locate(person, null, create: false, cancellationToken);
@@ -886,6 +896,7 @@ public sealed class SandboxBroker(
         if (target is not null)
         {
             RefuseWhenMoved(target, only);
+            await Authorize(authorize);
             begin?.Invoke();
 
             if (BeforeRetire is { } beforeRetire)
@@ -947,7 +958,8 @@ public sealed class SandboxBroker(
         SandboxCaller person,
         CancellationToken cancellationToken,
         Guid? only = null,
-        Action? begin = null)
+        Action? begin = null,
+        Func<Task>? authorize = null)
     {
         await LookingForPower(cancellationToken);
         if (await Locate(person, null, create: false, cancellationToken) is not { } target)
@@ -956,6 +968,7 @@ public sealed class SandboxBroker(
         }
 
         RefuseWhenMoved(target, only);
+        await Authorize(authorize);
         begin?.Invoke();
 
         if (target is { Token: { } token, Row.ProviderSandboxId.Length: > 0 })
@@ -1003,7 +1016,8 @@ public sealed class SandboxBroker(
         bool screen,
         bool create,
         CancellationToken cancellationToken,
-        Guid? only = null)
+        Guid? only = null,
+        Func<Task>? authorize = null)
     {
         if (await Locate(caller, environment, create, cancellationToken) is not { } target)
         {
@@ -1018,7 +1032,8 @@ public sealed class SandboxBroker(
             screen,
             bound: only is not null,
             cancellationToken,
-            environment);
+            environment,
+            authorize);
     }
 
     /// <summary>
@@ -1032,14 +1047,17 @@ public sealed class SandboxBroker(
         bool screen,
         bool bound,
         CancellationToken cancellationToken,
-        string? environment = null)
+        string? environment = null,
+        Func<Task>? authorize = null)
     {
         if (screen && !DesktopFor(target.Owner))
         {
             throw new BuiltinToolException("This bot's sandbox has no screen. A person can turn on Desktop in the bot's Sandbox settings.");
         }
 
+        await Authorize(authorize);
         await DestroyRetired(caller.Tenant, target, cancellationToken);
+        await Authorize(authorize);
         var network = NetworkFor(target.Owner);
         var idle = IdleFor(target.Owner);
         var keepFor = keepAtLeast is { } longer && longer > idle ? longer : idle;
@@ -1300,6 +1318,12 @@ public sealed class SandboxBroker(
         logger.LogInformation("Created sandbox {SandboxId} for bot {BotId} at {Provider}", target.Row.Id, target.Owner.Id, provider.Kind);
         return created;
     }
+
+    /// <summary>
+    /// The caller's own check that they may still do this, run right before a power control asks the provider to
+    /// change the sandbox or takes its row out of use. It throws when they may not; nothing has changed yet.
+    /// </summary>
+    private static Task Authorize(Func<Task>? authorize) => authorize?.Invoke() ?? Task.CompletedTask;
 
     private Task LookingForPower(CancellationToken cancellationToken) =>
         BeforePowerLookup?.Invoke(cancellationToken) ?? Task.CompletedTask;

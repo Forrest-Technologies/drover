@@ -2084,7 +2084,9 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             IsPress(command) && Interlocked.Increment(ref presses) is 2
                 ? HoldCommand(running, finish, token)
                 : null);
-        await using var world = await ControlWorld(provider, desktop: true);
+        // The clock stays where it is, so no held button comes due and is let go of while the test looks.
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
         var admin = await world.AddMember(MembershipRole.Admin);
         var control = Control(world);
         await StartDesktop(world, control, provider);
@@ -2134,6 +2136,104 @@ public sealed class SandboxControlTests(PostgresServer postgres)
             .Select(entry => entry.Data)
             .ToListAsync(RunWorld.Token))).Should().ContainSingle()
             .Which.GetProperty("outcome").GetString().Should().Be("refused");
+        await LetGoOfEverything(world, control);
+    }
+
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("rebuild")]
+    [InlineData("turn off")]
+    public async Task A_power_control_whose_bot_moved_to_another_sandbox_while_it_waited_lets_go_of_nothing(string power)
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atTheGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var presses = 0;
+        var provider = PointerProvider((command, token) =>
+            IsPress(command) && Interlocked.Increment(ref presses) is 2
+                ? HoldCommand(running, finish, token)
+                : null);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        (await control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 1, Y: 2, Button: "right"),
+            RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+        var pressing = control.Input(world.SpaceId, world.UserId, world.BotId, new("down", X: 5, Y: 6),
+            RunWorld.Token);
+        await running.Task.WaitAsync(RunWorld.Token);
+        var sent = provider.Commands.Count;
+        control.Holds.Waiting = () => atTheGate.TrySetResult();
+
+        var acting = power switch
+        {
+            "pause" => control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+            "rebuild" => control.Rebuild(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+            _ => control.TurnOff(world.SpaceId, world.UserId, world.BotId, RunWorld.Token),
+        };
+        await atTheGate.Task.WaitAsync(RunWorld.Token);
+        control.Holds.Waiting = null;
+        await MoveUnderGroup(world);
+        finish.SetResult();
+        (await pressing).Refusal.Should().Be(SandboxControlRefusal.None);
+        var result = await acting;
+
+        result.Refusal.Should().Be(SandboxControlRefusal.Refused);
+        result.Problem.Should().Contain("changed while this was under way");
+        provider.Commands.Skip(sent).Should().NotContain(
+            command => command.Program == "xdotool" && command.Arguments.Contains("mouseup"),
+            "the old display's buttons are left to their own deadlines, not let go of for a control that does nothing");
+        provider.Pauses.Should().BeEmpty();
+        provider.Destroys.Should().BeEmpty();
+        control.Holds.IsHeldOn(world.SpaceId, await SandboxId(world)).Should().BeTrue();
+        await LetGoOfEverything(world, control);
+    }
+
+    [Theory]
+    [InlineData("pause")]
+    [InlineData("resume")]
+    [InlineData("rebuild")]
+    [InlineData("turn off")]
+    public async Task A_power_control_whose_caller_is_demoted_after_the_gate_checks_asks_the_provider_nothing(
+        string power)
+    {
+        var provider = DesktopProvider();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var world = await ControlWorld(provider, desktop: true, clock: clock);
+        var admin = await world.AddMember(MembershipRole.Admin);
+        var control = Control(world);
+        await StartDesktop(world, control, provider);
+        var broker = world.Hosts[^1].Services.GetRequiredService<SandboxBroker>();
+        var resumes = 0;
+        provider.BeforeResume = (_, _) =>
+        {
+            Interlocked.Increment(ref resumes);
+            return Task.CompletedTask;
+        };
+        var created = provider.Created;
+
+        // The gate's own check has passed; the broker then looks for the sandbox, and the demotion lands there.
+        broker.BeforePowerLookup = async _ =>
+        {
+            broker.BeforePowerLookup = null;
+            await Demote(world, admin);
+        };
+        var result = power switch
+        {
+            "pause" => await control.Pause(world.SpaceId, admin, world.BotId, RunWorld.Token),
+            "resume" => await control.Resume(world.SpaceId, admin, world.BotId, RunWorld.Token),
+            "rebuild" => await control.Rebuild(world.SpaceId, admin, world.BotId, RunWorld.Token),
+            _ => await control.TurnOff(world.SpaceId, admin, world.BotId, RunWorld.Token),
+        };
+
+        broker.BeforePowerLookup.Should().BeNull("the demotion happened during the broker's lookup");
+        result.Refusal.Should().Be(SandboxControlRefusal.NotPermitted);
+        provider.Pauses.Should().BeEmpty();
+        provider.Destroys.Should().BeEmpty();
+        provider.Created.Should().Be(created);
+        resumes.Should().Be(0);
+        (await world.Read(db => db.Sandboxes.OrderBy(row => row.Id).LastAsync(RunWorld.Token))).State
+            .Should().Be(SandboxState.Running, "the row was not paused or taken out of use");
     }
 
     #endregion
@@ -2613,6 +2713,14 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         return scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database.GetConnectionString()
             ?? throw new InvalidOperationException("The host's database has no connection string.");
     }
+
+    /// <summary>
+    /// Lets go of every button held on the sandbox the test used, by its row, so nothing is held when a world on a
+    /// fixed clock is disposed: the server's stop would otherwise wait for a release on a clock that never moves.
+    /// </summary>
+    private static async Task LetGoOfEverything(RunWorld world, SandboxControlService control) =>
+        (await control.Holds.ReleaseAll(world.SpaceId, await SandboxId(world), RunWorld.Token))
+            .Should().BeTrue("the test lets go of what it held before the world is disposed");
 
     /// <summary>Makes the person a member who may not use the bot's sandbox.</summary>
     private static Task<bool> Demote(RunWorld world, Guid userId) =>
