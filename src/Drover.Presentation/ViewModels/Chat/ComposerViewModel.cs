@@ -55,8 +55,8 @@ public sealed partial class ComposerViewModel : ObservableObject
 
     #region Properties
 
-    /// <summary>What the person wrote, trimmed, when they send it.</summary>
-    public Func<string, Task>? OnSend { get; set; }
+    /// <summary>What the person wrote, trimmed, when they send it. True means the server took the message.</summary>
+    public Func<string, Task<bool>>? OnSend { get; set; }
 
     /// <summary>Files the person chose, pasted, or dropped.</summary>
     public Func<IReadOnlyList<IPickedFile>, Task>? OnFiles { get; set; }
@@ -178,9 +178,23 @@ public sealed partial class ComposerViewModel : ObservableObject
 
         var message = Text.Trim();
         Text = string.Empty;
-        if (OnSend is { } send)
+        if (OnSend is not { } send)
         {
-            await send(message);
+            return;
+        }
+
+        var delivered = false;
+        try
+        {
+            delivered = await send(message);
+        }
+        finally
+        {
+            if (!delivered)
+            {
+                Text = Text.Length == 0 ? message : $"{message}\n\n{Text}";
+                Focus();
+            }
         }
     }
 

@@ -1180,7 +1180,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Until(() => MainPane.List.Problem.Should().Be("Your message was not sent. Drover could not reach its server. It is back in the message field."));
         MainPane.Composer.Text.Should().Be("Another sample question");
-        MainPane.Composer.Attachments.Should().ContainSingle().Which.Id.Should().Be(fileId);
+        MainPane.Composer.Attachments.Should().ContainSingle().Which.Should().Match<AttachmentItem>(item => item.Name == "notes.txt" && item.Phase == UploadPhase.Ready);
         MainPane.Composer.CanSend.Should().BeTrue("one press of Send tries the same message with the same files");
     }
 
