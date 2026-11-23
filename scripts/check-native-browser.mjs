@@ -249,6 +249,11 @@ try {
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
                 if (message.location().url.startsWith(previewOrigin)) { return; }
+                // The paste check makes one file fail to read on purpose; the app logs that, as it should.
+                if (current === 'conversation'
+                    && message.text().includes('A file the browser handed over with a paste could not be read')) {
+                    return;
+                }
                 // These two intentional API failures exercise the loading-to-failure and retry states.
                 const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (current === 'conversation' && previewRequests === 5
@@ -996,12 +1001,14 @@ async function checkComposerBounds(page) {
 async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
     const dropLine = page.getByText('Drop the files to attach them.', { exact: true });
-    const pasteFailed = page.getByText('What was pasted could not be attached.', { exact: true });
+    const pasteFailed = page.getByText('What was pasted could not be attached.');
     // A complete PNG (signature, header, pixels, end), so what is uploaded can be checked byte for byte.
     const png = [...Buffer.from(samplePng, 'base64')];
     // A file copied from storage carries the time it was last changed; a picture the browser made for the paste, now.
     const longAgo = Date.parse('2024-03-01T09:00:00Z');
-    // Dispatches a paste on the element with the focus, as Ctrl+V does. True when the page took it from the field.
+    // Dispatches a paste on the element with the focus, as Ctrl+V does. True when the page's paste script took it from
+    // the field. The field also handles a paste, so this is read on the body, after the script's listener on the
+    // document and before any listener of the field.
     const paste = (files, text) => page.evaluate(({ files, text }) => {
         const clipboardData = new DataTransfer();
         for (const file of files) {
@@ -1014,7 +1021,12 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
             clipboardData.setData('text/plain', text);
         }
         const event = new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true });
-        return !document.activeElement.dispatchEvent(event);
+        let taken = false;
+        const look = seen => { taken = seen.defaultPrevented; };
+        document.body.addEventListener('paste', look, { capture: true, once: true });
+        document.activeElement.dispatchEvent(event);
+        document.body.removeEventListener('paste', look, { capture: true });
+        return taken;
     }, { files, text });
     const uploadsAre = async (count, message) => {
         const deadline = Date.now() + 10000;
@@ -1040,9 +1052,12 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
         const target = document.elementFromPoint(point.clientX, point.clientY) ?? document.body;
         globalThis.droverCheckDrag = { dataTransfer, point, target };
     }, { files, text });
+    // The platform ignores a dragleave while the pointer is still over the window, so leaving carries a point at its
+    // edge, as a person's drag out of the window does.
     const dragEvent = type => page.evaluate(type => {
         const { dataTransfer, point, target } = globalThis.droverCheckDrag;
-        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...point }));
+        const at = type === 'dragleave' ? { clientX: 0, clientY: 0 } : point;
+        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
     }, type);
     // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
     const dragUntilShown = async message => {
@@ -1074,27 +1089,6 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await uploadsAre(2, 'A file copied from storage and pasted uploads once.');
     assert.equal(uploadedFiles[1].name, 'image.png', 'A copied file named image.png keeps its name.');
 
-    // The paste belongs to the field it was made in: the cursor leaves while the file is read, and it still arrives.
-    await page.evaluate(() => {
-        const reading = Blob.prototype.arrayBuffer;
-        let open;
-        const gate = new Promise(resolve => { open = resolve; });
-        Blob.prototype.arrayBuffer = async function () {
-            await gate;
-            return reading.call(this);
-        };
-        globalThis.droverCheckRead = () => {
-            Blob.prototype.arrayBuffer = reading;
-            open();
-        };
-    });
-    await field.focus();
-    assert.equal(await paste([{ name: 'held.png', bytes: png, lastModified: longAgo }]), true);
-    await page.keyboard.press('Tab');
-    await page.evaluate(() => globalThis.droverCheckRead());
-    await uploadsAre(3, 'A paste read after the cursor left its field still goes to that conversation.');
-    assert.equal(uploadedFiles[2].name, 'held.png');
-
     // A file that cannot be read fails the whole paste once, and every byte held for it is let go.
     await page.evaluate(() => {
         const reading = Blob.prototype.arrayBuffer;
@@ -1115,7 +1109,7 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     assert.equal(await held(), 0, 'A paste that failed holds no bytes.');
     await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
     await pasteFailed.first().waitFor({ state: 'detached', timeout: 5000 });
-    assert.equal(uploadedFiles.length, 3, 'Nothing of a paste that failed is uploaded.');
+    assert.equal(uploadedFiles.length, 2, 'Nothing of a paste that failed is uploaded.');
 
     // Files held over the message list: the drop line shows, and goes when the files leave the conversation.
     await holdOver([{ name: 'left.png', bytes: png }]);
@@ -1136,9 +1130,9 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await dragUntilShown('Files held over the message list after a refused drag show the drop line.');
     await dragEvent('drop');
     await dropLine.waitFor({ state: 'detached', timeout: 5000 });
-    await uploadsAre(4, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
-    assert.equal(uploadedFiles[3].name, 'dropped.png');
-    assert.deepEqual([...uploadedFiles[3].bytes], png);
+    await uploadsAre(3, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
+    assert.equal(uploadedFiles[2].name, 'dropped.png');
+    assert.deepEqual([...uploadedFiles[2].bytes], png);
 
     // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
     await field.focus();
@@ -1147,7 +1141,7 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     }))), true);
     await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'attached', timeout: 10000 });
     const remove = page.getByRole('button', { name: /^Remove / });
-    assert.equal(await remove.count(), 104, 'The hundred files taken stand beside the four attached before.');
+    assert.equal(await remove.count(), 103, 'The hundred files taken stand beside the three attached before.');
     assert.equal(await held(), 0, 'Bytes the conversation did not collect are let go once the paste is reported.');
     while (await remove.count() > 0) {
         await remove.first().dispatchEvent('click');
@@ -1155,6 +1149,33 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     // A warning stays until it is dismissed, and it would stand over the buttons the next check measures.
     await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
     await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'detached', timeout: 5000 });
+
+    // The paste belongs to the field it was made in: the cursor leaves while the file is read, and it still arrives.
+    // It comes last, since the cursor is not brought back to the field after it.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let open;
+        const gate = new Promise(resolve => { open = resolve; });
+        Blob.prototype.arrayBuffer = async function () {
+            await gate;
+            return reading.call(this);
+        };
+        globalThis.droverCheckRead = () => {
+            Blob.prototype.arrayBuffer = reading;
+            open();
+        };
+    });
+    const before = uploadedFiles.length;
+    await field.focus();
+    assert.equal(await paste([{ name: 'held.png', bytes: png, lastModified: longAgo }]), true);
+    await page.keyboard.press('Tab');
+    await page.evaluate(() => globalThis.droverCheckRead());
+    await uploadsAre(before + 1, 'A paste read after the cursor left its field still goes to that conversation.');
+    assert.equal(uploadedFiles[before].name, 'held.png');
+    const heldChip = page.getByRole('button', { name: 'Remove held.png', exact: true });
+    await heldChip.waitFor({ state: 'attached', timeout: 10000 });
+    await heldChip.dispatchEvent('click');
+    await heldChip.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 // While a run is in progress Stop stands where Send was, and the options button beside the field is still there. The
