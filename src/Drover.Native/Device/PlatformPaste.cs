@@ -8,14 +8,13 @@ internal static class PlatformPaste
 {
     #region Public Methods
 
-    /// <summary>Raised once for each paste, with the files it carried. Never raised on a device.</summary>
-    public static event Action<IReadOnlyList<IPickedFile>>? Received
+    /// <summary>A composer on screen. A device's clipboard is read by the composer, so nothing is kept.</summary>
+    public static void Join(Composer composer)
     {
-        add { }
-        remove { }
     }
 
-    public static void Start()
+    /// <summary>A composer that left the screen.</summary>
+    public static void Leave(Composer composer)
     {
     }
 
