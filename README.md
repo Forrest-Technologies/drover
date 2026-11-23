@@ -51,7 +51,7 @@ Bots sit in a tree. The crew list on the left is how you move around: pick a bot
 
 If you grant the crew tools, a bot can list, create, change, and remove the bots under it. Creating a bot always asks a person first. Each run has a cap on model calls and tokens, and a chain of handoffs stops at 5 levels or 50 runs unless you change the server's limits.
 
-Each bot gets a character drawn from a set of parts: a head and a visor that lights up while the bot thinks, writes, or runs a tool. The same state shows in words for screen readers and for anyone who turns motion off.
+Each bot gets a character drawn from a set of parts (head, visor, top, mark, tilt, and color). The visor lights up while the bot thinks, writes, or runs a tool. The same state shows in words for screen readers and for anyone who turns motion off.
 
 ### Conversations
 
@@ -90,7 +90,7 @@ We wrote Drover so that a bug in feature code shouldn't leak one person's data t
 
 | Concern | What Drover does |
 | --- | --- |
-| Isolation between people | Each row belongs to a space or a person, and PostgreSQL row-level security enforces that. The app's database role can't bypass the policies, and the build fails if a table has no policy. |
+| Isolation between people | Each row belongs to a space or a person, and PostgreSQL row-level security enforces that. The app's database role can't bypass the policies, and a test fails CI if a table has no policy. |
 | What a bot may do | Drover only sends a model the tools its bot is granted. A child bot can't have more than its parent. The tool gate reads the grant again when the call happens. |
 | Approval | Set a grant to Ask and the run waits for a person to approve or deny the call. |
 | Rules | Rules run when a message arrives, before and after a tool call, and before a reply. They match on the tool, its kind, text, built-in patterns (email addresses, card numbers, keys), time of day, or how big the run has grown. |
