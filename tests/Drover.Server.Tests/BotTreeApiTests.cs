@@ -328,6 +328,155 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
     }
 
     [Fact]
+    public async Task Bots_kept_from_beneath_a_removed_bot_keep_its_rules_as_their_own()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var space = Space(alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var original = await PostFor<BotRuleResponse>(
+            client,
+            $"{space}/bots/{atlas.Id}/rules",
+            BlockRule("Block mail"),
+            HttpStatusCode.Created);
+
+        var kept = await client.Delete($"{space}/bots/{atlas.Id}?beneath=keep");
+        var scoutRules = await GetFor<List<BotRuleResponse>>(client, $"{space}/bots/{scout.Id}/rules");
+
+        kept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        scoutRules.Should().ContainSingle().Which.Should().Match<BotRuleResponse>(rule =>
+            !rule.Inherited && rule.BotId == scout.Id && rule.BotName == "Scout" && rule.Name == original.Name
+            && rule.Enabled && rule.Position == 0 && rule.Checkpoint == original.Checkpoint
+            && rule.Effect == original.Effect);
+        scoutRules[0].Id.Should().NotBe(original.Id, "the moved bot holds a copy, not the removed bot's row");
+    }
+
+    [Fact]
+    public async Task A_bot_two_levels_down_still_follows_the_removed_bots_rule_without_a_copy()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var space = Space(alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var tracker = await CreateBot(client, alice.SpaceId, connection.Id, "Tracker", scout.Id);
+        await PostFor<BotRuleResponse>(
+            client,
+            $"{space}/bots/{atlas.Id}/rules",
+            BlockRule("Block mail"),
+            HttpStatusCode.Created);
+
+        var kept = await client.Delete($"{space}/bots/{atlas.Id}?beneath=keep");
+        var scoutRules = await GetFor<List<BotRuleResponse>>(client, $"{space}/bots/{scout.Id}/rules");
+        var trackerRules = await GetFor<List<BotRuleResponse>>(client, $"{space}/bots/{tracker.Id}/rules");
+
+        kept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        scoutRules.Should().ContainSingle().Which.Should().Match<BotRuleResponse>(rule =>
+            !rule.Inherited && rule.BotName == "Scout");
+        trackerRules.Should().ContainSingle().Which.Should().Match<BotRuleResponse>(rule =>
+            rule.Inherited && rule.BotName == "Scout" && rule.Id == scoutRules[0].Id,
+            "a bot two levels down inherits the copy on the bot it moved beneath");
+    }
+
+    [Fact]
+    public async Task Switched_off_rules_and_rules_from_further_up_are_not_copied()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var space = Space(alice.SpaceId);
+        var root = await CreateBot(client, alice.SpaceId, connection.Id, "Root");
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas", root.Id);
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        await PostFor<BotRuleResponse>(client, $"{space}/bots/{root.Id}/rules",
+            BlockRule("From above"), HttpStatusCode.Created);
+        var on = await PostFor<BotRuleResponse>(client, $"{space}/bots/{atlas.Id}/rules",
+            BlockRule("On Atlas"), HttpStatusCode.Created);
+        await PostFor<BotRuleResponse>(client, $"{space}/bots/{atlas.Id}/rules",
+            BlockRule("Off on Atlas", false), HttpStatusCode.Created);
+
+        var kept = await client.Delete($"{space}/bots/{atlas.Id}?beneath=keep");
+        var scoutRules = await GetFor<List<BotRuleResponse>>(client, $"{space}/bots/{scout.Id}/rules");
+
+        kept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        scoutRules.Select(rule => (rule.Name, rule.Inherited, rule.BotName)).Should().Equal(
+            ("From above", true, "Root"),
+            ("On Atlas", false, "Scout"));
+        scoutRules[1].Id.Should().NotBe(on.Id);
+        scoutRules.Should().NotContain(rule => rule.Name == "Off on Atlas",
+            "a rule switched off bound nothing before the move");
+    }
+
+    [Fact]
+    public async Task A_keep_that_takes_a_moved_bot_past_fifty_rules_still_succeeds_and_keeps_every_rule()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var space = Space(alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+
+        for (var number = 0; number < 10; number++)
+        {
+            await PostFor<BotRuleResponse>(client, $"{space}/bots/{atlas.Id}/rules",
+                BlockRule($"Atlas {number}"), HttpStatusCode.Created);
+        }
+
+        for (var number = 0; number < 45; number++)
+        {
+            await PostFor<BotRuleResponse>(client, $"{space}/bots/{scout.Id}/rules",
+                BlockRule($"Scout {number}"), HttpStatusCode.Created);
+        }
+
+        var kept = await client.Delete($"{space}/bots/{atlas.Id}?beneath=keep");
+        var scoutRules = await GetFor<List<BotRuleResponse>>(client, $"{space}/bots/{scout.Id}/rules");
+        var over = await client.Post($"{space}/bots/{scout.Id}/rules", BlockRule("One too many"));
+        string[] expected =
+        [
+            .. Enumerable.Range(0, 10).Select(number => $"Atlas {number}"),
+            .. Enumerable.Range(0, 45).Select(number => $"Scout {number}"),
+        ];
+
+        kept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        scoutRules.Should().HaveCount(55);
+        scoutRules.Select(rule => rule.Name).Should().Equal(expected, "copies come first in the removed bot's order");
+        scoutRules.Select(rule => rule.Position).Should().Equal(Enumerable.Range(0, 55));
+        over.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Title(over)).Should().Be("A bot has at most 50 rules of its own. Remove one first.");
+    }
+
+    [Fact]
+    public async Task Each_copied_rule_is_an_audit_entry_that_names_the_rule_and_the_removed_bot()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var space = Space(alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var keptRule = await PostFor<BotRuleResponse>(client, $"{space}/bots/{atlas.Id}/rules",
+            BlockRule("Keep this one"), HttpStatusCode.Created);
+        await PostFor<BotRuleResponse>(client, $"{space}/bots/{atlas.Id}/rules",
+            BlockRule("Drop this one", false), HttpStatusCode.Created);
+
+        (await client.Delete($"{space}/bots/{atlas.Id}?beneath=keep")).EnsureSuccessStatusCode();
+        var copy = (await GetFor<List<BotRuleResponse>>(client, $"{space}/bots/{scout.Id}/rules")).Single();
+        var entries = (await Audit(alice, scout.Id)).Where(entry => entry.Action == "rule.added").ToList();
+
+        entries.Should().ContainSingle().Which.Should().Match<AuditLogEntry>(entry =>
+            entry.ActorId == alice.UserId && entry.TargetKind == AuditTargets.Bot && entry.TargetId == scout.Id);
+        entries[0].Data.GetProperty("rule_id").GetGuid().Should().Be(copy.Id);
+        entries[0].Data.GetProperty("copied_from_rule_id").GetGuid().Should().Be(keptRule.Id);
+        entries[0].Data.GetProperty("removed_bot_id").GetGuid().Should().Be(atlas.Id);
+        entries[0].Data.GetProperty("changes").GetProperty("name").GetProperty("after").GetString()
+            .Should().Be("Keep this one");
+    }
+
+    [Fact]
     public async Task Keeping_more_bots_than_the_parent_has_room_for_is_refused_whole()
     {
         var alice = await SeedPerson("alice");
@@ -372,6 +521,9 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
     #endregion
 
     #region Helpers
+
+    private static BotRuleBody BlockRule(string name, bool enabled = true) =>
+        new(name, enabled, "before_tool", "block", [new RuleConditionBody("tool_is") { Tools = ["time.now"] }]);
 
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
 
