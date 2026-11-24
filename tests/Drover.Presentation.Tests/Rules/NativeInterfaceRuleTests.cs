@@ -195,8 +195,8 @@ public sealed partial class NativeInterfaceRuleTests
     [Fact]
     public void A_literal_back_link_in_markup_is_caught()
     {
-        const string markup = "<Link Text=\"Back to projects\" />";
-        BackLinksInMarkup("Pages/Sample.xaml", markup, ViewModelWords()).Should().ContainSingle();
+        const string Markup = "<Link Text=\"Back to projects\" />";
+        BackLinksInMarkup("Pages/Sample.xaml", Markup, ViewModelWords()).Should().ContainSingle();
     }
 
     [Fact]
