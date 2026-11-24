@@ -73,7 +73,7 @@ public sealed class ConversationStatusViewModel : ObservableObject
 
     #region Public Methods
 
-    /// <summary>Says what the conversation now holds. A reply the line shows for the first time has its usage read.</summary>
+    /// <summary>Says what the conversation now holds. A reply the line first shows has its usage read.</summary>
     public void Show(ConversationStatusFacts facts, Func<Guid, Task<RunUsageDetail>>? load, ILogger logger)
     {
         working = facts.Working;

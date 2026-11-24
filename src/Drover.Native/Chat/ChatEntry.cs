@@ -224,7 +224,8 @@ public sealed class ChatEntry : ContentControl
     public void Show(ChatMessage message, ChatEntryParameters parameters, bool isMoment = false, bool isNewest = true)
     {
         var style = ThemeTokens.Current.Surfaces.Conversation;
-        if (Same(message, shown) && parameters == with && isMoment == moment && isNewest == newest && style == laidStyle)
+        var asBefore = parameters == with && isMoment == moment && isNewest == newest && style == laidStyle;
+        if (asBefore && Same(message, shown))
         {
             return;
         }
@@ -269,7 +270,7 @@ public sealed class ChatEntry : ContentControl
     /// <summary>Puts the focus on the message a link named, so a keyboard or a screen reader lands there too.</summary>
     public void Land() => Focus(FocusState.Programmatic);
 
-    /// <summary>Raised when a press showed this older reply's actions, so the list hides the ones another showed.</summary>
+    /// <summary>Raised when a press showed this older reply's actions: the list then hides another's.</summary>
     public event Action<ChatEntry>? Pinned;
 
     /// <summary>Hides the actions a press showed, for when a press shows another reply's.</summary>
@@ -371,7 +372,8 @@ public sealed class ChatEntry : ContentControl
         head.VerticalAlignment = VerticalAlignment.Center;
         footer.Hold(versions);
         var from = From(withHead: true);
-        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, InBubble(), sources, tools, files, footer);
+        var side = HorizontalAlignment.Stretch;
+        var body = Column(side, from, reasoning, ledger, InBubble(), sources, tools, files, footer);
         reply.HorizontalAlignment = HorizontalAlignment.Left;
         return body;
     }
@@ -438,7 +440,8 @@ public sealed class ChatEntry : ContentControl
         var wide = XamlRoot is { } root && root.Size.Width >= (double)Styles.Dictionary["DvBreakPhone"];
         var under = laidStyle is ConversationStyle.Bubbles
             ? 0
-            : Tokens.Number("DvAvatar48") + (2 * Tokens.Number("DvSpace1")) + (2 * Tokens.Number("DvBorder")) + Tokens.Number("DvSpace3");
+            : Tokens.Number("DvAvatar48") + (2 * Tokens.Number("DvSpace1")) + (2 * Tokens.Number("DvBorder"))
+                + Tokens.Number("DvSpace3");
         var inset = shape is ChatEntryShape.Tools && !with.Compact && wide ? under : 0;
 
         // Words further on in a turn line up with the turn's words, beside where its head stands.
@@ -589,12 +592,15 @@ public sealed class ChatEntry : ContentControl
             return null;
         }
 
-        for (DependencyObject? at = focused; at is not null && !ReferenceEquals(at, this); at = VisualTreeHelper.GetParent(at))
+        DependencyObject? at = focused;
+        while (at is not null && !ReferenceEquals(at, this))
         {
             if (ReferenceEquals(at, part))
             {
                 return focused;
             }
+
+            at = VisualTreeHelper.GetParent(at);
         }
 
         return null;

@@ -33,7 +33,9 @@ internal sealed class ChatEntryPeer(ChatEntry owner) : FrameworkElementAutomatio
     protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Group;
 
     protected override object? GetPatternCore(PatternInterface patternInterface) =>
-        patternInterface is PatternInterface.ExpandCollapse && owner.Reveals ? this : base.GetPatternCore(patternInterface);
+        patternInterface is PatternInterface.ExpandCollapse && owner.Reveals
+            ? this
+            : base.GetPatternCore(patternInterface);
 
     #endregion
 }

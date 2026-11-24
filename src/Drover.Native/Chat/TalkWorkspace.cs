@@ -247,7 +247,8 @@ internal sealed class TalkWorkspace : Grid
 
         // The name gets the remaining width and can trim before it pushes the menu out of the header. The menu is the
         // one way to what opens beside the conversation, on every width.
-        GridLength[] widths = [GridLength.Auto, GridLength.Auto, new(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto];
+        var auto = GridLength.Auto;
+        GridLength[] widths = [auto, auto, new(1, GridUnitType.Star), auto, auto];
         foreach (var width in widths)
         {
             mainHeaderRow.ColumnDefinitions.Add(new() { Width = width });

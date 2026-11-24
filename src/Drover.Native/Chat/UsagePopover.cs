@@ -80,7 +80,7 @@ internal sealed class UsagePopover
 
     #region Public Methods
 
-    /// <summary>Opens the popover at the control that asked for it, and reads what the reply used if it is not read.</summary>
+    /// <summary>Opens the popover at the control that asked for it, and reads what the reply used if need be.</summary>
     public async Task Open(Control from)
     {
         if (model is null)
@@ -92,7 +92,8 @@ internal sealed class UsagePopover
         presenter.Setters.Add(new Setter(Control.BackgroundProperty, Tokens.Brush(from, "DvBg2")));
         presenter.Setters.Add(new Setter(Control.BorderBrushProperty, Tokens.Brush(from, "DvLine")));
         presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(Tokens.Number("DvBorder"))));
-        presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(Tokens.Number("DvRadiusCard"))));
+        var corners = new CornerRadius(Tokens.Number("DvRadiusCard"));
+        presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, corners));
         presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(Tokens.Number("DvSpace3"))));
         presenter.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
         presenter.Setters.Add(new Setter(Control.IsTabStopProperty, false));
@@ -156,7 +157,9 @@ internal sealed class UsagePopover
         if (model.Problem is { } problem)
         {
             body.Children.Add(Line(problem, AutomationLiveSetting.Assertive));
-            body.Children.Add(new Button { Content = "Try again", HorizontalAlignment = HorizontalAlignment.Left, Command = model.ReadCommand });
+            var again = new Button { Content = "Try again", HorizontalAlignment = HorizontalAlignment.Left };
+            again.Command = model.ReadCommand;
+            body.Children.Add(again);
         }
         else if (model.IsAdding)
         {

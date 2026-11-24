@@ -225,7 +225,8 @@ internal static class ChatSamples
     private static Task<RunUsageDetail> SampleUsage(Guid runId) =>
         Task.FromResult(new RunUsageDetail(runId, "USD", new(0.02m, 1_040, 200), null));
 
-    private static ConversationStatus StatusLine(bool working, bool finished) => new() { Model = Status(working, finished) };
+    private static ConversationStatus StatusLine(bool working, bool finished) =>
+        new() { Model = Status(working, finished) };
 
     /// <summary>A sample conversation with a reply that reasoned and cited sources, and one whose reasoning is arriving.</summary>
     public static MessageListViewModel Reasoned()

@@ -106,7 +106,8 @@ public sealed class ReplyFooter : Grid
         copyText = parts.Contains(FooterPart.Copy) ? replyText : string.Empty;
         copy.Visibility = copyText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         regenerate.Visibility = parts.Contains(FooterPart.Regenerate) && OnRegenerate is not null ? Visibility.Visible : Visibility.Collapsed;
-        usage.Visibility = parts.Contains(FooterPart.Usage) && Model is not null ? Visibility.Visible : Visibility.Collapsed;
+        var offersUsage = parts.Contains(FooterPart.Usage) && Model is not null;
+        usage.Visibility = offersUsage ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Puts the focus on the regenerate icon.</summary>

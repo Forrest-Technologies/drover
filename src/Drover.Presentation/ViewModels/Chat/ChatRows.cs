@@ -195,7 +195,8 @@ public static class ChatRows
     {
         var newest = NewestReply(messages);
         return messages.LastOrDefault(message =>
-            newest.Contains(message.Key) && message is { Streaming: false } and ({ FinishesReply: true } or { EndsReply: true }));
+            newest.Contains(message.Key)
+            && message is { Streaming: false } and ({ FinishesReply: true } or { EndsReply: true }));
     }
 
     /// <summary>Said under a message sent while the bot works, until the bot has read it.</summary>

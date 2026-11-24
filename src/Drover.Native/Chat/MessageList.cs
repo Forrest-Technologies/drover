@@ -39,7 +39,11 @@ public sealed class MessageList : Grid
 
     private readonly TextBlock thinkingState = Styles.Text(TurnLedger.Thinking, "DvTextMono");
 
-    private readonly StackPanel thinkingFrom = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+    private readonly StackPanel thinkingFrom = new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = Tokens.Number("DvSpace2"),
+    };
 
     private ConversationStyle? thinkingStyle;
 
