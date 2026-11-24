@@ -173,7 +173,7 @@ const screens = [
     ['connect-model', '/setup/model', 'Connect a model'],
     ['meet-bot-empty', '/setup/bot', 'Meet your first bot'],
     ['bots', '/bots', 'Bots'],
-    ['bot-editor', `/bots/${botId}`, 'Sample bot', 'Edit Sample bot'],
+    ['bot-editor', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
