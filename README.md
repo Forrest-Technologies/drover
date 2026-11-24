@@ -43,11 +43,11 @@ We keep the defaults strict around other people's data and your keys. Network ac
 
 ## Features
 
-This is what `main` does today. Planned work is in the [roadmap](#roadmap).
+This is what the trunk does today. Planned work is in the [roadmap](#roadmap).
 
 ### Bots
 
-Bots sit in a tree. The crew list on the left is how you move around: pick a bot and you land in its main conversation. A bot can hand a task to a bot below it and wait for the answer, and you can open that handoff and read it.
+Bots sit in a tree. The crew list on the left is how you move around: pick a bot and you land in its main conversation. A bot can hand a task to a bot below it and wait for the answer, and you can open that handoff and read it. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused there.
 
 If you grant the crew tools, a bot can list, create, change, and remove the bots under it. Creating a bot always asks a person first. Each run has a cap on model calls and tokens, and a chain of handoffs stops at 5 levels or 50 runs unless you change the server's limits.
 
@@ -55,9 +55,9 @@ Each bot gets a character drawn from a set of parts (head, visor, top, mark, til
 
 ### Conversations
 
-Replies stream in, and each tool call shows its arguments, output, and result as it happens. You can edit an earlier message, regenerate a reply, open a side chat next to the main one, and read a running summary. One bot turn now reads as one unit with a compact ledger of its work. Each piece of work is one row that opens to the call when a person wants the detail. A theme sets the colors, type, density, shape and motion they are drawn in.
+Replies stream in, and each tool call shows its arguments, output, and result as it happens. You can edit an earlier message, regenerate a reply, open a side chat next to the main one, and read a running summary. One bot turn now reads as one unit with a compact ledger of its work. Each piece of work is one row that opens to the call when a person wants the detail. A theme sets the colors, type, density, shape and motion they are drawn in. Code, tables, differences, logs and bytes in a message are drawn from what they hold. Lines can wrap, and a block can open full screen. Past 400 lines or 64 KiB a block shows the start until you ask for the rest.
 
-Search covers your conversations, and you can save one as Markdown or JSON. Attach files and pictures; Drover reads PDF and office documents as text for the model. Projects group conversations around shared files. If you set up a second domain for previews, HTML a bot writes opens there, away from your session cookies.
+Search covers your conversations, and you can save one as Markdown or JSON. Attach files and pictures; Drover reads PDF and office documents as text for the model. Large pictures get a static preview of at most 480 pixels on the long edge, and Download still gives the original. You can paste a picture or drop files anywhere on a conversation; a refusal says why in one sentence. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels. Projects group conversations around shared files. If you set up a second domain for previews, HTML a bot writes opens there, away from your session cookies.
 
 ### Tools
 
@@ -65,7 +65,7 @@ You can add any MCP server with no auth, a header (stored encrypted), or a sign-
 
 Built in: current time, reading a web page, web search through a search service you point it at, memory notes, image creation through the bot's model, handoffs, and the crew tools.
 
-Sandboxes are optional and need a provider key. With one, a bot can run commands, read and write files, and send a file back to you. A sandbox with a screen lets the bot look, click, type, and scroll, and hand the screen to you when a person has to act, for a sign-in for example. Each bot has a sandbox page where you can watch the screen, open a terminal, and pause, resume, rebuild, or turn it off.
+Sandboxes are optional and need a service key in `.env`. With one line set and a restart, the status page shows Sandboxes as configured; with no key it names the setting. With one, a bot can run commands, read and write files, and send a file back to you. A sandbox with a screen lets the bot look, click, type, and scroll, and hand the screen to you when a person has to act, for a sign-in for example. On the sandbox screen a finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Each bot has a sandbox page where you can watch the screen, open a terminal, and pause, resume, rebuild, or turn it off. Uploads go to a writable directory in the image; if the destination cannot be written, the upload answers 503 with `storage_unavailable` and asks you to contact the server administrator. Check that `Files__Path` points at the persistent upload volume when you upgrade.
 
 ### Models and cost
 
@@ -75,14 +75,14 @@ Use the built-in hosted provider, or any server that speaks the chat completions
 
 - **Memory.** A bot keeps notes per person. You can read, edit, forget, and restore them from the conversation.
 - **Routines.** A prompt plus a cron schedule and a time zone. Each run starts a new conversation or continues the last one.
-- **Rules.** Per-bot rules that redact text, ask first, block a call, or stop the run. Starters cover "ask before anything that writes", card numbers and keys, and quiet hours.
+- **Rules.** Per-bot rules that redact text, ask first, block a call, or stop the run. Starters cover "ask before anything that writes", card numbers and keys, and quiet hours. Removing a rule offers Undo, even after you leave the bot editor.
 - **Extensions.** One JSON file that adds a bot, a tool server, or both. You see what's in it before anything is added. It can't grant tools, and its bot starts paused.
 
 ### Apps
 
 The web app is the same client code as the Android app, compiled to WebAssembly and served by the server at `/`. You can install it from the browser and turn on notifications.
 
-The Android preview is a signed APK on the [releases page](https://github.com/Forrest-Technologies/drover/releases), for Android 7 or later. You can share text, links, pictures, and documents into Drover from other apps, and on Android 12 or later you can reply from a notification. Notifications go through a push distributor you choose; the [Android guide](docs/android-preview.md) has the setup.
+The Android preview is a signed APK on the [releases page](https://github.com/Forrest-Technologies/drover/releases), for Android 7 or later. You can share text, links, pictures, and documents into Drover from other apps, and a share opened on a cold start still reaches the share screen. A share is cleared when a session or a server changes. On Android 12 or later you can reply from a notification. Notifications go through a push distributor you choose; the [Android guide](docs/android-preview.md) has the setup.
 
 ## Security
 
@@ -224,6 +224,7 @@ A few things people ask about, none of them built yet:
 - Emoji reactions in both directions, so a thumbs up or a check mark reaches the bot ([#361](https://github.com/Forrest-Technologies/drover/issues/361), [#730](https://github.com/Forrest-Technologies/drover/issues/730)).
 - An output pane next to the conversation that keeps the draft or code a bot is working on in view ([#879](https://github.com/Forrest-Technologies/drover/issues/879)).
 - Interfaces in a reply: a bot asks with choices or a short form ([#880](https://github.com/Forrest-Technologies/drover/issues/880)), and a tool server's answer arrives as an interactive card ([#510](https://github.com/Forrest-Technologies/drover/issues/510)).
+- A bot can ask you a question with choices or your own words, and ask for a credential it can use but never read. ([#544](https://github.com/Forrest-Technologies/drover/issues/544), [#207](https://github.com/Forrest-Technologies/drover/issues/207), [#885](https://github.com/Forrest-Technologies/drover/issues/885))
 
 ## Contributing
 

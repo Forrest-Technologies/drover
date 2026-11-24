@@ -22,17 +22,18 @@ Drover should be a mature product: fully featured, its gaps filled, and calm to 
 
 ## Where Drover is today
 
-Checked against the code on `main`, not against older documents.
+Checked against the code on the trunk, not against older documents.
 
-| Area | On `main` |
+| Area | On the trunk |
 | --- | --- |
 | Server | One .NET server with PostgreSQL. A run is a durable job with a stored event log. Clients resume a stream where it stopped. One `docker compose up` deploys it, with an optional HTTPS proxy |
-| Bots | A hierarchy of bots, each with a character, instructions, a model and tool grants. Delegation to the bots beneath, with depth, run and cost limits. Rules at four points of a run. Routines on a schedule. Memory notes per person. Projects with shared files. Extensions as one file |
-| Conversations | Streaming replies with tool activity, edit and regenerate, side chats, a running summary, search across conversations, export as Markdown or JSON, attachments, document reading, safe previews. One bot turn now reads as one unit with a compact ledger of its work, with one row for each piece of work that opens to the call. A theme sets colors, type, density, shape and motion |
+| Bots | A hierarchy of bots, each with a character, instructions, a model and tool grants. Delegation to the bots beneath, with depth, run and cost limits. Rules at four points of a run. A rule that was removed can be put back with Undo. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused. Routines on a schedule. Memory notes per person. Projects with shared files. Extensions as one file |
+| Conversations | Streaming replies with tool activity, edit and regenerate, side chats, a running summary, search across conversations, export as Markdown or JSON, attachments, document reading, safe previews. One bot turn now reads as one unit with a compact ledger of its work, with one row for each piece of work that opens to the call. A theme sets colors, type, density, shape and motion. Large pictures get a static preview of at most 480 pixels on the long edge and the original can still be downloaded. Pictures can be pasted and files dropped anywhere on a conversation, with one sentence when one cannot be taken. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels |
+| Code and output | Code, JSON, tables, differences, logs and bytes in a conversation are drawn from what they hold. Lines can wrap, and a block can open full screen. Past 400 lines or 64 KiB only the start is drawn until a person asks for the rest; a table past 400 rows gets a button for the rest |
 | Tools | MCP tool servers with no auth, a header or a sign-in. Built-in tools for time, web pages, web search, memory, images, delegation and the crew |
-| Sandboxes | Optional, through one hosted provider: commands, files, a screen a bot can use, and a person can watch and take over |
+| Sandboxes | Optional, turned on with one sandbox service key in `.env` and a restart; the status page names the setting when none is set. A sandbox runs commands, handles files, shows a screen a bot can use, and a person can watch and take over. A finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Uploads use a writable directory in the image; a failed write answers 503 with `storage_unavailable` |
 | Models | Two kinds of connection: one hosted provider with its own adapter, and any server that speaks the chat completions API. A stored catalog of each connection's models. Stored fallback lists. Usage and cost per run and per bot |
-| Clients | One client codebase. The browser build ships with the server, and an Android preview is released. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
+| Clients | One client codebase. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
 | People | Password sign-in, a setup code for the first account, device sessions. Each person has their own space. Roles exist (owner, admin, member), and there is no way yet to invite a second person |
 | Security | Row-level security in PostgreSQL enforces isolation between spaces and people. Grants are checked at call time and narrow down the hierarchy. Secrets are encrypted with a key ring and never returned. A deployment policy sets every limit, and limits only narrow. Containers run read-only with capabilities dropped. Every pull request runs code scanning, secret scanning, dependency and license checks |
 | Documentation | `README.md`, `AGENTS.md`, `CODE_STYLE.md`, `DESIGN.md`, nineteen architecture files, eighteen decision records, and guides for self-hosting, desktop installers and the Android preview |
@@ -41,12 +42,12 @@ Checked against the code on `main`, not against older documents.
 
 | Goal | Gap | Milestones |
 | --- | --- | --- |
-| Complete | A large file can fail to upload, and a share on Android can be lost | 01 |
+| Complete | Upload failures now say why, and a cold-start share reaches the share screen. A deployment still has to mount a persistent upload volume and keep it writable | 01 |
 | Complete | Some screens stop with no next step, and typed work can be lost | 03 |
 | Complete | Runs can hang, ignore Stop, or fail with no useful reason | 04 |
 | Complete | No desktop or iOS release. No app update notice | 08 |
 | Complete | No shared spaces in practice: nobody can be invited | 09 |
-| Complete | Message actions, find in a conversation, voice, rooms, offline reading | 13, 18, 19, 20 |
+| Complete | A room is recorded as the lead bot's conversation with a cap on bot replies between a person's messages (ADR 0019), but no room view is built. Searchable text and a bounded finder are in place without a find control. Message actions, voice and offline reading are open | 13, 18, 19, 20 |
 | Yours to shape | One look in two modes. No shortcuts list, no command palette, few display choices | 12, 14 |
 | Secure | Known defects in sandbox network rules, sessions, logs and outbound calls | 02 |
 | Secure | No single page that says what is protected and how it is proven. No proof of who may call each route | 02 |
@@ -455,15 +456,26 @@ More themes and a theme editor, keyboard shortcuts with a list of them, a comman
 
 ### 15 Tools and reach
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 25 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 26 issues
 
 More built-in tools, pictures and files from tool servers, tool server resources and prompts, a catalog of ready tool servers, OpenAPI descriptions as tools, and Drover usable from other programs with access tokens.
 
+**Issues.**
+
+- #880 feat: a bot's reply can show choices, a short form, a table or a checklist drawn with Drover's own controls
+- #544 feat: a bot asks the person a question, with choices or your own words, and waits for the answer
+
 ### 16 Sandbox experience
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/16) · 39 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/16) · 41 issues
 
 A sandbox a person can see, watch and take over with nothing to set up: a live screen and a terminal in the client, Docker sandboxes with no account anywhere, sandbox files, and secrets a bot can use without seeing them.
+
+**Issues.**
+
+- #207 feat: a bot asks for a credential on a card, Drover keeps it, and the bot gets only a handle
+- #885 feat: a bot uses a credential by its handle in a command or a file in a running sandbox (part A)
+- #885 feat: a bot uses a credential by its handle in a browser field in a sandbox (part B)
 
 ### 17 Crew at work
 
