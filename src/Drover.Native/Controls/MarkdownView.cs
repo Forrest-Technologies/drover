@@ -56,6 +56,9 @@ public sealed class MarkdownView : StackPanel
         set => SetValue(StreamingProperty, value);
     }
 
+    /// <summary>Raised when a link in the text is pressed, so what holds the text does not take the press.</summary>
+    internal event Action? LinkPressed;
+
     #endregion
 
     #region File Preview
@@ -567,6 +570,7 @@ public sealed class MarkdownView : StackPanel
             Foreground = Tokens.Brush(this, "DvEmber"),
         };
         AddInlines(hyperlink.Inlines, link.Children, style);
+        hyperlink.Click += (_, _) => LinkPressed?.Invoke();
         return hyperlink;
     }
 

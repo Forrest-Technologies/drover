@@ -61,6 +61,18 @@ public class Dialog : Grid
         set => SetValue(BodyProperty, value);
     }
 
+    /// <summary>
+    /// For a dialog made in the place of one already showing, as after a change of theme: it opens with no fade.
+    /// </summary>
+    public bool OpensAtOnce
+    {
+        get => surface.AtOnce;
+        init => surface.AtOnce = value;
+    }
+
+    /// <summary>How the person closed the dialog: with the keyboard, or with a pointer or a touch.</summary>
+    public FocusState ClosedWith => surface.ClosedWith;
+
     /// <summary>The buttons at the foot, the one that goes ahead last.</summary>
     public object? Actions
     {

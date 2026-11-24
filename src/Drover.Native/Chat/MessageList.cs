@@ -37,7 +37,18 @@ public sealed class MessageList : Grid
 
     private readonly TextBlock thinkingName = Styles.Text(null, "DvTextMono");
 
-    private readonly TextBlock thinkingState = Styles.Text("Thinking", "DvTextMono");
+    private readonly TextBlock thinkingState = Styles.Text(TurnLedger.Thinking, "DvTextMono");
+
+    private readonly StackPanel thinkingFrom = new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = Tokens.Number("DvSpace2"),
+    };
+
+    private ConversationStyle? thinkingStyle;
+
+    // The older reply whose actions a press showed. A press on another hides them: one at a time.
+    private ChatEntry? pinned;
 
     private readonly FailureLine failure = new();
 
@@ -159,23 +170,69 @@ public sealed class MessageList : Grid
 
     private void BuildThinking()
     {
-        thinkingPlate.Role = FacetRole.Control;
-        thinkingPlate.Padding = new(Tokens.Number("DvSpace1"));
         thinkingPlate.VerticalAlignment = VerticalAlignment.Top;
-        thinkingPlate.Children.Add(thinkingHead);
-
-        var from = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2"), VerticalAlignment = VerticalAlignment.Top };
-        from.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
-        from.Children.Add(thinkingName);
-        from.Children.Add(thinkingState);
+        thinkingFrom.Children.Add(thinkingName);
+        thinkingFrom.Children.Add(thinkingState);
+        thinkingName.VerticalAlignment = thinkingState.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetAccessibilityView(thinkingName, AccessibilityView.Raw);
         AutomationProperties.SetAccessibilityView(thinkingState, AccessibilityView.Raw);
-
         thinking.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         thinking.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        SetColumn(from, 1);
+        LayThinking();
+    }
+
+    // The bot thinking before any of its words: its head on a plate with the words beside it where a conversation is
+    // set as a document, and one small pill holding the head and the words where both sides speak in bubbles.
+    private void LayThinking()
+    {
+        var style = ThemeTokens.Current.Surfaces.Conversation;
+        if (style == thinkingStyle)
+        {
+            return;
+        }
+
+        thinkingStyle = style;
+        var bubbles = style is ConversationStyle.Bubbles;
+        thinking.Children.Clear();
+        thinkingPlate.Children.Remove(thinkingHead);
+        thinkingPlate.Children.Remove(thinkingFrom);
+        thinkingPlate.Role = FacetRole.Control;
+        thinkingHead.Size = (int)Tokens.Number(bubbles ? "DvAvatar24" : "DvAvatar48");
+        thinkingHead.VerticalAlignment = VerticalAlignment.Center;
+        thinkingPlate.Children.Add(thinkingHead);
+
+        if (bubbles)
+        {
+            thinkingPlate.Padding = Tokens.Space("DvSpace3", "DvSpace1");
+            thinkingPlate.ColumnSpacing = Tokens.Number("DvSpace2");
+            thinkingPlate.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            thinkingPlate.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            thinkingFrom.Padding = new(0);
+            thinkingFrom.VerticalAlignment = VerticalAlignment.Center;
+            SetColumn(thinkingFrom, 1);
+            thinkingPlate.Children.Add(thinkingFrom);
+            thinking.Children.Add(thinkingPlate);
+            return;
+        }
+
+        thinkingPlate.Padding = new(Tokens.Number("DvSpace1"));
+        thinkingPlate.ColumnSpacing = 0;
+        thinkingPlate.ColumnDefinitions.Clear();
+        thinkingFrom.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
+        thinkingFrom.VerticalAlignment = VerticalAlignment.Top;
+        SetColumn(thinkingFrom, 1);
         thinking.Children.Add(thinkingPlate);
-        thinking.Children.Add(from);
+        thinking.Children.Add(thinkingFrom);
+    }
+
+    // A press showed an older reply's actions: the ones a press showed on another reply go.
+    private void WhenPinned(ChatEntry entry)
+    {
+        if (!ReferenceEquals(pinned, entry))
+        {
+            pinned?.Unpin();
+            pinned = entry;
+        }
     }
 
     #endregion
@@ -227,11 +284,12 @@ public sealed class MessageList : Grid
             column,
             list.Messages,
             message => message.Key,
-            _ => new ChatEntry(),
-            (entry, message) => entry.Show(message, with, list.IsMoment(message)),
+            _ => NewEntry(),
+            (entry, message) => entry.Show(message, with, list.IsMoment(message), list.IsNewestReply(message)),
             start: 1,
             tail: 4);
 
+        LayThinking();
         thinking.Visibility = Shown(list.ShowsThinking);
         thinkingName.Text = list.BotName;
         ShowFailure(list);
@@ -249,6 +307,13 @@ public sealed class MessageList : Grid
             atFoot = false;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ShowMoment(moment));
         }
+    }
+
+    private ChatEntry NewEntry()
+    {
+        var entry = new ChatEntry();
+        entry.Pinned += WhenPinned;
+        return entry;
     }
 
     // What every message is shown with stays the same object while nothing in it changed, so a message that did
@@ -307,7 +372,9 @@ public sealed class MessageList : Grid
     private void Paint()
     {
         startHint.Foreground = Tokens.Brush(this, "DvText2");
-        thinkingPlate.Edge = Tokens.Brush(this, "DvIon");
+        var bubbles = thinkingStyle is ConversationStyle.Bubbles;
+        thinkingPlate.Fill = bubbles ? Tokens.Brush(this, "DvBg2") : null;
+        thinkingPlate.Edge = bubbles ? thinkingPlate.Fill : Tokens.Brush(this, "DvIon");
         thinkingState.Foreground = Tokens.Brush(this, "DvIon");
     }
 

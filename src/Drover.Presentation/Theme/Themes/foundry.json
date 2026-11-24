@@ -59,7 +59,8 @@
       "texture": "lines",
       "strength": 0.3,
       "step": 20
-    }
+    },
+    "conversation": "document"
   },
   "motion": {
     "scale": 1.0,

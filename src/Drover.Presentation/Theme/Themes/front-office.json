@@ -1,0 +1,184 @@
+{
+  "format": 1,
+  "id": "front-office",
+  "name": "Front Office",
+  "intent": "Neutral surfaces and round, quiet shapes, for work you do in front of other people.",
+  "group": "professional",
+  "firstMode": "dark",
+  "suits": [],
+  "type": {
+    "interface": "inter",
+    "machine": "jetbrains-mono",
+    "reading": null,
+    "headings": "interface",
+    "machineNumerals": false,
+    "scale": [12, 13, 15, 17, 20, 28],
+    "weights": {
+      "body": 400,
+      "label": 500,
+      "heading": 600
+    },
+    "leading": {
+      "text": 1.5,
+      "heading": 1.25
+    },
+    "tracking": 0,
+    "headingTracking": 0,
+    "measure": 68
+  },
+  "density": {
+    "spacing": 1.0,
+    "control": {
+      "pointer": 36,
+      "touch": 44
+    },
+    "row": {
+      "pointer": 44,
+      "touch": 48
+    },
+    "composerLines": 6
+  },
+  "shape": {
+    "corners": "rounded",
+    "cut": {
+      "control": 0,
+      "frame": 0
+    },
+    "registration": false,
+    "radius": {
+      "control": 20,
+      "card": 18,
+      "sheet": 24
+    },
+    "line": 1,
+    "iconStroke": 1.75
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "none",
+      "strength": 0,
+      "step": 16
+    },
+    "conversation": "bubbles"
+  },
+  "motion": {
+    "scale": 0.9,
+    "bloom": 3,
+    "breath": 2600,
+    "travel": 1300,
+    "live": "loop",
+    "travelLine": 2
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.5,
+      "chroma": 0.08
+    },
+    "facet": 0.08,
+    "line": 2.5,
+    "visor": "band"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.78,
+      "chroma": 0.1
+    },
+    "color": {
+      "bg-0": "#0B0C0E",
+      "bg-1": "#131417",
+      "bg-2": "#1B1D21",
+      "bg-3": "#25282D",
+      "line": "#2F333A",
+      "text": "#EDEEF0",
+      "text-2": "#B6BAC2",
+      "text-3": "#8C9198",
+      "ember": "#F08D5F",
+      "ion": "#6BD8DE",
+      "violet": "#D398E0",
+      "ok": "#6AD18A",
+      "warn": "#E2C157",
+      "danger": "#F47B76",
+      "on-accent": "#0B0C0E",
+      "hue-0": "#ED9CB5",
+      "hue-1": "#F19F91",
+      "hue-2": "#E7A875",
+      "hue-3": "#D0B56A",
+      "hue-4": "#AFC177",
+      "hue-5": "#88CA95",
+      "hue-6": "#66CCBA",
+      "hue-7": "#5FC9DB",
+      "hue-8": "#79C0F1",
+      "hue-9": "#9EB5F8",
+      "hue-10": "#C1A9EE",
+      "hue-11": "#DCA0D6",
+      "head-0": "#884F61",
+      "head-1": "#8B5148",
+      "head-2": "#855831",
+      "head-3": "#756127",
+      "head-4": "#5D6A33",
+      "head-5": "#3F704B",
+      "head-6": "#1F7265",
+      "head-7": "#176F7C",
+      "head-8": "#34698C",
+      "head-9": "#516191",
+      "head-10": "#6A588A",
+      "head-11": "#7D5279",
+      "on-head": "#F5F6F7",
+      "visor": "#08090B",
+      "visor-lit": "#6BD8DE",
+      "visor-failed": "#FFB8B8"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.485,
+      "chroma": 0.12
+    },
+    "color": {
+      "bg-0": "#F6F6F7",
+      "bg-1": "#FFFFFF",
+      "bg-2": "#EEEEF0",
+      "bg-3": "#E2E3E6",
+      "line": "#D3D5DA",
+      "text": "#131518",
+      "text-2": "#454A53",
+      "text-3": "#5F636A",
+      "ember": "#A24A1C",
+      "ion": "#006E73",
+      "violet": "#8A3D9A",
+      "ok": "#007338",
+      "warn": "#786101",
+      "danger": "#A83636",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#933D5C",
+      "hue-1": "#974034",
+      "hue-2": "#8C4C00",
+      "hue-3": "#755C00",
+      "hue-4": "#576800",
+      "hue-5": "#1B7138",
+      "hue-6": "#006F61",
+      "hue-7": "#006B79",
+      "hue-8": "#006697",
+      "hue-9": "#4559A2",
+      "hue-10": "#6A4D98",
+      "hue-11": "#84437F",
+      "head-0": "#884F61",
+      "head-1": "#8B5148",
+      "head-2": "#855831",
+      "head-3": "#756127",
+      "head-4": "#5D6A33",
+      "head-5": "#3F704B",
+      "head-6": "#1F7265",
+      "head-7": "#176F7C",
+      "head-8": "#34698C",
+      "head-9": "#516191",
+      "head-10": "#6A588A",
+      "head-11": "#7D5279",
+      "on-head": "#F5F6F7",
+      "visor": "#08090B",
+      "visor-lit": "#6BD8DE",
+      "visor-failed": "#FFB8B8"
+    }
+  }
+}

@@ -17,6 +17,10 @@ public sealed class MessageListViewModel : ObservableObject
 
     private Guid? shownMoment;
 
+    private IReadOnlyList<ChatMessage>? newestOf;
+
+    private IReadOnlySet<string>? newest;
+
     #endregion
 
     #region Properties
@@ -68,6 +72,24 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>Reads what a finished reply's run used. Without it, replies show no usage.</summary>
     public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; set; }
+
+    /// <summary>Where a failure to read what a reply used is written down.</summary>
+    public ILogger Logger { get; set; } = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+    /// <summary>True while a run of the conversation is under way.</summary>
+    public bool Working { get; set; }
+
+    /// <summary>True while the run waits for the person's answer.</summary>
+    public bool Waiting { get; set; }
+
+    /// <summary>The model the conversation answers with, when it is known.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>True when that model was chosen for this conversation only.</summary>
+    public bool ModelIsChosen { get; set; }
+
+    /// <summary>The one line under the composer: what the bot is doing now, and what the newest reply used.</summary>
+    public ConversationStatusViewModel Status { get; } = new();
 
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
@@ -141,8 +163,25 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>The id a link to a message's moment names: <c>message-</c> and the message's id.</summary>
     public static string Anchor(Guid messageId) => MessageAnchors.Anchor(messageId);
 
-    /// <summary>The message a moment link names can take focus, so the person lands on it; no other message is a stop.</summary>
+    /// <summary>
+    /// The message a moment link names can take focus, so the person lands on it. The only other message that is a
+    /// stop is an older reply that keeps actions out of sight (<see cref="ChatRows.RevealsActions"/>).
+    /// </summary>
     public bool IsMoment(ChatMessage message) => Moment is { } moment && message.Key == moment.ToString();
+
+    /// <summary>
+    /// True for a message of the newest reply (<see cref="ChatRows.NewestReply"/>), whose actions stay in view. An
+    /// older reply shows its own only while asked.
+    /// </summary>
+    public bool IsNewestReply(ChatMessage message)
+    {
+        if (newest is null || !ReferenceEquals(newestOf, Messages))
+        {
+            (newestOf, newest) = (Messages, ChatRows.NewestReply(Messages));
+        }
+
+        return newest.Contains(message.Key);
+    }
 
     /// <summary>
     /// Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page. A tool call
@@ -165,6 +204,7 @@ public sealed class MessageListViewModel : ObservableObject
             Spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
         }
 
+        Status.Show(new(Messages, Working || Thinking, Thinking, Waiting, Model, ModelIsChosen), LoadUsage, Logger);
         OnPropertyChanged(string.Empty);
     }
 

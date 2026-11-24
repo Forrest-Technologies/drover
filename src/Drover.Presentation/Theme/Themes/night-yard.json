@@ -59,7 +59,8 @@
       "texture": "dots",
       "strength": 0.7,
       "step": 16
-    }
+    },
+    "conversation": "document"
   },
   "motion": {
     "scale": 1.0,

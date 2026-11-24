@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 from color import ratio  # noqa: E402
-from themes import ACCENTS, HEADS, HUES, ROOT, STATUS, SURFACES, TEXT, VISORS, load, modes  # noqa: E402
+from themes import ACCENTS, HEADS, HUES, ROOT, STATUS, SURFACES, TEXT, VISORS, bubble, colors as colors_of, load, modes  # noqa: E402
 
 TARGET = ROOT / "docs/design/themes/contrast.md"
 
@@ -21,8 +21,8 @@ def lowest(colors, foreground, backgrounds):
 
 
 def rows(theme):
-    for mode in modes(theme):
-        colors = theme[mode]["color"]
+    for mode in modes(theme) + ["black"]:
+        colors = colors_of(theme, mode)
         for foreground in TEXT + ACCENTS + STATUS:
             value, surface = lowest(colors, foreground, SURFACES)
             yield mode, foreground, "every surface", value, surface, 4.5
@@ -31,6 +31,9 @@ def rows(theme):
         value, surface = lowest(colors, "text-3", SURFACES)
         yield mode, "control edge (text-3)", "every surface", value, surface, 3
         yield mode, "on-accent", "ember", ratio(colors["on-accent"], colors["ember"]), "ember", 4.5
+        surface = bubble(theme, mode)
+        for foreground in ("text", "text-2"):
+            yield mode, foreground, "a person's bubble", ratio(colors[foreground], surface), surface, 4.5
         for visor in VISORS:
             value, head = lowest(colors, visor, HEADS)
             yield mode, visor, "every head", value, head, 3
@@ -44,6 +47,8 @@ def main():
         "Each row is the lowest ratio of the pair across everything it must stand on, with the WCAG formula the",
         "contrast tests use. Text and status need 4.5:1 on every surface, control edges 3:1, the visor 3:1 against",
         "every head at rest, lit and failed. The build enforces these pairs with `ThemeGates`, whose tests run over every file.",
+        "The black mode is not stored in a file: it is the dark mode with a black first surface and each surface above",
+        "it one level down. A person's bubble is the card surface, or a tint of `ember` where both sides speak in bubbles.",
         "",
     ]
     failures = 0

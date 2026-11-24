@@ -3,6 +3,15 @@ namespace Drover.Presentation.Drawing;
 /// <summary>An opaque color, as the tokens write one: "#05070A".</summary>
 public readonly record struct Rgb(byte Red, byte Green, byte Blue)
 {
+    #region Private Fields
+
+    private const double ChromaStep = 0.002;
+
+    // A linear channel a screen can show lies between zero and one. A little past either end rounds back in.
+    private const double GamutSlack = 0.001;
+
+    #endregion
+
     #region Public Methods
 
     public static Rgb Parse(string hex)
@@ -19,7 +28,8 @@ public readonly record struct Rgb(byte Red, byte Green, byte Blue)
     public override string ToString() => $"#{Red:X2}{Green:X2}{Blue:X2}";
 
     /// <summary>
-    /// The hue of this color in the Oklab space, in degrees from 0 up to 360. A gray has no hue and reads as 0.
+    /// The hue of this color in the Oklab space, in degrees from 0 up to 360. A gray has no hue: what it reads as
+    /// here is noise, so ask only of a color that has chroma.
     /// </summary>
     public double Hue()
     {
@@ -43,9 +53,49 @@ public readonly record struct Rgb(byte Red, byte Green, byte Blue)
         return FromOklab((l1 * share) + (l2 * rest), (a1 * share) + (a2 * rest), (b1 * share) + (b2 * rest));
     }
 
+    /// <summary>
+    /// This color in the Oklab space as a lightness from zero to one, a chroma, and a hue in degrees from 0 up to
+    /// 360.
+    /// </summary>
+    public (double Lightness, double Chroma, double Hue) ToOklch()
+    {
+        var (lightness, a, b) = ToOklab(this);
+
+        return (lightness, Math.Sqrt((a * a) + (b * b)), Hue());
+    }
+
+    /// <summary>
+    /// The color at this lightness, chroma and hue of the Oklab space. A chroma a screen cannot show is brought down
+    /// until it can, so the hue asked for is the hue drawn.
+    /// </summary>
+    public static Rgb FromOklch(double lightness, double chroma, double hue)
+    {
+        var radians = hue * Math.PI / 180;
+
+        for (var kept = chroma; kept > ChromaStep; kept -= ChromaStep)
+        {
+            var (a, b) = (kept * Math.Cos(radians), kept * Math.Sin(radians));
+            if (Shows(lightness, a, b))
+            {
+                return FromOklab(lightness, a, b);
+            }
+        }
+
+        return FromOklab(lightness, 0, 0);
+    }
+
     #endregion
 
     #region Private Methods
+
+    private static bool Shows(double lightness, double a, double b)
+    {
+        var (red, green, blue) = LinearFromOklab(lightness, a, b);
+
+        double[] channels = [red, green, blue];
+
+        return channels.All(channel => channel >= -GamutSlack && channel <= 1 + GamutSlack);
+    }
 
     private static byte Channel(string digits, int start) =>
         byte.Parse(digits.AsSpan(start, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
@@ -77,14 +127,21 @@ public readonly record struct Rgb(byte Red, byte Green, byte Blue)
 
     private static Rgb FromOklab(double lightness, double a, double b)
     {
+        var (red, green, blue) = LinearFromOklab(lightness, a, b);
+
+        return new(FromLinear(red), FromLinear(green), FromLinear(blue));
+    }
+
+    private static (double Red, double Green, double Blue) LinearFromOklab(double lightness, double a, double b)
+    {
         var l = Math.Pow(lightness + (0.3963377774 * a) + (0.2158037573 * b), 3);
         var m = Math.Pow(lightness - (0.1055613458 * a) - (0.0638541728 * b), 3);
         var s = Math.Pow(lightness - (0.0894841775 * a) - (1.2914855480 * b), 3);
 
-        return new(
-            FromLinear((4.0767416621 * l) - (3.3077115913 * m) + (0.2309699292 * s)),
-            FromLinear((-1.2684380046 * l) + (2.6097574011 * m) - (0.3413193965 * s)),
-            FromLinear((-0.0041960863 * l) - (0.7034186147 * m) + (1.7076147010 * s)));
+        return (
+            (4.0767416621 * l) - (3.3077115913 * m) + (0.2309699292 * s),
+            (-1.2684380046 * l) + (2.6097574011 * m) - (0.3413193965 * s),
+            (-0.0041960863 * l) - (0.7034186147 * m) + (1.7076147010 * s));
     }
 
     #endregion
