@@ -8,3 +8,4 @@ TestResults/
 .DS_Store
 .env
 __pycache__/
+.claude/worktrees/
