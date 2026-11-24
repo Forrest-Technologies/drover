@@ -149,6 +149,10 @@ public sealed class ShellView : Grid
     private void Paint()
     {
         Background = Tokens.Brush(this, "DvBg0");
+
+        // The window clears to this before it draws anything, so its first frame, and the edge a resize uncovers,
+        // are the first surface and not the platform's white.
+        Uno.UI.Xaml.WindowHelper.SetBackground(window, Background);
 #if ANDROID
         if (Uno.UI.ContextHelper.Current is MainActivity activity)
         {

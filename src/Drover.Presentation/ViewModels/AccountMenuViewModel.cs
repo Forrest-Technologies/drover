@@ -39,6 +39,9 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     private bool compact;
 
     [ObservableProperty]
+    private bool appearanceOpen;
+
+    [ObservableProperty]
     private bool notificationsOpen;
 
     [ObservableProperty]
@@ -171,6 +174,10 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     public void Open(string address) => navigator.NavigateTo(address);
+
+    /// <summary>The theme, the mode and the accent, shown when asked for.</summary>
+    [RelayCommand]
+    public void OpenAppearance() => AppearanceOpen = true;
 
     [RelayCommand]
     public void OpenNotifications() => NotificationsOpen = true;

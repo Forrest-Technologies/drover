@@ -1,15 +1,10 @@
 // Runs before the app loads. Applies the stored theme so the first paint is already right, and registers
 // the service worker that keeps the shell available and moves the page to a new build when one arrives.
 (() => {
-    try {
-        const theme = localStorage.getItem("drover.theme");
-        if (theme !== "system") {
-            // Dark unless a person chose light or asked to follow the device.
-            document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
-        }
-    } catch {
-        // Storage can be turned off. The page is then dark.
-        document.documentElement.dataset.theme = "dark";
+    // "system" sets nothing, and boot.css follows the device. Anything else is said outright.
+    const mode = storedMode();
+    if (mode !== "system") {
+        document.documentElement.dataset.theme = mode;
     }
 
     if ("serviceWorker" in navigator) {
@@ -49,6 +44,19 @@
                 }
             });
         }).catch(() => { });
+    }
+
+    // The choice is kept as JSON with a "mode", and before that as the mode alone, one word. A value that is
+    // neither, no value, or storage that is turned off is a device that has not chosen: dark.
+    function storedMode() {
+        try {
+            const stored = (localStorage.getItem("drover.theme") ?? "").trim();
+            const mode = stored.startsWith("{") ? JSON.parse(stored).mode : stored;
+            const word = typeof mode === "string" ? mode.toLowerCase() : "";
+            return ["light", "dark", "black", "system"].includes(word) ? word : "dark";
+        } catch {
+            return "dark";
+        }
     }
 
     function isWriting() {

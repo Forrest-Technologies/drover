@@ -233,6 +233,19 @@ public sealed class ShellViewModelTests : IDisposable
         menu.AccentChoices.Single(accent => accent.InUse).Id.Should().Be("theme");
     }
 
+    [Fact]
+    public void The_account_menu_opens_its_appearance_choices_and_keeps_them_open_while_one_is_made()
+    {
+        using var menu = Make<AccountMenuViewModel>();
+        menu.AppearanceOpen.Should().BeFalse();
+
+        menu.OpenAppearance();
+        menu.ChooseTheme(ThemeMode.Light);
+        menu.ChooseLook("night-yard");
+
+        menu.AppearanceOpen.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("owner", true)]
     [InlineData("admin", true)]
