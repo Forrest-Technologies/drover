@@ -1208,21 +1208,25 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await page.mouse.move(dragPoint.clientX + 8, dragPoint.clientY + 8);
     await waitDropLineGone('A cancelled drag left the drop line on screen');
     assert.equal(uploadedFiles.length, 3, 'A cancelled drag uploads nothing.');
+    await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-    const listButton = page.getByRole('button', { name: 'Preview sample-retry-exhausted.png', exact: true });
-    const listButtonBox = await listButton.boundingBox({ timeout: 5000 });
-    assert.ok(listButtonBox, 'Preview sample-retry-exhausted.png has an accessible box in the message list.');
-    await page.mouse.move(listButtonBox.x + listButtonBox.width / 2, listButtonBox.y + listButtonBox.height / 2);
-    await page.mouse.down();
-    await page.waitForFunction(
-        () => document.activeElement?.getAttribute('aria-label') === 'Preview sample-retry-exhausted.png',
-        null,
-        { timeout: 5000 }).catch(async cause => {
-        const active = await page.evaluate(() => document.activeElement?.outerHTML ?? 'none');
-        throw new Error(`The message list did not take pointer focus after a cancelled drag (active: ${active}).`, { cause });
+    // Prove the message list recovered hit-testing via an observable state change (opening and closing a preview).
+    const previewRetry = page.getByRole('button', { name: 'Preview sample-retry.png', exact: true });
+    const closeRetry = page.getByRole('button', { name: 'Close preview of sample-retry.png', exact: true });
+    const previewBox = await previewRetry.boundingBox({ timeout: 5000 });
+    assert.ok(previewBox, 'Preview sample-retry.png has an accessible box in the message list.');
+    await page.mouse.click(previewBox.x + previewBox.width / 2, previewBox.y + previewBox.height / 2);
+    await closeRetry.waitFor({ state: 'attached', timeout: 5000 }).catch(cause => {
+        throw new Error('The message list did not open a file preview by mouse click after a cancelled drag.', { cause });
     });
-    await page.mouse.move(1, 1);
-    await page.mouse.up();
+    await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const closeRetryBox = await closeRetry.boundingBox({ timeout: 5000 });
+    assert.ok(closeRetryBox, 'Close preview of sample-retry.png has an accessible box in the message list.');
+    await page.mouse.click(closeRetryBox.x + closeRetryBox.width / 2, closeRetryBox.y + closeRetryBox.height / 2);
+    await closeRetry.waitFor({ state: 'detached', timeout: 5000 });
+    await previewRetry.waitFor({ state: 'attached', timeout: 5000 });
 
     const more = page.getByRole('button', { name: 'More options', exact: true });
     const moreBox = await more.boundingBox({ timeout: 5000 });
@@ -1237,15 +1241,10 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
 
     const fieldBox = await field.boundingBox({ timeout: 5000 });
     assert.ok(fieldBox, 'The message field has an accessible box in the composer.');
-    await page.mouse.click(fieldBox.x + fieldBox.width / 2, fieldBox.y + fieldBox.height / 2);
-    await page.waitForFunction(() => {
-        const active = document.activeElement;
-        return active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT');
-    }, null, { timeout: 5000 }).catch(async cause => {
-        const active = await page.evaluate(() => document.activeElement?.outerHTML ?? 'none');
-        throw new Error(`The composer field did not take pointer focus after a cancelled drag (active: ${active}).`, { cause });
-    });
     const fieldBefore = await field.inputValue();
+    await page.mouse.click(fieldBox.x + fieldBox.width / 2, fieldBox.y + fieldBox.height / 2);
+    await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await page.keyboard.type('after cancel');
     await page.waitForFunction(
         before => {
