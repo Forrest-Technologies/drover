@@ -168,7 +168,9 @@ dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFra
 NativeClient__Path=artifacts/native/wwwroot dotnet run --project src/Drover.Server
 ```
 
-The server serves the browser client from the folder in `NativeClient__Path`. Publishing it needs the `wasm-tools` workload. The other client targets are in [the native client guide](docs/architecture/18-native-client.md). The browser tests in `Drover.Presentation.Tests` need a Chromium-based browser installed, or `DROVER_TEST_CHROMIUM` set to one.
+The server serves the browser client from the folder in `NativeClient__Path`. Publishing it needs the `wasm-tools` workload. The other client targets are in [the native client guide](docs/architecture/18-native-client.md).
+
+The service worker and file preview tests in `Drover.Presentation.Tests` drive a real browser. They look first at `DROVER_TEST_CHROMIUM` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when set, then at the usual Chrome, Chromium and Edge paths for this system, then at the newest Chromium in Playwright's download folder. If none is there the failure lists everything tried and the three ways to fix it. To install the Playwright browser, run `pwsh tests/Drover.Presentation.Tests/bin/Debug/net11.0/playwright.ps1 install chromium`.
 
 </details>
 

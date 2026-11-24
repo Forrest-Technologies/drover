@@ -50,6 +50,7 @@ global using Drover.Presentation.Tests.Theme;
 global using Drover.Presentation.ViewModels;
 global using Drover.Presentation.ViewModels.Bots;
 global using Drover.Presentation.ViewModels.Chat;
+global using Drover.Tests.Common;
 global using Drover.Ui;
 global using Drover.Ui.Bots;
 global using Drover.Ui.Chat;

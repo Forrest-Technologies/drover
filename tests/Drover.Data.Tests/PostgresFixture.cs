@@ -14,13 +14,15 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly string databaseName = $"drover_test_{Guid.NewGuid():N}";
 
-    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
-
-    private string appPassword = null!;
-
     private readonly Stopwatch elapsed = new();
 
     private readonly Lazy<Task<string>> scratchTemplate;
+
+    private readonly PostgresLocator locator;
+
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
+
+    private string appPassword = null!;
 
     private PostgreSqlContainer? container;
 
@@ -35,6 +37,12 @@ public sealed class PostgresFixture : IAsyncLifetime
     public PostgresFixture()
     {
         scratchTemplate = new Lazy<Task<string>>(BuildScratchTemplate);
+        locator = PostgresLocator.Shared(async cancellationToken =>
+            {
+                container = new PostgreSqlBuilder("postgres:16-alpine").Build();
+                await container.StartAsync(cancellationToken);
+                return container.GetConnectionString();
+            });
     }
 
     #endregion
@@ -50,7 +58,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         elapsed.Start();
-        serverConnection = [with(await FindServer())];
+        serverConnection = [with(await locator.Find(TestContext.Current.CancellationToken))];
         ownerPassword = TestRolePasswords.For(serverConnection, "drover_owner");
         appPassword = TestRolePasswords.For(serverConnection, "drover_app");
 
@@ -139,20 +147,6 @@ public sealed class PostgresFixture : IAsyncLifetime
     #endregion
 
     #region Private Methods
-
-    private async Task<string> FindServer()
-    {
-        var named = Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES");
-
-        if (!string.IsNullOrWhiteSpace(named))
-        {
-            return named;
-        }
-
-        container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-        await container.StartAsync();
-        return container.GetConnectionString();
-    }
 
     private Task CreateDatabase() => ExecuteOnServer($"CREATE DATABASE {databaseName}");
 
