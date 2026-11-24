@@ -77,7 +77,7 @@ Milestone 06 lands work that is already written and reviewed. It follows 05.
 
 Milestones 09 to 12 fill the largest gaps: people, sandboxes, operations, and a calm conversation.
 
-Milestones 13 to 20 complete the product. Their issues are assigned and will be given the seven sections before each milestone starts.
+Milestones 13 to 20 complete the product. Their issues are assigned and carry the `roadmap` label with the seven sections.
 
 ## Milestones
 
@@ -641,12 +641,6 @@ Milestones 13 to 20 complete the product. Their issues are assigned and will be 
 - #547 feat: a bot hands off work without waiting, checks on it later, and can stop it
 - #577 feat: pick a routine's time and time zone instead of typing them, and see everything scheduled in the space
 - #588 feat: move a bot to another place in the crew
-
-
-## Later milestones
-
-These complete the product. Each has its issues assigned on GitHub. Those issues do not carry the `roadmap` label yet: before a milestone starts, each issue is checked against `main`, given the seven sections, and given its interface spec where it has an interface.
-
 
 ### 18 Shared spaces and channels
 
