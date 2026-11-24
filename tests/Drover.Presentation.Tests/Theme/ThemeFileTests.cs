@@ -1,0 +1,153 @@
+namespace Drover.Presentation.Tests.Theme;
+
+/// <summary>
+/// The reader of the closed theme-file format. These checks are the small local ones: the shared checker of issue
+/// 778 replaces them, and the accessibility gates of issue 423 add the contrast rules.
+/// </summary>
+public sealed class ThemeFileTests
+{
+    #region Private Fields
+
+    private static readonly string[] shipped =
+    [
+        "night-yard", "signal-room", "paper-ledger", "workbench", "blueprint", "quiet-hours", "foundry",
+    ];
+
+    #endregion
+
+    #region Public Methods
+
+    public static TheoryData<string> ThemeIds() => [.. shipped];
+
+    [Theory]
+    [MemberData(nameof(ThemeIds))]
+    public void Every_theme_file_of_the_design_is_in_the_format(string id)
+    {
+        var file = ThemeFileReader.Read(File.ReadAllText(Path.Combine(Repository.ThemeFolder, $"{id}.json")), id);
+
+        file.Id.Should().Be(id);
+        file.Dark.Colors.Should().HaveCount(43);
+        file.Light.Colors.Should().HaveCount(43);
+    }
+
+    [Fact]
+    public void The_theme_folder_holds_the_seven_themes_and_nothing_else()
+    {
+        Directory.EnumerateFiles(Repository.ThemeFolder).Select(Path.GetFileNameWithoutExtension)
+            .Should().BeEquivalentTo(shipped);
+    }
+
+    [Fact]
+    public void Night_yard_is_the_one_theme_that_ships_through_the_pipeline_and_is_read_from_its_file()
+    {
+        var file = File.ReadAllText(Path.Combine(Repository.ThemeFolder, "night-yard.json"));
+
+        BuiltInThemes.All.Select(theme => theme.Id).Should().Equal("night-yard");
+        BuiltInThemes.NightYard.Should().BeEquivalentTo(ThemeFileReader.Read(file, "night-yard"));
+        BuiltInThemes.Get("signal-room").Should()
+            .BeNull("a theme joins the app when the issue that ships it embeds its file");
+    }
+
+    [Fact]
+    public void A_file_with_a_key_the_format_does_not_have_is_refused() =>
+        OneProblem(Edit(night => night["motion"]!["glow"] = 3)).Should().Contain("motion").And.Contain("glow");
+
+    [Fact]
+    public void A_file_missing_a_key_is_refused() =>
+        OneProblem(Edit(night => night["shape"]!.AsObject().Remove("line")))
+            .Should().Contain("shape").And.Contain("line");
+
+    [Fact]
+    public void A_color_is_only_ever_six_hex_digits()
+    {
+        foreach (var bad in (string[])["#FFF", "#FFB454FF", "red", "rgb(1,2,3)", "FFB454"])
+        {
+            OneProblem(Edit(night => night["dark"]!["color"]!["ember"] = bad))
+                .Should().Contain("dark.color.ember", $"'{bad}' is not #RRGGBB");
+        }
+    }
+
+    [Fact]
+    public void A_value_outside_its_bounds_is_refused()
+    {
+        OneProblem(Edit(night => night["density"]!["spacing"] = 1.4)).Should().Contain("density.spacing");
+        OneProblem(Edit(night => night["type"]!["scale"] = new JsonArray(12, 13, 17, 16, 20, 28)))
+            .Should().Contain("type.scale");
+        OneProblem(Edit(night => night["motion"]!["bloom"] = 9)).Should().Contain("motion.bloom");
+    }
+
+    [Fact]
+    public void Every_theme_is_in_a_group_and_the_group_is_one_of_the_two_the_format_has()
+    {
+        BuiltInThemes.NightYard.Group.Should().Be(ThemeGroup.Expressive);
+        OneProblem(Edit(night => night["group"] = "loud")).Should().Contain("group");
+        OneProblem(Edit(night => night.AsObject().Remove("group"))).Should().Contain("'group'");
+        ThemeFileReader.Read(Edit(night => night["group"] = "professional"), "night-yard")
+            .Group.Should().Be(ThemeGroup.Professional);
+    }
+
+    [Fact]
+    public void A_whole_number_must_be_written_whole() =>
+        OneProblem(Edit(night => night["shape"]!["line"] = 1.5)).Should().Contain("shape.line");
+
+    [Fact]
+    public void A_face_the_app_does_not_bundle_and_a_font_path_are_both_refused()
+    {
+        OneProblem(Edit(night => night["type"]!["interface"] = "comic-sans")).Should().Contain("type.interface");
+        ProblemsOf(Edit(night => night["type"]!["interface"] = "https://example.test/face.ttf")).Should().NotBeEmpty();
+        OneProblem(Edit(night => night["type"]!["machine"] = "inter")).Should().Contain("type.machine");
+    }
+
+    [Fact]
+    public void Rules_between_two_keys_hold()
+    {
+        OneProblem(Edit(night => night["shape"]!["registration"] = true)).Should().Contain("registration");
+        OneProblem(Edit(night => night["motion"]!["bloom"] = 0)).Should().Contain("outlined");
+        OneProblem(Edit(night => night["surfaces"]!["yard"]!["texture"] = "none")).Should().Contain("strength");
+    }
+
+    [Fact]
+    public void The_id_must_be_the_files_name() =>
+        ProblemsOf(Edit(_ => { }), expectedId: "signal-room")
+            .Should().ContainSingle().Which.Should().Contain("signal-room");
+
+    [Fact]
+    public void Text_that_is_not_json_is_refused_with_one_problem_and_a_duplicate_key_is_refused()
+    {
+        ProblemsOf("{ not json").Should().ContainSingle().Which.Should().Contain("not JSON");
+        ProblemsOf("""{"format":1,"format":1}""").Should().Contain(problem => problem.Contains("twice"));
+    }
+
+    [Fact]
+    public void Every_problem_in_a_file_is_listed_in_one_pass()
+    {
+        var problems = ProblemsOf(Edit(night =>
+        {
+            night["density"]!["spacing"] = 5;
+            night["motion"]!["scale"] = 5;
+            night["dark"]!["color"]!["bg-0"] = "nope";
+        }));
+
+        problems.Should().HaveCount(3);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static string Edit(Action<JsonNode> change)
+    {
+        var night = JsonNode.Parse(File.ReadAllText(Path.Combine(Repository.ThemeFolder, "night-yard.json")))!;
+        change(night);
+
+        return night.ToJsonString();
+    }
+
+    private static IReadOnlyList<string> ProblemsOf(string json, string expectedId = "night-yard") =>
+        Assert.Throws<ThemeFormatException>(() => ThemeFileReader.Read(json, expectedId)).Problems;
+
+    // The file has exactly one problem, and this is its text.
+    private static string OneProblem(string json) => ProblemsOf(json).Should().ContainSingle().Subject;
+
+    #endregion
+}
