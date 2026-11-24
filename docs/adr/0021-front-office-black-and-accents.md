@@ -24,7 +24,7 @@ screen that can be shown when it is needed, and what a reply used belongs in a s
 - **Front Office is the default theme**, in the `professional` group. A device that never chose a theme gets it, dark.
   Night Yard stays in the app, unchanged, and is the theme whose values `tokens.css` and `Tokens.xaml` hold.
 - **The format gains two values and one key.** `shape.corners` takes `rounded`, with radii large enough that a control
-  at its smallest height is a pill. `surfaces.conversation` is `document` or `bubbles`. Both are bounded like every
+  at its smallest pointer height is a pill. `surfaces.conversation` is `document` or `bubbles`. Both are bounded like every
   other value; neither is a gradient or a shadow.
 - **Every theme has a black mode, and no file stores it.** Black is the dark mode with a black first surface and each
   surface above it taking the color of the one below. Everything drawn on a surface keeps its color, so it stands on a
@@ -36,7 +36,8 @@ screen that can be shown when it is needed, and what a reply used belongs in a s
 - **A stored choice made before a person could choose a theme named no theme.** It keeps its mode and takes the
   default. From this change on the stored object carries a version, and a theme it names is a choice.
 - **Reply actions show when they are needed**: on the newest reply, and on an older one when it has the focus or is
-  tapped. **What a reply used is said once**, in a status line under the composer.
+  tapped. **What a reply used is said once**, in the status line above the message field that
+  [docs/ux/conversation-display.md](../ux/conversation-display.md) specifies; this change builds the first part of it.
 
 ## What does not change
 
@@ -52,4 +53,5 @@ Drover's interface never does". A bot is still a head with a visor in every them
   Graphite) are still the owner's to decide. Front Office does not replace them.
 - New kinds of card a bot could send (choices to pick from, a board of figures) are not part of this decision. They
   need a wire format and are their own issue.
-- Screenshots and the sample sheet show Front Office first.
+- The sample sheet of issue 421 still draws the seven themes of ADR 0020. Front Office is not on it; its pictures are
+  the app's own, in `docs/screenshots/front-office/`.

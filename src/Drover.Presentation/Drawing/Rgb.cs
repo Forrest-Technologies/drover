@@ -91,7 +91,9 @@ public readonly record struct Rgb(byte Red, byte Green, byte Blue)
     {
         var (red, green, blue) = LinearFromOklab(lightness, a, b);
 
-        return new[] { red, green, blue }.All(channel => channel >= -GamutSlack && channel <= 1 + GamutSlack);
+        double[] channels = [red, green, blue];
+
+        return channels.All(channel => channel >= -GamutSlack && channel <= 1 + GamutSlack);
     }
 
     private static byte Channel(string digits, int start) =>

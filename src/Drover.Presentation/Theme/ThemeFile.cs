@@ -136,8 +136,9 @@ public sealed record ModeColors(double HueLightness, double HueChroma, IReadOnly
 
 /// <summary>
 /// A theme as the closed theme-file format of <c>docs/architecture/09-design-direction.md</c> defines it: data only,
-/// a dark and a light mode, and every token group. The black mode is not stored: it is worked out from the dark one. Read one with <see cref="ThemeFileReader"/>; resolve one into the values a
-/// screen draws with through <see cref="ThemeResolution.Resolve"/>.
+/// a dark and a light mode, and every token group. The black mode is not stored: it is worked out from the dark one.
+/// Read one with <see cref="ThemeFileReader"/>; resolve one into the values a screen draws with through
+/// <see cref="ThemeResolution.Resolve"/>.
 /// </summary>
 public sealed record ThemeFile(
     string Id,
@@ -155,12 +156,18 @@ public sealed record ThemeFile(
     ModeColors Dark,
     ModeColors Light)
 {
+    #region Private Fields
+
     /// <summary>The format this reader understands.</summary>
     public const int Format = 1;
 
     private static readonly Rgb black = new(0, 0, 0);
 
     private static readonly string[] surfaces = ["bg-0", "bg-1", "bg-2", "bg-3"];
+
+    #endregion
+
+    #region Public Methods
 
     /// <summary>The colors of one mode.</summary>
     public ModeColors In(ColorMode mode) => mode switch
@@ -169,6 +176,10 @@ public sealed record ThemeFile(
         ColorMode.Black => BlackOf(Dark),
         _ => Dark,
     };
+
+    #endregion
+
+    #region Private Methods
 
     // Black is the dark mode on a screen that turns its pixels off: the first surface is black, and each surface
     // above it takes the color of the one below it in the dark mode. Everything drawn on a surface keeps its color,
@@ -187,4 +198,6 @@ public sealed record ThemeFile(
 
         return dark with { Colors = colors };
     }
+
+    #endregion
 }

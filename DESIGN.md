@@ -57,7 +57,7 @@ Dark is primary: the app is dark until a person chooses light or asks it to foll
 | Secondary text | `--dv-text-2` | `#B6BAC2` | `#454A53` |
 | Captions | `--dv-text-3` | `#8C9198` | `#5F636A` |
 | Human intent | `--dv-ember` | `#F08D5F` | `#A24A1C` |
-| A person's bubble | `--dv-bubble` | `#4D352D` | `#E6C8BB` |
+| A person's bubble | `bubble`, worked out from `ember`, not in the token files | `#4D352D` | `#E6C8BB` |
 | Bot activity | `--dv-ion` | `#6BD8DE` | `#006E73` |
 | Delegation | `--dv-violet` | `#D398E0` | `#8A3D9A` |
 | Success, attention, failure | `--dv-ok`, `--dv-warn`, `--dv-danger` | `#6AD18A`, `#E2C157`, `#F47B76` | `#007338`, `#786101`, `#A83636` |
@@ -79,11 +79,11 @@ Three accent colors is the limit, and each has one meaning. No gradients as deco
 ## Shape and space
 
 - Spacing on a 4 px base: 4, 8, 12, 16, 24, 32, 48.
-- The frame is round: controls are pills, and cards, message bubbles and the composer round all four corners by 18 px, sheets and dialogs by 24. One class, `Facet`, draws every frame in the corner language of the theme in use. In Night Yard the frame is faceted: two cut corners (top left, bottom right), 6 px on controls and 10 px on larger frames, echoing the bot heads.
+- The frame is round: controls are pills or nearly so, and cards, message bubbles and the composer round all four corners by 18 px, sheets and dialogs by 24. One class, `Facet`, draws every frame in the corner language of the theme in use. In Night Yard the frame is faceted: two cut corners (top left, bottom right), 6 px on controls and 10 px on larger frames, echoing the bot heads.
 - Depth comes from a lighter surface and a 1 px line. Two levels. No soft drop shadows, no blur panels.
 - Light is not depth. Bloom belongs to the four live states and is never used to lift a surface.
 - Surfaces are plain. In Night Yard the working area (the conversation, the setup screens, the two bold screens) sits on a faint dot grid, the yard.
-- Icons are cut the same way: Drover's own set, straight segments with mitered joins, a cut corner where a shape closes. No rounded strokes.
+- Icons are cut in every theme: Drover's own set, straight segments with mitered joins, a cut corner where a shape closes. No rounded strokes.
 - Touch targets 44 px, pointer targets 32 px.
 
 ## Bots are characters
@@ -123,7 +123,7 @@ These are the habits that make an interface look generated. Each one is checked 
 
 **States that say nothing**
 
-- Empty, loading, and error states each say what is happening and the one thing to do next. "No data" is not a state. First run, filtered to nothing, and not permitted are three different screens. (test: filler such as "no data", "coming soon", or an apology in interface text)
+- Empty, loading, and error states each say what is happening and the one thing to do next. "No data" is not a state. First run, filtered to nothing, and not permitted are three different screens. The start of the app is the one exception: the mark alone, named for assistive technology. (test: filler such as "no data", "coming soon", or an apology in interface text)
 - When a feature needs setup, say what is missing in plain words and link to it.
 - A control that does nothing does not ship. No dead links, no menus with placeholder actions. (test: a link with no address)
 
@@ -140,7 +140,7 @@ These are the habits that make an interface look generated. Each one is checked 
 **Things that stay when they are not needed**
 
 - A control shows when a person needs it. A reply's actions (copy, another reply, its versions, what happened) show on the newest reply, and on an older one when it has the focus or is tapped. Ways into a conversation's panels are in one menu. Hover reveals nothing, so a finger and a keyboard reach everything a pointer does.
-- What a reply used is said once, in the status line under the composer, with the model that wrote it. It is not repeated under every reply.
+- What a reply used is said once, in the status line above the message field, with the model that wrote it. It is not repeated under every reply.
 - The status line says something or is not there. No placeholder, no zero.
 
 **Sameness**

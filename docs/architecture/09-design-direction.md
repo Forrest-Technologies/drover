@@ -2,7 +2,7 @@
 
 The one-page version of this section, written for anyone building a screen, is [`/DESIGN.md`](../../DESIGN.md). It also holds the list of habits Drover's interface never falls into and which of them the build checks.
 
-Working name for the look: **Night Yard**. A dark workspace, calm at rest, where the bots are the lit things. Human intent is warm, bot activity is cool, and nothing glows unless it is doing something. What is working is turned up: it carries light (bloom), not only color. The owner chose this charged look over a flat one on 2026-11-12.
+The default look is Front Office (see [Themes](#themes)). **Night Yard** was the first look, stays in the app, and is what the token sections below describe. A dark workspace, calm at rest, where the bots are the lit things. Human intent is warm, bot activity is cool, and nothing glows unless it is doing something. What is working is turned up: it carries light (bloom), not only color. The owner chose this charged look over a flat one on 2026-11-12.
 
 ## Principles
 
@@ -111,7 +111,7 @@ The dark values sit on `:root` and on any element marked `data-theme="dark"`; th
 
 ## Themes
 
-The look is a family of named themes ([ADR 0020](../adr/0020-a-family-of-themes.md)). A theme has a dark and a light mode, a black mode worked out from the dark one, and sets seven token groups. Front Office is the default ([ADR 0021](../adr/0021-front-office-black-and-accents.md)) and the look used for screenshots and documentation. Night Yard, described above, was the first look and stays in the app; every value in this file above this section is Night Yard's, and the token files hold them.
+The look is a family of named themes ([ADR 0020](../adr/0020-a-family-of-themes.md)). A theme has a dark and a light mode, a black mode worked out from the dark one, and sets seven token groups. Front Office is the default ([ADR 0021](../adr/0021-front-office-black-and-accents.md)); pictures taken before it show Night Yard. Night Yard, described above, was the first look and stays in the app; every value in this file above this section is Night Yard's, and the token files hold them.
 
 ### The invariants
 
@@ -147,7 +147,7 @@ Front Office is in the `professional` group: neutral surfaces and round, quiet s
 | Color | Near-neutral surfaces, `#0B0C0E` to `#25282D` dark and `#F6F6F7` to `#E2E3E6` light. `ember` an orange (`#F08D5F` dark, `#A24A1C` light), `ion` a cyan-teal, `violet` a magenta-violet, each 4.6:1 or higher on every surface. Heads at chroma 0.08 |
 | Type | Inter at base 15, scale 12, 13, 15, 17, 20, 28, weights 400, 500, 600, measure 68 |
 | Density | Spacing 1.0, controls 36 on a pointer and 44 on touch, rows 44 and 48, composer to 6 lines |
-| Shape | `rounded`: controls radius 20 (a pill at control height), cards and bubbles 18, sheets 24, 1 px lines |
+| Shape | `rounded`: controls radius 20 (a pill at the pointer's control height, nearly one at touch height), cards and bubbles 18, sheets 24, 1 px lines |
 | Surfaces | Two levels, no yard, conversation in `bubbles` |
 | Motion | Scale 0.9, bloom 3, loops while a state lasts |
 | Characters | The same parts, band visor |
@@ -159,7 +159,7 @@ In `bubbles`, a person's message sits on the right in a bubble the color of thei
 Neither is stored in a theme file; both are worked out, and the gates run over what is worked out.
 
 - **Black** is for screens that turn their pixels off. It is the dark mode with `bg-0` black and `bg-1`, `bg-2`, `bg-3` taking the dark mode's `bg-0`, `bg-1`, `bg-2`. Every other color is the dark mode's, so each stands on a darker surface than the one it passed on. Following the device chooses between dark and light only; black is a person's choice.
-- **Accents** turn the hue of `ember`. The list is fixed: Orange (55 degrees of the Oklab hue), Green (150) and Blue (255), after the theme's own color. The accent takes the chroma of the theme's `ember` and its lightness, moved lighter in a dark mode or darker in a light one until it reads at 4.5:1 on every surface; `on-accent` is the theme's where it still reads at 4.5:1, and black or white otherwise. A theme offers an accent only when it then passes every gate, so an accent within 45 degrees of the theme's `ion` or `violet` is not offered, and neither is one within 20 degrees of the theme's own `ember`. Front Office offers Green and Blue; Night Yard, whose bots work in cyan and hand over in violet, offers Green.
+- **Accents** turn the hue of `ember`. The list is fixed: Orange (55 degrees of the Oklab hue), Green (150) and Blue (255), after the theme's own color. The accent takes the chroma of the theme's `ember`, lowered where a screen cannot show it at that hue, and its lightness, moved lighter in a dark mode or darker in a light one until it reads at 4.5:1 on every surface; `on-accent` is the theme's where it still reads at 4.5:1, and black or white otherwise. A theme offers an accent only when it then passes every gate, so an accent within 45 degrees of the theme's `ion` or `violet` is not offered, and neither is one within 20 degrees of the theme's own `ember`. Front Office offers Green and Blue; Night Yard, whose bots work in cyan and hand over in violet, offers Green.
 
 ### The first batch
 
@@ -175,7 +175,7 @@ The seven themes of ADR 0020 are in the `expressive` group. Front Office is the 
 | Quiet Hours | Low stimulus: soft color, no light effects, and every live state said in words | Low-chroma accents that still pass, bloom 0, live states as a single fade instead of a loop, durations 1.3, leading 1.6, square corners at radius 6, no yard. The theme to suggest when a device asks for less motion |
 | Foundry | Warm and heavy, soot and brass, for people who find the default cold | Charcoal and soot, ember leaning brass, ion a pale teal, headings at 600 with tighter tracking, faceted cuts 10 and 16, line yard at low strength, bloom 8. Light is warm stone |
 
-Every pair is computed in [`docs/design/themes/contrast.md`](../design/themes/contrast.md) (`python3 scripts/themes/contrast.py`). The sample sheet, [`docs/design/themes/sample-sheet.html`](../design/themes/sample-sheet.html) (`python3 scripts/themes/sample-sheet.py`), draws the conversation with a running tool and an approval card, the crew and the bot editor in every theme and mode at desktop width and 360 px, and twenty-four characters per theme; its pictures are in `docs/screenshots/themes/`. Everything in it is a labeled sample.
+Every pair is computed in [`docs/design/themes/contrast.md`](../design/themes/contrast.md) (`python3 scripts/themes/contrast.py`). The sample sheet, [`docs/design/themes/sample-sheet.html`](../design/themes/sample-sheet.html) (`python3 scripts/themes/sample-sheet.py`), draws the conversation with a running tool and an approval card, the crew and the bot editor in each of the seven themes of ADR 0020, dark and light, at desktop width and 360 px, and twenty-four characters per theme; its pictures are in `docs/screenshots/themes/`. Everything in it is a labeled sample.
 
 Two faces are added, both SIL OFL 1.1: Literata (Paper Ledger's reading face) and Atkinson Hyperlegible Next (Workbench's interface face). Each is fetched only when its theme is chosen where the platform allows; the theme issues that ship them record the download size.
 
