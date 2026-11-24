@@ -207,9 +207,13 @@ internal sealed class TalkWorkspace : Grid
         AutomationProperties.SetName(crewScroll, "Crew");
         AutomationProperties.SetLandmarkType(crewScroll, AutomationLandmarkType.Navigation);
 
+        // The links stand on their own columns and the account on the last, so the two can never overlap.
         var footer = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
-        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        foreach (var _ in footerLinks)
+        {
+            footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        }
+
         footer.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         footer.RowDefinitions.Add(new() { Height = GridLength.Auto });
         footer.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -221,7 +225,7 @@ internal sealed class TalkWorkspace : Grid
             footer.Children.Add(link);
         }
 
-        SetColumn(crewAccount, 2);
+        SetColumn(crewAccount, footerLinks.Length);
         footer.Children.Add(crewAccount);
         listFooter.Child = footer;
         listFooter.Padding = Tokens.Space("DvSpace4", "DvSpace3");
@@ -745,16 +749,34 @@ internal sealed class TalkWorkspace : Grid
         railDividerColumn.Width = new(splitRail ? dividerWidth : 0);
         railColumn.Width = !showRail ? new(0) : splitRail ? new(railWidth) : star;
 
-        var compactCrew = splitCrew && listWidth < listDefault;
+        // The account takes a row of its own under the links when the column is narrower than its default, or when
+        // the links and the account do not fit on one row in the theme in use.
+        var compactCrew = splitCrew && (listWidth < listDefault || !FooterFitsOneRow(listWidth));
         SetRow(crewAccount, compactCrew ? 1 : 0);
-        SetColumn(crewAccount, compactCrew ? 0 : 2);
-        SetColumnSpan(crewAccount, compactCrew ? 3 : 1);
+        SetColumn(crewAccount, compactCrew ? 0 : footerLinks.Length);
+        SetColumnSpan(crewAccount, compactCrew ? footerLinks.Length + 1 : 1);
         listFooter.Visibility = Shown(!phone);
         dock.Visibility = Shown(phone);
         back.Visibility = Shown(!crewBeside);
         crewNotice.Visibility = Shown(!crewBeside);
         var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
         mainHeader.Padding = new(inline, Tokens.Number("DvSpace2"), inline, Tokens.Number("DvSpace2"));
+    }
+
+    private bool FooterFitsOneRow(double listWidth)
+    {
+        var gap = Tokens.Number("DvSpace3");
+        var room = listWidth - listFooter.Padding.Left - listFooter.Padding.Right;
+        FrameworkElement[] parts = [.. footerLinks, crewAccount];
+        var needed = parts.Sum(Wanted) + (gap * (parts.Length - 1));
+
+        return needed <= room;
+    }
+
+    private static double Wanted(FrameworkElement part)
+    {
+        part.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+        return part.DesiredSize.Width;
     }
 
     private void ResizeCrew(double width)

@@ -12,9 +12,14 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
     // The version of the stored object from which the theme it names is one a person chose.
     private const int ChosenTheme = 2;
 
-    // The names are read as they are written, in the one casing, as the page that paints before the app reads them.
-    private static readonly JsonSerializerOptions stored =
-        new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = false };
+    private const string ThemeIdName = "themeId";
+
+    private const string ModeName = "mode";
+
+    private const string AccentName = "accent";
+
+    private const string VersionName = "version";
+
 
     // A mode is one of these words. A number or a list of words is not one, whatever an enum would make of it.
     private static readonly Dictionary<string, ThemeMode> modes = new(StringComparer.OrdinalIgnoreCase)
@@ -55,9 +60,23 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
         return ReadObject(value, logger) ?? Default;
     }
 
-    public string ToStored() => JsonSerializer.Serialize(
-        new StoredChoice(ThemeId, Mode.ToString().ToLowerInvariant(), Accent, ChosenTheme),
-        stored);
+    // Written and read by hand, not by reflection: the browser build trims what a serializer would need to make a
+    // record, and a choice it could not read would stop the app before its first screen.
+    public string ToStored()
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString(ThemeIdName, ThemeId);
+            writer.WriteString(ModeName, Mode.ToString().ToLowerInvariant());
+            writer.WriteString(AccentName, Accent);
+            writer.WriteNumber(VersionName, ChosenTheme);
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
 
     #endregion
 
@@ -67,16 +86,21 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
     {
         try
         {
-            var read = JsonSerializer.Deserialize<StoredChoice>(value, stored);
-
-            if (read is not { ThemeId.Length: > 0, Mode: not null } || !modes.TryGetValue(read.Mode, out var mode))
+            using var document = JsonDocument.Parse(value);
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object
+                || Text(root, ThemeIdName) is not { Length: > 0 } themeId
+                || Text(root, ModeName) is not { } word
+                || !modes.TryGetValue(word, out var mode)
+                || !TryAccent(root, out var accent)
+                || !TryVersion(root, out var version))
             {
                 return null;
             }
 
             // Before a person could choose a theme, the object named the one theme there was. That was no choice.
-            return read.Version >= ChosenTheme
-                ? new(read.ThemeId, mode, read.Accent is { Length: > 0 } accent ? accent : Accents.ThemeId)
+            return version >= ChosenTheme
+                ? new(themeId, mode, accent is { Length: > 0 } ? accent : Accents.ThemeId)
                 : Default with { Mode = mode };
         }
         catch (JsonException exception)
@@ -87,7 +111,29 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
         }
     }
 
-    private sealed record StoredChoice(string ThemeId, string? Mode, string? Accent = null, int Version = 0);
+    // A name is read as it is written, in the one casing, as the page that paints before the app reads it.
+    private static string? Text(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var found) && found.ValueKind is JsonValueKind.String ? found.GetString() : null;
+
+    private static bool TryAccent(JsonElement root, out string? accent)
+    {
+        accent = null;
+        if (!root.TryGetProperty(AccentName, out var found) || found.ValueKind is JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        accent = found.ValueKind is JsonValueKind.String ? found.GetString() : null;
+        return found.ValueKind is JsonValueKind.String;
+    }
+
+    private static bool TryVersion(JsonElement root, out int version)
+    {
+        version = 0;
+
+        return !root.TryGetProperty(VersionName, out var found)
+            || (found.ValueKind is JsonValueKind.Number && found.TryGetInt32(out version) && found.GetRawText() == $"{version}");
+    }
 
     #endregion
 }
