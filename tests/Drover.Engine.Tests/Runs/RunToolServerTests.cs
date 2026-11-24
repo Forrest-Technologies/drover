@@ -33,6 +33,90 @@ public sealed class RunToolServerTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Two_tools_whose_names_clash_are_both_offered_and_each_call_reaches_its_own_tool()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        world.Server.Offer("repo.get_file", "Gets one file.", readOnly: true, """{"file":"one"}""")
+            .Offer("repo_get_file", "Gets another file.", readOnly: true, """{"file":"two"}""");
+        var connection = await world.Connect("Repo", TrustLevel.Trusted);
+        await world.Grant("repo.get_file", GrantEffect.Allow);
+        await world.Grant("repo_get_file", GrantEffect.Allow);
+        var names = await ModelNames(world, connection);
+        names["repo.get_file"].Should().NotBe(names["repo_get_file"]);
+        world.Script.Then(
+            [new ToolCallOutput("c1", names["repo.get_file"])],
+            [new ToolCallOutput("c2", names["repo_get_file"])],
+            [new TextOutput("Both files are in.")]);
+        world.StartHost();
+
+        var threadId = await world.NewThread();
+        var run = await world.WaitForStatus(
+            await world.Post(threadId, "Get both files."),
+            RunStatus.Completed,
+            RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        world.Model.ToolsOffered[0].Should().Contain(names.Values);
+        world.Server.Count("repo.get_file").Should().Be(1);
+        world.Server.Count("repo_get_file").Should().Be(1);
+        // The calls carry each tool's own result, so the model sees which one answered.
+        world.Script.Requests[2].Should().Contain(new SeenMessage("tool", """c1 = {"file":"one"}"""))
+            .And.Contain(new SeenMessage("tool", """c2 = {"file":"two"}"""));
+    }
+
+    [Fact]
+    public async Task A_clashing_tool_keeps_its_name_across_runs_and_when_a_grant_is_removed_and_returned()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        world.Server.Offer("repo.get_file", "Gets one file.", readOnly: true, "{}")
+            .Offer("repo_get_file", "Gets another file.", readOnly: true, "{}");
+        var connection = await world.Connect("Repo", TrustLevel.Trusted);
+        await world.Grant("repo.get_file", GrantEffect.Allow);
+        await world.Grant("repo_get_file", GrantEffect.Allow);
+        var names = await ModelNames(world, connection);
+        world.Script.Then([new TextOutput("First.")], [new TextOutput("Second.")], [new TextOutput("Third.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        await world.WaitForStatus(await world.Post(threadId, "First."), RunStatus.Completed, RunStatus.Failed);
+        world.Model.ToolsOffered[0].Should().Contain(names.Values);
+        await world.WaitForStatus(await world.Post(threadId, "Second."), RunStatus.Completed, RunStatus.Failed);
+        world.Model.ToolsOffered[1].Should().Contain(names.Values);
+        await world.Revoke("repo_get_file");
+        await world.Grant("repo_get_file", GrantEffect.Allow);
+        await world.WaitForStatus(await world.Post(threadId, "Third."), RunStatus.Completed, RunStatus.Failed);
+
+        world.Model.ToolsOffered[2].Should().Contain(names.Values,
+            "a grant removed and given back does not rename a tool");
+    }
+
+    [Fact]
+    public async Task An_approval_for_one_of_two_clashing_tools_runs_that_one()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        world.Server.Offer("repo.get_file", "Gets one file.", readOnly: false, """{"file":"one"}""")
+            .Offer("repo_get_file", "Gets another file.", readOnly: false, """{"file":"two"}""");
+        var connection = await world.Connect("Repo", TrustLevel.Trusted);
+        await world.Grant("repo.get_file", GrantEffect.Allow);
+        await world.Grant("repo_get_file", GrantEffect.Ask);
+        var names = await ModelNames(world, connection);
+        world.Script.Then([new ToolCallOutput("c1", names["repo_get_file"])], [new TextOutput("Done.")]);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Get the second file.");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed);
+        world.Server.Count("repo.get_file").Should().Be(0);
+        world.Server.Count("repo_get_file").Should().Be(0, "the call waits for a person before it reaches the server");
+        (await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true)).Outcome
+            .Should().Be(DecisionOutcome.Recorded);
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        world.Server.Count("repo.get_file").Should().Be(0, "the other tool with the same base name does not run");
+        world.Server.Count("repo_get_file").Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_new_connection_grants_nothing_and_a_servers_claim_that_a_tool_only_reads_decides_nothing()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
@@ -626,6 +710,17 @@ public sealed class RunToolServerTests(PostgresServer postgres)
     #endregion
 
     #region Private Methods
+
+    /// <summary>The model name of each tool of a connection, worked out from the names the server listed.</summary>
+    private static async Task<Dictionary<string, string>> ModelNames(RunWorld world, ToolConnection connection)
+    {
+        var listed = await world.Read(db => db.Tools.AsNoTracking()
+            .Where(tool => tool.ToolConnectionId == connection.Id)
+            .Select(tool => new ToolName(tool.Id, tool.ToolConnectionId!.Value, tool.Name, tool.FirstSeenAt))
+            .ToListAsync(RunWorld.Token));
+        var names = ToolNames.ForConnection(connection.Slug, listed);
+        return listed.ToDictionary(tool => tool.Name, tool => names[tool.Id]);
+    }
 
     /// <summary>How many sign-ins and token secrets of one person the database shows that person's own transaction.</summary>
     private static async Task<(int Credentials, int Secrets)> Count(IServiceProvider services, Guid person)

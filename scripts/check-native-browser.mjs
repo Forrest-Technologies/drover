@@ -51,10 +51,27 @@ const server = http.createServer(async (request, response) => {
         response.writeHead(404).end();
     }
 });
+// Some Playwright calls (keyboard input, evaluate, close) have no timeout of their own. If the browser stops answering,
+// this watchdog ends the check with the last step it reached instead of letting it hang until the job limit.
+const stallLimit = 5 * 60 * 1000;
+let lastStep = 'starting the browser';
+let stallTimer;
+function progress(step) {
+    lastStep = step;
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+        process.stderr.write(`The browser check made no progress for ${stallLimit / 60000} minutes after: ${lastStep}\n`);
+        process.exit(1);
+    }, stallLimit);
+    stallTimer.unref();
+}
+progress(lastStep);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox'] });
 const spaceId = '00000000-0000-7000-8000-0000000000b1';
+const previewApiRequests = [];
+const unsettledRequests = new Set();
 const botId = '0196f1a0-0000-7000-8000-000000000004';
 const connectionId = '0196f1a0-0000-7000-8000-000000000003';
 const htmlFileId = '0196f1a0-0000-7000-8000-0000000000f1';
@@ -85,6 +102,19 @@ const panelFile = {
     id: '0196f1a0-0000-7000-8000-000000000008', name: 'sample-panel.png',
     contentType: 'image/png', kind: 'image', size: 80,
 };
+const retryPicture = {
+    id: '0196f1a0-0000-7000-8000-00000000000b', name: 'sample-retry.png',
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+};
+const exhaustedPicture = {
+    id: '0196f1a0-0000-7000-8000-00000000000c', name: 'sample-retry-exhausted.png',
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+};
+const concurrentPictures = Array.from({ length: 4 }, (_, index) => ({
+    id: `0196f1a0-0000-7000-8000-${String(index + 13).padStart(12, '0')}`,
+    name: `sample-concurrent-${index + 1}.png`,
+    contentType: 'image/png', kind: 'image', size: 80, width: 16, height: 16,
+}));
 const exchangedFiles = [
     {
         file: panelFile, threadId: thread.id, messageId: messages[0].id,
@@ -99,6 +129,9 @@ const exchangedFiles = [
 const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
 const sampleImageAddress = 'https://preview-image.example.test/sample.png';
 messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
+messages[0].parts.push(...concurrentPictures.map(file => ({ kind: 'file', fileId: file.id, file })));
+messages[0].parts.push({ kind: 'file', fileId: retryPicture.id, file: retryPicture });
+messages[0].parts.push({ kind: 'file', fileId: exhaustedPicture.id, file: exhaustedPicture });
 const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
 const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
@@ -144,6 +177,7 @@ const screens = [
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
+    ['conversation-load-failed', `/talk/${botId}`, 'Sample bot'],
     ['share-empty', '/share', 'Share to Drover'],
     ['models', '/models', 'Model connections'],
     ['status', '/status', 'Status'],
@@ -188,18 +222,40 @@ try {
                 errors.push(String(error));
             });
             let externalPreviewRequests = 0;
+            previewApiRequests.length = 0;
+            unsettledRequests.clear();
+            page.on('request', request => {
+                previewApiRequests.push({ method: request.method(), path: new URL(request.url()).pathname });
+                unsettledRequests.add(request);
+            });
+            page.on('requestfinished', request => unsettledRequests.delete(request));
+            page.on('requestfailed', request => unsettledRequests.delete(request));
             await page.route('https://preview-image.example.test/**', async route => {
                 externalPreviewRequests++;
                 await route.abort();
             });
             let previewRequests = 0;
-            let panelPreviewRequests = 0;
+            let retryPictureRequests = 0;
+            let exhaustedPictureRequests = 0;
+            let concurrentPictureRequests = 0;
+            let activeConcurrentPictureRequests = 0;
+            let maxConcurrentPictureRequests = 0;
+            const heldConcurrentPictures = [];
+            // The file card in the conversation and in the Files panel reads the same preview path as the panel's
+            // Preview toggle, so the answer is chosen by the step under test, not by the order of the requests.
+            let panelPreviewBroken = false;
             let completePreview;
             const previewGate = new Promise(resolve => { completePreview = resolve; });
             let extensionFailures = 0;
+            let conversationLoadRequests = 0;
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
                 if (message.location().url.startsWith(previewOrigin)) { return; }
+                // The paste check makes one file fail to read on purpose; the app logs that, as it should.
+                if (current === 'conversation'
+                    && message.text().includes('A file the browser handed over with a paste could not be read')) {
+                    return;
+                }
                 // These two intentional API failures exercise the loading-to-failure and retry states.
                 const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (current === 'conversation' && previewRequests === 5
@@ -223,11 +279,18 @@ try {
                     && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
                     && message.text().includes('404 (Not Found)')) {
                     return;
+                } else if (current === 'conversation-load-failed'
+                    && message.location().url === `${origin}/api/spaces/${spaceId}/threads/${thread.id}/messages`
+                    && message.text().includes('500 (Internal Server Error)')) {
+                    // The first read of this scene fails on purpose, so the retry state can be checked.
+                    return;
                 } else { errors.push(`${message.location().url}: ${message.text()}`); }
             });
             let current;
             let heldRoute;
             let botCreates = 0;
+            // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
+            const uploadedFiles = [];
             let projectMoved = false;
             let previewFrameRequests = [];
             let revokedPreviewGrants = [];
@@ -326,7 +389,16 @@ try {
                 }
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
-                else if (address.endsWith('/stream')) { await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }); return; }
+                else if (address.endsWith('/stream')) {
+                    if (current === 'conversation-load-failed') {
+                        // A stream that ends reports a reconnection, which reads the conversation again by itself.
+                        // Hold this one open so the scene checks the button, not the automatic retry.
+                        return;
+                    }
+
+                    await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' });
+                    return;
+                }
                 else if (address.endsWith(`/files/${sampleFile.id}/native-preview`)) {
                     const attempt = ++previewRequests;
                     if (attempt === 1) {
@@ -363,7 +435,46 @@ try {
                     }
                 }
                 else if (address.endsWith(`/files/${panelFile.id}/native-preview`)) {
-                    body = { image: ++panelPreviewRequests === 1 ? samplePng : 'iVBORw0KGgo=' };
+                    body = { image: panelPreviewBroken ? 'iVBORw0KGgo=' : samplePng };
+                }
+                else if (address.endsWith(`/files/${retryPicture.id}/native-preview`)) {
+                    retryPictureRequests++;
+                    body = retryPictureRequests === 1 ? { refusal: 3 } : { image: samplePng };
+                }
+                else if (address.endsWith(`/files/${exhaustedPicture.id}/native-preview`)) {
+                    exhaustedPictureRequests++;
+                    body = { refusal: 3 };
+                }
+                else if (concurrentPictures.some(file => address.endsWith(`/files/${file.id}/native-preview`))) {
+                    concurrentPictureRequests++;
+                    activeConcurrentPictureRequests++;
+                    maxConcurrentPictureRequests = Math.max(
+                        maxConcurrentPictureRequests,
+                        activeConcurrentPictureRequests);
+                    await new Promise(resolve => heldConcurrentPictures.push(resolve));
+                    activeConcurrentPictureRequests--;
+                    body = { image: samplePng };
+                }
+                else if (address.endsWith(`/threads/${thread.id}/attachment-rules`)) {
+                    body = { maxFileBytes: 26214400, maxFilesPerMessage: 10, modelReadsImages: true, hasSandbox: true };
+                }
+                else if (address.endsWith(`/threads/${thread.id}/files`) && route.request().method() === 'POST') {
+                    const uploaded = new URL(route.request().url()).searchParams.get('name') ?? '';
+                    const bytes = route.request().postDataBuffer() ?? Buffer.alloc(0);
+                    uploadedFiles.push({ name: uploaded, bytes });
+                    const number = String(uploadedFiles.length).padStart(3, '0');
+                    await route.fulfill({
+                        status: 201,
+                        json: {
+                            id: `0196f1a0-0000-7000-8000-000000000${number}`, name: uploaded,
+                            contentType: 'image/png', kind: 'image', size: bytes.length, width: 16, height: 16,
+                        },
+                    });
+                    return;
+                }
+                else if (/\/files\/[^/]+$/.test(address) && route.request().method() === 'DELETE') {
+                    await route.fulfill({ status: 204 });
+                    return;
                 }
                 else if (address.endsWith(`/threads/${thread.id}/messages`) && route.request().method() === 'POST') {
                     const sent = JSON.parse(route.request().postData() ?? '{}');
@@ -384,6 +495,14 @@ try {
                     };
                     await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
                     return;
+                }
+                else if (address.endsWith('/messages') && route.request().method() === 'GET') {
+                    if (current === 'conversation-load-failed' && ++conversationLoadRequests === 1) {
+                        await route.fulfill({ status: 500, json: { title: 'Sample: the server is unavailable.', status: 500 } });
+                        return;
+                    }
+
+                    body = current === 'conversation-search' ? searchMessages : messages;
                 }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
@@ -451,11 +570,15 @@ try {
                 current = name;
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
+                if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
                 const editorLoaded = name === 'bot-editor'
-                    ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
+                    ? page.waitForResponse(response => response.ok()
+                        && response.request().method() === 'GET'
+                        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
                     : null;
                 const target = address;
-                if (name === 'account' || name === 'sign-in' || name === 'project-member') {
+                if (name === 'account' || name === 'sign-in' || name === 'project-member' || name === 'conversation-load-failed') {
+                    // A fresh runtime, so the conversation reads from the start and meets the failed answer.
                     await page.goto(`${origin}${target}`);
                     await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
                 } else {
@@ -478,6 +601,44 @@ try {
                 if (name === 'conversation') {
                     await page.getByRole('textbox', { name: 'Message to Sample bot', exact: true }).waitFor({ state: 'attached' });
                     await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached' });
+                    const firstPictureDeadline = Date.now() + 10000;
+                    while (concurrentPictureRequests < 2 && Date.now() < firstPictureDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    await page.evaluate(() => new Promise(resolve =>
+                        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                    assert.equal(concurrentPictureRequests, 2,
+                        'Only two conversation pictures should read from the server together.');
+                    heldConcurrentPictures.splice(0).forEach(release => release());
+                    const backlogDeadline = Date.now() + 10000;
+                    while (concurrentPictureRequests < concurrentPictures.length && Date.now() < backlogDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(concurrentPictureRequests, concurrentPictures.length,
+                        'The queued conversation pictures should start after the first pair finishes.');
+                    assert.equal(activeConcurrentPictureRequests, 2,
+                        'The drained picture backlog should keep both request slots busy.');
+                    assert.equal(maxConcurrentPictureRequests, 2,
+                        'The picture request limit should hold while the backlog drains.');
+                    heldConcurrentPictures.splice(0).forEach(release => release());
+                    for (const file of concurrentPictures) {
+                        await page.locator(`[role="img"][aria-label="${file.name}"]`)
+                            .waitFor({ state: 'attached', timeout: 10000 });
+                    }
+                    const retryDeadline = Date.now() + 10000;
+                    while (retryPictureRequests < 2 && Date.now() < retryDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(retryPictureRequests, 2, 'A busy picture preview should be retried once.');
+                    await page.locator('[role="img"][aria-label="sample-retry.png"]')
+                        .waitFor({ state: 'attached', timeout: 10000 });
+                    const exhaustedDeadline = Date.now() + 10000;
+                    while (exhaustedPictureRequests < 2 && Date.now() < exhaustedDeadline) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+                    assert.equal(exhaustedPictureRequests, 2, 'A busy picture preview should retry only once.');
+                    await shown(page, 'This picture could not be shown.')
+                        .waitFor({ state: 'attached', timeout: 10000 });
                 }
                 if (name === 'share-empty') {
                     await page.getByText('Nothing is waiting to be shared. Share text or a file to Drover from another app.', { exact: true })
@@ -529,17 +690,46 @@ try {
                     await page.getByRole('button', { name: 'Download brief.txt', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                     await page.getByRole('button', { name: 'Start with Sample bot', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                 }
+                if (name === 'conversation-load-failed') {
+                    await page.getByRole('heading', { name: 'Drover could not load this conversation', exact: true })
+                        .waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByText('Nothing said yet.', { exact: false }).count(), 0,
+                        'a conversation that was never read must not say nothing was said');
+                    // Uno's hidden text box carries no disabled attribute, so ask the field itself: it takes no text.
+                    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+                    await field.press('X');
+                    assert.equal(await field.inputValue(), '', 'the field is disabled while the state is shown');
+                }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+                if (name === 'conversation-load-failed') {
+                    const reread = page.waitForResponse(reply => reply.request().method() === 'GET'
+                        && new URL(reply.url()).pathname === `/api/spaces/${spaceId}/threads/${thread.id}/messages`
+                        && reply.status() === 200);
+                    // Enter on a wide window, Space on a phone: both keys take the one action.
+                    await page.getByRole('button', { name: 'Try again', exact: true }).press(width === 360 ? 'Space' : 'Enter');
+                    await reread;
+                    await page.getByText(messages[0].parts[0].text, { exact: true }).first().waitFor({ state: 'attached', timeout: 10000 });
+                    assert.equal(conversationLoadRequests, 2, 'the first read failed and the retry read once');
+                    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+                    await field.press('X');
+                    assert.equal(await field.inputValue(), 'X', 'the field takes text once the conversation has been read');
+                    await field.fill('');
+                }
                 if (name === 'extension-editor') {
                     // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
                     await page.mouse.move(width / 2, 500);
                     await page.mouse.wheel(0, 3000);
                     await page.waitForTimeout(200);
                     const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-                    const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
+                    const [saved] = await Promise.all([
+                        page.waitForEvent('download', item => item.suggestedFilename() === 'extension.json'),
+                        exportControl.dispatchEvent('click'),
+                    ]);
                     assert.equal(saved.suggestedFilename(), 'extension.json');
-                    const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
+                    const savedPath = await withDeadline(saved.path(), 10000, 'the extension.json download to complete');
+                    const file = JSON.parse(await fs.readFile(savedPath, 'utf8'));
                     assert.equal(file.version, 1);
                 }
                 if (name === 'projects' && width === 360) {
@@ -564,6 +754,7 @@ try {
                 }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
+                    await checkPastedAndDroppedFiles(page, uploadedFiles, width, theme);
                     await checkStopBounds(page, width);
                 }
                 if (name === 'conversation') {
@@ -571,31 +762,57 @@ try {
                     const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
                     const download = page.getByRole('link', { name: 'Download sample-preview.md' });
                     const previewPath = `/files/${sampleFile.id}/native-preview`;
-                    const requested = page.waitForRequest(request => new URL(request.url()).pathname.endsWith(previewPath));
+                    const requested = page.waitForRequest(request => request.method() === 'GET'
+                        && new URL(request.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
                     await preview.press('Enter');
                     await requested;
                     await closePreview.waitFor({ state: 'attached' });
                     await page.screenshot({ path: path.join(pictures, `preview-loading-${width}-${theme}.png`) });
-                    const loaded = page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith(previewPath));
+                    const loaded = page.waitForResponse(reply => reply.request().method() === 'GET'
+                        && new URL(reply.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
                     completePreview();
-                    await (await loaded).finished();
+                    await loaded;
+                    await waitForShown(page, 'Sample preview heading');
+                    await waitForPreviewLoaded(page);
                     await page.waitForTimeout(500);
                     assert.equal(externalPreviewRequests, 0);
                     await page.screenshot({ path: path.join(pictures, `preview-markdown-${width}-${theme}.png`) });
                     await closePreview.press('Space');
+                    // What each state draws once its answer is applied; the request alone does not prove that.
+                    const drawn = {
+                        pdf: 'Sample PDF page one summary.',
+                        diagram: 'Diagram node Upload file',
+                        limit: 'This file exceeds the preview limits. Download the original to keep it.',
+                        error: 'Could not show the preview. Download the file to keep it.',
+                        malformed: 'This file contains invalid preview data. Download it to keep it.',
+                        unsupported: 'This file format has no native preview. Download it to keep it.',
+                    };
                     for (const state of ['pdf', 'diagram', 'limit', 'error', 'malformed', 'unsupported']) {
-                        const event = state === 'error' ? 'requestfailed' : 'requestfinished';
-                        const finished = page.waitForEvent(event, request => new URL(request.url()).pathname.endsWith(previewPath));
+                        const requestPath = `/api/spaces/${spaceId}${previewPath}`;
+                        const before = previewRequestCount(requestPath);
+                        const settled = state === 'error'
+                            ? page.waitForEvent('requestfailed', request => request.method() === 'GET'
+                                && new URL(request.url()).pathname === requestPath)
+                            : page.waitForResponse(reply => reply.request().method() === 'GET'
+                                && new URL(reply.url()).pathname === requestPath);
                         await preview.press('Enter');
-                        await finished;
+                        await closePreview.waitFor({ state: 'attached', timeout: 10000 });
                         await download.waitFor({ state: 'attached' });
+                        await settled;
+                        await waitForShown(page, drawn[state]);
+                        await waitForPreviewLoaded(page);
+                        assert.equal(previewRequestCount(requestPath), before + 1,
+                            `${state}: expected exactly one preview request`);
                         await page.waitForTimeout(500);
+                        assert.equal(previewRequestCount(requestPath), before + 1,
+                            `${state}: no second preview request may arrive late`);
                         if (state === 'pdf') {
                             await page.getByRole('button', { name: 'Next PDF page', exact: true }).press('Enter');
                             await page.waitForTimeout(300);
                         }
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
                         await closePreview.press('Space');
+                        await preview.waitFor({ state: 'attached', timeout: 10000 });
                     }
                     await checkWorkspacePanels(page, width, theme);
                     if (width === 1280) {
@@ -608,16 +825,37 @@ try {
                         await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
                     }
                     const panelPreview = page.getByRole('button', { name: 'Preview sample-panel.png', exact: true });
-                    const panelPath = `/files/${panelFile.id}/native-preview`;
+                    const closePanel = page.getByRole('button', { name: 'Close preview of sample-panel.png' });
+                    const requestPath = `/api/spaces/${spaceId}/files/${panelFile.id}/native-preview`;
+                    // A file card can read the same preview path to draw its own picture. Let any such read settle
+                    // first, so the only preview request counted below is the one the toggle sends.
+                    await panelPreview.waitFor({ state: 'attached', timeout: 10000 });
+                    await waitUntilSettled(requestPath);
                     for (const state of ['picture', 'picture-error']) {
-                        const finished = page.waitForEvent('requestfinished',
-                            request => new URL(request.url()).pathname.endsWith(panelPath));
+                        panelPreviewBroken = state === 'picture-error';
+                        const shownBefore = await page.locator('[role="img"][aria-label="sample-panel.png"]').count();
+                        const before = previewRequestCount(requestPath);
+                        const answer = page.waitForResponse(reply => reply.request().method() === 'GET'
+                            && new URL(reply.url()).pathname === requestPath);
                         await panelPreview.press('Enter');
-                        await finished;
-                        await page.waitForTimeout(500);
+                        await closePanel.waitFor({ state: 'attached', timeout: 10000 });
+                        await answer;
+                        // The preview shows its picture, or its decode failure, only once the answer is drawn.
+                        if (state === 'picture') {
+                            await page.waitForFunction(
+                                ({ name, count }) => document.querySelectorAll(`[role="img"][aria-label="${name}"]`).length > count,
+                                { name: 'sample-panel.png', count: shownBefore }, { timeout: 10000 });
+                        } else {
+                            await waitForShown(page, 'Could not decode this picture. Download the file to keep it.');
+                        }
+                        await waitForPreviewLoaded(page);
+                        assert.equal(previewRequestCount(requestPath), before + 1,
+                            `${state}: expected exactly one panel preview request`);
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
-                        await page.getByRole('button', { name: 'Close preview of sample-panel.png' }).press('Space');
+                        await closePanel.press('Space');
+                        await panelPreview.waitFor({ state: 'attached', timeout: 10000 });
                     }
+                    panelPreviewBroken = false;
                 }
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
@@ -635,6 +873,7 @@ try {
                     await checkFieldHints(page, name);
                 }
                 process.stdout.write(`${name} ${width} ${theme}: passed\n`);
+                progress(`${name} ${width} ${theme}`);
                 if (heldRoute) {
                     await heldRoute.fulfill({ status: 503, json: { title: 'Sample server is unavailable.', status: 503 } });
                     heldRoute = null;
@@ -643,13 +882,16 @@ try {
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
+            progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
     }
     assert.equal(errors.length, 0, errors.join('\n'));
 } finally {
+    progress('closing the browser');
     await browser.close();
     await new Promise(resolve => server.close(resolve));
+    clearTimeout(stallTimer);
 }
 
 // Browser Back and closing the tab both ask before unsaved edits are dropped, and neither asks once there are none.
@@ -675,7 +917,12 @@ async function composerRingCheck(page) {
     const ringBetween = async (inField, onButton, elsewhere) => reader.evaluate(async ([one, two, three]) => {
         const load = async base64 => {
             const image = new Image();
-            await new Promise(resolve => { image.onload = resolve; image.src = `data:image/png;base64,${base64}`; });
+            await new Promise((resolve, reject) => {
+                const deadline = setTimeout(() => reject(new Error('A screenshot did not decode within 10 s.')), 10000);
+                image.onload = () => { clearTimeout(deadline); resolve(); };
+                image.onerror = () => { clearTimeout(deadline); reject(new Error('A screenshot could not be decoded.')); };
+                image.src = `data:image/png;base64,${base64}`;
+            });
             const canvas = document.getElementById('c');
             canvas.width = image.width;
             canvas.height = image.height;
@@ -738,7 +985,8 @@ async function composerRingCheck(page) {
         await (await farAway(clip)).focus();
         await page.waitForTimeout(200);
         const elsewhere = await page.screenshot({ clip });
-        const { left, top, right, bottom, count } = await ringBetween(inField, onButton, elsewhere);
+        const { left, top, right, bottom, count } = await withDeadline(ringBetween(inField, onButton, elsewhere), 20000,
+            'the focus ring pictures to be compared');
         const outset = composerRingOutset[label] ?? 0;
         const expected = {
             left: Math.floor(box.x) - outset,
@@ -796,6 +1044,189 @@ async function checkComposerBounds(page) {
     } finally {
         await close();
     }
+}
+
+// A picture on the clipboard arrives with the page's paste event, and files dropped anywhere on the conversation
+// attach to it. Each step waits for what the page did, never for a set time: a paste reports whether the page took
+// it from the field, an upload is waited for by count, and the drop line is waited for as it comes and goes.
+async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const dropLine = page.getByText('Drop the files to attach them.', { exact: true });
+    const pasteFailed = page.getByText('What was pasted could not be attached.');
+    // A complete PNG (signature, header, pixels, end), so what is uploaded can be checked byte for byte.
+    const png = [...Buffer.from(samplePng, 'base64')];
+    // A file copied from storage carries the time it was last changed; a picture the browser made for the paste, now.
+    const longAgo = Date.parse('2024-03-01T09:00:00Z');
+    // Dispatches a paste on the element with the focus, as Ctrl+V does. True when the page's paste script took it from
+    // the field. The field also handles a paste, so this is read on the body, after the script's listener on the
+    // document and before any listener of the field.
+    const paste = (files, text) => page.evaluate(({ files, text }) => {
+        const clipboardData = new DataTransfer();
+        for (const file of files) {
+            clipboardData.items.add(new File([new Uint8Array(file.bytes)], file.name, {
+                type: 'image/png',
+                lastModified: file.lastModified ?? Date.now(),
+            }));
+        }
+        if (text) {
+            clipboardData.setData('text/plain', text);
+        }
+        const event = new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true });
+        let taken = false;
+        const look = seen => { taken = seen.defaultPrevented; };
+        document.body.addEventListener('paste', look, { capture: true, once: true });
+        document.activeElement.dispatchEvent(event);
+        document.body.removeEventListener('paste', look, { capture: true });
+        return taken;
+    }, { files, text });
+    const uploadsAre = async (count, message) => {
+        const deadline = Date.now() + 10000;
+        while (uploadedFiles.length < count && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        assert.equal(uploadedFiles.length, count, message);
+    };
+    const held = () => page.evaluate(() => globalThis.droverPaste.held());
+    // The platform reads a drag from the document's drag events by where the pointer is, so the events carry the point.
+    const holdOver = (files, text) => page.evaluate(({ files, text }) => {
+        // A drop made by script has no file-system handle behind its item; the platform then reads the file itself.
+        Object.defineProperty(
+            DataTransferItem.prototype, 'getAsFileSystemHandle', { value: undefined, configurable: true });
+        const dataTransfer = new DataTransfer();
+        for (const file of files) {
+            dataTransfer.items.add(new File([new Uint8Array(file.bytes)], file.name, { type: 'image/png' }));
+        }
+        if (text) {
+            dataTransfer.setData('text/plain', text);
+        }
+        const point = { clientX: Math.round(innerWidth * 0.6), clientY: Math.round(innerHeight * 0.25) };
+        const target = document.elementFromPoint(point.clientX, point.clientY) ?? document.body;
+        globalThis.droverCheckDrag = { dataTransfer, point, target };
+    }, { files, text });
+    // The platform ignores a dragleave while the pointer is still over the window, so leaving carries a point at its
+    // edge, as a person's drag out of the window does.
+    const dragEvent = type => page.evaluate(type => {
+        const { dataTransfer, point, target } = globalThis.droverCheckDrag;
+        const at = type === 'dragleave' ? { clientX: 0, clientY: 0 } : point;
+        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
+    }, type);
+    // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
+    const dragUntilShown = async message => {
+        const deadline = Date.now() + 10000;
+        await dragEvent('dragenter');
+        while (await dropLine.count() === 0) {
+            assert.ok(Date.now() < deadline, message);
+            await dragEvent('dragover');
+        }
+    };
+
+    // Text and a picture together: the text is what was meant, so the page leaves the paste to the field.
+    await field.focus();
+    assert.equal(await paste([{ name: 'mixed.png', bytes: png, lastModified: longAgo }], 'some words'), false,
+        'A picture pasted with text beside it is left to the text field.');
+
+    // A screenshot alone: the browser names it image.png at the moment of the paste, and it is named for that moment.
+    assert.equal(await paste([{ name: 'image.png', bytes: png }]), true,
+        'A picture pasted alone is taken by the page.');
+    await uploadsAre(1, 'A picture pasted with no text uploads once, and the mixed paste before it uploaded nothing.');
+    assert.match(uploadedFiles[0].name, /^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.png$/);
+    assert.deepEqual([...uploadedFiles[0].bytes], png, 'The picture is uploaded byte for byte.');
+    await page.getByRole('button', { name: `Remove ${uploadedFiles[0].name}`, exact: true })
+        .waitFor({ state: 'attached', timeout: 10000 });
+    await page.screenshot({ path: path.join(pictures, `pasted-picture-${width}-${theme}.png`) });
+
+    // A file copied from storage keeps its own name, even image.png.
+    assert.equal(await paste([{ name: 'image.png', bytes: png, lastModified: longAgo }]), true);
+    await uploadsAre(2, 'A file copied from storage and pasted uploads once.');
+    assert.equal(uploadedFiles[1].name, 'image.png', 'A copied file named image.png keeps its name.');
+
+    // A file that cannot be read fails the whole paste once, and every byte held for it is let go.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let calls = 0;
+        Blob.prototype.arrayBuffer = function () {
+            calls++;
+            return calls === 2 ? Promise.reject(new Error('Sample read failure')) : reading.call(this);
+        };
+        globalThis.droverCheckRead = () => { Blob.prototype.arrayBuffer = reading; };
+    });
+    await field.focus();
+    assert.equal(await paste([
+        { name: 'first.png', bytes: png, lastModified: longAgo },
+        { name: 'second.png', bytes: png, lastModified: longAgo },
+    ]), true);
+    await pasteFailed.first().waitFor({ state: 'attached', timeout: 10000 });
+    await page.evaluate(() => globalThis.droverCheckRead());
+    assert.equal(await held(), 0, 'A paste that failed holds no bytes.');
+    await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
+    await pasteFailed.first().waitFor({ state: 'detached', timeout: 5000 });
+    assert.equal(uploadedFiles.length, 2, 'Nothing of a paste that failed is uploaded.');
+
+    // Files held over the message list: the drop line shows, and goes when the files leave the conversation.
+    await holdOver([{ name: 'left.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list show the drop line.');
+    await page.screenshot({ path: path.join(pictures, `drop-cue-${width}-${theme}.png`) });
+    await dragEvent('dragleave');
+    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+
+    // Words dragged over the conversation are refused at release: nothing is uploaded and no line is left behind.
+    await holdOver([], 'Sample dragged words');
+    await dragEvent('dragenter');
+    await dragEvent('dragover');
+    await dragEvent('drop');
+    assert.equal(await dropLine.count(), 0, 'Words held over the conversation never show the drop line.');
+
+    // Files dropped on the message list attach to the conversation, and the line goes with the drop.
+    await holdOver([{ name: 'dropped.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list after a refused drag show the drop line.');
+    await dragEvent('drop');
+    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await uploadsAre(3, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
+    assert.equal(uploadedFiles[2].name, 'dropped.png');
+    assert.deepEqual([...uploadedFiles[2].bytes], png);
+
+    // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
+    await field.focus();
+    assert.equal(await paste(Array.from({ length: 150 }, (_, index) => ({
+        name: `many ${index + 1}.png`, bytes: png, lastModified: longAgo,
+    }))), true);
+    await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'attached', timeout: 10000 });
+    const remove = page.getByRole('button', { name: /^Remove / });
+    assert.equal(await remove.count(), 103, 'The hundred files taken stand beside the three attached before.');
+    assert.equal(await held(), 0, 'Bytes the conversation did not collect are let go once the paste is reported.');
+    while (await remove.count() > 0) {
+        await remove.first().dispatchEvent('click');
+    }
+    // A warning stays until it is dismissed, and it would stand over the buttons the next check measures.
+    await page.getByRole('button', { name: 'Dismiss', exact: true }).first().dispatchEvent('click');
+    await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'detached', timeout: 5000 });
+
+    // The paste belongs to the field it was made in: the cursor leaves while the file is read, and it still arrives.
+    // It comes last, since the cursor is not brought back to the field after it.
+    await page.evaluate(() => {
+        const reading = Blob.prototype.arrayBuffer;
+        let open;
+        const gate = new Promise(resolve => { open = resolve; });
+        Blob.prototype.arrayBuffer = async function () {
+            await gate;
+            return reading.call(this);
+        };
+        globalThis.droverCheckRead = () => {
+            Blob.prototype.arrayBuffer = reading;
+            open();
+        };
+    });
+    const before = uploadedFiles.length;
+    await field.focus();
+    assert.equal(await paste([{ name: 'held.png', bytes: png, lastModified: longAgo }]), true);
+    await page.keyboard.press('Tab');
+    await page.evaluate(() => globalThis.droverCheckRead());
+    await uploadsAre(before + 1, 'A paste read after the cursor left its field still goes to that conversation.');
+    assert.equal(uploadedFiles[before].name, 'held.png');
+    const heldChip = page.getByRole('button', { name: 'Remove held.png', exact: true });
+    await heldChip.waitFor({ state: 'attached', timeout: 10000 });
+    await heldChip.dispatchEvent('click');
+    await heldChip.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 // While a run is in progress Stop stands where Send was, and the options button beside the field is still there. The
@@ -1007,7 +1438,13 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
     const previewButton = page.getByRole('button', { name: 'Preview report.html', exact: true });
     await previewButton.waitFor({ state: 'attached', timeout: 5000 });
+    const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
+    const navigated = page.waitForEvent('framenavigated', {
+        predicate: candidate => candidate.url() === frameUrl,
+        timeout: 5000,
+    });
     await previewButton.dispatchEvent('click');
+    const frame = await navigated;
 
     const iframe = page.locator('iframe[title="Preview of report.html"]');
     await iframe.waitFor({ state: 'attached', timeout: 5000 });
@@ -1026,13 +1463,6 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
         src: `${previewOrigin}/preview/file?grant=sample-grant`,
     });
 
-    await page.waitForFunction(() => document.querySelector('iframe[title="Preview of report.html"]') !== null);
-    const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
-    const frame = page.frames().find(candidate => candidate.url() === frameUrl)
-        ?? await page.waitForEvent('framenavigated', {
-            predicate: candidate => candidate.url() === frameUrl,
-            timeout: 5000,
-        });
     assert(frame, 'Expected the sandboxed preview iframe to navigate to the second origin.');
     await frame.locator('#preview-heading').waitFor({ state: 'attached', timeout: 5000 });
     assert.equal(await frame.locator('#preview-heading').innerText(), 'Quarterly report');
@@ -1068,21 +1498,72 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     });
     assert.equal(getBeaconCount(), 0, 'The sandboxed HTML preview must make zero external network requests.');
 
-    const revoked = page.waitForResponse(response => new URL(response.url()).pathname.endsWith(`/files/${htmlFileId}/preview/revoke`));
+    const revoked = page.waitForResponse(response => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/files/${htmlFileId}/preview/revoke`);
     await page.getByRole('button', { name: 'Close', exact: true }).dispatchEvent('click');
     await iframe.waitFor({ state: 'detached', timeout: 5000 });
     await revoked;
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
 }
 
-// A search request that carried these words, and its answer. The words are the app's own state: a query that never
-// reached the view model cannot produce this request, so the check fails without hiding which step was lost.
+function previewRequestCount(requestPath) {
+    return previewApiRequests.filter(request => request.method === 'GET' && request.path === requestPath).length;
+}
+
+// Playwright waits that have no timeout of their own, such as a download's file, fail here instead of hanging the check.
+async function withDeadline(promise, milliseconds, what) {
+    let timer;
+    const late = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out after ${milliseconds} ms waiting for ${what}.`)), milliseconds);
+    });
+    try {
+        return await Promise.race([promise, late]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+// The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
+function shown(page, words) {
+    // The polite announcer retains the last message even after the rendered status disappears.
+    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true }))
+        .and(page.locator(':not(#uno-live-region-polite, #uno-live-region-polite *)')).first();
+}
+
+async function waitForShown(page, words) {
+    await shown(page, words).waitFor({ state: 'attached', timeout: 10000 });
+}
+
+async function waitForPreviewLoaded(page) {
+    await shown(page, 'Loading preview.').waitFor({ state: 'detached', timeout: 10000 });
+}
+
+// Waits until no request to this path is still open, so a later count starts from a quiet page.
+async function waitUntilSettled(requestPath) {
+    const deadline = Date.now() + 10000;
+    while ([...unsettledRequests].some(request => new URL(request.url()).pathname === requestPath)) {
+        assert(Date.now() < deadline, `A request to ${requestPath} is still open after 10 s.`);
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+}
+
+// The exact search request, registered before the typing that triggers it. The hybrid text field updates its value
+// from real key events, so a request carrying the words is the proof that the query reached the app.
 function searchResponseFor(page, words) {
     return page.waitForResponse(response =>
-        new URL(response.url()).pathname.endsWith('/threads/search')
-        && response.request().method() === 'POST'
-        && (response.request().postData() ?? '').includes(words),
+        response.request().method() === 'POST'
+        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/threads/search`
+        && (response.request().postDataJSON()?.query ?? null) === words,
     { timeout: 15000 });
+}
+
+async function typeSearch(page, box, words) {
+    const response = searchResponseFor(page, words);
+    await box.focus();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type(words);
+    await page.keyboard.press('Enter');
+    return await response;
 }
 
 // Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
@@ -1107,24 +1588,14 @@ async function checkConversationSearch(page, width) {
         }, null, { timeout: 10000 });
     }
 
-    // The hybrid renderer rebuilds the browser input behind the accessibility tree when the field redraws, so the
-    // DOM node's value is not the search box's state and can be empty even after a successful fill. Wait for the
-    // search itself and for the heading the app builds from the words it actually searched for.
-    const zebraRequest = searchResponseFor(page, 'zebra');
-    await searchBox.focus();
-    await searchBox.fill('zebra');
-    await page.keyboard.press('Enter');
-    await zebraRequest;
+    // The exact request and the heading the app builds from the words it searched for prove the query landed.
+    await typeSearch(page, searchBox, 'zebra');
     const nothing = page.getByRole('heading', { name: 'Nothing matches “zebra”', exact: true });
     await nothing.waitFor({ state: 'attached', timeout: 10000 });
     await page.getByRole('button', { name: 'Clear the search', exact: true }).last().dispatchEvent('click');
     await nothing.waitFor({ state: 'detached', timeout: 10000 });
 
-    const searchResponse = searchResponseFor(page, 'lighthouse');
-    await searchBox.focus();
-    await searchBox.fill('lighthouse');
-    await page.keyboard.press('Enter');
-    await searchResponse;
+    await typeSearch(page, searchBox, 'lighthouse');
     await page.locator('[aria-label="2 messages found."]')
         .or(page.getByText('2 messages found.', { exact: true }))
         .waitFor({ state: 'attached', timeout: 10000 });
@@ -1155,6 +1626,7 @@ async function checkConversationSearch(page, width) {
         return box.height > 0 && box.top >= 80 && box.bottom <= 900;
     }, null, { timeout: 10000 });
     process.stdout.write(`conversation-search ${width}: passed\n`);
+    progress(`conversation-search ${width}`);
 }
 
 /**

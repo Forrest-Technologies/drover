@@ -23,7 +23,7 @@ public sealed class ChatBench : IDisposable
     public ChatBench(string role = "owner", TimeProvider? time = null)
     {
         var api = Server.CreateApi();
-        Session = new(api);
+        Session = new(api, new ShareInbox());
         Session.Begin(new(
             Guid.Parse("0196f1a0-0000-7000-8000-000000000002"),
             "sam@example.org",

@@ -168,6 +168,14 @@ public sealed class SandboxSecretBotSeeder : PlainSeeder<SandboxSecretBot>
 
 public sealed class AllowAllWindowSeeder : PlainSeeder<AllowAllWindow>
 {
+    #region Properties
+
+    public override bool ForOnePersonOnly => true;
+
+    #endregion
+
+    #region Protected Methods
+
     protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
     {
         ["id"] = Guid.CreateVersion7(),
@@ -177,4 +185,6 @@ public sealed class AllowAllWindowSeeder : PlainSeeder<AllowAllWindow>
         ["started_at"] = DateTimeOffset.UtcNow,
         ["started_from"] = "bot",
     };
+
+    #endregion
 }

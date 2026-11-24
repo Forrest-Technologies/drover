@@ -35,7 +35,24 @@ public static class ToolViews
                 },
         };
 
-    public static ConnectionToolSummary ToSummary(this CatalogTool listed, ToolConnection connection)
+    /// <summary>
+    /// One summary per tool, with the name the model will actually see. Names are worked out over the whole catalog
+    /// of the connection, so two tools whose names clash are reported under two different names.
+    /// </summary>
+    public static List<ConnectionToolSummary> Summaries(this IEnumerable<CatalogTool> tools, ToolConnection connection)
+    {
+        var listed = tools.ToList();
+        var names = ToolNames.ForConnection(
+            connection.Slug,
+            [.. listed.Select(tool => new ToolName(
+                tool.Tool.Id,
+                connection.Id,
+                tool.Tool.Name,
+                tool.Tool.FirstSeenAt))]);
+        return [.. listed.Select(tool => tool.ToSummary(connection, names[tool.Tool.Id]))];
+    }
+
+    public static ConnectionToolSummary ToSummary(this CatalogTool listed, ToolConnection connection, string modelName)
     {
         var tool = listed.Tool;
         var reviewed = listed.NeedsReview && tool.ReviewedDefinition is { } kept ? kept.Deserialize<ReviewedToolDefinition>() : null;
@@ -43,7 +60,7 @@ public static class ToolViews
             tool.Id,
             connection.Id,
             tool.Name,
-            ToolNames.ForModel(connection.Slug, tool.Name),
+            modelName,
             tool.Title,
             tool.Description,
             WireName(tool.Sensitivity),
@@ -60,7 +77,7 @@ public static class ToolViews
     public static ToolConnectionRefresh ToResponse(this ToolRefresh refresh, CredentialStatus? signIn = null) =>
         new(
             refresh.Connection.ToSummary(signIn),
-            [.. refresh.Tools.Select(tool => tool.ToSummary(refresh.Connection))],
+            [.. refresh.Tools.Summaries(refresh.Connection)],
             refresh.Failure is null ? null : refresh.Message,
             refresh.Change?.Added ?? 0,
             refresh.Change?.Changed ?? 0,

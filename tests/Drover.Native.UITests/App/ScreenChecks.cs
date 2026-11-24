@@ -19,9 +19,17 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private const string Message = "Hello from the screen checks.";
 
-    private static readonly TimeSpan patience = TimeSpan.FromSeconds(30);
+    // How long a step waits for the screen it expects. The test server shares a small hosted runner with the
+    // simulator, and signing in hashes a password on a thread pool that the same machine's load can starve, so a step
+    // that talks to the server has taken 17 s in a passing run. A passing step returns the moment its screen is
+    // there; this is only how long a real failure is given before it is reported.
+    private static readonly TimeSpan patience = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan startPatience = TimeSpan.FromSeconds(120);
+
+    // The connect screen gives the server 30 s to answer, retrying a refusal. The check waits longer, so a server that
+    // does not answer is reported with the screen's own problem text and not as a screen that never changed.
+    private static readonly TimeSpan connectPatience = TimeSpan.FromSeconds(45);
 
     // The widths a desktop window is made in turn, in pixels: the two the app is required to work at. A phone has the
     // one width it has, which is taken as it is (0).
@@ -47,6 +55,17 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             if (settings.ChecksRestart)
             {
                 await Step("restore sign-in", RestoreSignIn);
+            }
+            else if (settings.IsProof)
+            {
+                await Step("launch", Launch);
+                await Step("connect", Connect);
+                await Step("sign in", SignIn);
+                await Step("open a conversation", OpenConversation);
+                await Step("proof 1 chat: send a message and read the reply", SendMessage);
+                await Step("proof 2 upload: attach a picture and send it", AttachPicture);
+                await Step("proof 3 sandbox: open the screen and read its mode line", OpenSandboxScreen);
+                await Step("proof 4 drag: turn on control and wait for the touch drag", ReadyForDrag);
             }
             else
             {
@@ -124,7 +143,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await Press("ConnectSubmit");
         try
         {
-            await Shown("SignInEmail");
+            await Shown("SignInEmail", connectPatience);
         }
         catch (CheckFailedException failure)
             when (Find("ConnectProblem") is StatusNote { Text: { Length: > 0 } problem })
@@ -372,6 +391,71 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 ? list
                 : null);
     }
+
+    // The system's own file picker is another app: the harness chooses the picture there while this step waits, so
+    // the file reaches the conversation the way a person's attached screenshot does.
+    private async Task AttachPicture()
+    {
+        var name = settings.ProofPicture ?? throw new CheckFailedException("no picture was named for the proof");
+        await Type("ComposerField", "Here is the picture.");
+        await Press("ComposerMore");
+        await Press("ComposerAttach");
+        Report($"ui-check wait: choose {name} in the system picker");
+        var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
+
+        // The tray says each file's state in words, and announces it once it is up: "1 file ready to send." A file that
+        // did not go says "Not uploaded", or one of the server's refusals in words.
+        await Until($"{name} to be uploaded", () =>
+        {
+            var said = Words(root).ToList();
+
+            if (said.FirstOrDefault(IsFailure) is { } failure)
+            {
+                throw new CheckFailedException($"the attachment said \"{failure}\"");
+            }
+
+            return said.Any(words => words.Contains("ready to send", StringComparison.Ordinal)) ? root : null;
+        }, TimeSpan.FromSeconds(90));
+
+        await Press("ComposerSend");
+        await Until($"{name} in MessageList", () =>
+            Find("MessageList") is { } list && Words(list).Any(words => words.Contains(name, StringComparison.Ordinal))
+                ? list
+                : null);
+    }
+
+    private async Task OpenSandboxScreen()
+    {
+        var bot = settings.ProofBot ?? throw new CheckFailedException("no bot was named for the proof");
+        ((App)Application.Current).Services.GetRequiredService<Navigator>().NavigateTo($"/bots/{bot}/sandbox");
+        await Shown("SandboxPicture", startPatience);
+        await Until("the view-only mode line", () => WindowSays("View only.") ? window.Content : null);
+    }
+
+    private async Task ReadyForDrag()
+    {
+        if (await Shown("SandboxControl") is not Switch control)
+        {
+            throw new CheckFailedException("SandboxControl is not a switch");
+        }
+
+        control.Value = true;
+        await Until(
+            "the control mode line",
+            () => WindowSays("Clicks and keys go to the sandbox.") ? window.Content : null);
+        Report("ui-check wait: drag the sandbox picture");
+    }
+
+    private bool WindowSays(string words) =>
+        Words(window.Content ?? throw new CheckFailedException("the window has no content"))
+            .Any(said => said.Contains(words, StringComparison.Ordinal));
+
+    private static bool IsFailure(string words) =>
+        words.StartsWith("Not uploaded", StringComparison.Ordinal) || IsRefusal(words);
+
+    private static bool IsRefusal(string words) =>
+        Enum.GetValues<FileRefusal>().Where(refusal => refusal is not FileRefusal.None)
+            .Any(refusal => words == FileWords.Refused(refusal, "Check bot"));
 
     private async Task Back()
     {

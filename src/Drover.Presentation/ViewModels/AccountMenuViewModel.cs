@@ -108,11 +108,12 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     public string UpdatesDetail => updates.State switch
     {
+        // An update already running stays visible when checks are turned off; the setting only stops new checks.
+        { Phase: DesktopUpdatePhase.Downloading } => "Downloading and checking the package.",
+        { Phase: DesktopUpdatePhase.Installing } => "The installer is opening. Drover will restart when it finishes.",
         { ChecksEnabled: false } => "This installation does not check for updates.",
         { Phase: DesktopUpdatePhase.Checking } => "Checking the signed release feed.",
         { Phase: DesktopUpdatePhase.Available } => "The package signature will be checked before installation.",
-        { Phase: DesktopUpdatePhase.Downloading } => "Downloading and checking the package.",
-        { Phase: DesktopUpdatePhase.Installing } => "The installer is opening. Drover will restart when it finishes.",
         { Phase: DesktopUpdatePhase.Manual, VerifiedPackage: { } package } =>
             $"The package signature is valid. Install the checked file at {package}. Drover does not open a privileged installer on this system.",
         { Phase: DesktopUpdatePhase.Failed, Problem: { } problem } => problem,

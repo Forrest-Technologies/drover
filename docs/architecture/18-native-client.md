@@ -112,8 +112,12 @@ so each shows the same controls.
   and `TalkBack`. Each step reports one line, and the last line says whether all of them passed.
 - **The harness.** `tests/Drover.Native.UITests` runs the real server in process on a loopback HTTPS port, with a
   certificate made for the run, a scripted model, and PostgreSQL from `DROVER_TEST_POSTGRES` or a container. It
-  makes an account and one bot through the API, starts the app with the server's address, the account, and the
-  certificate's SHA-256 hash, and exits with 0 only when the app reports that every check passed. The app trusts
+  waits until `/health/ready` answers over the same HTTPS connection the app will use (a bounded wait that fails with
+  the end of the server log), makes an account and one bot through the API, starts the app with the server's
+  address, the account, and the certificate's SHA-256 hash, and exits with 0 only when the app reports that every
+  check passed. The app's connect step gives the server 30 s and tries a refused connection again after 0.5, 1 and 2
+  s, logging each attempt; a server that never answers still fails with the screen's own problem text, and a failed
+  iOS run prints the app's log. A step waits up to 60 s for its screen and returns as soon as it is there, because a hosted runner shared with the simulator has taken 17 s to sign in. The app trusts
   that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
   port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
   through the device log under the tag `DroverUiCheck`.
@@ -136,6 +140,70 @@ dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFramework
 adb install -r <folder>/*-Signed.apk
 dotnet run --project tests/Drover.Native.UITests -- android
 ```
+
+## Android proof
+
+Two things keep the Android basics from breaking again without anyone seeing it. Neither is added to the Android
+preview build or to the checks every pull request runs.
+
+**Fast tests, in the normal test jobs.** They need no device and take seconds.
+
+- `tests/Drover.Server.Tests/AndroidPickedFileUploadTests.cs` sends a picture the way the app sends one picked on
+  Android: the picker reports no size, the stream has no length and cannot seek, the app measures it by buffering
+  (`UploadFileWithUnverifiedSize`) and sends it with the antiforgery token, to the real upload route. It reads the
+  picture back from the server and compares its hash, and it covers a small file, a file at the limit, a file past
+  the limit (the server answers 413 with a sentence that names the limit, which is what the app turns into its words),
+  no token, and a cancelled upload. These guard the path that works today. They do not cover a server that cannot
+  write its file store or the words the chip shows; those belong to the #799 fix, which carries its own failing-before
+  tests.
+- The sandbox pointer has its own server test, `SandboxPointerDragApiTests`, which lives with the pointer input
+  route (#797, in the pull request that stacks on it) and needs that route to pass. It sends a drag to the real route as the app does (a press, moves, a release, and the whole drag as one
+  request) to a sandbox provider that records the commands it ran. `tests/Shared/PointerEvents.cs` reads those commands
+  as a pointer's events, so a test asserts a down, one or more moves and an up, with no button left held. The emulator
+  proof below uses the same reader.
+
+**A manual proof on an emulator.** The workflow `.github/workflows/android-proof.yml` runs only when someone starts it
+(Actions, "Android proof", "Run workflow"): never on a push, a pull request or a tag. It runs on a GitHub-hosted
+runner. It proves the branch or tag it is started on and takes no input: choose it under "Use workflow from", or run
+`gh workflow run android-proof.yml --ref <branch>`. The branch must contain the workflow and the harness. GitHub's
+documentation says a manual workflow is listed and dispatched from the default branch (`main`). Tried for this
+workflow, the dispatch was accepted from a branch while the file was on no default branch: it works once GitHub
+knows the workflow, which it learns from a run of its file (here, runs made from the branch that added it with a
+temporary push trigger). A workflow GitHub has not run yet is not expected to be found (not tried), and the Actions tab lists it only from
+`main`. So the dependable start for a new proof workflow is its file on `main`, for example a small stub there that
+takes a `ref` input and runs the proof for it. Each of the pull requests that fix the
+upload or the touch drag links the run that proves it; without that run the fix is not called fixed. The drag
+step needs the pointer input route (#797) and the touch model on the picture (#798) in the build, so on a base that
+has neither it is expected to fail while the other three pass.
+
+The run builds the app made for the screen checks (the preview app refuses a test server's certificate, as it must),
+starts an emulator (`system-images;android-35;default;x86_64`) and waits for `sys.boot_completed`, starts the real
+server of the screen checks in the harness with a sandbox provider that records its input, waits for
+`/health/ready`, and runs `dotnet run --project tests/Drover.Native.UITests -- android-proof <folder>`. Every wait has
+a bound and says what it saw when the bound passes. Four things print one `PROOF PASS` or `PROOF FAIL` line each:
+
+1. **Chat.** The app sends a message and the bot's reply arrives.
+2. **Upload.** The app presses attach. The harness chooses `drover-proof.png` in the system's file picker, so the
+   file comes through the same path as a person's screenshot. The app waits for its chip to say it is uploaded, sends
+   it, and sees it in the conversation. The harness then reads the stored file from the server and compares its hash
+   with the file it sent.
+3. **Sandbox screen.** The app opens the bot's sandbox screen and waits for its view-only mode line. The sandbox must
+   have been asked for its picture.
+4. **Touch drag.** The app turns on "Send desktop input". The harness finds the picture in the device's accessibility
+   tree and runs `adb shell input draganddrop` over it (a hold, then moves, then a lift: real touch events). The
+   recording sandbox must have been told a button down, one or more moves and a button up, with nothing left held.
+
+The artifact `android-proof` holds `proof-summary.md` (the four lines), `harness-and-server.log` (the harness and the
+test server), `app-report.txt` (the app's own steps), `logcat-tail.txt`, `final-screen.png`, `the-last-screen.xml`
+(what the harness last read from the device), `proof.mp4` (a recording of the run), `drover-proof.png` (the file it
+sent) and `emulator.log`.
+
+To add a step, add the app's part to the proof steps in `ScreenChecks` (`tests/Drover.Native.UITests/App/`), named
+`proof <number> <what>`, add the harness's part to `AndroidProof` (what only the device or the server can say), and give
+every control the step uses an automation id. The fast tests and the proof are written to fail on a build that has the
+bug, so a step is added only with a test that failed before its fix.
+
+The emulator is never started on the Mac mini or by hand on a developer machine: the proof is a run of this workflow.
 
 ## Tokens
 
@@ -277,7 +345,8 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 - **A line that takes the place of a button** is a `FocusLine`: it can be given the focus and is not a stop on the way through the page, as an element with a tab index of minus one is on the web.
 - **A status** is a text block with a live setting whose automation peer raises `LiveRegionChanged` when its words change (`Pieces.SayWhenShown`, `StatusNote`). That is the native form of a region marked as a status or an alert.
 - **The gallery reads from a sample server.** The panels that load from the server are shown with their real view models, which ask `Pages/Dev/SampleServer.cs` inside the app. Nothing leaves the app.
-- **Native file previews stay inside native controls.** `FileCard` hosts `NativeFilePreviewControl` (`NativeFilePreviewViewModel`) for files other than bot HTML. The server's `/api/spaces/{spaceId}/files/{fileId}/native-preview` endpoint inspects the stored bytes within tight size, page, and pixel caps and returns bounded Markdown text, static PNG or JPEG bytes, extracted PDF pages, a parsed flowchart node-and-edge model, or a refusal code. Markdown is parsed by `FileMarkdown` with raw HTML disabled, node count and depth capped, and remote images converted into external links whose target address is visible; fenced `flowchart` and `graph` blocks draw as native node-and-edge cards. Static images decode through Skia (`SKCodec`) only after single-frame PNG or JPEG format and pixel dimensions (`1 MiB`, `4,000,000` pixels) are verified. PDFs extract up to 10 pages and 16 KiB of text or bounded page images and step through pages with keyboard-focusable Previous page and Next page buttons. Closing a preview or replacing the file clears all decoded bitmaps, pages, and diagram controls and keeps Download available.
+- **Native file previews stay inside native controls.** `FileCard` hosts `NativeFilePreviewControl` (`NativeFilePreviewViewModel`) for files other than bot HTML. The server's `/api/spaces/{spaceId}/files/{fileId}/native-preview` endpoint inspects the stored bytes within tight size, page, and pixel caps and returns bounded Markdown text, a static PNG picture copy, extracted PDF pages, a parsed flowchart node-and-edge model, or a refusal code. Markdown is parsed by `FileMarkdown` with raw HTML disabled, node count and depth capped, and remote images converted into external links whose target address is visible; fenced `flowchart` and `graph` blocks draw as native node-and-edge cards. For PNG, JPEG, GIF and WebP originals up to 25 MiB and 50 million source pixels, the server returns the first frame as a PNG with a longest edge of at most 480 pixels, subject to the decode limits below. The client checks the returned copy against its 1 MiB and 4,000,000-pixel limits before decoding it. PDFs extract up to 10 pages and 16 KiB of text or bounded page images and step through pages with keyboard-focusable Previous page and Next page buttons. Closing a preview or replacing the file clears all decoded bitmaps, pages, and diagram controls and keeps Download available.
+- **Conversation picture copies.** The native preview route opens the original through the caller's normal file authorization before checking a server-side cache keyed by space, file and content hash. A cache miss accepts originals up to 25 MiB. The decoder checks input dimensions before allocating pixels (50 million source pixels, 16 million decoded pixels), strips compressed PNG metadata, and schedules one decode at a time. JPEG input is limited to 64 scans. Progressive and multi-scan sequential JPEGs are limited to 16 million source pixels. The decoder checks a two-second deadline between scanlines and after native calls. At the deadline the caller receives a busy refusal and the scheduling slot opens. A native call already in progress retains a worker until it returns. At most two workers can be live, including overdue calls. The server fits the first picture to a 480-pixel longest edge and returns a static PNG. At most three requests hold original read buffers at once. Each client sends at most two picture reads at once. A member can run two misses concurrently, with up to twelve requests including waiters and up to 200 starts per minute, enough for one full Files panel. A space can run eight concurrently with up to twenty requests including waiters. The server admits up to 32 requests across spaces. A request can wait up to eight seconds for member and space capacity. Hits bypass these budgets. A completed copy stays available even if its requester leaves. Copies expire after ten minutes and share a 16 MiB cache. Download still serves the original bytes. When the ten-second server deadline expires, the preview route returns a busy refusal. The card retries that refusal or its own twelve-second timeout once after the 420 ms retry delay. A permanent refusal or an unsuccessful second attempt shows a message and keeps Download available.
 
 Differences from the web client in these pieces, each seen in the pictures in `docs/screenshots/native-chat-pieces`:
 
@@ -315,7 +384,7 @@ Unchanged from the clients this one replaces, because it compiles the same sourc
   - `/native/` with no query, the start page of an app installed from there: `retired-native-page.html`, which links `/native/manifest.webmanifest`, says Drover has a new address, and moves itself to `/` after two seconds. The retiring worker leaves this page alone.
   - `/native/manifest.webmanifest`: `retired-native-manifest.webmanifest`, the installed app's manifest under its old id `/native/`, with its start address and scope moved to `/`. The browser reads it while the start page is open and updates the installed app in place: the same app, now opening `/` in its own window. `InstalledAppMigrationTests` installs an app with the manifest the client shipped under `/native/` in a real Chromium, through the browser's own install, and checks that it opens the client at the root and that its scope moves to the root. Installing again from `/` is not needed. `ToolSignInOptions.WebPaths` still accepts `/native/`, so a tool sign-in started there before an upgrade comes back through the redirect.
 - **Notifications in a browser** go through the shared `push.js` and `push-worker.js`, behind `IPushRegistration` (`BrowserPushRegistration`). A browser failure is reported as `DeviceCallFailedException`. The development build has no service worker (the platform's own module worker is what a development build serves), so notifications need a published build.
-- **On Android** the native build uses the code written for the retired Android shell (`src/Shared/Android`): UnifiedPush registration and delivery, notifications with replies, the sign-in return scheme, shares in, and saving and sharing files. The few things that code asks of its host by the shell's framework's names (main thread, current activity, the notification permission, the cache folder, services) are in `Platforms/Android/AndroidShims.cs`; the one share call is behind `ShareSheet`, which each app defines. The application id is `com.forresttechnologies.drover.client`, so it installs beside the preview (`.preview`, ADR 0014), and the server's `ToolSignInOptions.AppSchemes` accepts both. A notification that arrives with no interface running is handled with services made for that work (`IPlatformApplication` in the shims). The activity hides `StreamPresence` when it stops and shows it when it starts, so no live stream stays open in the background and the server wakes the phone by push instead; the native Android build also carries the embedded distributor (`13-deployment-and-push.md`, path 2).
+- **On Android** the native build uses the code written for the retired Android shell (`src/Shared/Android`): UnifiedPush registration and delivery, notifications with replies, the sign-in return scheme, shares in, and saving and sharing files. The few things that code asks of its host by the shell's framework's names (main thread, current activity, the notification permission, the cache folder, services) are in `Platforms/Android/AndroidShims.cs`; the one share call is behind `ShareSheet`, which each app defines. The application id is `com.forresttechnologies.drover.client`, so it installs beside the preview (`.preview`, ADR 0014), and the server's `ToolSignInOptions.AppSchemes` accepts both. A notification that arrives with no interface running is handled with services made for that work (`IPlatformApplication` in the shims). A share that arrives the same way waits in the process-wide `ShareInbox.Process`, so the services the interface builds when it starts read the same share. A share is placed only if the person and the server are the ones it arrived for: the inbox notes when it starts copying the files, and signing in, signing out or choosing another server (`ShareInbox.Reset`) ends every copy still running, drops a waiting share, and removes its staged files. The activity hides `StreamPresence` when it stops and shows it when it starts, so no live stream stays open in the background and the server wakes the phone by push instead; the native Android build also carries the embedded distributor (`13-deployment-and-push.md`, path 2).
 - **On a desktop** `DesktopNotifications` follows the signed-in person's live signal stream while the app runs. It asks the server for the same safe wake text and per-bot choice as push before showing anything. The foreground conversation stays quiet. A selected conversation in an inactive or minimized window still notifies. `DesktopNotificationSink` uses each system's notification facility. Selecting one opens its main conversation or side chat through `IncomingNavigation`. Session changes cancel pending work and remove old notifications before they can navigate. A missing system facility disables this delivery path without stopping the app. The Notifications dialog describes this live-only delivery and says that system settings can still silence it. It does not offer the background push switch.
 - **On Android** a conversation file is saved by asking where it goes first (`DocumentDestination`, with a type taken from the file's name, since a stored type that disagrees with the name can make the picker add a second extension) and then streaming the download into the place chosen, so a person who cancels costs no download and nothing passes through the cache. The save can be cancelled. Only one save runs at a time, from the picker to the end of the clean-up (`SingleSave`), because the marker that recovers an interrupted save is one record: a second file card that asks meanwhile is told another file is being saved. The pressed button stays enabled while it works, so focus stays on it, and the card says why a save or share failed when the platform or the server gave a reason (`FileDeliveryException`: a fixed sentence, never a system error, which can name a path). If Android stops the app while its picker is open or while the file is being written, the document the picker made would stay empty or cut off, so the next start removes it and says so. A copy made for sharing is removed at sign-out and at every start of the app. A save shows no progress yet.
 - **On a desktop** a conversation or project file is saved through the system's save dialog (`DesktopFileDelivery`). Sharing puts a copy in a folder of the app's own and opens the folder: the file itself is never opened, because a bot can send a program.
@@ -456,7 +525,7 @@ movable conversations are fetched in one request for the signed-in owner. The li
 200 non-archived threads, including scheduled and handed work. `scripts/check-native-browser.mjs` checks
 every project state, draft persistence, keyboard focus, and the five-item `PhoneNav` dock at 360 pixels.
 
-The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one `ShareInbox`, names the
+The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one process-wide `ShareInbox.Process`, names the
 chosen bot there with `SendTo`, and opens that bot's conversation; the bot's main `ConversationViewModel` takes the
 share with `TakeFor` when it opens, as the web client's `ConversationPane` does. The usage screen's crew is a table
 at desktop width, with the web's columns, order, and hidden caption, and a block for each bot below the phone
@@ -480,7 +549,8 @@ Opening reads what does not depend on something else at the same time: the model
 every bot's threads; the conversation starts loading as soon as the bots are known, beside the question of whether the
 bot has a screen; a conversation's messages and its tool calls are read together; and the conversation is shown before
 the server is told it was seen. Until the conversation has been read the screen says it is loading, never that nothing
-was said.
+was said. If the read fails, the screen says so in place of the messages and offers "Try again"; it says nothing into
+which a person can write until the read succeeds.
 
 A run is still the server's: these only watch it and ask. Three seams replace what the web client took from its
 framework:
@@ -560,12 +630,34 @@ Known differences of this screen from the web client:
 | --- | --- |
 | Arrow keys | The crew and the side chats also move the focus with the arrow keys, Home, and End. The web client has Tab alone |
 | Escape with text in non-composer rail fields | In the native client only a non-empty `Composer` (or composer attachments) keeps Escape from closing the rail; in the web client (`Talk.razor.js`), any non-empty field inside the rail keeps the key |
-| Pasting and dropping files | Written against the platform's clipboard and drag events. Not exercised: the display used for verification has no clipboard manager or file manager |
-| File chooser | The platform's own. Not exercised under the virtual display |
+| Pasting a picture on a desktop | A picture with no text and no file behind it (a screenshot) is read, checked and attached as `Pasted image <date> <time>.png`, by the local clock. Windows and macOS hand it over as a bitmap (`GetBitmapAsync` in Uno 7.0.65); its stream is read by `PastedPicture.Read`, which never asks for more than 64 MiB and refuses a stream that holds more, whatever size it said. A Linux desktop (X11, and Wayland through it) has no bitmap; it lists the picture under its type, and the client reads it by that name (`image/png` first). The platform reads those bytes whole before the client sees them, so there the 64 MiB limit keeps a larger picture from being decoded and sent, not from being read. Either way the picture must be one still picture of at most 32 million pixels: a PNG is kept as it is, any other format is written again as PNG. The server's file limit then refuses a large one on its chip. Text on the clipboard wins and nothing is attached. A clipboard that cannot be read says "What was pasted could not be attached."; text and an empty clipboard say nothing. Android in Uno 7.0.65 reports text, HTML and links only, so a picture cannot be pasted there; a picture format a device lists and does not hand over is said in a toast. The limits and the sentences are unit tested (`PastedPictureTests`, `ChatViewModelTests`). Not verified here: a real clipboard on Windows, macOS, a Linux desktop or Android. What each platform hands over was found by reading the Uno packages, not by running them |
+| Pasting files in a browser | The page's own `paste` event carries files and pictures (`Platforms/WebAssembly/WasmScripts/Paste.js`, called through `[JSImport]`). While the event runs, before anything is read, the app is asked which field takes it: the one with the cursor, while its conversation takes files. The files go to that conversation however long they take to read, and to none if it stops taking files. The first 100 files are read, and only while the bytes held for every paste being read stay within 128 MiB; the rest are counted, not read, and the person is told. A file that cannot be read fails the paste once, and every byte held for it is let go. A file keeps its own name, even `image.png`. A browser does not say whether a file came from storage, so a file named `image.<type>` and made at the moment of the paste is taken for a picture the browser made, and named for when it was pasted; one changed in the five seconds before it was copied would be named so too. Exercised in `scripts/check-native-browser.mjs` against the trimmed publish under the server's content security policy, in headless Chromium with script-made paste events: the mixed paste left to the field, the picture uploaded byte for byte with its chip, a copied `image.png` keeping its name, a paste still arriving after the cursor left, a failed read said once with nothing held, and 150 files cut to 100. Not verified here: a real clipboard, and browsers other than Chromium |
+| Dropping files | Dropped on the conversation pane (messages and composer), not on the composer alone: the composer's frame takes the ember edge and shows "Drop the files to attach them." while files are held over it. Hover and release make the same check: the drop carries files (storage items) and the conversation takes files now (`ConversationViewModel.AcceptsFiles`: not read-only, missing, still loading, failed to load, or left). Anything else is refused, the cursor says so, and the line goes. A drop reads storage items only, never a picture with no file behind it. A drop of folders alone says folders cannot be attached. Exercised in a browser with script-made drag events over the message list: the line shown, gone on leave and on drop, words refused, one upload. Not verified here: a person dragging from a file manager on Windows, macOS, a Linux desktop or Android |
+| Why a file was not taken | Each failure is said once in a toast (`ComposerViewModel.Notify`, sentences in `FileWords`): the chooser could not open, a paste or a drop could not be read, only the first 100 files were taken, only folders were given, or the device did not hand over a picture. A cancelled chooser says nothing. The log lines stay. A conversation that does not take files offers no Attach and takes no paste or drop, and a share from another app waits until the conversation can take it |
+| File chooser | The platform's own. The first 100 files chosen are read; the rest are counted, not read. A chooser that fails shows a toast. Not verified here: the chooser on a desktop or a phone, which the virtual display does not run |
 | Enter while composing with an input method | The web client leaves Enter to the input method. The platform does not say that a composition is under way |
 | A bot's name in the header | In a wide header a long name is not cut short with an ellipsis; it is in a wrapped or phone header |
 | The line along the composer | Under the virtual display it was drawn with gaps. It is the shared `TravelLine` |
 | Failure heading | Wraps greedily, as every heading here does |
+
+#### Needs a manual check: pasting and dropping files
+
+None of these was run where the native client was verified; each needs a person at the device.
+
+- Windows, macOS and one Linux desktop: copy a screenshot, press Ctrl+V or Cmd+V in the message field. One chip named
+  `Pasted image <date> <time>.png` appears, it uploads, and Send sends it. With text and a picture copied together,
+  the text is pasted and no chip appears.
+- The same desktops: hold a file over the message list. The composer's frame takes the ember edge and shows the drop
+  line; moving away removes it; dropping attaches the file. Over a bot's side of handed work, or a conversation still
+  loading, the cursor refuses the drop.
+- The same desktops: drop a folder alone, and see "Folders cannot be attached. Attach the files inside."
+- Android: Attach behind "More options" opens the picker, and a picker that fails shows its toast. Pasting a picture
+  is not expected to work there.
+- A real clipboard in a browser other than Chromium: a screenshot is named for when it was pasted, and a copied
+  `image.png` keeps its name.
+- Screenshots of the pasted picture's chip and the drop line on a desktop, dark, light and 360 px wide. The browser
+  check saves the same two states of the browser build as `pasted-picture-<width>-<theme>.png` and
+  `drop-cue-<width>-<theme>.png`.
 
 ### The sandbox screen
 
@@ -587,6 +679,17 @@ client's `BotSandbox.razor.cs` and `SandboxScreen.razor.cs` with the same calls,
 - **What the web client's script did** is now `ScreenGesture` (pinch, drag, and what counts as a tap; framework
   free and tested), pointer and key handlers in `SandboxPicture`, the window's `VisibilityChanged`, and the
   platform's `InputPane` for the on-screen keyboard.
+- **The touch model in control** is `ScreenGesture` too (issue 798), started with `inControl: true` and the time of
+  each event, so it reads no clock. A tap is a click and a long press (`LongPressTime`, 600 ms, still) a right
+  click, both when the finger lifts. A move past `TapSlop` (10 px) drags with the left button: `Press` where the
+  finger went down, `Drag` for each new place, `Release` where it last was. On an enlarged picture a quick move pans
+  the view, and a move after `HoldTime` (300 ms) drags. Two fingers moving together turn the wheel, one step for
+  each `ScrollStep` (24 px), up and down only as the sandbox scrolls; two fingers whose spread changes by
+  `PinchShare` (12 percent) pinch the view. A second finger during a drag releases the button and ends the gesture.
+  A cancelled finger releases a held button; `Release()` does the same when the focus or control goes. What the
+  sandbox is sent is handed over by `TakeInput()` as `ScreenTouch` values at places on the frame. Watching, it does
+  what it always did. `ScreenGestureTests` holds every transition. The picture uses it in the second layer of issue
+  798, with the pointer kinds of issue 797.
 - **The keyboard.** While the person drives the screen the picture is one tab stop: the arrow keys move the pointer
   (with Shift, far), Enter or Space clicks there. Enlarged and only looked at, it is a tab stop whose arrow keys
   move the view. Tab and Shift+Tab are never taken, so the focus enters and leaves the picture as it does a button.

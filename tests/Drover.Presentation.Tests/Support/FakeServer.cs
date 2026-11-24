@@ -16,6 +16,8 @@ public sealed class FakeServer : HttpMessageHandler
 
     private readonly Dictionary<string, TaskCompletionSource> holds = [];
 
+    private readonly HashSet<string> uncancellable = [];
+
     private ServiceProvider? clients;
 
     #endregion
@@ -82,12 +84,19 @@ public sealed class FakeServer : HttpMessageHandler
 
     /// <summary>
     /// Holds every request to the address until the test completes what this returns, so a screen can be seen while it
-    /// waits for the server.
+    /// waits for the server. A held request ends at once when its caller cancels it, unless
+    /// <paramref name="ignoreCancellation"/> says the answer is already on its way and cannot be called back.
     /// </summary>
-    public TaskCompletionSource Hold(string method, string path)
+    public TaskCompletionSource Hold(string method, string path, bool ignoreCancellation = false)
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         holds[$"{method} {path}"] = gate;
+
+        if (ignoreCancellation)
+        {
+            uncancellable.Add($"{method} {path}");
+        }
+
         return gate;
     }
 
@@ -184,9 +193,11 @@ public sealed class FakeServer : HttpMessageHandler
             throw new HttpRequestException("The server cannot be reached.");
         }
 
-        if (holds.TryGetValue($"{request.Method.Method} {request.RequestUri.AbsolutePath}", out var gate))
+        var held = $"{request.Method.Method} {request.RequestUri.AbsolutePath}";
+
+        if (holds.TryGetValue(held, out var gate))
         {
-            await gate.Task.WaitAsync(cancellationToken);
+            await (uncancellable.Contains(held) ? gate.Task : gate.Task.WaitAsync(cancellationToken));
         }
 
         return answers.TryGetValue($"{request.Method.Method} {request.RequestUri.AbsolutePath}", out var answer)

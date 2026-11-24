@@ -119,6 +119,10 @@ public sealed class FileService(
         {
             await store.Save(SpaceId, key, metered, cancellationToken);
         }
+        catch (FileStorageUnavailableException failure)
+        {
+            return StorageUnavailable(failure);
+        }
         catch (FileTooLargeException tooLarge)
         {
             await store.Delete(SpaceId, key, CancellationToken.None);
@@ -245,6 +249,12 @@ public sealed class FileService(
         try
         {
             await store.Save(SpaceId, key, metered, cancellationToken);
+        }
+        catch (FileStorageUnavailableException failure)
+        {
+            using var timeout = new CancellationTokenSource(cleanupTimeout);
+            await ReleaseAbortedHold(holdBox.Hold, timeout.Token);
+            return StorageUnavailable(failure);
         }
         catch (ProjectUploadExpiredException expired)
         {
@@ -679,10 +689,14 @@ public sealed class FileService(
     {
         using var timeout = new CancellationTokenSource(cleanupTimeout);
         await DeleteStoredQuietly(storageKey, timeout.Token);
+        await ReleaseAbortedHold(hold, timeout.Token);
+    }
 
+    private async Task ReleaseAbortedHold(ByteHold hold, CancellationToken cancellationToken)
+    {
         try
         {
-            await ReleaseHold(hold, timeout.Token);
+            await ReleaseHold(hold, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -755,6 +769,13 @@ public sealed class FileService(
         await work.Commit(cancellationToken);
         logger.LogInformation("File {FileId} of {Size} bytes stored for project {ProjectId}", file.Id, file.Size, projectId);
         return new FileUpload(file);
+    }
+
+    private FileUpload StorageUnavailable(FileStorageUnavailableException failure)
+    {
+        logger.LogWarning("The file store could not save an upload ({ExceptionType}, result {HResult})",
+            failure.InnerException?.GetType().Name, failure.InnerException?.HResult);
+        return Refused(FileRefusals.StorageUnavailable, FileWords.StorageUnavailable);
     }
 
     private static FileUpload Refused(string refusal, string detail) => new(null, FileProblem.Refused, refusal, detail);

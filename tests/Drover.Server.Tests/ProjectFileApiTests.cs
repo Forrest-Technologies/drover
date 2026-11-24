@@ -26,6 +26,28 @@ public sealed class ProjectFileApiTests(PostgresServer postgres) : ServerTestBas
     #region Roles And Lifecycle
 
     [Fact]
+    public async Task A_project_upload_releases_its_quota_when_storage_becomes_unavailable()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignIn(owner);
+        var project = await CreateProject(client, owner.SpaceId, "Handbook");
+        var folder = Path.Combine(DroverFactory.FilesPath(KeyRingPath), owner.SpaceId.ToString("N"));
+        await File.WriteAllTextAsync(folder, string.Empty, Token);
+
+        var path = UploadPath(owner.SpaceId, project.Id, "sample.txt");
+        using var response = await client.PostContent(path, TextBody("words"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(Token);
+        problem.GetProperty("refusal").GetString().Should().Be(FileRefusals.StorageUnavailable);
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(owner.SpaceId, owner.UserId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        (await db.FileByteReservations.AnyAsync(Token)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Owners_and_admins_upload_and_remove_project_files_while_members_can_list_and_download_only()
     {
         var owner = await SeedPerson("owner");

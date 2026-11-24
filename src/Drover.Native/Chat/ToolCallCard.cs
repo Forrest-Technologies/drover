@@ -318,12 +318,16 @@ public sealed class ToolCallCard : Grid
             body.Children.Add(Pieces.Part(ToolCallCardViewModel.ArgumentsTitle, Code(model.Card.Arguments)));
         }
 
-        if (model.ShowsOutput)
+        if (model.ShowsOutput && model.Running)
         {
             // The one box is kept while output arrives, so what a person scrolled to or selected stays put.
             (output.Parent as Panel)?.Children.Remove(output);
             output.Show(null, null, model.Card.Output);
             body.Children.Add(Pieces.Part(ToolCallCardViewModel.OutputTitle, output));
+        }
+        else if (model.ShowsOutput)
+        {
+            body.Children.Add(Pieces.Part(ToolCallCardViewModel.OutputTitle, Ended(model.Card.Output)));
         }
 
         if (model.ShowsResult)
@@ -391,8 +395,31 @@ public sealed class ToolCallCard : Grid
     }
 
     // Arguments and results wrap, so a phone shows all of a line without scrolling sideways. Long ones scroll down.
+    // Once the call has ended, what it printed is read and drawn by what it holds: a table, JSON, a log. What it wrote
+    // to its error stream stays apart, tagged and colored, under it.
+    private StackPanel Ended(IReadOnlyList<ToolOutputPiece> pieces)
+    {
+        var shown = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
+        var printed = OutputWords.CopyText(pieces.Where(piece => piece.Stream is not OutputWords.ErrorStream));
+        List<ToolOutputPiece> errors = [.. pieces.Where(piece => piece.Stream is OutputWords.ErrorStream)];
+
+        if (printed.Length > 0)
+        {
+            shown.Children.Add(Code(printed, ToolCallCardViewModel.OutputTitle, OutputWords.CopyOutput));
+        }
+
+        if (errors.Count > 0)
+        {
+            (output.Parent as Panel)?.Children.Remove(output);
+            output.Show(null, null, errors);
+            shown.Children.Add(output);
+        }
+
+        return shown;
+    }
+
     private static CodeBlock Code(string text, string? language = null, string copyLabel = OutputWords.CopyCode) =>
-        new() { Code = text, CodeLanguage = language, Wraps = true, CopyLabel = copyLabel };
+        new() { Code = text, CodeLanguage = language, Bounded = true, CopyLabel = copyLabel };
 
     #endregion
 }
