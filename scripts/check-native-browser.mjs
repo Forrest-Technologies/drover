@@ -1105,18 +1105,12 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
         globalThis.droverCheckDrag = { dataTransfer, point, target };
     }, { files, text });
     // The platform ignores a dragleave while the pointer is still over the window, so leaving carries a point at its
-    // edge, as a person's drag out of the window does. A retry carries no files, so a repeated drop cannot attach the
-    // same file twice; the upload count still proves the first drop did the work.
-    const dragEvent = (type, empty = false) => page.evaluate(({ type, empty }) => {
+    // edge, as a person's drag out of the window does.
+    const dragEvent = type => page.evaluate(type => {
         const { dataTransfer, point, target } = globalThis.droverCheckDrag;
         const at = type === 'dragleave' ? { clientX: 0, clientY: 0 } : point;
-        target.dispatchEvent(new DragEvent(type, {
-            dataTransfer: empty ? new DataTransfer() : dataTransfer,
-            bubbles: true,
-            cancelable: true,
-            ...at,
-        }));
-    }, { type, empty });
+        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
+    }, type);
     // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
     const dragUntilShown = async message => {
         const deadline = Date.now() + 10000;
@@ -1127,15 +1121,15 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
         }
     };
     // The page can still be handling a hover from the burst that showed the line when the clear event arrives, and
-    // that hover shows the line again after the clear. Drive the wait from the page's own state: send the clear event
-    // until no line is shown, with a bound that reports what was left on screen.
+    // that hover shows the line again after the clear. Drive the wait from the page's own state: repeat the leave,
+    // which attaches nothing, until no line is shown, with a bound that reports what was left on screen.
     const dragUntilGone = async (type, message) => {
         const deadline = Date.now() + 10000;
         await dragEvent(type);
         while (await dropLine.count() > 0) {
             assert.ok(Date.now() < deadline, message);
             await page.waitForTimeout(50);
-            await dragEvent(type, type === 'drop');
+            await dragEvent('dragleave');
         }
     };
 
