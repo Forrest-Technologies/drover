@@ -316,7 +316,6 @@ public sealed class HtmlPreviewBrowserTests : IAsyncLifetime
         return app;
     }
 
-
     #endregion
 
     #region Nested Types
