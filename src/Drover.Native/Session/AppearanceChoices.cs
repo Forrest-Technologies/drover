@@ -145,7 +145,7 @@ public sealed class AppearanceChoices : StackPanel
             Width = edge,
             Height = edge,
             CornerRadius = new(Tokens.Number("DvRadiusFull")),
-            Background = new SolidColorBrush((ActualTheme is ElementTheme.Light ? accent.Light : accent.Dark).ToColor()),
+            Background = new SolidColorBrush(Shown(accent).ToColor()),
             BorderBrush = Tokens.Brush(this, "DvText3"),
             BorderThickness = new(Tokens.Number("DvBorder")),
             VerticalAlignment = VerticalAlignment.Center,
@@ -166,11 +166,17 @@ public sealed class AppearanceChoices : StackPanel
         return option;
     }
 
+    private Rgb Shown(AccentOption accent) => ActualTheme is ElementTheme.Light ? accent.Light : accent.Dark;
+
     // The name, what the choice is for under it where it says so, and the tick's place at the end, kept whether or
     // not the tick is there so the words do not move when the choice does.
     private static Grid Row(string name, string? detail, bool inUse)
     {
-        var words = new StackPanel { Spacing = Tokens.Number("DvSpace1"), VerticalAlignment = VerticalAlignment.Center };
+        var words = new StackPanel
+        {
+            Spacing = Tokens.Number("DvSpace1"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
         words.Children.Add(new TextBlock { Text = name, TextWrapping = TextWrapping.Wrap });
         if (detail is not null)
         {
@@ -236,7 +242,8 @@ public sealed class AppearanceChoices : StackPanel
 
         #region Private Methods
 
-        protected override AutomationPeer OnCreateAutomationPeer() => new RoleButtonPeer(this, AutomationControlType.RadioButton);
+        protected override AutomationPeer OnCreateAutomationPeer() =>
+            new RoleButtonPeer(this, AutomationControlType.RadioButton);
 
         #endregion
     }

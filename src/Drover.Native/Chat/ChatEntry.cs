@@ -527,6 +527,7 @@ public sealed class ChatEntry : ContentControl
     {
         var asked = ChatRows.ShowsActions(newest, focusWithin || pinned || footer.UsageOpen);
         footer.Visibility = Shown(hasFooter && asked);
+        System.IO.File.AppendAllText("/tmp/dbg.log", $"actions {shown?.Key} asked={asked} hasFooter={hasFooter} focus={focusWithin} pinned={pinned} open={footer.UsageOpen} vis={footer.Visibility} {Environment.StackTrace.Split('\n')[2].Trim()}\n");
         run.Visibility = Shown(leads && asked);
     }
 
@@ -669,6 +670,7 @@ public sealed class ChatEntry : ContentControl
     private void ShowFocus()
     {
         focusWithin = HoldsKeyboardFocus();
+        System.IO.File.AppendAllText("/tmp/dbg.log", $"focus {shown?.Key} within={focusWithin} el={(XamlRoot is { } r ? FocusManager.GetFocusedElement(r) : null)} state={(XamlRoot is { } r2 ? (FocusManager.GetFocusedElement(r2) as UIElement)?.FocusState : null)}\n");
         ShowActions();
         Paint();
     }
@@ -697,6 +699,7 @@ public sealed class ChatEntry : ContentControl
     // button, a field or a card is that control's own, and a press that ends a selection of the words selects.
     private void Pressed(object sender, TappedRoutedEventArgs press)
     {
+        System.IO.File.AppendAllText("/tmp/dbg.log", $"tap {shown?.Key} reveals={reveals} src={press.OriginalSource} onwords={OnWords(press.OriginalSource as DependencyObject)} sel={HasSelection(press.OriginalSource)} pinned={pinned}\n");
         if (reveals && OnWords(press.OriginalSource as DependencyObject) && !HasSelection(press.OriginalSource))
         {
             Pin(!pinned);
