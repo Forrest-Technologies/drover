@@ -176,7 +176,7 @@ public sealed partial class NativeInterfaceRuleTests
     [Fact]
     public void A_screen_header_holds_only_icon_actions()
     {
-        var found = new List<string>();
+        List<string> found = [];
         foreach (var file in Repository.NativeFiles(".xaml", ".cs").Where(file => file.Path.StartsWith("Pages/", StringComparison.Ordinal)))
         {
             if (file.Path.EndsWith(".xaml", StringComparison.Ordinal))
