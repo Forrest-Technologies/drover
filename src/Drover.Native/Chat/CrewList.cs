@@ -220,7 +220,7 @@ public sealed class CrewList : Grid
             content.Children.Add(paused);
 
             link.Content = content;
-            link.MinHeight = Tokens.Number("DvTargetTouch");
+            link.MinHeight = Targets.Row;
             link.Padding = Tokens.Space("DvSpace3", "DvSpace1");
             ArrowKeyZone.SetIsItem(link, true);
             AutomationProperties.SetAutomationId(link, "CrewRow");

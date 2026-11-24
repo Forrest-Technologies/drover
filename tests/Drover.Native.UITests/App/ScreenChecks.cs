@@ -77,6 +77,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("send a message", SendMessage);
                 await Step("stop while working", StopWhileWorking);
                 await Step("back", Back);
+                await Step("switch the theme", SwitchTheme);
             }
 
             passed = true;
@@ -157,6 +158,99 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await Type("SignInPassword", settings.Password);
         await Press("SignInSubmit");
         await Shown("CrewRow");
+    }
+
+    /// <summary>
+    /// Another theme reaches the open screen without a restart, in every group that changes at run time: a color
+    /// repaints in place, and the numbers (type, density, shape, bloom, motion) are what the screen is made again
+    /// from. The sample is Night Yard with a different value in each group, and switching back must give exactly
+    /// what was there before.
+    /// </summary>
+    private async Task SwitchTheme()
+    {
+        var theme = ((App)Application.Current).Services.GetRequiredService<ThemeModel>();
+        BuiltInThemes.AddSample(SampleTheme.Value);
+        var before = await Observed(Row(), "the crew before the switch");
+        if (!before.TextSizes.Contains(14))
+        {
+            throw new CheckFailedException("Night Yard's base size is not on the open screen before the switch");
+        }
+
+        theme.Choose(new ThemeChoice(SampleTheme.Id, ThemeMode.Dark));
+        var sample = await UntilSeen(
+            "the open screen made again from the sample theme",
+            seen => seen.RowMinimum == Row(sample: true));
+
+        // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not
+        // required to be gone.
+        Expect(sample.TextSizes.Contains(SampleTheme.BaseSize), "type: the base step of the scale");
+        Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
+        Expect(sample.FrameCut == SampleTheme.FrameCut, "shape: the cut of a frame");
+        Expect(
+            sample.Bloom == SampleTheme.Bloom && sample.Duration == SampleTheme.Duration,
+            "motion: bloom and the duration scale");
+        Expect(sample.Ember != before.Ember, "color: the accent repaints");
+
+        theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
+        var back = await UntilSeen(
+            "the open screen made again from Night Yard",
+            seen => seen.RowMinimum == before.RowMinimum
+                && seen.FrameCut == before.FrameCut
+                && !seen.TextSizes.Contains(SampleTheme.BaseSize));
+        Expect(back == before, "Night Yard is exactly what it was before");
+    }
+
+    // Waits for the open screen to show what is asked, and says what it showed last when it never does.
+    private async Task<Seen> UntilSeen(string what, Func<Seen, bool> holds)
+    {
+        try
+        {
+            return await Until(what, () => Observe() is { } seen && holds(seen) ? seen : null);
+        }
+        catch (CheckFailedException failure)
+        {
+            var last = Observe();
+            var sizes = last is null ? string.Empty : string.Join(", ", last.TextSizes.Order());
+            var seen = last is null
+                ? "no crew row"
+                : $"row {last.RowMinimum}, frame {last.FrameCut}, space {last.Space}, text sizes {sizes}";
+            throw new CheckFailedException($"{failure.Message}; last seen: {seen}", failure);
+        }
+    }
+
+    private async Task<Seen> Observed(double row, string what) =>
+        await Until(what, () => Observe() is { } seen && seen.RowMinimum == row ? seen : null);
+
+    private static double Row(bool sample = false) =>
+        sample ? (Targets.IsCoarse ? SampleTheme.RowTouch : SampleTheme.RowPointer) : Targets.Row;
+
+    private Seen? Observe()
+    {
+        var roots = Roots().SelectMany(root => Descendants(root).Prepend(root)).ToList();
+        if (Find("CrewRow") is not { } row)
+        {
+            return null;
+        }
+
+        var sizes = roots.OfType<TextBlock>().Select(block => block.FontSize).ToHashSet();
+        var cuts = roots.OfType<Facet>().Select(facet => facet.Cut).ToList();
+
+        return new(
+            row.MinHeight,
+            sizes,
+            Tokens.Number("DvSpace4"),
+            cuts.Count == 0 ? 0 : cuts.Max(),
+            Tokens.Number("DvBloomIon"),
+            Tokens.Number("DvDur2"),
+            Tokens.Color(row, "DvEmber"));
+    }
+
+    private void Expect(bool holds, string what)
+    {
+        if (!holds)
+        {
+            throw new CheckFailedException($"the theme did not change {what}");
+        }
     }
 
     private async Task OpenConversation()
@@ -619,6 +713,26 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     #region Nested Types
 
     private sealed class CheckFailedException(string message, Exception? inner = null) : Exception(message, inner);
+
+    /// <summary>
+    /// What a check read off the open screen: one value from each group the theme changes at run time. The set of text
+    /// sizes is not part of equality, because which texts are on screen depends on what has loaded.
+    /// </summary>
+    private sealed record Seen(
+        double RowMinimum,
+        HashSet<double> TextSizes,
+        double Space,
+        double FrameCut,
+        double Bloom,
+        double Duration,
+        Color Ember)
+    {
+        public bool Equals(Seen? other) =>
+            other is not null && RowMinimum == other.RowMinimum && Space == other.Space
+            && FrameCut == other.FrameCut && Bloom == other.Bloom && Duration == other.Duration && Ember == other.Ember;
+
+        public override int GetHashCode() => HashCode.Combine(RowMinimum, Space, FrameCut, Bloom, Duration, Ember);
+    }
 
     #endregion
 }

@@ -233,7 +233,7 @@ public sealed class CodeBlock : Grid
         body.HorizontalScrollBarVisibility = wrapped ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
         body.VerticalScrollMode = Bounded ? ScrollMode.Auto : ScrollMode.Disabled;
         body.VerticalScrollBarVisibility = Bounded ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
-        body.MaxHeight = Bounded ? Tokens.Number("DvOutputLines") * (double)Styles.Dictionary["DvLine13"] : double.PositiveInfinity;
+        body.MaxHeight = Bounded ? Tokens.Number("DvOutputLines") * Tokens.Number("DvLine13") : double.PositiveInfinity;
     }
 
     #endregion
