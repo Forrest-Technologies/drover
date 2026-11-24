@@ -202,7 +202,7 @@ public sealed partial class NativeInterfaceRuleTests
     private static int HeadersIn((string Path, string Text) file) =>
         file.Path.EndsWith(".xaml", StringComparison.Ordinal)
             ? XDocument.Parse(file.Text).Descendants().Count(element => element.Name.LocalName == "ScreenHeader")
-            : ScreenHeaderMade().Matches(file.Text).Count;
+            : ScreenHeaderMade().Count(file.Text);
 
     private static bool HeaderLeads((string Path, string Text) file)
     {
