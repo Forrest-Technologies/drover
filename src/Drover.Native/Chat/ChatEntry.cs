@@ -204,8 +204,7 @@ public sealed class ChatEntry : ContentControl
         footer.UsageClosed += () => DispatcherQueue.TryEnqueue(ShowFocus);
         Tapped += Pressed;
         KeyDown += KeyPressed;
-        SizeChanged += (_, _) => Fit();
-        SizeChanged += (_, _) => System.IO.File.AppendAllText("/tmp/dbg.log", $"size {shown?.Key} h={ActualHeight} footer={footer.Visibility} fh={footer.ActualHeight} run={run.Visibility}\n");
+        SizeChanged += Resized;
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -528,24 +527,56 @@ public sealed class ChatEntry : ContentControl
     {
         var asked = ChatRows.ShowsActions(newest, focusWithin || pinned || footer.UsageOpen);
         footer.Visibility = Shown(hasFooter && asked);
-        System.IO.File.AppendAllText("/tmp/dbg.log", $"actions {shown?.Key} asked={asked} hasFooter={hasFooter} focus={focusWithin} pinned={pinned} open={footer.UsageOpen} vis={footer.Visibility} {Environment.StackTrace.Split('\n')[2].Trim()}\n");
         run.Visibility = Shown(leads && asked);
-        var w = Environment.GetEnvironmentVariable("DROVER_W");
-        switch (w)
+    }
+
+    // The list is not drawn again by itself when a message in it only gets shorter, as when an older reply's actions
+    // go (seen on the desktop build: the layout is right and the picture is the one from before). So a message that
+    // was laid out shorter draws its first text again, which draws the list as it now is.
+    private void Resized(object sender, SizeChangedEventArgs size)
+    {
+        Fit();
+
+        if (size.NewSize.Height < size.PreviousSize.Height)
         {
-            case "1":
-                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, InvalidateArrange);
-                break;
-            case "2":
-                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ring.Opacity = ring.Opacity == 1 ? 0.999 : 1);
-                break;
-            case "3":
-                UpdateLayout();
-                break;
-            case "4":
-                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => XamlRoot?.Content?.InvalidateArrange());
-                break;
+            DrawAgainSoon();
         }
+    }
+
+    // Text given its color anew is drawn anew, and the list with it. The first text of the message is enough. The
+    // picture already on its way was made of the layout from before, and how long it takes is the device's own, so
+    // the text is drawn again after a short wait and once more after a longer one.
+    private async void DrawAgainSoon()
+    {
+        string[] waits = ["DvDur1", "DvDur3"];
+        foreach (var wait in waits)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(Tokens.Number(wait)));
+
+            if (FirstText(this) is { Foreground: SolidColorBrush ink } text)
+            {
+                text.Foreground = new SolidColorBrush(ink.Color);
+            }
+        }
+    }
+
+    private static TextBlock? FirstText(DependencyObject under)
+    {
+        for (var at = 0; at < VisualTreeHelper.GetChildrenCount(under); at++)
+        {
+            var child = VisualTreeHelper.GetChild(under, at);
+            if (child is UIElement { Visibility: Visibility.Collapsed })
+            {
+                continue;
+            }
+
+            if ((child as TextBlock ?? FirstText(child)) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private void ShowVersions(ChatMessage message, ChatEntryParameters parameters)
@@ -687,7 +718,6 @@ public sealed class ChatEntry : ContentControl
     private void ShowFocus()
     {
         focusWithin = HoldsKeyboardFocus();
-        System.IO.File.AppendAllText("/tmp/dbg.log", $"focus {shown?.Key} within={focusWithin} el={(XamlRoot is { } r ? FocusManager.GetFocusedElement(r) : null)} state={(XamlRoot is { } r2 ? (FocusManager.GetFocusedElement(r2) as UIElement)?.FocusState : null)}\n");
         ShowActions();
         Paint();
     }
@@ -716,7 +746,6 @@ public sealed class ChatEntry : ContentControl
     // button, a field or a card is that control's own, and a press that ends a selection of the words selects.
     private void Pressed(object sender, TappedRoutedEventArgs press)
     {
-        System.IO.File.AppendAllText("/tmp/dbg.log", $"tap {shown?.Key} reveals={reveals} src={press.OriginalSource} onwords={OnWords(press.OriginalSource as DependencyObject)} sel={HasSelection(press.OriginalSource)} pinned={pinned}\n");
         if (reveals && OnWords(press.OriginalSource as DependencyObject) && !HasSelection(press.OriginalSource))
         {
             Pin(!pinned);

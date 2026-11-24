@@ -1,9 +1,11 @@
 namespace Drover.Presentation.ViewModels.Chat;
 
 /// <summary>
-/// What a finished reply used, as a quiet hint in the reply's footer: the model that wrote it by a short name, and
-/// once read, the tokens and the cost. The whole of it opens under the footer when the hint is pressed. Read only when
-/// asked for: a conversation with many replies makes no request until a person opens one.
+/// What a finished reply used, as a quiet hint: the model that wrote it by a short name, and once read, the tokens and
+/// the cost. The whole of it opens in a popover when the hint is pressed. The newest reply's hint stands on the line
+/// under the composer and is read once when the reply finishes (<see cref="ConversationStatusViewModel"/>); an older
+/// reply's stands in its footer and is read only when asked for, so a conversation with many replies makes no request
+/// for them until a person opens one.
 /// </summary>
 public sealed partial class ReplyUsageViewModel(Guid runId, Func<Guid, Task<RunUsageDetail>> load, ILogger logger, string? model = null)
     : ObservableObject

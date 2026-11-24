@@ -127,6 +127,96 @@ public sealed class ReplyFooterTests
         ChatRows.FooterParts(reply with { Streaming = true }, canRegenerate: true, canSwitch: true, canReadUsage: true).Should().BeEmpty();
     }
 
+    [Fact]
+    public void The_newest_reply_leaves_the_hint_to_the_status_line_and_keeps_the_rest()
+    {
+        var reply = new ChatMessage("a", false, "Here is the plan.")
+        {
+            RunId = Guid.CreateVersion7(),
+            FinishesReply = true,
+            EndsReply = true,
+            MayRegenerate = true,
+        };
+
+        ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true, newest: true)
+            .Should().Equal(FooterPart.Copy, FooterPart.Regenerate);
+        ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true, newest: false)
+            .Should().Equal([FooterPart.Copy, FooterPart.Regenerate, FooterPart.Usage], "an older reply keeps the way to what it used");
+    }
+
+    #endregion
+
+    #region The Newest Reply
+
+    [Fact]
+    public void The_newest_reply_is_the_bots_last_messages_back_to_what_a_person_said()
+    {
+        ChatMessage[] conversation =
+        [
+            new("q1", true, "First"),
+            new("a1", false, "An older answer."),
+            new("q2", true, "Second"),
+            new("a2", false, "The answer begins."),
+            new("a3", false, "And goes on.") { ContinuesTurn = true },
+        ];
+
+        ChatRows.NewestReply(conversation).Should().BeEquivalentTo(["a2", "a3"]);
+        ChatRows.NewestReply([]).Should().BeEmpty();
+        ChatRows.NewestReply([new("q1", true, "First")]).Should().BeEmpty("nothing has been answered yet");
+    }
+
+    [Fact]
+    public void A_message_sent_after_it_does_not_make_the_newest_reply_an_older_one()
+    {
+        ChatMessage[] conversation =
+        [
+            new("q1", true, "First"),
+            new("a1", false, "The answer."),
+            new("q2", true, "Second, not answered yet"),
+        ];
+
+        ChatRows.NewestReply(conversation).Should().BeEquivalentTo(["a1"]);
+    }
+
+    [Fact]
+    public void The_list_says_which_messages_are_of_the_newest_reply_and_follows_what_it_holds()
+    {
+        var older = new ChatMessage("a1", false, "An older answer.");
+        var newest = new ChatMessage("a2", false, "The newest answer.");
+        var list = new MessageListViewModel { Messages = [new("q1", true, "First"), older, new("q2", true, "Second"), newest] };
+
+        list.IsNewestReply(newest).Should().BeTrue();
+        list.IsNewestReply(older).Should().BeFalse();
+
+        var later = new ChatMessage("a3", false, "A later answer.");
+        list.Messages = [.. list.Messages, new("q3", true, "Third"), later];
+
+        list.IsNewestReply(later).Should().BeTrue();
+        list.IsNewestReply(newest).Should().BeFalse("a reply that came after it made it an older one");
+    }
+
+    [Fact]
+    public void The_newest_reply_shows_its_actions_and_an_older_one_only_while_asked()
+    {
+        ChatRows.ShowsActions(newest: true, revealed: false).Should().BeTrue();
+        ChatRows.ShowsActions(newest: false, revealed: false).Should().BeFalse("nothing stands under an older reply at rest");
+        ChatRows.ShowsActions(newest: false, revealed: true).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Only_an_older_finished_reply_with_something_to_offer_is_a_stop_that_reveals_its_actions()
+    {
+        var reply = new ChatMessage("a", false, "Here is the plan.") { FinishesReply = true };
+
+        ChatRows.RevealsActions(reply, newest: false, hasFooter: true, leadsToRun: false).Should().BeTrue();
+        ChatRows.RevealsActions(reply, newest: false, hasFooter: false, leadsToRun: true).Should().BeTrue("the way to what happened is an action too");
+        ChatRows.RevealsActions(reply, newest: true, hasFooter: true, leadsToRun: true).Should().BeFalse("the newest reply's actions are already in view");
+        ChatRows.RevealsActions(reply, newest: false, hasFooter: false, leadsToRun: false).Should().BeFalse("a message with nothing to offer is no stop");
+        ChatRows.RevealsActions(reply with { Streaming = true }, newest: false, hasFooter: true, leadsToRun: false).Should().BeFalse();
+        ChatRows.RevealsActions(new ChatMessage("b", true, "Hello"), newest: false, hasFooter: true, leadsToRun: false)
+            .Should().BeFalse("a person's message is not made a stop");
+    }
+
     #endregion
 
     #region Copy

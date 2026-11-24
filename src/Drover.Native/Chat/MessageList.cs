@@ -96,7 +96,7 @@ public sealed class MessageList : Grid
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, KeepFoot);
         };
         scroller.ViewChanged += (_, _) => atFoot = scroller.VerticalOffset >= scroller.ScrollableHeight - Tokens.Number("DvFocusWidth");
-        column.SizeChanged += (_, _) => { System.IO.File.AppendAllText("/tmp/dbg.log", $"column h={column.ActualHeight} floor={floor.ActualHeight} view={scroller.ViewportHeight} scrollable={scroller.ScrollableHeight} off={scroller.VerticalOffset} atFoot={atFoot}\n"); KeepFoot(); };
+        column.SizeChanged += (_, _) => KeepFoot();
 
         Children.Add(scroller);
         Children.Add(spoken);
