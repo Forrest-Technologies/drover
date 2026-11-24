@@ -36,7 +36,7 @@ screen that can be shown when it is needed, and what a reply used belongs in a s
 - **A stored choice made before a person could choose a theme named no theme.** It keeps its mode and takes the
   default. From this change on the stored object carries a version, and a theme it names is a choice.
 - **Reply actions show when they are needed**: on the newest reply, and on an older one when it has the focus or is
-  tapped. **What a reply used is said once**, in the status line above the message field that
+  tapped. **What a reply used is said once**, in the status line under the composer that
   [docs/ux/conversation-display.md](../ux/conversation-display.md) specifies; this change builds the first part of it.
 
 ## What does not change

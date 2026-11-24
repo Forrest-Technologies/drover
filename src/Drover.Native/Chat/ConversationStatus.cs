@@ -49,7 +49,10 @@ public sealed class ConversationStatus : Grid
         button.PointerExited += (_, _) => Light(button.FocusState is FocusState.Keyboard);
         button.GotFocus += (_, _) => Light(true);
         button.LostFocus += (_, _) => Light(false);
-        SizeChanged += (_, _) => Write();
+
+        // The line is written again once the layout that gave it its width is over: text changed inside that layout
+        // is not laid out again.
+        SizeChanged += (_, _) => DispatcherQueue.TryEnqueue(Write);
         this.WhenShownOrRethemed(Show);
     }
 

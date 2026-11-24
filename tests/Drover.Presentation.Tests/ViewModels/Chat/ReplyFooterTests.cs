@@ -1,84 +1,63 @@
 namespace Drover.Presentation.Tests.ViewModels.Chat;
 
 /// <summary>
-/// The quiet line under a finished reply: the model by a short name, the figures once read, what the hint is called
-/// for someone who cannot see it, and which replies offer to copy their words.
+/// The quiet line of actions under a finished reply: which replies offer to copy their words, the usage of the reply,
+/// another reply and their versions, in what order, and which replies keep them out of sight until asked.
 /// </summary>
 public sealed class ReplyFooterTests
 {
-    #region Short Names
-
-    [Theory]
-    [InlineData("sample-stronger", "sample-stronger")]
-    [InlineData("vendor/family/sample-model", "sample-model")]
-    [InlineData("deepseek-v4-1-flash-1017-uncensored", "deepseek-v4-1-flash-101…")]
-    [InlineData("vendor/a-very-long-sample-model-name-that-goes-on", "a-very-long-sample-mode…")]
-    [InlineData("vendor/sample-model/", "sample-model")]
-    public void A_model_is_named_short_enough_for_one_line(string model, string shortName)
-    {
-        var shown = ReplyUsageViewModel.ShortName(model);
-
-        shown.Should().Be(shortName);
-        shown.Length.Should().BeLessThanOrEqualTo(24);
-    }
-
-    [Theory]
-    [InlineData(0L, "0")]
-    [InlineData(950L, "950")]
-    [InlineData(1_200L, "1.2k")]
-    [InlineData(9_999L, "10k")]
-    [InlineData(34_567L, "34k")]
-    [InlineData(1_500_000L, "1.5M")]
-    public void A_count_of_tokens_is_said_in_a_few_characters(long tokens, string shown) =>
-        ReplyUsageViewModel.ShortTokens(tokens).Should().Be(shown);
-
-    #endregion
-
-    #region The Hint
+    #region Usage
 
     [Fact]
-    public async Task The_hint_shows_the_model_then_the_figures_once_read_and_names_all_of_it()
+    public async Task A_replys_usage_is_read_when_asked_for_and_titled_as_its_action_is_named()
     {
         var detail = new RunUsageDetail(Guid.CreateVersion7(), "USD", new UsageFigure(0.02m, 1_000, 200), null);
-        var line = new ReplyUsageViewModel(detail.RunId, _ => Task.FromResult(detail), NullLogger.Instance, "vendor/sample-stronger");
+        var asked = 0;
+        var usage = new ReplyUsageViewModel(detail.RunId, _ => Task.FromResult(Count(detail)), NullLogger.Instance, "vendor/sample-stronger");
 
-        line.ShortModel.Should().Be("sample-stronger");
-        line.ModelName.Should().Be("vendor/sample-stronger", "the whole name is in the tooltip");
-        line.Figures.Should().BeNull("nothing is read until a person asks");
-        line.HintName.Should().Be("Written by vendor/sample-stronger. Show what this reply used.");
-        line.WrittenBy.Should().Be("Written by vendor/sample-stronger", "the popover and the tooltip name the whole model");
+        ReplyUsageViewModel.Label.Should().Be("Usage for this reply");
+        usage.WrittenBy.Should().Be("Written by vendor/sample-stronger");
+        asked.Should().Be(0, "nothing is read until a person asks");
 
-        await line.Toggle();
+        await usage.Toggle();
 
-        line.Figures.Should().Be("1.2k tokens, USD 0.02");
-        line.HintName.Should().Be("Written by vendor/sample-stronger, 1,200 tokens, USD 0.02. Show what this reply used.");
+        usage.Lines.Should().NotBeEmpty();
+        asked.Should().Be(1);
 
-        line.Open = false;
+        usage.Model = "vendor/another";
+        usage.WrittenBy.Should().Be("Written by vendor/another", "the model can become known after the view model was made");
+        usage.Detail.Should().BeSameAs(detail, "what was read stays");
 
-        line.Figures.Should().Be("1.2k tokens, USD 0.02", "what was read once stays on the hint");
+        RunUsageDetail Count(RunUsageDetail read)
+        {
+            asked++;
+            return read;
+        }
     }
 
     [Fact]
-    public async Task A_price_the_server_does_not_know_is_left_out_and_the_bots_asked_are_counted()
+    public async Task Usage_that_could_not_be_read_says_so_in_the_words_of_the_design()
     {
-        var detail = new RunUsageDetail(Guid.CreateVersion7(), "USD", new UsageFigure(null, 10, 5), new UsageFigure(null, 400, 100));
-        var line = new ReplyUsageViewModel(detail.RunId, _ => Task.FromResult(detail), NullLogger.Instance);
+        var usage = new ReplyUsageViewModel(
+            Guid.CreateVersion7(),
+            _ => Task.FromException<RunUsageDetail>(new HttpRequestException("unreachable")),
+            NullLogger.Instance);
 
-        await line.Toggle();
+        await usage.Toggle();
 
-        line.Figures.Should().Be("500 tokens");
-        line.ShortModel.Should().BeNull("a reply written before the model was kept names none");
-        line.HintName.Should().Be("500 tokens. Show what this reply used.");
+        usage.Problem.Should().StartWith("Drover could not load usage. ");
+        usage.Lines.Should().BeEmpty();
     }
 
     [Fact]
-    public void A_reply_without_a_kept_model_or_figures_is_named_by_what_pressing_does()
+    public void Every_reply_whose_usage_may_be_read_offers_it_the_newest_too()
     {
-        var line = new ReplyUsageViewModel(Guid.CreateVersion7(), _ => Task.FromException<RunUsageDetail>(new InvalidOperationException()), NullLogger.Instance);
+        var reply = new ChatMessage("a", false, "Here is the plan.") { RunId = Guid.CreateVersion7(), FinishesReply = true, EndsReply = true };
 
-        line.ShortModel.Should().BeNull();
-        line.Figures.Should().BeNull();
-        line.HintName.Should().Be("Show what this reply used.");
+        ChatRows.FooterParts(reply, canRegenerate: false, canSwitch: false, canReadUsage: true)
+            .Should().Equal(FooterPart.Copy, FooterPart.Usage);
+        ChatRows.FooterParts(reply, canRegenerate: false, canSwitch: false, canReadUsage: false)
+            .Should().Equal(FooterPart.Copy);
     }
 
     #endregion
@@ -102,7 +81,7 @@ public sealed class ReplyFooterTests
     #region Order
 
     [Fact]
-    public void The_footer_stands_copy_then_another_reply_then_the_versions_then_the_hint()
+    public void The_footer_stands_copy_then_the_usage_then_another_reply_then_the_versions()
     {
         var reply = new ChatMessage("a", false, "Here is the plan.")
         {
@@ -114,8 +93,10 @@ public sealed class ReplyFooterTests
         };
 
         ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true)
-            .Should().Equal(FooterPart.Copy, FooterPart.Regenerate, FooterPart.Versions, FooterPart.Usage);
-        Enum.GetValues<FooterPart>().Should().Equal([FooterPart.Copy, FooterPart.Regenerate, FooterPart.Versions, FooterPart.Usage], "the line places its parts in this order");
+            .Should().Equal(FooterPart.Copy, FooterPart.Usage, FooterPart.Regenerate, FooterPart.Versions);
+        Enum.GetValues<FooterPart>().Should().Equal(
+            [FooterPart.Copy, FooterPart.Usage, FooterPart.Regenerate, FooterPart.Versions],
+            "the line places its parts in this order");
     }
 
     [Fact]
@@ -125,23 +106,6 @@ public sealed class ReplyFooterTests
 
         ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true).Should().Equal(FooterPart.Copy);
         ChatRows.FooterParts(reply with { Streaming = true }, canRegenerate: true, canSwitch: true, canReadUsage: true).Should().BeEmpty();
-    }
-
-    [Fact]
-    public void The_newest_reply_leaves_the_hint_to_the_status_line_and_keeps_the_rest()
-    {
-        var reply = new ChatMessage("a", false, "Here is the plan.")
-        {
-            RunId = Guid.CreateVersion7(),
-            FinishesReply = true,
-            EndsReply = true,
-            MayRegenerate = true,
-        };
-
-        ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true, newest: true)
-            .Should().Equal(FooterPart.Copy, FooterPart.Regenerate);
-        ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true, newest: false)
-            .Should().Equal([FooterPart.Copy, FooterPart.Regenerate, FooterPart.Usage], "an older reply keeps the way to what it used");
     }
 
     #endregion

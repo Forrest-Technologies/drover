@@ -166,7 +166,8 @@ public sealed class ShellView : Grid
 
         // A screen that holds what a person typed keeps the shapes it was made with until it is left, because
         // making it again would drop that work. Its colors have changed already.
-        if (frame.Content is Screen { Route: { } route } open && appearanceModel.MakesScreenAgain(HoldsSomethingTyped(open)))
+        if (frame.Content is Screen { Route: { } route } open
+            && appearanceModel.MakesScreenAgain(HoldsSomethingTyped(open)))
         {
             Go(open.GetType(), route, NavigationKind.Replace, rebuild: true);
         }
@@ -215,10 +216,11 @@ public sealed class ShellView : Grid
         }
 
         var before = appearance;
+        var held = (before?.Body as AppearanceChoices)?.FocusHeld;
         var dialog = new Dialog
         {
             Title = "Appearance",
-            Body = new AppearanceChoices(appearanceModel) { FocusHeld = (before?.Body as AppearanceChoices)?.FocusHeld },
+            Body = new AppearanceChoices(appearanceModel) { FocusHeld = held },
             OpensAtOnce = before is not null,
         };
         dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AppearanceClosedByPerson(dialog));

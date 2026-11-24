@@ -586,7 +586,7 @@ public sealed class ChatViewModelTests : IDisposable
             },
             NullLogger.Instance);
 
-        ReplyUsageViewModel.Label.Should().Be("What this reply used");
+        ReplyUsageViewModel.Label.Should().Be("Usage for this reply");
         line.Open.Should().BeFalse();
         asked.Should().BeEmpty("a closed line asks the server for nothing");
 

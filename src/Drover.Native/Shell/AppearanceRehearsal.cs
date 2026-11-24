@@ -20,7 +20,8 @@ internal static class AppearanceRehearsal
 
     public static void StartIfAsked(Window window, ThemeModel theme)
     {
-        if (Environment.GetEnvironmentVariable("DROVER_DEV_APPEARANCE") is { Length: > 0 } asked && !theme.AppearanceOpen)
+        var asked = Environment.GetEnvironmentVariable("DROVER_DEV_APPEARANCE");
+        if (asked is { Length: > 0 } && !theme.AppearanceOpen)
         {
             _ = Run(window, theme, asked);
         }
