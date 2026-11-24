@@ -12,7 +12,7 @@ public sealed partial class BotEditorPage : Screen
 
     private readonly ScreenHeader header = new() { BackLabel = BotEditorViewModel.Back, BackAddress = Addresses.Bots };
 
-    private readonly Grid identity = new() { ColumnSpacing = Tokens.Number("DvSpace4"), RowSpacing = Tokens.Number("DvSpace4") };
+    private readonly Grid identity = new() { ColumnSpacing = Tokens.Number("DvSpace4") };
 
     private readonly Avatar avatar = new() { Size = 96 };
 
@@ -243,8 +243,6 @@ public sealed partial class BotEditorPage : Screen
         var names = BotParts.Column("DvSpace2", name, handle, handleRow);
         identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         identity.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        identity.RowDefinitions.Add(new() { Height = GridLength.Auto });
         identity.RowDefinitions.Add(new() { Height = GridLength.Auto });
         avatar.VerticalAlignment = VerticalAlignment.Top;
         Grid.SetColumn(names, 1);
