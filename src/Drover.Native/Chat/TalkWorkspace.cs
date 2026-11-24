@@ -102,6 +102,10 @@ internal sealed class TalkWorkspace : Grid
 
     private string? menuItems;
 
+    // The menu's ways beside the conversation, by the view each opens, so the one that is open can say so without the
+    // menu being made again while it closes from that very choice.
+    private readonly List<(Func<SideView?, bool> IsOpen, MenuItem Item)> menuWays = [];
+
     private string? mainShown;
 
     private string? railShown;
@@ -428,24 +432,24 @@ internal sealed class TalkWorkspace : Grid
     // way to the side chats says how many there are.
     private void DrawMenu(BotSummary shown)
     {
-        var items = $"{model.OffersScreen}|{model.SideChatsLabel}|{model.Side}";
+        var items = $"{model.OffersScreen}|{model.SideChatsLabel}";
         if (menu is not null && menuBot == shown.Id && items == menuItems)
         {
             menu.Bot = shown;
+            MarkOpenWay();
             return;
         }
 
-        var chats = model.Side is SideView.List or SideView.New or SideView.Chat;
-        (string Label, string Address, bool Open)[] wanted =
+        (string Label, string Address, Func<SideView?, bool> IsOpen)[] wanted =
         [
-            ("Activity", Addresses.Activity(shown.Id), model.Side is SideView.Activity),
-            ("Summary", Addresses.Summary(shown.Id), model.Side is SideView.Summary),
-            ("Memory", Addresses.Memory(shown.Id), model.Side is SideView.Memory),
+            ("Activity", Addresses.Activity(shown.Id), side => side is SideView.Activity),
+            ("Summary", Addresses.Summary(shown.Id), side => side is SideView.Summary),
+            ("Memory", Addresses.Memory(shown.Id), side => side is SideView.Memory),
             .. model.OffersScreen
-                ? [("Screen", Addresses.Screen(shown.Id), model.Side is SideView.Screen)]
-                : Array.Empty<(string, string, bool)>(),
-            ("Files", Addresses.Files(shown.Id), model.Side is SideView.Files),
-            (model.SideChatsLabel, Addresses.SideChats(shown.Id), chats),
+                ? [("Screen", Addresses.Screen(shown.Id), side => side is SideView.Screen)]
+                : Array.Empty<(string, string, Func<SideView?, bool>)>(),
+            ("Files", Addresses.Files(shown.Id), side => side is SideView.Files),
+            (model.SideChatsLabel, Addresses.SideChats(shown.Id), side => side is SideView.List or SideView.New or SideView.Chat),
         ];
 
         // A different bot gets a menu of its own, which asks afresh whether that bot may notify the person.
@@ -456,22 +460,32 @@ internal sealed class TalkWorkspace : Grid
         }
 
         (menuBot, menuItems) = (shown.Id, items);
+        menuWays.Clear();
+        menuWays.AddRange(wanted.Select(way => (way.IsOpen, Item(way.Label, way.Address))));
         menu.Items =
         [
-            .. wanted.Select(Item),
+            .. menuWays.Select(way => way.Item),
             SaveItem(ConversationSaver.MarkdownLabel, ExportFormats.Markdown),
             SaveItem(ConversationSaver.JsonLabel, ExportFormats.Json),
         ];
         menu.Bot = shown;
+        MarkOpenWay();
+    }
+
+    private MenuItem Item(string label, string address)
+    {
+        var item = new MenuItem { Content = label };
+        item.Selected += (_, _) => model.OpenSide(address);
+        return item;
     }
 
     // The item of what is open beside the conversation says so, as the rail's own header names it for the eye.
-    private MenuItem Item((string Label, string Address, bool Open) way)
+    private void MarkOpenWay()
     {
-        var item = new MenuItem { Content = way.Label };
-        AutomationProperties.SetItemStatus(item, way.Open ? "Open" : string.Empty);
-        item.Selected += (_, _) => model.OpenSide(way.Address);
-        return item;
+        foreach (var (isOpen, item) in menuWays)
+        {
+            AutomationProperties.SetItemStatus(item, isOpen(model.Side) ? "Open" : string.Empty);
+        }
     }
 
     // Saves the main conversation shown when the item is chosen, through the platform's own way of saving a file.
