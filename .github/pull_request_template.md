@@ -19,4 +19,5 @@ Closes #
 - [ ] No secret, no vendor type outside its adapter, no query outside a tenant scope
 - [ ] Interface change: built from `DESIGN.md`, checked against its "never does" list, screenshots attached (dark, light, 360 px wide, each new state)
 - [ ] `docs/architecture` still describes what the code does
+- [ ] `README.md`, `docs/roadmap.md` and any doc this touches match the change: shipped work is shown as shipped, a new limit or setting is documented, and nothing is claimed that the code does not do
 - [ ] This changes a recorded decision, so an ADR is added or superseded in `docs/adr`
