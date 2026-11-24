@@ -98,7 +98,7 @@ Subscription sign-in by provider, as verified:
 | Topic | Finding (2026-11-11) |
 | --- | --- |
 | .NET | .NET 11 shipped 2026-11-10. Drover targets `net11.0` and tracks the newest generally available .NET ([ADR 0013](../adr/0013-track-the-newest-generally-available-dotnet.md); its MAUI condition no longer applies since the Android shell was retired). |
-| EF Core on PostgreSQL | EF Core 10.0.x with `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.3, running on `net11.0` (data and isolation tests, and `dotnet ef migrations has-pending-model-changes`, pass). The 11.0 provider is still a release candidate, and EF Core moves with its provider. |
+| EF Core on PostgreSQL | EF Core 11.0.0 with `Npgsql.EntityFrameworkCore.PostgreSQL` 11.0.0, running on `net11.0` (data and isolation tests, and `dotnet ef migrations has-pending-model-changes`, pass). EF Core moves with its provider. |
 | `.slnx` | Default for `dotnet new sln` since the .NET 10 SDK. Supported by Visual Studio 17.14, C# Dev Kit, CodeQL (CLI 2.24.0), and Dependabot discovery. Tested here with `dotnet build` and `dotnet format` on SDK 11.0.100. |
 | Microsoft Agent Framework | GA since 2026-04-03, now 1.28.0, MIT. Weekly releases with breaking changes. Read in source: pluggable session store, history provider, checkpoint store, and skills source; function middleware; approval content; orchestration builders; harness capabilities. No PostgreSQL stores are built in. The durable extension targets a cloud scheduler. |
 | Venice | OpenAI-compatible chat with streaming and tools. Keyless model list with capabilities, prices, and privacy mode. Its own system prompt is on unless disabled. Key-only auth. |
