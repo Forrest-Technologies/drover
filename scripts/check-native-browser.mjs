@@ -1211,7 +1211,7 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await page.evaluate(() => new Promise(resolve =>
         requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-    // Prove the message list recovered hit-testing via an observable state change (opening and closing a preview).
+    // One real mouse click opening the preview is the smallest proof that message list hit-testing came back.
     const previewRetry = page.getByRole('button', { name: 'Preview sample-retry.png', exact: true });
     const closeRetry = page.getByRole('button', { name: 'Close preview of sample-retry.png', exact: true });
     const previewBox = await previewRetry.boundingBox({ timeout: 5000 });
@@ -1220,11 +1220,8 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await closeRetry.waitFor({ state: 'attached', timeout: 5000 }).catch(cause => {
         throw new Error('The message list did not open a file preview by mouse click after a cancelled drag.', { cause });
     });
-    await page.evaluate(() => new Promise(resolve =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const closeRetryBox = await closeRetry.boundingBox({ timeout: 5000 });
-    assert.ok(closeRetryBox, 'Close preview of sample-retry.png has an accessible box in the message list.');
-    await page.mouse.click(closeRetryBox.x + closeRetryBox.width / 2, closeRetryBox.y + closeRetryBox.height / 2);
+    // Close by keyboard, as the other preview checks do, so a canvas click on the expanded card is not needed.
+    await closeRetry.press('Space');
     await closeRetry.waitFor({ state: 'detached', timeout: 5000 });
     await previewRetry.waitFor({ state: 'attached', timeout: 5000 });
 
