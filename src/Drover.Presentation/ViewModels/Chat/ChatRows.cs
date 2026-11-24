@@ -23,9 +23,9 @@ public enum ChatEntryShape
 public enum FooterPart
 {
     Copy,
+    Usage,
     Regenerate,
     Versions,
-    Usage,
 }
 
 /// <summary>Which card stands for a tool call in a conversation.</summary>
@@ -114,8 +114,8 @@ public static class ChatRows
         && (message.FinishesReply || message.EndsReply || message.MayRegenerate || message.Versions is not null);
 
     /// <summary>
-    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, another reply, the
-    /// switch between versions, then the hint of what the reply used.
+    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, the usage of the reply
+    /// beside it, another reply, then the switch between versions.
     /// </summary>
     public static IReadOnlyList<FooterPart> FooterParts(ChatMessage message, bool canRegenerate, bool canSwitch, bool canReadUsage)
     {
@@ -124,6 +124,11 @@ public static class ChatRows
         if (OffersCopy(message))
         {
             parts.Add(FooterPart.Copy);
+        }
+
+        if (OffersUsage(message, canReadUsage))
+        {
+            parts.Add(FooterPart.Usage);
         }
 
         if (OffersRegenerate(message, canRegenerate))
@@ -136,11 +141,6 @@ public static class ChatRows
             parts.Add(FooterPart.Versions);
         }
 
-        if (OffersUsage(message, canReadUsage))
-        {
-            parts.Add(FooterPart.Usage);
-        }
-
         return parts;
     }
 
@@ -151,11 +151,59 @@ public static class ChatRows
     public static bool OffersRegenerate(ChatMessage message, bool canAsk) =>
         canAsk && message is { FromPerson: false, Streaming: false, MayRegenerate: true };
 
+    /// <summary>
+    /// The messages of the newest reply, by their keys: the bot's last message and the bot's messages straight before
+    /// it, back to what a person said. A message a person sent after it does not make it an older reply.
+    /// </summary>
+    public static IReadOnlySet<string> NewestReply(IReadOnlyList<ChatMessage> messages)
+    {
+        HashSet<string> keys = [];
+        var at = messages.Count - 1;
+
+        while (at >= 0 && messages[at].FromPerson)
+        {
+            at--;
+        }
+
+        for (; at >= 0 && !messages[at].FromPerson; at--)
+        {
+            keys.Add(messages[at].Key);
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// A reply's actions (its footer, and the way to what happened) show on the newest reply, where they are needed,
+    /// and on an older one only while a person has asked for them: by the keyboard's focus or by a press on it.
+    /// </summary>
+    public static bool ShowsActions(bool newest, bool revealed) => newest || revealed;
+
+    /// <summary>
+    /// An older reply that has actions to show keeps them out of sight until asked, and is then one stop for the
+    /// keyboard that opens and closes. A person's message, words still arriving, and a message with nothing to offer
+    /// are not.
+    /// </summary>
+    public static bool RevealsActions(ChatMessage message, bool newest, bool hasFooter, bool leadsToRun) =>
+        !newest && message is { FromPerson: false, Streaming: false } && (hasFooter || leadsToRun);
+
+    /// <summary>
+    /// The last words of the newest reply once its run has finished, whoever it was written for: the reply the line
+    /// under the composer is about. None while the newest reply still arrives.
+    /// </summary>
+    public static ChatMessage? NewestFinished(IReadOnlyList<ChatMessage> messages)
+    {
+        var newest = NewestReply(messages);
+        return messages.LastOrDefault(message =>
+            newest.Contains(message.Key)
+            && message is { Streaming: false } and ({ FinishesReply: true } or { EndsReply: true }));
+    }
+
     /// <summary>Said under a message sent while the bot works, until the bot has read it.</summary>
     public static string Pending(string botName) => $"Sent. {botName} reads it at its next step.";
 
     /// <summary>What a bot's reply says it is doing while it arrives: thinking until its words begin, then writing.</summary>
-    public static string Arriving(ChatMessage message) => message.Thinking ? "Thinking" : "Writing";
+    public static string Arriving(ChatMessage message) => message.Thinking ? TurnLedger.Thinking : "Writing";
 
     /// <summary>What a source is read out as: its title and the site it opens, outside the app.</summary>
     public static string SourceName(SourceLink source) =>
@@ -187,6 +235,9 @@ public static class ChatRows
     #endregion
 
     #region Versions
+
+    /// <summary>What an older reply's actions are called where their being shown or hidden is said.</summary>
+    public static string ActionsName(string botName) => $"Actions for {botName}'s reply";
 
     public const string RegenerateLabel = "Write another reply";
 

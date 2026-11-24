@@ -3,7 +3,7 @@ namespace Drover.Native.Controls;
 /// <summary>
 /// The frame: a surface with the corners of the theme in use. This is the one place corners are drawn. A faceted
 /// theme cuts two corners, top left and bottom right, echoing the bot heads; a square theme rounds all four by a
-/// small radius; a ticked theme leaves the rectangle and marks the same two corners with ticks, which cross out
+/// small radius and a rounded theme by a large one, up to half the frame's height; a ticked theme leaves the rectangle and marks the same two corners with ticks, which cross out
 /// past the corner as registration marks when the theme says so. Controls take the control size and larger frames
 /// the frame size. It is a panel: whatever is put in it sits on the surface. A clipped frame cannot show a ring
 /// outside itself, so its focus ring is drawn inside the edge.
@@ -137,7 +137,7 @@ public sealed class Facet : Grid
 
         DrawTicks(corners, focus);
         var cut = double.IsNaN(Cut) ? CutOf(Role) : Cut;
-        (DrawnCorners, DrawnSize) = (corners, corners is CornerLanguage.Square ? RadiusOf(Role) : cut);
+        (DrawnCorners, DrawnSize) = (corners, corners is CornerLanguage.Square or CornerLanguage.Rounded ? RadiusOf(Role) : cut);
     }
 
     // The corner outline: cut corners, rounded corners, or none, moved in by half the line so the whole line is
@@ -145,7 +145,7 @@ public sealed class Facet : Grid
     private PointCollection Outline(CornerLanguage corners, double inset) => corners switch
     {
         CornerLanguage.Faceted => CutCorners(inset, double.IsNaN(Cut) ? CutOf(Role) : Cut),
-        CornerLanguage.Square => Rounded(inset, RadiusOf(Role)),
+        CornerLanguage.Square or CornerLanguage.Rounded => Rounded(inset, RadiusOf(Role)),
         _ => Rounded(inset, 0),
     };
 

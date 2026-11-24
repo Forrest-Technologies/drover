@@ -46,8 +46,8 @@
          still asks for the device's culture by name at startup; this lets it have one, with invariant data. -->
     <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
 
-    <!-- Dark until a person chooses otherwise, from the first frame. -->
-    <UnoSplashScreenBackgroundColor>#05070A</UnoSplashScreenBackgroundColor>
+    <!-- Dark until a person chooses otherwise, from the first frame: the first surface of the default theme. -->
+    <UnoSplashScreenBackgroundColor>#0B0C0E</UnoSplashScreenBackgroundColor>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(DroverReleaseVersion)' != ''">

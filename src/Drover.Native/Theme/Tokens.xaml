@@ -341,6 +341,7 @@
   <x:Double x:Key="DvAvatar48">48</x:Double>
   <x:Double x:Key="DvAvatar96">96</x:Double>
   <x:Double x:Key="DvMark">22</x:Double>
+  <x:Double x:Key="DvMarkSplash">96</x:Double>
   <x:Double x:Key="DvSwitchWidth">36</x:Double>
   <x:Double x:Key="DvSwitchHeight">20</x:Double>
   <x:Double x:Key="DvSwitchThumb">14</x:Double>

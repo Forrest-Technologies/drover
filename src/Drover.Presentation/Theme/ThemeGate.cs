@@ -1,6 +1,6 @@
 namespace Drover.Ui.Theme;
 
-/// <summary>The accessibility gates every theme must pass, in both modes. See <see cref="ThemeGates"/>.</summary>
+/// <summary>The accessibility gates every theme must pass, in every mode. See <see cref="ThemeGates"/>.</summary>
 public enum ThemeGate
 {
     /// <summary>Every text and status color reaches 4.5:1 on every surface, and so does text on the accent.</summary>

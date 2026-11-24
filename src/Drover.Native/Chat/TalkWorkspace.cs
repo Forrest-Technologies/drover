@@ -78,18 +78,6 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly ContentPresenter more = new() { VerticalAlignment = VerticalAlignment.Center };
 
-    private readonly StackPanel beside = new() { Orientation = Orientation.Horizontal };
-
-    private readonly ScrollViewer besideScroll = new()
-    {
-        IsTabStop = false,
-        HorizontalScrollMode = ScrollMode.Auto,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        VerticalScrollMode = ScrollMode.Disabled,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
-
     private readonly ContentPresenter mainBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
     private readonly Border railHeader = new();
@@ -104,8 +92,6 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly ContentPresenter railBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
-    private readonly Dictionary<SideView, PanelLink> ways = [];
-
     private readonly TalkViewModel model;
 
     private readonly ConversationSaver saver = Pieces.Make<ConversationSaver>();
@@ -115,6 +101,10 @@ internal sealed class TalkWorkspace : Grid
     private Guid? menuBot;
 
     private string? menuItems;
+
+    // The menu's ways beside the conversation, by the view each opens, so the one that is open can say so without the
+    // menu being made again while it closes from that very choice.
+    private readonly List<(Func<SideView?, bool> IsOpen, MenuItem Item)> menuWays = [];
 
     private string? mainShown;
 
@@ -128,8 +118,6 @@ internal sealed class TalkWorkspace : Grid
 
     // The rail was closed from the keyboard: the focus goes back to the way that opened it, once it is drawn.
     private bool focusOpener;
-
-    private SideView? openerWay;
 
     #endregion
 
@@ -166,13 +154,13 @@ internal sealed class TalkWorkspace : Grid
             focusClose = true;
             QueueDraw();
         };
-        model.RailOpenerFocusRequested += way =>
+        model.RailOpenerFocusRequested += _ =>
         {
-            (focusOpener, openerWay) = (true, way);
+            focusOpener = true;
             QueueDraw();
         };
         railBox.KeyDown += CloseRailOnEscape;
-        SizeChanged += (_, _) => Fit();
+        SizeChanged += (_, _) => FitOrDraw();
         this.WhenShownOrRethemed(Paint);
         Draw();
     }
@@ -219,9 +207,13 @@ internal sealed class TalkWorkspace : Grid
         AutomationProperties.SetName(crewScroll, "Crew");
         AutomationProperties.SetLandmarkType(crewScroll, AutomationLandmarkType.Navigation);
 
+        // The links stand on their own columns and the account on the last, so the two can never overlap.
         var footer = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
-        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        foreach (var _ in footerLinks)
+        {
+            footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        }
+
         footer.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         footer.RowDefinitions.Add(new() { Height = GridLength.Auto });
         footer.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -233,7 +225,7 @@ internal sealed class TalkWorkspace : Grid
             footer.Children.Add(link);
         }
 
-        SetColumn(crewAccount, 2);
+        SetColumn(crewAccount, footerLinks.Length);
         footer.Children.Add(crewAccount);
         listFooter.Child = footer;
         listFooter.Padding = Tokens.Space("DvSpace4", "DvSpace3");
@@ -260,26 +252,16 @@ internal sealed class TalkWorkspace : Grid
         title.TextTrimming = TextTrimming.CharacterEllipsis;
         title.VerticalAlignment = VerticalAlignment.Center;
         paused.VerticalAlignment = VerticalAlignment.Center;
-        AutomationProperties.SetName(beside, "Beside the conversation");
-        AutomationProperties.SetLandmarkType(beside, AutomationLandmarkType.Navigation);
 
-        SideView[] panels = [SideView.Activity, SideView.Summary, SideView.Memory, SideView.Screen, SideView.Files, SideView.List];
-        foreach (var side in panels)
-        {
-            var way = new PanelLink();
-            ways[side] = way;
-            beside.Children.Add(way);
-        }
-
-        // The name gets the remaining width and can trim before it pushes the menu or links out of the header.
-        GridLength[] widths = [GridLength.Auto, GridLength.Auto, new(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto];
+        // The name gets the remaining width and can trim before it pushes the menu out of the header. The menu is the
+        // one way to what opens beside the conversation, on every width.
+        var auto = GridLength.Auto;
+        GridLength[] widths = [auto, auto, new(1, GridUnitType.Star), auto, auto];
         foreach (var width in widths)
         {
             mainHeaderRow.ColumnDefinitions.Add(new() { Width = width });
         }
 
-        mainHeaderRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        mainHeaderRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
         AutomationProperties.SetAutomationId(back, "TalkBack");
         FrameworkElement[] parts = [back, head, title, paused, more];
         foreach (var part in parts)
@@ -288,8 +270,6 @@ internal sealed class TalkWorkspace : Grid
             mainHeaderRow.Children.Add(part);
         }
 
-        besideScroll.Content = beside;
-        mainHeaderRow.Children.Add(besideScroll);
         Bar(mainHeader, mainHeaderRow);
 
         mainBox.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -372,7 +352,30 @@ internal sealed class TalkWorkspace : Grid
         if (!drawQueued)
         {
             drawQueued = true;
-            DispatcherQueue.TryEnqueue(Draw);
+            DispatcherQueue.TryEnqueue(DrawWhenQueued);
+        }
+    }
+
+    private void DrawWhenQueued()
+    {
+        if (drawQueued)
+        {
+            Draw();
+        }
+    }
+
+    // The page for another address takes the workspace over, and its size is given again, often before the draw
+    // queued for that address has run. That draw is done then, so what the address shows is made before the columns
+    // are shown and hidden for it, and not while one of them is collapsed.
+    private void FitOrDraw()
+    {
+        if (drawQueued)
+        {
+            Draw();
+        }
+        else
+        {
+            Fit();
         }
     }
 
@@ -396,8 +399,7 @@ internal sealed class TalkWorkspace : Grid
         if (focusOpener)
         {
             focusOpener = false;
-            var way = openerWay;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => FocusOpener(way));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusOpener);
         }
     }
 
@@ -451,27 +453,30 @@ internal sealed class TalkWorkspace : Grid
         AutomationProperties.SetHeadingLevel(title, model.At is "main" ? AutomationHeadingLevel.Level1 : AutomationHeadingLevel.Level2);
         paused.Visibility = Shown(ChatRows.IsPaused(shown));
         DrawMenu(shown);
-        DrawWays(shown);
     }
 
-    // The same ways as the links of a wide window, for a window too narrow to show them.
+    // Every way to what opens beside the conversation, with the saves: the one place they are, on every width. The
+    // way to the side chats says how many there are.
     private void DrawMenu(BotSummary shown)
     {
         var items = $"{model.OffersScreen}|{model.SideChatsLabel}";
         if (menu is not null && menuBot == shown.Id && items == menuItems)
         {
             menu.Bot = shown;
+            MarkOpenWay();
             return;
         }
 
-        (string Label, string Address)[] wanted =
+        (string Label, string Address, Func<SideView?, bool> IsOpen)[] wanted =
         [
-            ("Activity", Addresses.Activity(shown.Id)),
-            ("Summary", Addresses.Summary(shown.Id)),
-            ("Memory", Addresses.Memory(shown.Id)),
-            .. model.OffersScreen ? [("Screen", Addresses.Screen(shown.Id))] : Array.Empty<(string, string)>(),
-            ("Files", Addresses.Files(shown.Id)),
-            (model.SideChatsLabel, Addresses.SideChats(shown.Id)),
+            ("Activity", Addresses.Activity(shown.Id), side => side is SideView.Activity),
+            ("Summary", Addresses.Summary(shown.Id), side => side is SideView.Summary),
+            ("Memory", Addresses.Memory(shown.Id), side => side is SideView.Memory),
+            .. model.OffersScreen
+                ? [("Screen", Addresses.Screen(shown.Id), side => side is SideView.Screen)]
+                : Array.Empty<(string, string, Func<SideView?, bool>)>(),
+            ("Files", Addresses.Files(shown.Id), side => side is SideView.Files),
+            (model.SideChatsLabel, Addresses.SideChats(shown.Id), side => side is SideView.List or SideView.New or SideView.Chat),
         ];
 
         // A different bot gets a menu of its own, which asks afresh whether that bot may notify the person.
@@ -482,20 +487,32 @@ internal sealed class TalkWorkspace : Grid
         }
 
         (menuBot, menuItems) = (shown.Id, items);
+        menuWays.Clear();
+        menuWays.AddRange(wanted.Select(way => (way.IsOpen, Item(way.Label, way.Address))));
         menu.Items =
         [
-            .. wanted.Select(Item),
+            .. menuWays.Select(way => way.Item),
             SaveItem(ConversationSaver.MarkdownLabel, ExportFormats.Markdown),
             SaveItem(ConversationSaver.JsonLabel, ExportFormats.Json),
         ];
         menu.Bot = shown;
+        MarkOpenWay();
     }
 
-    private MenuItem Item((string Label, string Address) way)
+    private MenuItem Item(string label, string address)
     {
-        var item = new MenuItem { Content = way.Label };
-        item.Selected += (_, _) => model.OpenSide(way.Address);
+        var item = new MenuItem { Content = label };
+        item.Selected += (_, _) => model.OpenSide(address);
         return item;
+    }
+
+    // The item of what is open beside the conversation says so, as the rail's own header names it for the eye.
+    private void MarkOpenWay()
+    {
+        foreach (var (isOpen, item) in menuWays)
+        {
+            AutomationProperties.SetItemStatus(item, isOpen(model.Side) ? "Open" : string.Empty);
+        }
     }
 
     // Saves the main conversation shown when the item is chosen, through the platform's own way of saving a file.
@@ -504,29 +521,6 @@ internal sealed class TalkWorkspace : Grid
         var item = new MenuItem { Content = label };
         item.Selected += async (_, _) => await saver.Save(model.MainPane?.ThreadId, format, PlatformFiles.SaveText);
         return item;
-    }
-
-    private void DrawWays(BotSummary shown)
-    {
-        Set(SideView.Activity, "Activity", Addresses.Activity(shown.Id), model.Side is SideView.Activity);
-        Set(SideView.Summary, "Summary", Addresses.Summary(shown.Id), model.Side is SideView.Summary);
-        Set(SideView.Memory, "Memory", Addresses.Memory(shown.Id), model.Side is SideView.Memory);
-        Set(SideView.Screen, "Screen", Addresses.Screen(shown.Id), model.Side is SideView.Screen);
-        Set(SideView.Files, "Files", Addresses.Files(shown.Id), model.Side is SideView.Files);
-        Set(SideView.List, model.SideChatsLabel, Addresses.SideChats(shown.Id), model.Side is SideView.List or SideView.New or SideView.Chat);
-        ways[SideView.Screen].Visibility = Shown(model.OffersScreen);
-
-        void Set(SideView side, string label, string address, bool open)
-        {
-            var way = ways[side];
-            if (way.Content as string != label)
-            {
-                way.Content = label;
-            }
-
-            way.Address = address;
-            way.ShowCurrent(open);
-        }
     }
 
     private void DrawRail()
@@ -722,17 +716,10 @@ internal sealed class TalkWorkspace : Grid
         return false;
     }
 
-    // The way that opened the rail: its link in the header where the header shows the links, and otherwise the
-    // conversation's menu, which holds the same ways on a phone and is the nearest control for work handed on.
-    private void FocusOpener(SideView? way)
+    // The way that opened the rail is the conversation's menu, which holds every way to what opens beside it.
+    private void FocusOpener()
     {
-        var opener = menu?.Trigger;
-        if (way is { } side && besideScroll.Visibility is Visibility.Visible && ways[side].Visibility is Visibility.Visible)
-        {
-            opener = ways[side];
-        }
-
-        if (opener is not null)
+        if (menu?.Trigger is { } opener)
         {
             Pieces.FocusWhenShown(opener, opener.TakeFocus);
         }
@@ -773,10 +760,10 @@ internal sealed class TalkWorkspace : Grid
             space - listWidth - mainMinimum) : 0;
 
         listBox.Visibility = Shown(showList);
-        mainBox.Visibility = Shown(showMain);
-        railBox.Visibility = Shown(showRail);
-        crewDivider.Visibility = Shown(splitCrew);
-        railDivider.Visibility = Shown(splitRail);
+        Show(mainBox, showMain);
+        Show(railBox, showRail);
+        Show(crewDivider, splitCrew);
+        Show(railDivider, splitRail);
 
         var star = new GridLength(1, GridUnitType.Star);
         crewColumn.Width = !showList ? new(0) : splitCrew ? new(listWidth) : star;
@@ -785,15 +772,37 @@ internal sealed class TalkWorkspace : Grid
         railDividerColumn.Width = new(splitRail ? dividerWidth : 0);
         railColumn.Width = !showRail ? new(0) : splitRail ? new(railWidth) : star;
 
-        var compactCrew = splitCrew && listWidth < listDefault;
+        // The account takes a row of its own under the links when the column is narrower than its default, or when
+        // the links and the account do not fit on one row in the theme in use.
+        var compactCrew = splitCrew && (listWidth < listDefault || !FooterFitsOneRow(listWidth));
         SetRow(crewAccount, compactCrew ? 1 : 0);
-        SetColumn(crewAccount, compactCrew ? 0 : 2);
-        SetColumnSpan(crewAccount, compactCrew ? 3 : 1);
+        SetColumn(crewAccount, compactCrew ? 0 : footerLinks.Length);
+        SetColumnSpan(crewAccount, compactCrew ? footerLinks.Length + 1 : 1);
+        // On its own row the account starts where the links start, so a row of links that fills the column never
+        // pushes it past the edge.
+        crewAccount.HorizontalAlignment = compactCrew ? HorizontalAlignment.Left : HorizontalAlignment.Right;
         listFooter.Visibility = Shown(!phone);
         dock.Visibility = Shown(phone);
         back.Visibility = Shown(!crewBeside);
         crewNotice.Visibility = Shown(!crewBeside);
-        FitHeader(phone, space - listWidth - railWidth < (double)Styles.Dictionary["DvBreakBeside"]);
+        var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
+        mainHeader.Padding = new(inline, Tokens.Number("DvSpace2"), inline, Tokens.Number("DvSpace2"));
+    }
+
+    private bool FooterFitsOneRow(double listWidth)
+    {
+        var gap = Tokens.Number("DvSpace3");
+        var room = listWidth - listFooter.Padding.Left - listFooter.Padding.Right;
+        FrameworkElement[] parts = [.. footerLinks, crewAccount];
+        var needed = parts.Sum(Wanted) + (gap * (parts.Length - 1));
+
+        return needed <= room;
+    }
+
+    private static double Wanted(FrameworkElement part)
+    {
+        part.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+        return part.DesiredSize.Width;
     }
 
     private void ResizeCrew(double width)
@@ -812,18 +821,7 @@ internal sealed class TalkWorkspace : Grid
         Fit();
     }
 
-    // Keep links to one row, below the title when the remaining conversation space is narrow.
-    private void FitHeader(bool phone, bool stacked)
-    {
-        var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
-        mainHeader.Padding = new(inline, Tokens.Number("DvSpace2"), inline, Tokens.Number(stacked && !phone ? "DvSpace1" : "DvSpace2"));
-        besideScroll.Visibility = Shown(!phone);
-        SetRow(besideScroll, stacked ? 1 : 0);
-        SetColumn(besideScroll, stacked ? 0 : mainHeaderRow.ColumnDefinitions.Count - 1);
-        SetColumnSpan(besideScroll, stacked ? mainHeaderRow.ColumnDefinitions.Count : 1);
-    }
-
-    // On a phone the menu's button is a finger wide, since it is the only way to what is beside the conversation.
+    // On a phone the menu's button is a finger wide: it is the way to what is beside the conversation.
     private void FitMenu()
     {
         if (menu is not null && ActualWidth > 0)
@@ -833,6 +831,20 @@ internal sealed class TalkWorkspace : Grid
     }
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
+
+    // The conversation, the rail and the dividers are landmarks and controls to a screen reader, and each comes back
+    // where it stood before. Shown again, each is put back in the browser's tree for assistive technology, which
+    // could otherwise keep it hidden there (see SemanticTree).
+    private static void Show(FrameworkElement part, bool shown)
+    {
+        var comesBack = shown && part.Visibility is Visibility.Collapsed;
+        part.Visibility = Shown(shown);
+
+        if (comesBack)
+        {
+            SemanticTree.PutBack(part);
+        }
+    }
 
     private void Paint()
     {
@@ -847,50 +859,6 @@ internal sealed class TalkWorkspace : Grid
         {
             link.ShowWhere(Addresses.Home);
         }
-    }
-
-    #endregion
-    #region Panel Links
-
-    private sealed class PanelLink : PlainButton
-    {
-        #region Constructors
-
-        public PanelLink()
-        {
-            Padding = Tokens.Space("DvSpace1", "DvSpace1");
-            Radius = null;
-            RingInside = true;
-            FontSize = Tokens.Number("DvText13");
-            Click += (_, _) => Link.Opener?.Invoke(Address);
-            ShowCurrent(false);
-        }
-
-        #endregion
-
-        #region Properties
-
-        public string Address { get; set; } = string.Empty;
-
-        #endregion
-
-        #region Public Methods
-
-        public void ShowCurrent(bool open)
-        {
-            Ink = open ? "DvText" : "DvText2";
-            Underline = open ? "DvText" : null;
-            AutomationProperties.SetItemStatus(this, open ? "Open" : string.Empty);
-            Repaint();
-        }
-
-        #endregion
-
-        #region Private Methods
-
-        protected override AutomationPeer OnCreateAutomationPeer() => new RoleButtonPeer(this, AutomationControlType.Hyperlink);
-
-        #endregion
     }
 
     #endregion
