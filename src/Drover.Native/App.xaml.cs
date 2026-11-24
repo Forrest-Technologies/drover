@@ -125,6 +125,14 @@ public partial class App : Application
                 return;
             }
 #endif
+#if DROVER_MULTILINE_FOCUS_CHECK
+            if (Environment.GetEnvironmentVariable("DROVER_MULTILINE_FOCUS_CHECK") == "1")
+            {
+                MultilineInputFocusCheck.Start(MainWindow);
+                MainWindow.Activate();
+                return;
+            }
+#endif
 #if DROVER_FIELD_CHECK
             if (FieldInputCheck.Armed)
             {

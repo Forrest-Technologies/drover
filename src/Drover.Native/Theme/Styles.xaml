@@ -111,29 +111,34 @@
   <x:Double x:Key="DvConversationMin">400</x:Double>
   <x:Double x:Key="DvRailMin">288</x:Double>
 
-  <!-- A text input with nothing drawn around it: the field that holds it draws the faceted frame. -->
+  <!-- A text input with nothing drawn around it: the field that holds it draws the faceted frame. The transparent root
+       gives the whole control a hit-testable surface so taps outside the inner text line still focus the input. -->
   <ControlTemplate x:Key="DvTextBoxTemplate" TargetType="TextBox">
-    <ScrollViewer x:Name="ContentElement"
-                  Padding="{TemplateBinding Padding}"
-                  IsTabStop="False"
-                  ZoomMode="Disabled"
-                  HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
-                  HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
-                  VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
-                  VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
-                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    <Grid Background="Transparent">
+      <ScrollViewer x:Name="ContentElement"
+                    Padding="{TemplateBinding Padding}"
+                    IsTabStop="False"
+                    ZoomMode="Disabled"
+                    HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
+                    HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                    VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
+                    VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    </Grid>
   </ControlTemplate>
 
   <ControlTemplate x:Key="DvPasswordBoxTemplate" TargetType="PasswordBox">
-    <ScrollViewer x:Name="ContentElement"
-                  Padding="{TemplateBinding Padding}"
-                  IsTabStop="False"
-                  ZoomMode="Disabled"
-                  HorizontalScrollMode="Auto"
-                  HorizontalScrollBarVisibility="Hidden"
-                  VerticalScrollMode="Disabled"
-                  VerticalScrollBarVisibility="Disabled"
-                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    <Grid Background="Transparent">
+      <ScrollViewer x:Name="ContentElement"
+                    Padding="{TemplateBinding Padding}"
+                    IsTabStop="False"
+                    ZoomMode="Disabled"
+                    HorizontalScrollMode="Auto"
+                    HorizontalScrollBarVisibility="Hidden"
+                    VerticalScrollMode="Disabled"
+                    VerticalScrollBarVisibility="Disabled"
+                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    </Grid>
   </ControlTemplate>
 
   <!-- A pressable control on a faceted frame. The control sets the frame's colors for its state. -->
