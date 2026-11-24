@@ -9,6 +9,7 @@ public enum VersionOutcome
     Busy,
     Invalid,
     BotUnavailable,
+    ReadOnly,
 }
 
 /// <summary>What asking for another version of the conversation came to: the new message and run, or why nothing changed.</summary>
@@ -47,6 +48,11 @@ public sealed partial class RunService
             if (thread is null || reply is not { Role: MessageRole.Assistant, Position: { } position, ShelvedAt: null } || reply.ThreadId != thread.Id)
             {
                 return new VersionChange(VersionOutcome.NotFound);
+            }
+
+            if (IsHandoff(thread))
+            {
+                return new VersionChange(VersionOutcome.ReadOnly);
             }
 
             var found = (await messages.ListMessages(thread.Id, cancellationToken))
@@ -98,6 +104,11 @@ public sealed partial class RunService
                 return new VersionChange(VersionOutcome.NotFound);
             }
 
+            if (IsHandoff(thread))
+            {
+                return new VersionChange(VersionOutcome.ReadOnly);
+            }
+
             List<MessagePart> kept = [.. original.Parts.Where(part => part is not TextPart)];
 
             if (string.IsNullOrWhiteSpace(text) && kept.Count == 0)
@@ -143,6 +154,11 @@ public sealed partial class RunService
             if (thread is null || version is not { Position: { } position } || version.ThreadId != thread.Id)
             {
                 return new VersionChange(VersionOutcome.NotFound);
+            }
+
+            if (IsHandoff(thread))
+            {
+                return new VersionChange(VersionOutcome.ReadOnly);
             }
 
             if (version.ShelvedAt is null)

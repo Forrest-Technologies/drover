@@ -26,7 +26,7 @@ public abstract class WorkspaceTest : IDisposable
     protected WorkspaceTest()
     {
         var api = Server.CreateApi();
-        Session = new(api);
+        Session = new(api, Inbox);
         Toasts = new(TimeProvider.System);
         Talk = new(api, Session, Navigator, Toasts, Inbox, Ui, NullLoggerFactory.Instance);
         Navigator.Navigated += (address, kind) =>

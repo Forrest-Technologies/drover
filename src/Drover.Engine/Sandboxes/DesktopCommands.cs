@@ -57,6 +57,11 @@ public static class DesktopCommands
         exit 4
         """;
 
+    /// <summary>The longest a command that lets go of a held button may run.</summary>
+    private static readonly TimeSpan releaseLimit = TimeSpan.FromSeconds(10);
+
+    private const string DragPause = "0.02";
+
     /// <summary>Key names a model may use, and the X key symbol each one is. Any other name is refused.</summary>
     private static readonly FrozenDictionary<string, string> keySymbols = BuildKeySymbols();
 
@@ -73,6 +78,12 @@ public static class DesktopCommands
     public const int MaxKeysAtOnce = 5;
 
     public const int MaxScrollClicks = 20;
+
+    /// <summary>How many points a drag passes between its press and its release, so a window manager sees it.</summary>
+    public const int DragSteps = 8;
+
+    /// <summary>The longest letting go of held buttons may take, whatever it waits on.</summary>
+    public static TimeSpan ReleaseLimit => releaseLimit;
 
     /// <summary>The display every desktop command draws on, also set in the sandbox's environment when it is made.</summary>
     public static IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string> { ["DISPLAY"] = ":0" };
@@ -107,6 +118,91 @@ public static class DesktopCommands
         CheckPoint(x, y);
         string[] repeat = twice ? ["--repeat", "2"] : [];
         return Command(["xdotool", "mousemove", Number(x), Number(y), "click", .. repeat, ButtonNumber(button)]);
+    }
+
+    /// <summary>
+    /// Moves the pointer and holds the button down, in one xdotool run, so the press lands where the pointer went. The
+    /// button stays down until <see cref="MouseUp"/> or <see cref="Release"/> lets go of it.
+    /// </summary>
+    public static CommandRequest MouseDown(int x, int y, MouseButton button)
+    {
+        CheckPoint(x, y);
+        return Command("xdotool", "mousemove", Number(x), Number(y), "mousedown", ButtonNumber(button));
+    }
+
+    /// <summary>Moves the pointer. A button that is held stays held, which is how a window is dragged.</summary>
+    public static CommandRequest MouseMove(int x, int y)
+    {
+        CheckPoint(x, y);
+        return Command("xdotool", "mousemove", Number(x), Number(y));
+    }
+
+    /// <summary>Lets go of a button, at a point when one is given and where the pointer is when not.</summary>
+    public static CommandRequest MouseUp(MouseButton button, int? x, int? y)
+    {
+        if (x.HasValue != y.HasValue)
+        {
+            throw new BuiltinToolException("Give both x and y to let go at a point, or neither to let go where it is.");
+        }
+
+        string[] move = [];
+
+        if (x is { } atX && y is { } atY)
+        {
+            CheckPoint(atX, atY);
+            move = ["mousemove", Number(atX), Number(atY)];
+        }
+
+        return Command(["xdotool", .. move, "mouseup", ButtonNumber(button)]);
+    }
+
+    /// <summary>
+    /// Lets go of every one of these buttons wherever the pointer is. For a button a person left held, so it has a
+    /// short limit of its own: nothing may wait on it.
+    /// </summary>
+    public static CommandRequest Release(IReadOnlyList<MouseButton> buttons)
+    {
+        if (buttons.Count is 0)
+        {
+            throw new BuiltinToolException("Name a button to let go of.");
+        }
+
+        return Command(["xdotool", .. buttons.SelectMany(button => (string[])["mouseup", ButtonNumber(button)])]) with
+        {
+            Timeout = releaseLimit,
+        };
+    }
+
+    /// <summary>
+    /// Presses at the start, passes <see cref="DragSteps"/> evenly spaced points on the line to the end, and lets go
+    /// there, in one xdotool run. Both ends are checked, and a line between two points on the screen never leaves it.
+    /// The pauses are short, so a window manager sees a press, a drag and a release and not a jump.
+    /// </summary>
+    public static CommandRequest Drag(int fromX, int fromY, int toX, int toY, MouseButton button)
+    {
+        CheckPoint(fromX, fromY);
+        CheckPoint(toX, toY);
+        List<string> arguments =
+        [
+            "xdotool",
+            "mousemove",
+            Number(fromX),
+            Number(fromY),
+            "mousedown",
+            ButtonNumber(button),
+            "sleep",
+            DragPause,
+        ];
+
+        for (var step = 1; step <= DragSteps; step++)
+        {
+            var (x, y) = (Between(fromX, toX, step), Between(fromY, toY, step));
+            arguments.AddRange(["mousemove", Number(x), Number(y), "sleep", DragPause]);
+        }
+
+        arguments.AddRange(["mousemove", Number(toX), Number(toY), "sleep", DragPause]);
+        arguments.AddRange(["mouseup", ButtonNumber(button)]);
+        return Command([.. arguments]);
     }
 
     /// <summary>Types the text as it is: it is one argument, after <c>--</c>, so nothing in it is read as an option.</summary>
@@ -200,6 +296,8 @@ public static class DesktopCommands
     #endregion
 
     #region Private Methods
+
+    private static int Between(int from, int to, int step) => from + ((to - from) * step / (DragSteps + 1));
 
     private static CommandRequest Command(params string[] argv) =>
         new() { Program = argv[0], Arguments = argv[1..], Environment = Environment, Timeout = TimeSpan.FromSeconds(30) };

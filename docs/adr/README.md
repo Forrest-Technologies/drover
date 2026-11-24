@@ -32,4 +32,5 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0016](0016-projects-group-conversations-and-share-context.md) | Projects group conversations and share instructions and files | Accepted |
 | [0017](0017-preview-untrusted-files-by-type.md) | Preview untrusted files by type | Accepted |
 | [0018](0018-chat-channel-trust-boundaries.md) | Trust boundaries for chat channels | Accepted |
+| [0019](0019-rooms-are-the-leads-conversation.md) | A room is the lead's conversation | Accepted |
 | [0020](0020-a-family-of-themes.md) | The look is a family of themes, with Night Yard as the default | Proposed in its pull request |

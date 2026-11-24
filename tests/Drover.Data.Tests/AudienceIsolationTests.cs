@@ -36,6 +36,11 @@ public sealed class AudienceIsolationTests(IsolationFixture isolation) : IClassF
         AudienceChecks.CannotHandARowToAnotherMember(isolation.For(table), table);
 
     [Theory]
+    [MemberData(nameof(IsolationTables.ForOnePersonOnly), MemberType = typeof(IsolationTables))]
+    public Task A_row_meant_for_one_person_cannot_be_shared(string table) =>
+        AudienceChecks.CannotShareARowMeantForOnePerson(isolation.For(table), table);
+
+    [Theory]
     [MemberData(nameof(IsolationTables.AudienceWithAudienceParent), MemberType = typeof(IsolationTables))]
     public Task A_child_cannot_be_inserted_with_a_wider_audience_than_its_parent(string table) =>
         AudienceChecks.ChildCannotHaveAWiderAudienceThanItsParent(isolation.For(table), table);

@@ -342,10 +342,16 @@ public sealed partial class BotSandboxViewModel(
     }
 
     /// <summary>Reads the state again at once, for when it has just changed.</summary>
-    public Task RefreshStatus() => RefreshStatus(disposal.Token);
+    public Task RefreshStatus() => RefreshStatus(disposal.LeavingToken());
 
     private async Task RefreshStatus(CancellationToken stop)
     {
+        // A screen that was left has nothing to show a state to.
+        if (stop.IsCancellationRequested)
+        {
+            return;
+        }
+
         try
         {
             Status = await api.GetBotSandbox(SpaceId, BotId, stop);
@@ -483,13 +489,24 @@ public sealed partial class BotSandboxViewModel(
             return;
         }
 
+        // Asked once, before the first await: the answer can come after the screen was left and its source disposed.
+        var stop = disposal.LeavingToken();
         Busy = true;
         ActionProblem = null;
         Changed();
         try
         {
-            await api.SendBotSandboxInput(SpaceId, BotId, new SandboxInputRequest("open_terminal"), disposal.Token);
-            SelectView(ScreenView);
+            await api.SendBotSandboxInput(SpaceId, BotId, new SandboxInputRequest("open_terminal"), stop);
+
+            // Selecting the tab moves the address, which must not happen once the person went somewhere else.
+            if (!stop.IsCancellationRequested)
+            {
+                SelectView(ScreenView);
+            }
+        }
+        catch (OperationCanceledException stopped) when (stop.IsCancellationRequested)
+        {
+            logger.LogDebug(stopped, "The screen closed while the sandbox desktop terminal was opening");
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -501,7 +518,7 @@ public sealed partial class BotSandboxViewModel(
             Busy = false;
         }
 
-        await RefreshStatus(disposal.Token);
+        await RefreshStatus(stop);
     }
 
     public async Task RunCommand()
@@ -510,6 +527,10 @@ public sealed partial class BotSandboxViewModel(
         {
             return;
         }
+
+        // The command keeps running on the server if the screen is left, so it is not cancelled; only what follows it
+        // is. Asked once, before the first await: the command can end after the screen's source was disposed.
+        var stop = disposal.LeavingToken();
 
         var entry = new SandboxCommandEntry(command);
         entries.Add(entry);
@@ -528,7 +549,7 @@ public sealed partial class BotSandboxViewModel(
         }
 
         Running = false;
-        await RefreshStatus(disposal.Token);
+        await RefreshStatus(stop);
     }
 
     #endregion

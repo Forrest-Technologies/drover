@@ -85,7 +85,15 @@ public static class SandboxEndpoints
         SandboxControlService sandboxes)
     {
         var access = context.GetSpaceAccess();
-        return Answer(await sandboxes.Input(access.SpaceId, access.UserId, botId, input, context.RequestAborted), _ => TypedResults.NoContent());
+        var sessionId = context.User.GetSessionId();
+        var result = await sandboxes.Input(
+            access.SpaceId,
+            access.UserId,
+            botId,
+            input,
+            context.RequestAborted,
+            sessionId);
+        return Answer(result, _ => TypedResults.NoContent());
     }
 
     private static async Task<Results<Ok<SandboxCommandResponse>, NotFound, ProblemHttpResult>> RunCommand(

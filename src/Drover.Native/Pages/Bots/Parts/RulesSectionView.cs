@@ -21,6 +21,8 @@ public sealed class RulesSectionView : EditorPart
 
     private readonly FlowPanel starters = new() { Gap = Tokens.Number("DvSpace2") };
 
+    private readonly Button add;
+
     private readonly StatusNote startProblem = new() { Kind = NoteKind.Danger };
 
     private readonly ContentControl form = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, IsTabStop = false };
@@ -64,7 +66,8 @@ public sealed class RulesSectionView : EditorPart
     {
         var part = editor.RulesPart;
         AutomationProperties.SetLiveSetting(loading, AutomationLiveSetting.Polite);
-        starts.Children.Add(BotParts.IconAction(IconName.Plus, RulesSectionViewModel.WriteRule, part.Add));
+        add = BotParts.IconAction(IconName.Plus, RulesSectionViewModel.WriteRule, part.Add);
+        starts.Children.Add(add);
         starts.Children.Add(new NamedGroup(RulesSectionViewModel.StartersLegend, "DvSpace3", BotParts.ChoiceLabel(RulesSectionViewModel.StartersLegend), starters));
         starts.Children.Add(startProblem);
 
@@ -121,6 +124,16 @@ public sealed class RulesSectionView : EditorPart
         startProblem.Show(part.Draft is null ? part.Problem : null);
         ShowForm(part);
         ShowTrial(part);
+        MoveFocus(part);
+    }
+
+    // The row that was used is gone, so focus goes to the button that starts a new rule.
+    private void MoveFocus(RulesSectionViewModel part)
+    {
+        if (part.TakeFocus() is RuleFocus.Add)
+        {
+            DispatcherQueue.TryEnqueue(() => add.TakeFocus());
+        }
     }
 
     private void ShowRules(NamedGroup list, IReadOnlyList<BotRuleResponse> rules, bool busy)

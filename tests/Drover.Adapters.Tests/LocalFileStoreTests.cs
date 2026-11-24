@@ -12,6 +12,27 @@ public sealed class LocalFileStoreTests : FileStoreConformance, IDisposable
     #region Tests
 
     [Fact]
+    public async Task A_destination_failure_keeps_its_system_cause()
+    {
+        var space = Guid.CreateVersion7();
+        var key = FileStorageKeys.For(space, Guid.CreateVersion7());
+        await File.WriteAllTextAsync(root, string.Empty, TestContext.Current.CancellationToken);
+        try
+        {
+            using var source = new MemoryStream([1]);
+            var save = () => new LocalFileStore(root).Save(space, key, source, TestContext.Current.CancellationToken);
+
+            var failure = (await save.Should().ThrowAsync<FileStorageUnavailableException>()).Which;
+            failure.InnerException.Should().BeAssignableTo<IOException>();
+            failure.Message.Should().NotContain(root);
+        }
+        finally
+        {
+            File.Delete(root);
+        }
+    }
+
+    [Fact]
     public async Task A_file_is_kept_in_its_spaces_folder_under_its_id_and_readable_by_the_server_only()
     {
         var store = new LocalFileStore(root);

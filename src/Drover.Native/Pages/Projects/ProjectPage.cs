@@ -352,7 +352,7 @@ public sealed class ProjectPage : Screen
         return failed;
     }
 
-    private Task AddFile() => model.ChooseFiles(PickedFiles.Choose);
+    private Task AddFile() => model.ChooseFiles(PickedFiles.ChooseAll);
 
     private Task AskRemove()
     {

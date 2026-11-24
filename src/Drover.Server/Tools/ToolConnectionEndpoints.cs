@@ -190,7 +190,7 @@ public static class ToolConnectionEndpoints
         var tools = connection is null ? null : await connections.ListTools(connectionId, context.RequestAborted);
         return tools is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(tools.Select(tool => tool.ToSummary(connection!)).ToList());
+            : TypedResults.Ok(tools.Summaries(connection!));
     }
 
     private static async Task<Results<Created<ToolConnectionRefresh>, ProblemHttpResult>> CreateConnection(
@@ -304,7 +304,10 @@ public static class ToolConnectionEndpoints
         {
             null => TypedResults.NotFound(),
             { NeedsReview: true } => TypedResults.Problem(title: ChangedAgain, statusCode: StatusCodes.Status409Conflict),
-            _ => TypedResults.Ok(tool.ToSummary(connection!)),
+            _ => TypedResults.Ok(
+                (await connections.ListTools(connectionId, context.RequestAborted) ?? [])
+                    .Summaries(connection!)
+                    .Single(summary => summary.Id == tool.Tool.Id)),
         };
     }
 

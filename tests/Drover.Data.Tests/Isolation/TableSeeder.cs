@@ -11,6 +11,12 @@ public abstract class TableSeeder
 
     public abstract Type Entity { get; }
 
+    /// <summary>
+    /// True for a table whose rows always act for one person and are never shared. The suite then addresses every row
+    /// it would have shared to the acting user instead, and proves the shared audience is refused.
+    /// </summary>
+    public virtual bool ForOnePersonOnly => false;
+
     #endregion
 
     #region Public Methods

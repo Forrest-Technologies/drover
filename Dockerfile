@@ -73,6 +73,7 @@ RUN mkdir -p /var/lib/drover/keys /var/lib/drover/files \
 
 COPY --from=build /app/publish .
 
+ENV Files__Path=/var/lib/drover/files
 USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Drover.Server.dll"]

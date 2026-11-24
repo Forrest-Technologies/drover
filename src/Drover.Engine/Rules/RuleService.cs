@@ -69,6 +69,10 @@ public sealed class RuleService(
 
     public async Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
     {
+        // Rule writes share the tree lock with a remove that copies rules up. Without it a rule saved while a bot
+        // is removed can land on a bot that no longer binds anyone, or be lost from the copies the move makes.
+        await bots.LockTree(cancellationToken);
+
         if (await FindBot(botId, cancellationToken) is not { } bot)
         {
             return RuleChange.NotFound;
@@ -106,6 +110,8 @@ public sealed class RuleService(
 
     public async Task<RuleChange> Update(Guid botId, Guid ruleId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
     {
+        await bots.LockTree(cancellationToken);
+
         if (await FindBot(botId, cancellationToken) is not { } bot)
         {
             return RuleChange.NotFound;
@@ -144,6 +150,8 @@ public sealed class RuleService(
     /// <summary>Removes one of the bot's own rules. False when there is no such bot or rule.</summary>
     public async Task<bool> Remove(Guid botId, Guid ruleId, Guid actorUserId, CancellationToken cancellationToken)
     {
+        await bots.LockTree(cancellationToken);
+
         if (await FindBot(botId, cancellationToken) is null)
         {
             return false;
@@ -222,6 +230,28 @@ public sealed class RuleService(
         };
     }
 
+    /// <summary>The rule as an audit entry keeps it.</summary>
+    public static JsonObject Snapshot(BotRule rule) =>
+        AuditLog.Snapshot(new
+        {
+            rule.Name,
+            rule.Enabled,
+            rule.Position,
+            rule.Checkpoint,
+            rule.Effect,
+            rule.Conditions,
+        });
+
+    /// <summary>
+    /// Puts the rule at a place among the bot's others and numbers them all from zero, in order. Shared with
+    /// BotService, which copies rules when a bot is kept and its children move up.
+    /// </summary>
+    public static void Place(List<BotRule> others, BotRule rule, int position)
+    {
+        others.Insert(Math.Clamp(position, 0, others.Count), rule);
+        Renumber(others);
+    }
+
     #endregion
 
     #region Private Methods
@@ -262,9 +292,6 @@ public sealed class RuleService(
 
         return notes;
     }
-
-    private static JsonObject Snapshot(BotRule rule) =>
-        AuditLog.Snapshot(new { rule.Name, rule.Enabled, rule.Position, rule.Checkpoint, rule.Effect, rule.Conditions });
 
     private static JsonObject About(BotRule rule) => new() { ["rule_id"] = rule.Id };
 
@@ -308,13 +335,6 @@ public sealed class RuleService(
         return RuleValidator.FindProblem(body.Name, checkpoint, effect, conditions) is { } problem
             ? (null, problem)
             : (new ReadRule(body.Name!.Trim(), checkpoint, effect, conditions), null);
-    }
-
-    // Puts the rule at a place among the bot's others and numbers them all from zero, in order.
-    private static void Place(List<BotRule> others, BotRule rule, int position)
-    {
-        others.Insert(Math.Clamp(position, 0, others.Count), rule);
-        Renumber(others);
     }
 
     private static void Renumber(List<BotRule> ordered)

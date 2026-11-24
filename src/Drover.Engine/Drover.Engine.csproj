@@ -16,5 +16,7 @@
     <PackageReference Include="DocumentFormat.OpenXml" />
     <PackageReference Include="Markdig" />
     <PackageReference Include="PdfPig" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
   </ItemGroup>
 </Project>
