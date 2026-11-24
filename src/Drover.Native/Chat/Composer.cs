@@ -56,8 +56,6 @@ public sealed class Composer : Grid
 
     private bool focusWithin;
 
-    private bool dropping;
-
     private bool? stacked;
 
     private bool focusWanted;
@@ -163,8 +161,13 @@ public sealed class Composer : Grid
     /// </summary>
     public void ShowDropping(bool value)
     {
-        dropping = value;
-        dropNote.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        if (model is { } shown)
+        {
+            shown.ShowDropping(value);
+            return;
+        }
+
+        dropNote.Visibility = Visibility.Collapsed;
         Paint();
     }
 
@@ -276,6 +279,8 @@ public sealed class Composer : Grid
 
         if (shown is null)
         {
+            dropNote.Visibility = Visibility.Collapsed;
+            Paint();
             return;
         }
 
@@ -300,6 +305,7 @@ public sealed class Composer : Grid
         send.Visibility = shown.ShowsSend ? Visibility.Visible : Visibility.Collapsed;
         send.IsEnabled = shown.CanSend;
         travel.IsRunning = shown.IsWorking;
+        dropNote.Visibility = shown.Dropping ? Visibility.Visible : Visibility.Collapsed;
         Fit();
         Paint();
     }
@@ -343,7 +349,7 @@ public sealed class Composer : Grid
     private void Paint()
     {
         frame.Fill = Tokens.Brush(this, "DvBg1");
-        frame.Edge = Tokens.Brush(this, focusWithin || dropping ? "DvEmber" : "DvText3");
+        frame.Edge = Tokens.Brush(this, focusWithin || (model?.Dropping ?? false) ? "DvEmber" : "DvText3");
         field.Foreground = Tokens.Brush(this, model?.Disabled is true ? "DvText3" : "DvText");
         placeholder.Foreground = Tokens.Brush(this, "DvText3");
         focusLine.Background = fieldFocused ? Tokens.Brush(this, "DvEmber") : null;

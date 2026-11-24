@@ -1108,7 +1108,8 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     const dragEvent = type => page.evaluate(type => {
         const { dataTransfer, point, target } = globalThis.droverCheckDrag;
         const at = type === 'dragleave' ? { clientX: 0, clientY: 0 } : point;
-        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
+        const destination = target.isConnected ? target : document.body;
+        destination.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
     }, type);
     // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
     const dragUntilShown = async message => {
@@ -1117,6 +1118,13 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
         while (await dropLine.count() === 0) {
             assert.ok(Date.now() < deadline, message);
             await dragEvent('dragover');
+        }
+    };
+    const waitDropLineGone = async message => {
+        try {
+            await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+        } catch (cause) {
+            throw new Error(`${message} (still shown: ${await dropLine.count()}).`, { cause });
         }
     };
 
@@ -1162,12 +1170,13 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await pasteFailed.first().waitFor({ state: 'detached', timeout: 5000 });
     assert.equal(uploadedFiles.length, 2, 'Nothing of a paste that failed is uploaded.');
 
+    // The drop line goes away after a drop and after a drag leaves the conversation.
     // Files held over the message list: the drop line shows, and goes when the files leave the conversation.
     await holdOver([{ name: 'left.png', bytes: png }]);
     await dragUntilShown('Files held over the message list show the drop line.');
     await page.screenshot({ path: path.join(pictures, `drop-cue-${width}-${theme}.png`) });
     await dragEvent('dragleave');
-    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await waitDropLineGone('A drag leaving the conversation left the drop line on screen');
 
     // Words dragged over the conversation are refused at release: nothing is uploaded and no line is left behind.
     await holdOver([], 'Sample dragged words');
@@ -1180,7 +1189,7 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await holdOver([{ name: 'dropped.png', bytes: png }]);
     await dragUntilShown('Files held over the message list after a refused drag show the drop line.');
     await dragEvent('drop');
-    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await waitDropLineGone('A file dropped on the conversation left the drop line on screen');
     await uploadsAre(3, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
     assert.equal(uploadedFiles[2].name, 'dropped.png');
     assert.deepEqual([...uploadedFiles[2].bytes], png);

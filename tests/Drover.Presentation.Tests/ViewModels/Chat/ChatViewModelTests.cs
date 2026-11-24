@@ -568,6 +568,30 @@ public sealed class ChatViewModelTests : IDisposable
         attached.Should().BeFalse("the conversation stopped taking files while they were read");
     }
 
+    [Fact]
+    public async Task Dropping_files_clears_the_drop_line()
+    {
+        var composer = Composer(takesFiles: true);
+        var attached = 0;
+        composer.OnFiles = files =>
+        {
+            attached += files.Count;
+            return Task.CompletedTask;
+        };
+
+        composer.ShowDropping(true);
+        composer.Dropping.Should().BeTrue();
+
+        await composer.TakeDropped(() => Task.FromResult(new HandedFiles(SampleFiles(1))), NullLogger.Instance);
+
+        composer.Dropping.Should().BeFalse();
+        attached.Should().Be(1);
+
+        composer.ShowDropping(true);
+        composer.TakesFiles = false;
+        composer.Dropping.Should().BeFalse("a conversation that stops taking files clears the drop line");
+    }
+
     #endregion
 
     #region What A Reply Used

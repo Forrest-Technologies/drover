@@ -32,6 +32,8 @@ public sealed class ConversationPane : Grid
 
     private bool drawQueued;
 
+    private bool dropping;
+
     #endregion
 
     #region Constructors
@@ -55,10 +57,12 @@ public sealed class ConversationPane : Grid
         Children.Add(center);
         Children.Add(composer);
         Children.Add(readBox);
+        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         AllowDrop = true;
         DragOver += Carried;
-        DragLeave += (_, _) => composer.ShowDropping(false);
+        DragLeave += (_, _) => SetDropping(false);
         Drop += async (_, dropped) => await Dropped(dropped);
+        Unloaded += (_, _) => SetDropping(false);
 
         // The button stays pressable while the conversation is read again: Reload does nothing until the read ends,
         // so a second press neither asks again nor takes the focus off the way forward.
@@ -167,6 +171,11 @@ public sealed class ConversationPane : Grid
             }
         }
 
+        if (model is not { AcceptsFiles: true })
+        {
+            SetDropping(false);
+        }
+
         Paint();
     }
 
@@ -179,14 +188,14 @@ public sealed class ConversationPane : Grid
         held.AcceptedOperation = takes
             ? Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy
             : Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
-        composer.ShowDropping(takes);
+        SetDropping(takes);
     }
 
     // The same check as while the files were held: a drop can come without a hover that was accepted, or the
     // conversation can stop taking files between hover and release. Such a drop attaches nothing.
     private async Task Dropped(DragEventArgs dropped)
     {
-        composer.ShowDropping(false);
+        SetDropping(false);
 
         if (!Takes(dropped.DataView))
         {
@@ -195,6 +204,24 @@ public sealed class ConversationPane : Grid
         }
 
         await composer.TakeDropped(dropped.DataView);
+    }
+
+    // While files are held over the conversation, hit-testing stays on this pane rather than its scrolling children.
+    // Otherwise a layout or scroll pass between drag-over and drop can place a different child under the pointer, and
+    // the platform finishes the drag without raising Drop or DragLeave on this pane, leaving the drop line on screen.
+    private void SetDropping(bool value)
+    {
+        if (dropping != value)
+        {
+            dropping = value;
+            var interactive = !value;
+            list.IsHitTestVisible = interactive;
+            center.IsHitTestVisible = interactive;
+            composer.IsHitTestVisible = interactive;
+            readBox.IsHitTestVisible = interactive;
+        }
+
+        composer.ShowDropping(value);
     }
 
     // A drop is taken only when it carries files and the conversation takes files now. A picture dragged with no file
