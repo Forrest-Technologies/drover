@@ -3,7 +3,8 @@ namespace Drover.Native.Shell;
 /// <summary>
 /// The root of the app: the screen for the current address, with the toasts over it. It listens to the navigator
 /// and shows the screen each address names, keeps the frame's own back stack in step, applies the theme choice,
-/// and names the window after the screen.
+/// and names the window after the screen. The appearance choices are its own dialog, because a choice makes the
+/// screen again and the choices stay open over it.
 /// </summary>
 public sealed class ShellView : Grid
 {
@@ -19,6 +20,10 @@ public sealed class ShellView : Grid
 
     private readonly Window window;
 
+    private readonly AppearanceViewModel appearanceModel;
+
+    private Dialog? appearance;
+
     #endregion
 
     #region Constructors
@@ -28,6 +33,7 @@ public sealed class ShellView : Grid
         (this.services, this.window) = (services, window);
         navigator = services.GetRequiredService<Navigator>();
         theme = services.GetRequiredService<ThemeModel>();
+        appearanceModel = ActivatorUtilities.CreateInstance<AppearanceViewModel>(services);
 
         Children.Add(frame);
         Children.Add(new ToastHost { Model = ActivatorUtilities.CreateInstance<ToastHostViewModel>(services) });
@@ -37,11 +43,14 @@ public sealed class ShellView : Grid
 #endif
 
         theme.Load();
-        theme.PropertyChanged += (_, _) => ApplyTheme();
+        theme.PropertyChanged += (_, _) => ThemeChanged();
         navigator.Navigated += Show;
         ActualThemeChanged += (_, _) => Paint();
         Loaded += (_, _) => DispatcherQueue.TryEnqueue(PlatformShell.Shown);
-        ApplyTheme();
+#if DEBUG
+        Loaded += (_, _) => AppearanceRehearsal.StartIfAsked(this, theme);
+#endif
+        _ = ApplyTheme();
         Paint();
     }
 
@@ -113,8 +122,12 @@ public sealed class ShellView : Grid
         {
             PlatformShell.SetTitle(window, shown.Title);
 
-            // The new screen takes the focus, so it is announced and the keyboard starts at its top.
-            shown.Focus(FocusState.Programmatic);
+            // The new screen takes the focus, so it is announced and the keyboard starts at its top. A screen made
+            // again under the appearance choices leaves the focus with them.
+            if (!(rebuild && theme.AppearanceOpen))
+            {
+                shown.Focus(FocusState.Programmatic);
+            }
         }
     }
 
@@ -124,7 +137,13 @@ public sealed class ShellView : Grid
     // follow it at once. A window has no black mode, so black is the dark mode with the theme's black colors in it.
     // Another theme, another accent or the black mode puts new values in the resources, and the open screen is made
     // again from them, so every group changes without a restart.
-    private void ApplyTheme()
+    private void ThemeChanged()
+    {
+        var remade = ApplyTheme();
+        ShowAppearance(remade);
+    }
+
+    private bool ApplyTheme()
     {
         RequestedTheme = theme.Choice.Mode switch
         {
@@ -135,7 +154,7 @@ public sealed class ShellView : Grid
 
         if (ReferenceEquals(theme.Theme, ThemeTokens.Current) && theme.IsBlack == ThemeTokens.Black)
         {
-            return;
+            return false;
         }
 
         ThemeTokens.Apply(theme.Theme, theme.IsBlack);
@@ -143,6 +162,99 @@ public sealed class ShellView : Grid
         if (frame.Content is Screen { Route: { } route } open)
         {
             Go(open.GetType(), route, NavigationKind.Replace, rebuild: true);
+        }
+
+        return true;
+    }
+
+    // The dialog is in the shell only while it is open. Sizes, shapes and type are read when a control is made, so
+    // after a choice that put new values in the resources the dialog is made again as the screen is, and the option
+    // that had the focus has it again.
+    private void ShowAppearance(bool remade)
+    {
+        if (!theme.AppearanceOpen)
+        {
+            CloseAppearance();
+            return;
+        }
+
+        if (appearance is not null && !remade)
+        {
+            return;
+        }
+
+        var held = (appearance?.Body as AppearanceChoices)?.FocusHeld;
+        RemoveAppearance();
+
+        var dialog = new Dialog { Title = "Appearance", Body = new AppearanceChoices(appearanceModel) { FocusHeld = held } };
+        dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AppearanceClosedByPerson(dialog));
+        appearance = dialog;
+        Children.Add(dialog);
+        dialog.Open = true;
+    }
+
+    // Escape, Back or the Close button.
+    private void AppearanceClosedByPerson(Dialog dialog)
+    {
+        if (ReferenceEquals(dialog, appearance) && !dialog.Open)
+        {
+            theme.AppearanceOpen = false;
+        }
+    }
+
+    private void CloseAppearance()
+    {
+        if (appearance is null)
+        {
+            return;
+        }
+
+        RemoveAppearance();
+        FocusAfterAppearance();
+    }
+
+    private void RemoveAppearance()
+    {
+        if (appearance is { } dialog)
+        {
+            appearance = null;
+            dialog.Open = false;
+            dialog.Body = null;
+            Children.Remove(dialog);
+        }
+    }
+
+    // The account menu that opened the choices may be gone with its screen. The focus goes to the button of the
+    // account menu now showing, and to the top of the screen where there is none.
+    private void FocusAfterAppearance()
+    {
+        if (frame.Content is not Screen shown)
+        {
+            return;
+        }
+
+        if (!AccountMenusUnder(shown).Any(menu => menu.ActualWidth > 0 && menu.FocusTrigger()))
+        {
+            shown.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private static IEnumerable<AccountMenu> AccountMenusUnder(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is AccountMenu menu)
+            {
+                yield return menu;
+            }
+            else
+            {
+                foreach (var deeper in AccountMenusUnder(child))
+                {
+                    yield return deeper;
+                }
+            }
         }
     }
 

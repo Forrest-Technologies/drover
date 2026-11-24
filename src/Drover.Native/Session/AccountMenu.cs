@@ -13,8 +13,6 @@ public sealed class AccountMenu : Grid
 
     private readonly Menu menu = new();
 
-    private readonly Dialog appearance = new() { Title = "Appearance" };
-
     private readonly Dialog notifications = new() { Title = "Notifications on this device" };
 
     private readonly Dialog? updates;
@@ -37,11 +35,9 @@ public sealed class AccountMenu : Grid
 
     public AccountMenu()
     {
-        appearance.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AppearanceChanged());
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
         about.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AboutChanged());
         Children.Add(menu);
-        Children.Add(appearance);
         Children.Add(notifications);
         Children.Add(about);
 
@@ -99,6 +95,16 @@ public sealed class AccountMenu : Grid
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>
+    /// Puts the focus on the menu's button, when the menu is showing: where it belongs after the appearance choices,
+    /// which the shell shows over the screen, have closed.
+    /// </summary>
+    public bool FocusTrigger() => menu.Trigger.Focus(FocusState.Keyboard);
+
+    #endregion
+
     #region Private Methods
 
     private void Show()
@@ -107,7 +113,6 @@ public sealed class AccountMenu : Grid
         menu.AccessibleLabel = model.AccessibleLabel;
         menu.TriggerIcon = Compact ? IconName.Account : null;
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
-        ShowAppearance();
         ShowNotifications();
         ShowUpdates();
         ShowAbout();
@@ -118,6 +123,8 @@ public sealed class AccountMenu : Grid
         }
 
         menu.Items.Clear();
+
+        // The shell shows the choices, over whichever screen is open, because a choice makes the screen again.
         menu.Items.Add(Item("Appearance", model.OpenAppearance));
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
@@ -136,23 +143,6 @@ public sealed class AccountMenu : Grid
 
         menu.Items.Add(Item("About Drover", model.OpenAbout));
         menu.Items.Add(Item("Sign out", () => _ = model.SignOut()));
-    }
-
-    // The choices are in the screen only while the dialog is open. They draw themselves again from the model after
-    // each choice, so the body is made once for each opening.
-    private void ShowAppearance()
-    {
-        if (model.AppearanceOpen && !appearance.Open)
-        {
-            appearance.Body = new AppearanceChoices(model);
-        }
-
-        appearance.Open = model.AppearanceOpen;
-
-        if (!model.AppearanceOpen)
-        {
-            appearance.Body = null;
-        }
     }
 
     // The control is made each time the dialog opens, so the device is asked afresh, and let go when it closes.
@@ -236,15 +226,6 @@ public sealed class AccountMenu : Grid
     }
 
     // The item that opened the dialog is in a closed menu, so the focus goes back to the menu's own button.
-    private void AppearanceChanged()
-    {
-        if (!appearance.Open && model.AppearanceOpen)
-        {
-            model.AppearanceOpen = false;
-            menu.ReturnFocusToTrigger();
-        }
-    }
-
     private void NotificationsChanged()
     {
         if (!notifications.Open && model.NotificationsOpen)

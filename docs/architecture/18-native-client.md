@@ -94,6 +94,8 @@ Taking a screenshot of the browser build: serve the published `wwwroot` at the r
 
 Taking a screenshot of the desktop build on a machine with no display: `xvfb-run -a --server-args="-screen 0 1280x800x24"` around a script that starts `bin/Debug/net11.0-desktop/Drover.Native.dll`, waits, and runs `import -window root out.png`.
 
+The appearance choices (theme, mode, accent) are a dialog the shell owns, not the account menu: a choice of theme, accent or the black mode makes the open screen again, and the dialog stays open over it. Whether it is open is `ThemeModel.AppearanceOpen`, which the account menu's "Appearance" item sets; the options are `AppearanceViewModel`. After such a choice `ShellView` makes the dialog again from the new values and hands the option that had the focus to the new body (`AppearanceChoices.FocusHeld`); when it closes, the focus goes to the account menu's button on the screen now showing, or to the screen. A development build started with `DROVER_DEV_APPEARANCE` set opens the dialog over the first screen and presses the buttons named in it, separated by commas, two seconds apart (`Shell/AppearanceRehearsal.cs`), for a picture with no pointer.
+
 The pictures taken for this work are in `docs/screenshots/native-foundation/`, native beside web, at 1280 and 360 pixels, dark and light.
 
 ## Screen checks

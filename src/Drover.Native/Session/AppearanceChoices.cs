@@ -1,15 +1,15 @@
 namespace Drover.Native.Session;
 
 /// <summary>
-/// The body of the account menu's Appearance dialog: the theme, the mode, and, where the theme offers more than its
-/// own, the accent. Each is a group of which one is in use. A choice applies at once, and the groups are drawn again
-/// from the model with the focus kept on the option that was chosen. The arrow keys move within a group.
+/// The body of the Appearance dialog the account menu opens: the theme, the mode, and, where the theme offers more
+/// than its own, the accent. Each is a group of which one is in use. A choice applies at once, and the groups are
+/// drawn again from the model with the focus kept on the option that was chosen. The arrow keys move within a group.
 /// </summary>
 public sealed class AppearanceChoices : StackPanel
 {
     #region Private Fields
 
-    private readonly AccountMenuViewModel model;
+    private readonly AppearanceViewModel model;
 
     private readonly Dictionary<string, AppearanceOption> options = [];
 
@@ -25,13 +25,27 @@ public sealed class AppearanceChoices : StackPanel
 
     #region Constructors
 
-    public AppearanceChoices(AccountMenuViewModel model)
+    public AppearanceChoices(AppearanceViewModel model)
     {
         this.model = model;
         Spacing = Tokens.Number("DvSpace5");
         Loaded += (_, _) => Listen(true);
         Unloaded += (_, _) => Listen(false);
         this.WhenShownOrRethemed(Draw);
+    }
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// The option that has the focus, or is owed it. A shell that makes the dialog again after a choice hands this to
+    /// the new body, so the focus stays on what was chosen.
+    /// </summary>
+    public (string Key, FocusState State)? FocusHeld
+    {
+        get => Focused() ?? focusOwed;
+        init => focusOwed = value;
     }
 
     #endregion
@@ -211,14 +225,19 @@ public sealed class AppearanceChoices : StackPanel
         AutomationProperties.SetName(option, accessibleName);
         ArrowKeyZone.SetIsItem(option, true);
         option.Click += (_, _) => choose();
-        option.Loaded += (_, _) => GiveFocusOwed(key, option);
+
+        // After everything shown with it has loaded, so a dialog that puts the focus on its Close button as it opens
+        // does not take it back.
+        option.Loaded += (_, _) => DispatcherQueue.TryEnqueue(() => GiveFocusOwed(key, option));
         options[key] = option;
         return option;
     }
 
     private void GiveFocusOwed(string key, AppearanceOption option)
     {
-        if (focusOwed is { } owed && owed.Key == key)
+        // An option drawn over before its turn came is no longer the one showing.
+        var showing = options.TryGetValue(key, out var current) && ReferenceEquals(current, option);
+        if (showing && focusOwed is { } owed && owed.Key == key)
         {
             focusOwed = null;
             option.Focus(owed.State);

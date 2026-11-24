@@ -205,6 +205,7 @@ public sealed class ChatEntry : ContentControl
         Tapped += Pressed;
         KeyDown += KeyPressed;
         SizeChanged += (_, _) => Fit();
+        SizeChanged += (_, _) => System.IO.File.AppendAllText("/tmp/dbg.log", $"size {shown?.Key} h={ActualHeight} footer={footer.Visibility} fh={footer.ActualHeight} run={run.Visibility}\n");
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -529,6 +530,22 @@ public sealed class ChatEntry : ContentControl
         footer.Visibility = Shown(hasFooter && asked);
         System.IO.File.AppendAllText("/tmp/dbg.log", $"actions {shown?.Key} asked={asked} hasFooter={hasFooter} focus={focusWithin} pinned={pinned} open={footer.UsageOpen} vis={footer.Visibility} {Environment.StackTrace.Split('\n')[2].Trim()}\n");
         run.Visibility = Shown(leads && asked);
+        var w = Environment.GetEnvironmentVariable("DROVER_W");
+        switch (w)
+        {
+            case "1":
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, InvalidateArrange);
+                break;
+            case "2":
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ring.Opacity = ring.Opacity == 1 ? 0.999 : 1);
+                break;
+            case "3":
+                UpdateLayout();
+                break;
+            case "4":
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => XamlRoot?.Content?.InvalidateArrange());
+                break;
+        }
     }
 
     private void ShowVersions(ChatMessage message, ChatEntryParameters parameters)

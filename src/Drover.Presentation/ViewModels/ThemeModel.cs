@@ -15,6 +15,13 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
     [ObservableProperty]
     private ThemeChoice choice = ThemeChoice.Default;
 
+    /// <summary>
+    /// True while the appearance choices are showing. It is kept here, with the choice, because a choice can make the
+    /// open screen again and the choices stay open over it.
+    /// </summary>
+    [ObservableProperty]
+    private bool appearanceOpen;
+
     #endregion
 
     #region Properties
