@@ -224,6 +224,7 @@ A few things people ask about, none of them built yet:
 - Emoji reactions in both directions, so a thumbs up or a check mark reaches the bot ([#361](https://github.com/Forrest-Technologies/drover/issues/361), [#730](https://github.com/Forrest-Technologies/drover/issues/730)).
 - An output pane next to the conversation that keeps the draft or code a bot is working on in view ([#879](https://github.com/Forrest-Technologies/drover/issues/879)).
 - Interfaces in a reply: a bot asks with choices or a short form ([#880](https://github.com/Forrest-Technologies/drover/issues/880)), and a tool server's answer arrives as an interactive card ([#510](https://github.com/Forrest-Technologies/drover/issues/510)).
+- A bot can ask you a question with choices or your own words, and ask for a credential it can use but never read. ([#544](https://github.com/Forrest-Technologies/drover/issues/544), [#207](https://github.com/Forrest-Technologies/drover/issues/207), [#885](https://github.com/Forrest-Technologies/drover/issues/885))
 
 ## Contributing
 

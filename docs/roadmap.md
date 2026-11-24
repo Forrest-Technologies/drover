@@ -456,15 +456,26 @@ More themes and a theme editor, keyboard shortcuts with a list of them, a comman
 
 ### 15 Tools and reach
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 25 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 26 issues
 
 More built-in tools, pictures and files from tool servers, tool server resources and prompts, a catalog of ready tool servers, OpenAPI descriptions as tools, and Drover usable from other programs with access tokens.
 
+**Issues.**
+
+- #880 feat: a bot's reply can show choices, a short form, a table or a checklist drawn with Drover's own controls
+- #544 feat: a bot asks the person a question, with choices or your own words, and waits for the answer
+
 ### 16 Sandbox experience
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/16) · 39 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/16) · 41 issues
 
 A sandbox a person can see, watch and take over with nothing to set up: a live screen and a terminal in the client, Docker sandboxes with no account anywhere, sandbox files, and secrets a bot can use without seeing them.
+
+**Issues.**
+
+- #207 feat: a bot asks for a credential on a card, Drover keeps it, and the bot gets only a handle
+- #885 feat: a bot uses a credential by its handle in a command or a file in a running sandbox (part A)
+- #885 feat: a bot uses a credential by its handle in a browser field in a sandbox (part B)
 
 ### 17 Crew at work
 
