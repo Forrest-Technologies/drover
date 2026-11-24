@@ -38,6 +38,7 @@ public enum IconName
     Search,
     Send,
     Settings,
+    Share,
     Speaker,
     Stop,
     Thought,

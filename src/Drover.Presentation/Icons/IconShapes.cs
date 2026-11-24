@@ -77,6 +77,8 @@ public static class IconShapes
             """<path d="m3 11 17-7-7 16-2-7z"/><path d="m11 13 9-9"/>""",
         [IconName.Settings] =
             """<path d="M4 8h9"/><path d="M17 8h3"/><path d="M13 6h4v4h-4z"/><path d="M4 16h3"/><path d="M11 16h9"/><path d="M7 14h4v4H7z"/>""",
+        [IconName.Share] =
+            """<path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 11v10h14V11"/>""",
         [IconName.Speaker] =
             """<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9v6"/><path d="M20 6v12"/>""",
         [IconName.Stop] =
