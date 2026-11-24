@@ -26,9 +26,10 @@ internal sealed class NativeFilePreviewControl : StackPanel
         Spacing = Tokens.Number("DvSpace2"),
     };
 
-    private readonly Button previousPage = new() { Content = "Previous page" };
+    // The page arrows stand around "Page 2 of 5", known by their icons and named in words.
+    private readonly IconButton previousPage = new() { Icon = IconName.ChevronLeft, Label = "Previous PDF page" };
 
-    private readonly Button nextPage = new() { Content = "Next page" };
+    private readonly IconButton nextPage = new() { Icon = IconName.ChevronRight, Label = "Next PDF page" };
 
     private readonly TextBlock pageCaption = Styles.Text(null, "DvTextMono");
 
@@ -63,18 +64,13 @@ internal sealed class NativeFilePreviewControl : StackPanel
         toggle.MinHeight = Tokens.Number("DvTargetTouch");
         toggle.Click += async (_, _) => await model.Toggle();
 
-        previousPage.MinHeight = Tokens.Number("DvTargetTouch");
         previousPage.Click += (_, _) => model.PreviousPage();
-        AutomationProperties.SetName(previousPage, "Previous PDF page");
-
-        nextPage.MinHeight = Tokens.Number("DvTargetTouch");
         nextPage.Click += (_, _) => model.NextPage();
-        AutomationProperties.SetName(nextPage, "Next PDF page");
 
         pageCaption.VerticalAlignment = VerticalAlignment.Center;
         pdfHeader.Children.Add(previousPage);
-        pdfHeader.Children.Add(nextPage);
         pdfHeader.Children.Add(pageCaption);
+        pdfHeader.Children.Add(nextPage);
 
         pdfText.IsTextSelectionEnabled = true;
         pdfPageBody.Children.Add(pdfPicture);
