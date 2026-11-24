@@ -49,7 +49,12 @@ public static class OverlaySamples
             about.Open = true;
         };
 
-        return [openDialog, openSheet, menu, tooltip, error, openAbout, dialog, sheet, about];
+        // The real Appearance dialog, as the account menu opens it. A choice made in it changes this app's own theme.
+        var openAppearance = new Button { Content = "Open Appearance" };
+        openAppearance.Click += (_, _) =>
+            ((App)Application.Current).Services.GetRequiredService<ThemeModel>().AppearanceOpen = true;
+
+        return [openDialog, openSheet, menu, tooltip, error, openAbout, openAppearance, dialog, sheet, about];
     }
 
     private static MenuItem Item(string label, Action choose)

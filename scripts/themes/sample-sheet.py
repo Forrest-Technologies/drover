@@ -1,4 +1,4 @@
-"""Writes docs/design/themes/sample-sheet.html: every theme in both modes, drawn from its theme file.
+"""Writes docs/design/themes/sample-sheet.html: every theme of issue 421 in both modes, drawn from its theme file.
 
 The sheet is for the owner's approval on issue 421. It shows the conversation with a running tool and an approval
 card, the crew, and the bot editor, at desktop width and at 360 px, and twenty-four characters per theme. Every
@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 from color import mix  # noqa: E402
 from parts import look  # noqa: E402
-from themes import ROOT, load, modes  # noqa: E402
+from themes import FIRST_BATCH, ROOT, load, modes  # noqa: E402
 
 TARGET = ROOT / "docs/design/themes/sample-sheet.html"
 FONTS = ROOT / "src/Drover.Native/Assets/Fonts"
@@ -279,7 +279,7 @@ def page(fonts, target):
         'All names, messages and commands here are samples. This page is a drawing for approval, not the app; the '
         'app draws the same pieces natively once issue 422 applies the files. Live states are shown as one still frame.</p></div>',
     ]
-    for theme in load():
+    for theme in (theme for theme in load() if theme["id"] in FIRST_BATCH):
         parts.append(f'<div class="theme"><h1>{html.escape(theme["name"])}<span class="sample-label">Sample</span></h1>'
                      f'<p>{html.escape(theme["intent"])}</p>')
         for mode in modes(theme):

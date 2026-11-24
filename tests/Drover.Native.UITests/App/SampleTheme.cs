@@ -1,9 +1,9 @@
 namespace Drover.Native.Checks;
 
 /// <summary>
-/// A theme made only for the screen checks, a sample and not a look: Night Yard with a different value in every
-/// group that changes at run time, so a check can tell that each one reached the open screen. It is never offered to
-/// a person.
+/// A theme made only for the screen checks, a sample and not a look: Night Yard with a value in every group that
+/// changes at run time which neither Night Yard nor the default theme has, so a check can tell that each one
+/// reached the open screen whichever of the two it started from. It is never offered to a person.
 /// </summary>
 internal static class SampleTheme
 {
@@ -13,8 +13,8 @@ internal static class SampleTheme
 
     public const string DisplayName = "Sample theme for checks";
 
-    /// <summary>The base size of the type scale, which Night Yard does not have at any step.</summary>
-    public const int BaseSize = 15;
+    /// <summary>The base size of the type scale, which no theme of the app has at any step.</summary>
+    public const int BaseSize = 18;
 
     public const int ControlCut = 9;
 
@@ -51,7 +51,7 @@ internal static class SampleTheme
             Id = Id,
             Name = DisplayName,
             Intent = "A sample made for the screen checks.",
-            Type = night.Type with { Scale = [12, 13, BaseSize, 17, 21, 29] },
+            Type = night.Type with { Scale = [12, 13, BaseSize, 19, 21, 29] },
             Density = night.Density with { Spacing = 1.2, Row = new(RowPointer, RowTouch), ComposerLines = 6 },
             Shape = night.Shape with
             {

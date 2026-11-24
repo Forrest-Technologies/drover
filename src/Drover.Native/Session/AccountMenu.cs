@@ -1,8 +1,9 @@
 namespace Drover.Native.Session;
 
 /// <summary>
-/// The account menu: the theme, the ways to the settings screens, what the app is, and signing out. In the bar it
-/// carries the person's name; compact, in a phone's dock, it is an icon over the word "Account".
+/// The account menu: the way to the appearance choices, the ways to the settings screens, what the app is, and
+/// signing out. In the bar it carries the person's name; compact, in a phone's dock, it is an icon over the word
+/// "Account".
 /// </summary>
 public sealed class AccountMenu : Grid
 {
@@ -94,6 +95,16 @@ public sealed class AccountMenu : Grid
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>
+    /// Puts the focus on the menu's button, when the menu is showing: where it belongs after the appearance choices,
+    /// which the shell shows over the screen, have closed. The ring shows only when the keyboard closed them.
+    /// </summary>
+    public bool FocusTrigger(FocusState closedWith) => menu.Trigger.Focus(closedWith);
+
+    #endregion
+
     #region Private Methods
 
     private void Show()
@@ -112,11 +123,9 @@ public sealed class AccountMenu : Grid
         }
 
         menu.Items.Clear();
-        foreach (var option in model.Themes)
-        {
-            menu.Items.Add(ThemeItem(option));
-        }
 
+        // The shell shows the choices, over whichever screen is open, because a choice makes the screen again.
+        menu.Items.Add(Item("Appearance", model.OpenAppearance));
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
         menu.Items.Add(Item("Notifications", model.OpenNotifications));
@@ -195,6 +204,9 @@ public sealed class AccountMenu : Grid
         (trigger.Fill, trigger.HoverFill, trigger.Line, trigger.Ink, trigger.Radius, trigger.RingInside) =
             (null, null, null, "DvText2", null, true);
         trigger.MinHeight = Tokens.Number("DvTargetTouch") + Tokens.Number("DvSpace3");
+
+        // The cell is the button, as for the links beside it: padding at its sides would cut the word short.
+        trigger.Padding = new(0);
         trigger.FontSize = Tokens.Number("DvText12");
         trigger.HorizontalAlignment = HorizontalAlignment.Stretch;
 
@@ -213,27 +225,6 @@ public sealed class AccountMenu : Grid
     {
         var item = new MenuItem { Content = label, HorizontalContentAlignment = HorizontalAlignment.Left };
         item.Selected += (_, _) => choose();
-        return item;
-    }
-
-    // The theme in use carries a tick, and says so in words.
-    private MenuItem ThemeItem(ThemeOption option)
-    {
-        var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
-        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.Children.Add(new TextBlock { Text = option.Name, VerticalAlignment = VerticalAlignment.Center });
-
-        if (option.InUse)
-        {
-            var tick = new Icon { NameOfIcon = IconName.Check, VerticalAlignment = VerticalAlignment.Center, Foreground = Tokens.Brush(this, "DvText") };
-            SetColumn(tick, 1);
-            row.Children.Add(tick);
-        }
-
-        var item = new MenuItem { Content = row };
-        AutomationProperties.SetName(item, option.AccessibleName);
-        item.Selected += (_, _) => model.ChooseTheme(option.Mode);
         return item;
     }
 

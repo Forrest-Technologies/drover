@@ -29,7 +29,8 @@ public sealed class GallerySection : StackPanel
             Children.Add(Styles.Text(note, "DvTextSecondary"));
         }
 
-        dark = Panel("Dark", ElementTheme.Dark, samples());
+        // The dark panel is drawn in the black colors while the black mode is in use.
+        dark = Panel(ThemeTokens.Black ? "Black" : "Dark", ElementTheme.Dark, samples());
         light = Panel("Light", ElementTheme.Light, samples());
         themes.Children.Add(dark);
         themes.Children.Add(light);

@@ -1,19 +1,12 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The account menu: the theme, the ways to the settings screens, what the app is, and signing out. The same menu is
-/// in the bar of a wide window and, compact, in the dock of a narrow one.
+/// The account menu: the way to the appearance choices, the ways to the settings screens, what the app is, and
+/// signing out. The same menu is in the bar of a wide window and, compact, in the dock of a narrow one.
 /// </summary>
 public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 {
     #region Private Fields
-
-    private static readonly (ThemeMode Mode, string Name)[] themeNames =
-    [
-        (ThemeMode.Dark, "Dark theme"),
-        (ThemeMode.Light, "Light theme"),
-        (ThemeMode.System, "Match this device"),
-    ];
 
     private static readonly TimeSpan devicePatience = TimeSpan.FromSeconds(2);
 
@@ -50,7 +43,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     #region Constructors
 
-    // A traditional constructor, because the menu listens to the session and the theme from the moment it exists.
+    // A traditional constructor, because the menu listens to the session and the updates from the moment it exists.
 #pragma warning disable IDE0290
     public AccountMenuViewModel(
         SessionState session,
@@ -72,7 +65,6 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         this.push = push;
         this.updates = updates ?? new UnsupportedDesktopUpdates();
         session.Changed += SessionChanged;
-        theme.PropertyChanged += ThemeChanged;
         this.updates.Changed += UpdatesChanged;
         _ = this.updates.Start();
     }
@@ -87,9 +79,6 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     /// <summary>A fuller name for the compact button, which shows no name.</summary>
     public string? AccessibleLabel =>
         Compact && session.Current is { } person ? $"Account for {person.DisplayName}" : null;
-
-    public IReadOnlyList<ThemeOption> Themes =>
-        [.. themeNames.Select(name => new ThemeOption(name.Mode, name.Name, theme.Choice.Mode == name.Mode))];
 
     /// <summary>The status screen is for the people who run the space.</summary>
     public bool ShowsStatus => session.Space?.Role is "owner" or "admin";
@@ -137,15 +126,15 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         session.Changed -= SessionChanged;
-        theme.PropertyChanged -= ThemeChanged;
         updates.Changed -= UpdatesChanged;
     }
 
     [RelayCommand]
-    public void ChooseTheme(ThemeMode mode) => theme.Choose(mode);
-
-    [RelayCommand]
     public void Open(string address) => navigator.NavigateTo(address);
+
+    /// <summary>The theme, the mode and the accent, shown over the screen when asked for.</summary>
+    [RelayCommand]
+    public void OpenAppearance() => theme.AppearanceOpen = true;
 
     [RelayCommand]
     public void OpenNotifications() => NotificationsOpen = true;
@@ -195,9 +184,6 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(AccessibleLabel));
         OnPropertyChanged(nameof(ShowsStatus));
     }
-
-    private void ThemeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change) =>
-        OnPropertyChanged(nameof(Themes));
 
     private void UpdatesChanged()
     {
