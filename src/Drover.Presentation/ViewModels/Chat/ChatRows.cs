@@ -14,6 +14,9 @@ public enum ChatEntryShape
 
     /// <summary>A bot's words, spoken from its head on a plate beside them.</summary>
     Bot,
+
+    /// <summary>A bot's words further on in its turn: under the turn's head, in line with its words, without a head of their own.</summary>
+    Continued,
 }
 
 /// <summary>A part of a reply's footer, in the order the parts stand on its line.</summary>
@@ -83,6 +86,8 @@ public static class ChatRows
     public static ChatEntryShape Shape(ChatMessage message, bool compact) => message switch
     {
         { FromPerson: true } => ChatEntryShape.Person,
+        { ContinuesTurn: true } when !compact => ChatEntryShape.Continued,
+        { Ledger: not null } when !compact => ChatEntryShape.Bot,
         { Text.Length: 0, Reasoning: null } => ChatEntryShape.Tools,
         _ when compact => ChatEntryShape.Compact,
         _ => ChatEntryShape.Bot,
@@ -92,7 +97,7 @@ public static class ChatRows
     public static string EntryName(ChatMessage message, string botName, string? asker) => message switch
     {
         { FromPerson: true } => asker is null ? message.SentBy ?? "You said" : $"{asker} asked",
-        { Text.Length: 0, Reasoning: null } => $"What {botName} did",
+        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"What {botName} did",
         { Text.Length: 0 } => $"What {botName} thought",
         _ => $"{botName} said",
     };

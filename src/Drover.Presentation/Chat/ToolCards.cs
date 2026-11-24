@@ -84,6 +84,8 @@ public static partial class ToolCards
             ResultLanguage = shown?.Language,
             ResultLength = resultText.Length,
             CommandError = commandError,
+            Tool = toolName,
+            DurationMs = call.DurationMs,
             Facts = FactsOf(toolName, arguments, call.Details),
             Takeover = TakeoverOf(call, arguments, resultText),
         };
