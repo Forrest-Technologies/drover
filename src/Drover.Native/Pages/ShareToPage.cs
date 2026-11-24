@@ -23,6 +23,7 @@ public sealed class ShareToPage : Screen
         // The web's column: as wide as an entry screen, centered, never wider than the window.
         column.MaxWidth = Tokens.Number("DvEntryWidth");
         column.HorizontalAlignment = HorizontalAlignment.Center;
+        layout.Body.Add(new ScreenHeader { Title = ShareToViewModel.Heading });
         layout.Body.Add(column);
         Content = layout;
         Refresh();
@@ -57,9 +58,6 @@ public sealed class ShareToPage : Screen
     {
         var parts = column.Children;
         parts.Clear();
-        var title = Styles.Text(ShareToViewModel.Heading, "DvTextH1");
-        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level1);
-        parts.Add(title);
         if (model.ShowNothing)
         {
             parts.Add(new EmptyState { Cause = ShareToViewModel.NothingCause, ActionLabel = ShareToViewModel.GoToCrewLabel, ActionHref = Addresses.Home });

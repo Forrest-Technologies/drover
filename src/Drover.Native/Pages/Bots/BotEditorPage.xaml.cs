@@ -10,7 +10,7 @@ public sealed partial class BotEditorPage : Screen
 
     private readonly HiddenStatus saveWordsSaid = new();
 
-    private readonly TextBlock heading = new() { Opacity = 0, Height = 0, IsHitTestVisible = false };
+    private readonly ScreenHeader header = new() { BackLabel = BotEditorViewModel.Back, BackAddress = Addresses.Bots };
 
     private readonly Grid identity = new() { ColumnSpacing = Tokens.Number("DvSpace4"), RowSpacing = Tokens.Number("DvSpace4") };
 
@@ -26,7 +26,12 @@ public sealed partial class BotEditorPage : Screen
 
     private readonly Badge paused = new() { Text = BotEditorViewModel.PausedBadge, Kind = BadgeKind.Warn };
 
-    private readonly Menu menu = new() { Label = BotEditorViewModel.MenuLabel, VerticalAlignment = VerticalAlignment.Top };
+    private readonly Menu menu = new()
+    {
+        Label = BotEditorViewModel.MenuLabel,
+        TriggerIcon = IconName.More,
+        ShowTriggerLabel = false,
+    };
 
     private readonly MenuItem pauseOrResume = MenuEntry(string.Empty);
 
@@ -79,7 +84,8 @@ public sealed partial class BotEditorPage : Screen
     public BotEditorPage()
     {
         InitializeComponent();
-        Layout.Body.Insert(0, new BackLink(BotEditorViewModel.Back, Addresses.Bots));
+        header.Actions.Add(menu);
+        Layout.Body.Insert(0, header);
         Loading.Text = BotEditorViewModel.Loading;
         Model.PropertyChanged += (_, _) => Show();
         Unloaded += (_, _) => Model.Close();
@@ -114,6 +120,8 @@ public sealed partial class BotEditorPage : Screen
     {
         var state = Model.State;
         ShowStage(state);
+        header.Title = state is BotEditorState.Shown ? Model.ShownName : "Bot";
+        menu.Shown(state is BotEditorState.Shown && !Model.IsNew);
         Loading.Shown(state is BotEditorState.Loading);
         Form.Shown(state is BotEditorState.Shown);
 
@@ -204,7 +212,6 @@ public sealed partial class BotEditorPage : Screen
         column.Children.Add(instructions.OnChanged(() => showing, value => Model.Edit(draft => draft.Instructions = value)));
         column.Children.Add(Sections());
         column.Children.Add(SaveBar());
-        Form.Children.Add(heading);
         Form.Children.Add(column);
         Form.Children.Add(saveWordsSaid);
         Form.Children.Add(Removing());
@@ -214,7 +221,6 @@ public sealed partial class BotEditorPage : Screen
 
     private Grid Identity()
     {
-        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level1);
         name.OnChanged(() => showing, Model.Rename).Submitted += (_, _) => _ = Model.Save();
         handle.OnChanged(() => showing, value => Model.Edit(draft => draft.Handle = value)).Submitted += (_, _) => _ = Model.Save();
         var changeHandle = new IconButton { Icon = IconName.Edit, Label = BotEditorViewModel.ChangeHandleLabel };
@@ -244,13 +250,11 @@ public sealed partial class BotEditorPage : Screen
         Grid.SetColumn(names, 1);
         identity.Children.Add(avatar);
         identity.Children.Add(names);
-        identity.Children.Add(menu);
         identity.SizeChanged += (_, _) => Fit();
         Fit();
         return identity;
     }
 
-    // On a phone the menu sits under the name; with room it moves to the row's end.
     private void Fit()
     {
         var narrow = identity.ActualWidth > 0 && identity.ActualWidth < (double)Styles.Dictionary["DvBreakPhone"];
@@ -260,10 +264,6 @@ public sealed partial class BotEditorPage : Screen
         }
 
         phone = narrow;
-        Grid.SetRow(menu, phone ? 1 : 0);
-        Grid.SetColumn(menu, phone ? 0 : 2);
-        Grid.SetColumnSpan(menu, phone ? 3 : 1);
-        identity.RowSpacing = phone ? Tokens.Number("DvSpace4") : 0;
         FitSaveBar();
     }
 
@@ -388,8 +388,6 @@ public sealed partial class BotEditorPage : Screen
     private void ShowForm()
     {
         var draft = Model.Draft!;
-        heading.Text = Model.Heading;
-        AutomationProperties.SetName(heading, Model.Heading);
         avatar.BotName = Model.ShownName;
         avatar.Hue = Model.Hue;
         name.Show(draft.Name);
@@ -397,7 +395,6 @@ public sealed partial class BotEditorPage : Screen
         handleRow.Shown(!Model.EditingHandle);
         handleWords.Show(Model.HandleShown);
         paused.Shown(Model.IsPaused);
-        menu.Shown(!Model.IsNew);
         pauseOrResume.Content = Model.IsPaused ? BotEditorViewModel.ResumeLabel : BotEditorViewModel.PauseLabel;
         actionProblem.Show(Model.ActionProblem);
         purpose.Show(draft.DescriptionForBots);

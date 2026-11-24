@@ -13,7 +13,7 @@ public sealed class BotSandboxPage : Screen
 
     private readonly BotSandboxViewModel model = Make<BotSandboxViewModel>();
 
-    private readonly Link back = new() { Ink = "DvText2", HoverInk = "DvText", HoverFill = "DvBg3", Radius = "DvRadiusControl" };
+    private readonly ScreenHeader header = new() { Title = "Sandbox" };
 
     private readonly ContentControl under = new() { IsTabStop = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
 
@@ -89,10 +89,7 @@ public sealed class BotSandboxPage : Screen
 
     public BotSandboxPage()
     {
-        back.MinHeight = Tokens.Number("DvTargetTouch");
-        back.Padding = new(Tokens.Number("DvSpace2"), 0, Tokens.Number("DvSpace2"), 0);
-        back.VerticalContentAlignment = VerticalAlignment.Center;
-        layout.Body.Add(back);
+        layout.Body.Add(header);
         layout.Body.Add(under);
         Content = layout;
 
@@ -121,7 +118,7 @@ public sealed class BotSandboxPage : Screen
 
     private void BuildHead()
     {
-        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level1);
+        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
         heading.TextWrapping = TextWrapping.Wrap;
         headingHolder.Content = heading;
         headingHolder.LostFocus += (_, _) => headingHolder.IsTabStop = false;
@@ -242,9 +239,8 @@ public sealed class BotSandboxPage : Screen
 
     private void Refresh()
     {
-        back.Text = model.BackLabel;
-        back.Content = BackContent(model.BackLabel);
-        back.Address = Addresses.Bot(model.BotId);
+        header.BackLabel = model.BackLabel;
+        header.BackAddress = Addresses.Bot(model.BotId);
         ShowTitle();
 
         if (shown != (model.Shows, model.LoadProblem))
@@ -286,14 +282,6 @@ public sealed class BotSandboxPage : Screen
         var note = Hint(live: true);
         note.Text = BotSandboxViewModel.LoadingNote;
         return note;
-    }
-
-    private static StackPanel BackContent(string label)
-    {
-        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
-        content.Children.Add(new Icon { NameOfIcon = IconName.ArrowLeft, VerticalAlignment = VerticalAlignment.Center });
-        content.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
-        return content;
     }
 
     // The window is named after the bot once it is known.

@@ -20,7 +20,12 @@ public sealed class ProjectPage : Screen
 
     private readonly StackPanel detailsPanel = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private readonly TextBlock titleText = PageParts.Title("Project");
+    private readonly ScreenHeader header = new()
+    {
+        Title = "Project",
+        BackLabel = "Back to projects",
+        BackAddress = Addresses.Projects,
+    };
 
     private readonly TextBlock memberNoteText = Styles.Text(ProjectViewModel.MemberNote, "DvTextSecondary");
 
@@ -73,13 +78,12 @@ public sealed class ProjectPage : Screen
             enabled: false,
             ButtonKind.Primary);
 
-        editorPanel.Children.Add(titleText);
         editorPanel.Children.Add(memberNoteText);
         editorPanel.Children.Add(nameField);
         editorPanel.Children.Add(instructionsField);
         editorPanel.Children.Add(saveButton);
 
-        layout.Body.Add(Back());
+        layout.Body.Add(header);
         layout.Body.Add(statePanel);
         layout.Body.Add(editorPanel);
         layout.Body.Add(statusPanel);
@@ -116,6 +120,7 @@ public sealed class ProjectPage : Screen
     private void Refresh()
     {
         var ready = model.State is ProjectScreenState.Ready;
+        header.Title = ready ? model.Name : "Project";
         statePanel.Visibility = ready ? Visibility.Collapsed : Visibility.Visible;
         editorPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
         statusPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
@@ -126,7 +131,6 @@ public sealed class ProjectPage : Screen
         {
             if (model.State is ProjectScreenState.Loading)
             {
-                statePanel.Children.Add(PageParts.Title("Project"));
                 statePanel.Children.Add(PageParts.Waiting(ProjectViewModel.Loading));
             }
             else if (model.State is ProjectScreenState.Missing)
@@ -146,8 +150,6 @@ public sealed class ProjectPage : Screen
         showing = true;
         try
         {
-            titleText.Text = model.Name;
-            AutomationProperties.SetName(titleText, model.Name);
             memberNoteText.Visibility = model.CanManage ? Visibility.Collapsed : Visibility.Visible;
 
             if (nameField.Value != model.DraftName)
@@ -301,18 +303,6 @@ public sealed class ProjectPage : Screen
 
     private Button MoveOut(string label, Guid threadId) =>
         PageParts.Action(ProjectViewModel.MoveOutLabel(label), () => model.MoveOut(threadId), Refresh, model.Working is null);
-
-    private static Link Back()
-    {
-        var link = new Link
-        {
-            Text = ProjectViewModel.MissingAction,
-            Address = Addresses.Projects,
-            MinHeight = Tokens.Number("DvTargetTouch"),
-        };
-        AutomationProperties.SetName(link, ProjectViewModel.MissingAction);
-        return link;
-    }
 
     private static Link ThreadLink(string label, string address)
     {
