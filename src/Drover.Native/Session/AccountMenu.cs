@@ -233,7 +233,7 @@ public sealed class AccountMenu : Grid
 
         var item = new MenuItem { Content = row };
         AutomationProperties.SetName(item, option.AccessibleName);
-        item.Selected += (_, _) => model.ChooseTheme(option.Choice);
+        item.Selected += (_, _) => model.ChooseTheme(option.Mode);
         return item;
     }
 

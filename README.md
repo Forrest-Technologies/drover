@@ -55,7 +55,7 @@ Each bot gets a character drawn from a set of parts (head, visor, top, mark, til
 
 ### Conversations
 
-Replies stream in, and each tool call shows its arguments, output, and result as it happens. You can edit an earlier message, regenerate a reply, open a side chat next to the main one, and read a running summary. Code, tables, differences, logs and bytes in a message are drawn from what they hold. Lines can wrap, and a block can open full screen. Past 400 lines or 64 KiB a block shows the start until you ask for the rest.
+Replies stream in, and each tool call shows its arguments, output, and result as it happens. You can edit an earlier message, regenerate a reply, open a side chat next to the main one, and read a running summary. One bot turn now reads as one unit with a compact ledger of its work. Each piece of work is one row that opens to the call when a person wants the detail. Code, tables, differences, logs and bytes in a message are drawn from what they hold. Lines can wrap, and a block can open full screen. Past 400 lines or 64 KiB a block shows the start until you ask for the rest.
 
 Search covers your conversations, and you can save one as Markdown or JSON. Attach files and pictures; Drover reads PDF and office documents as text for the model. Large pictures get a static preview of at most 480 pixels on the long edge, and Download still gives the original. You can paste a picture or drop files anywhere on a conversation; a refusal says why in one sentence. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels. Projects group conversations around shared files. If you set up a second domain for previews, HTML a bot writes opens there, away from your session cookies.
 

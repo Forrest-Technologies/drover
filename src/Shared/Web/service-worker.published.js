@@ -11,7 +11,9 @@ self.importScripts("./service-worker-assets.js", "./push-worker.js");
 const cacheNamePrefix = "drover-shell-";
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
 const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/, /\.css$/, /\.woff2$/, /\.ttf$/, /\.manifest$/, /\.png$/, /\.svg$/, /\.webmanifest$/, /\.dat$/, /\.blat$/];
-const neverCached = [/^service-worker\.js$/];
+// The color emoji font is large and nothing draws it yet. It ships with the build but is fetched only when a glyph
+// needs it, so a first visit does not pay for it. The UI fonts stay in the shell.
+const neverCached = [/^service-worker\.js$/, /NotoColorEmoji-Regular\.ttf$/];
 // Addresses the server answers itself. /native/ is where the client was served until 2026-11-20; the server sends
 // it to the root.
 const serverPaths = ["/api/", "/health/", "/openapi/", "/oauth/", "/native/"];

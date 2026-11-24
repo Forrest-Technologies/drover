@@ -1,0 +1,183 @@
+{
+  "format": 1,
+  "id": "workbench",
+  "name": "Workbench",
+  "intent": "Large, high-contrast and touch-first, for phones, bright rooms and low vision.",
+  "group": "expressive",
+  "firstMode": "dark",
+  "suits": ["large-text"],
+  "type": {
+    "interface": "atkinson-hyperlegible-next",
+    "machine": "jetbrains-mono",
+    "reading": null,
+    "headings": "interface",
+    "machineNumerals": false,
+    "scale": [14, 15, 16, 18, 22, 30],
+    "weights": {
+      "body": 400,
+      "label": 600,
+      "heading": 700
+    },
+    "leading": {
+      "text": 1.55,
+      "heading": 1.25
+    },
+    "tracking": 0.01,
+    "headingTracking": 0,
+    "measure": 60
+  },
+  "density": {
+    "spacing": 1.2,
+    "control": {
+      "pointer": 40,
+      "touch": 48
+    },
+    "row": {
+      "pointer": 48,
+      "touch": 56
+    },
+    "composerLines": 6
+  },
+  "shape": {
+    "corners": "faceted",
+    "cut": {
+      "control": 8,
+      "frame": 14
+    },
+    "registration": false,
+    "radius": {
+      "control": 8,
+      "card": 12,
+      "sheet": 16
+    },
+    "line": 2,
+    "iconStroke": 2
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "none",
+      "strength": 0,
+      "step": 16
+    }
+  },
+  "motion": {
+    "scale": 1.0,
+    "bloom": 6,
+    "breath": 2600,
+    "travel": 1300,
+    "live": "loop",
+    "travelLine": 3
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.52,
+      "chroma": 0.11
+    },
+    "facet": 0.1,
+    "line": 3.0,
+    "visor": "band"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.84,
+      "chroma": 0.11
+    },
+    "color": {
+      "bg-0": "#0A0C10",
+      "bg-1": "#10141A",
+      "bg-2": "#161B23",
+      "bg-3": "#1E242E",
+      "line": "#3B4455",
+      "text": "#F5F7FA",
+      "text-2": "#D3D9E2",
+      "text-3": "#B2BBC9",
+      "ember": "#FFC27A",
+      "ion": "#7EEAF8",
+      "violet": "#C6B6FF",
+      "ok": "#6FE39A",
+      "warn": "#FAD54A",
+      "danger": "#FF9A9A",
+      "on-accent": "#0A0C10",
+      "hue-0": "#FEB1C8",
+      "hue-1": "#FFB5A9",
+      "hue-2": "#FFBA81",
+      "hue-3": "#E6C873",
+      "hue-4": "#C1D582",
+      "hue-5": "#95DFA4",
+      "hue-6": "#6FE2CD",
+      "hue-7": "#67DEF2",
+      "hue-8": "#95D3FF",
+      "hue-9": "#B6C9FE",
+      "hue-10": "#D3BDFE",
+      "hue-11": "#F4B0ED",
+      "head-0": "#9B4B66",
+      "head-1": "#9E4E42",
+      "head-2": "#965719",
+      "head-3": "#816501",
+      "head-4": "#61721C",
+      "head-5": "#317A45",
+      "head-6": "#027A6B",
+      "head-7": "#007785",
+      "head-8": "#1870A1",
+      "head-9": "#5064A8",
+      "head-10": "#73599E",
+      "head-11": "#8C5087",
+      "on-head": "#FFFFFF",
+      "visor": "#050608",
+      "visor-lit": "#8FF0FB",
+      "visor-failed": "#FFC2C2"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.4,
+      "chroma": 0.12
+    },
+    "color": {
+      "bg-0": "#FAFAFB",
+      "bg-1": "#FFFFFF",
+      "bg-2": "#F0F2F5",
+      "bg-3": "#E4E8EE",
+      "line": "#8E98A8",
+      "text": "#0A0C11",
+      "text-2": "#272E3A",
+      "text-3": "#3A4250",
+      "ember": "#6E3F00",
+      "ion": "#055563",
+      "violet": "#4A2FB8",
+      "ok": "#0B5A2B",
+      "warn": "#5C4300",
+      "danger": "#8E1B15",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#782445",
+      "hue-1": "#7C271C",
+      "hue-2": "#6B3900",
+      "hue-3": "#594500",
+      "hue-4": "#424E02",
+      "hue-5": "#005725",
+      "hue-6": "#025449",
+      "hue-7": "#03515C",
+      "hue-8": "#004D74",
+      "hue-9": "#2F4087",
+      "hue-10": "#53347E",
+      "hue-11": "#6A2A66",
+      "head-0": "#9B4B66",
+      "head-1": "#9E4E42",
+      "head-2": "#965719",
+      "head-3": "#816501",
+      "head-4": "#61721C",
+      "head-5": "#317A45",
+      "head-6": "#027A6B",
+      "head-7": "#007785",
+      "head-8": "#1870A1",
+      "head-9": "#5064A8",
+      "head-10": "#73599E",
+      "head-11": "#8C5087",
+      "on-head": "#FFFFFF",
+      "visor": "#050608",
+      "visor-lit": "#8FF0FB",
+      "visor-failed": "#FFC2C2"
+    }
+  }
+}
