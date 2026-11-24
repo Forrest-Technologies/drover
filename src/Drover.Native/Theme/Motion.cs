@@ -20,6 +20,20 @@ public static class Motion
     /// <summary>True when the person asked the device for less motion. Set once by the platform at startup.</summary>
     public static bool IsReduced { get; set; }
 
+    /// <summary>
+    /// True when a live state loops for as long as it lasts: motion is wanted, and the theme loops its states.
+    /// </summary>
+    public static bool Loops => !IsReduced && ThemeTokens.Current.Motion.Live is LiveStyle.Loop;
+
+    /// <summary>
+    /// True when a live state shows as one fade to a still state, never a loop: motion is wanted, and the theme fades
+    /// its states. The state is said in words either way, as every live state is.
+    /// </summary>
+    public static bool Fades => !IsReduced && ThemeTokens.Current.Motion.Live is LiveStyle.Fade;
+
+    /// <summary>How long the one fade of a fading theme takes.</summary>
+    public static TimeSpan FadeTime => TimeSpan.FromMilliseconds(Tokens.Number("DvDur3"));
+
     #endregion
 
     #region Public Methods
@@ -28,12 +42,21 @@ public static class Motion
     public static TimeSpan Duration(string key) =>
         IsReduced ? TimeSpan.Zero : TimeSpan.FromMilliseconds(Tokens.Number(key));
 
-    /// <summary>A bot is thinking: a slow breath of light. Still and fully lit with reduced motion.</summary>
+    /// <summary>
+    /// A bot is thinking: a slow breath of light, or in a theme that fades its states one fade up to fully lit.
+    /// Still and fully lit with reduced motion.
+    /// </summary>
     public static void Breathe(UIElement element)
     {
         if (IsReduced)
         {
             element.Opacity = 1;
+            return;
+        }
+
+        if (Fades)
+        {
+            Start(element, new DoubleAnimation { From = Dim, To = 1, Duration = FadeTime });
             return;
         }
 

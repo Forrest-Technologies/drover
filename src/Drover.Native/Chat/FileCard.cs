@@ -152,7 +152,7 @@ public sealed class FileCard : Grid
         var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         words.Children.Add(name);
         words.Children.Add(facts);
-        card.Cut = Tokens.Number("DvCutS");
+        card.Role = FacetRole.Control;
         card.Padding = Tokens.Space("DvSpace3", "DvSpace2");
         card.ColumnSpacing = Tokens.Number("DvSpace3");
         card.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });

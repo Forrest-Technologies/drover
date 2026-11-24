@@ -10,8 +10,6 @@ public sealed class Icon : SKCanvasElement
 
     private const float Grid = 24;
 
-    private const float StrokeWidth = 1.75f;
-
     #endregion
 
     #region Constructors
@@ -68,7 +66,7 @@ public sealed class Icon : SKCanvasElement
 
         foreach (var shape in SvgParts.Read(IconShapes.For(NameOfIcon)))
         {
-            ShapePainter.Stroke(canvas, shape, color.ToSkia(), StrokeWidth, round: false);
+            ShapePainter.Stroke(canvas, shape, color.ToSkia(), (float)Tokens.Number("DvIconStroke"), round: false);
         }
     }
 

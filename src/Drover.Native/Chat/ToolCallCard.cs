@@ -196,7 +196,7 @@ public sealed class ToolCallCard : Grid
         column.Children.Add(actions);
         column.Children.Add(problem);
 
-        ask.Cut = Tokens.Number("DvCut");
+        ask.Role = FacetRole.Frame;
         ask.Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace3"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace4"));
         ask.Children.Add(column);
         AutomationProperties.SetLabeledBy(ask, askTitle);

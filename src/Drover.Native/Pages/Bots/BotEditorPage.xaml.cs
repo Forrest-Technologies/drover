@@ -302,7 +302,7 @@ public sealed partial class BotEditorPage : Screen
     // Saving stays in reach while the page scrolls.
     private Facet SaveBar()
     {
-        saveBar.Cut = Tokens.Number("DvCut");
+        saveBar.Role = FacetRole.Frame;
         saveBar.WhenShownOrRethemed(() => (saveBar.Edge, saveBar.Fill) = (Tokens.Brush(saveBar, "DvText3"), Tokens.Brush(saveBar, "DvBg2")));
         AutomationProperties.SetAccessibilityView(saveWords, AccessibilityView.Raw);
         saveState.Children.Add(saveProblem);

@@ -138,7 +138,7 @@ public sealed class ChatEntry : ContentControl
         ring.Margin = new(-around);
         Content = ring;
 
-        plate.Cut = Tokens.Number("DvCutS");
+        plate.Role = FacetRole.Control;
         plate.Padding = new(Tokens.Number("DvSpace1"));
         plate.VerticalAlignment = VerticalAlignment.Top;
         plate.Children.Add(head);

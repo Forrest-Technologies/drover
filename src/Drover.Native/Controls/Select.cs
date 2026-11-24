@@ -34,7 +34,7 @@ public sealed class Select : StackPanel
     public Select()
     {
         Spacing = Tokens.Number("DvSpace1");
-        frame.Cut = Tokens.Number("DvCutS");
+        frame.Role = FacetRole.Control;
         frame.MinHeight = Targets.Minimum;
         frame.Children.Add(list);
         Children.Add(label);
