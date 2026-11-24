@@ -12,6 +12,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     [
         (ThemeMode.Dark, "Dark theme"),
         (ThemeMode.Light, "Light theme"),
+        (ThemeMode.Black, "Black theme"),
         (ThemeMode.System, "Match this device"),
     ];
 
@@ -91,6 +92,24 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     public IReadOnlyList<ThemeOption> Themes =>
         [.. themeNames.Select(name => new ThemeOption(name.Mode, name.Name, theme.Choice.Mode == name.Mode))];
 
+    /// <summary>The themes the app has, the default first.</summary>
+    public IReadOnlyList<LookOption> Looks =>
+        [.. BuiltInThemes.All.Select(look => new LookOption(look.Id, look.Name, look.Intent, look.Id == theme.Chosen.Id))];
+
+    /// <summary>
+    /// The accents the theme in use offers, its own color first. One that is not offered is not listed, so a theme
+    /// with no other accent lists only its own.
+    /// </summary>
+    public IReadOnlyList<AccentOption> AccentChoices =>
+    [
+        .. Accents.For(theme.Chosen).Select(accent => new AccentOption(
+            accent.Id,
+            accent.Name,
+            theme.Chosen.WithAccent(accent.Id).Dark.Colors["ember"],
+            theme.Chosen.WithAccent(accent.Id).Light.Colors["ember"],
+            ReferenceEquals(theme.Chosen.WithAccent(accent.Id), theme.Theme))),
+    ];
+
     /// <summary>The status screen is for the people who run the space.</summary>
     public bool ShowsStatus => session.Space?.Role is "owner" or "admin";
 
@@ -145,6 +164,12 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     public void ChooseTheme(ThemeMode mode) => theme.Choose(mode);
 
     [RelayCommand]
+    public void ChooseLook(string themeId) => theme.ChooseTheme(themeId);
+
+    [RelayCommand]
+    public void ChooseAccent(string accentId) => theme.ChooseAccent(accentId);
+
+    [RelayCommand]
     public void Open(string address) => navigator.NavigateTo(address);
 
     [RelayCommand]
@@ -196,8 +221,12 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ShowsStatus));
     }
 
-    private void ThemeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change) =>
+    private void ThemeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
+    {
         OnPropertyChanged(nameof(Themes));
+        OnPropertyChanged(nameof(Looks));
+        OnPropertyChanged(nameof(AccentChoices));
+    }
 
     private void UpdatesChanged()
     {

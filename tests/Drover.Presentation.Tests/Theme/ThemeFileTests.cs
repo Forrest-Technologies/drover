@@ -10,7 +10,8 @@ public sealed class ThemeFileTests
 
     private static readonly string[] shipped =
     [
-        "night-yard", "signal-room", "paper-ledger", "workbench", "blueprint", "quiet-hours", "foundry",
+        "front-office", "night-yard", "signal-room", "paper-ledger", "workbench", "blueprint", "quiet-hours",
+        "foundry",
     ];
 
     #endregion
@@ -31,19 +32,22 @@ public sealed class ThemeFileTests
     }
 
     [Fact]
-    public void The_theme_folder_holds_the_seven_themes_and_nothing_else()
+    public void The_theme_folder_holds_the_eight_themes_and_nothing_else()
     {
         Directory.EnumerateFiles(Repository.ThemeFolder).Select(Path.GetFileNameWithoutExtension)
             .Should().BeEquivalentTo(shipped);
     }
 
     [Fact]
-    public void Night_yard_is_the_one_theme_that_ships_through_the_pipeline_and_is_read_from_its_file()
+    public void Front_office_and_night_yard_ship_through_the_pipeline_and_are_read_from_their_files()
     {
         var file = File.ReadAllText(Path.Combine(Repository.ThemeFolder, "night-yard.json"));
+        var first = File.ReadAllText(Path.Combine(Repository.ThemeFolder, "front-office.json"));
 
-        BuiltInThemes.All.Select(theme => theme.Id).Should().Equal("night-yard");
+        BuiltInThemes.All.Select(theme => theme.Id).Should().Equal("front-office", "night-yard");
         BuiltInThemes.NightYard.Should().BeEquivalentTo(ThemeFileReader.Read(file, "night-yard"));
+        BuiltInThemes.Default.Should().BeEquivalentTo(ThemeFileReader.Read(first, "front-office"));
+        BuiltInThemes.Default.Group.Should().Be(ThemeGroup.Professional);
         BuiltInThemes.Get("signal-room").Should()
             .BeNull("a theme joins the app when the issue that ships it embeds its file");
     }

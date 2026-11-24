@@ -121,8 +121,9 @@ public sealed class ShellView : Grid
     private static string? AddressOf(Microsoft.UI.Xaml.Navigation.PageStackEntry entry) => (entry.Parameter as RouteMatch<Type>)?.Address;
 
     // The mode is the window's requested theme: dark until a person picks light, or asks to follow the device. Colors
-    // follow it at once. Another theme puts new numbers, faces and colors in the resources, and the open screen is
-    // made again from them, so every group changes without a restart.
+    // follow it at once. A window has no black mode, so black is the dark mode with the theme's black colors in it.
+    // Another theme, another accent or the black mode puts new values in the resources, and the open screen is made
+    // again from them, so every group changes without a restart.
     private void ApplyTheme()
     {
         RequestedTheme = theme.Choice.Mode switch
@@ -132,12 +133,12 @@ public sealed class ShellView : Grid
             _ => ElementTheme.Dark,
         };
 
-        if (ReferenceEquals(theme.Theme, ThemeTokens.Current))
+        if (ReferenceEquals(theme.Theme, ThemeTokens.Current) && theme.IsBlack == ThemeTokens.Black)
         {
             return;
         }
 
-        ThemeTokens.Apply(theme.Theme);
+        ThemeTokens.Apply(theme.Theme, theme.IsBlack);
         Paint();
         if (frame.Content is Screen { Route: { } route } open)
         {

@@ -205,11 +205,32 @@ public sealed class ShellViewModelTests : IDisposable
         menu.PropertyChanged += (_, change) => changes += change.PropertyName == nameof(AccountMenuViewModel.Themes) ? 1 : 0;
         menu.ChooseTheme(ThemeMode.Light);
 
-        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
+        theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
         menu.Themes.Single(option => option.InUse).Name.Should().Be("Light theme");
+        menu.Themes.Select(option => option.Name).Should()
+            .Equal("Dark theme", "Light theme", "Black theme", "Match this device");
         changes.Should().Be(1);
         ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
-            .Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
+            .Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
+    }
+
+    [Fact]
+    public void The_account_menu_lists_the_themes_and_the_accents_of_the_one_in_use_and_changes_them()
+    {
+        using var menu = Make<AccountMenuViewModel>();
+        menu.Looks.Select(look => look.Id).Should().Equal("front-office", "night-yard");
+        menu.Looks.Single(look => look.InUse).AccessibleName.Should().StartWith("Front Office, in use. ");
+        menu.AccentChoices.Select(accent => accent.Id).Should().Equal("theme", "green", "blue");
+        menu.AccentChoices.Single(accent => accent.InUse).AccessibleName.Should().Be("Theme color, in use");
+
+        menu.ChooseAccent("blue");
+        menu.AccentChoices.Single(accent => accent.InUse).Name.Should().Be("Blue");
+        theme.Theme.Dark.Colors["ember"].Should().Be(menu.AccentChoices.Single(accent => accent.InUse).Dark);
+
+        menu.ChooseLook("night-yard");
+        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Dark));
+        menu.Looks.Single(look => look.InUse).Name.Should().Be("Night Yard");
+        menu.AccentChoices.Single(accent => accent.InUse).Id.Should().Be("theme");
     }
 
     [Theory]
@@ -269,14 +290,14 @@ public sealed class ShellViewModelTests : IDisposable
     public void The_theme_is_dark_until_a_person_chooses_and_the_choice_is_kept_under_the_web_clients_name()
     {
         theme.Load();
-        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Dark));
+        theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Dark));
 
         theme.Choose(ThemeMode.System);
         settings.Values.Should().ContainKey("drover.theme");
 
         var later = new ThemeModel(settings, NullLogger<ThemeModel>.Instance);
         later.Load();
-        later.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.System));
+        later.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.System));
     }
 
     [Fact]
