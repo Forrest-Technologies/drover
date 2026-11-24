@@ -55,6 +55,15 @@ public static class OutboundHttp
         Func<string, CancellationToken, Task<IPAddress[]>> resolve,
         Func<IPAddress, bool> isRefused,
         bool followRedirects = true,
+        bool useCookies = true) =>
+        CreateHandler(policy, resolve, isRefused, Connect, followRedirects, useCookies);
+
+    internal static HttpMessageHandler CreateHandler(
+        DeploymentPolicy policy,
+        Func<string, CancellationToken, Task<IPAddress[]>> resolve,
+        Func<IPAddress, bool> isRefused,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
+        bool followRedirects = true,
         bool useCookies = true)
     {
         var guarded = new SocketsHttpHandler
@@ -65,7 +74,7 @@ public static class OutboundHttp
             UseCookies = useCookies,
         };
         guarded.ConnectCallback = (context, cancellationToken) =>
-            ConnectToCheckedAddress(context, resolve, isRefused, cancellationToken);
+            ConnectToCheckedAddress(context, resolve, isRefused, connect, cancellationToken);
         var open = policy.AllowPrivateAddresses
             ? new SocketsHttpHandler
             {
@@ -85,6 +94,7 @@ public static class OutboundHttp
         SocketsHttpConnectionContext context,
         Func<string, CancellationToken, Task<IPAddress[]>> resolve,
         Func<IPAddress, bool> isRefused,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
         CancellationToken cancellationToken)
     {
         var host = context.DnsEndPoint.Host;
@@ -96,25 +106,27 @@ public static class OutboundHttp
                 $"This server does not allow requests to private addresses, and {host} is one. Use a public address, or ask the operator to allow private addresses.");
         }
 
-        return await ConnectToFirstReachable(addresses, context.DnsEndPoint.Port, cancellationToken);
+        return await ConnectToFirstReachable(addresses, context.DnsEndPoint.Port, connect, cancellationToken);
     }
 
     private static async ValueTask<Stream> ConnectToFirstReachable(
         IPAddress[] addresses,
         int port,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
         CancellationToken cancellationToken)
     {
-        Exception? lastFailure = null;
+        SocketException? lastFailure = null;
 
         foreach (var address in addresses)
         {
-            var connection = await TryConnect(address, port, cancellationToken);
-            if (connection.Stream is not null)
+            var attempt = await TryConnect(address, port, connect, cancellationToken);
+
+            if (attempt.Stream is { } stream)
             {
-                return connection.Stream;
+                return stream;
             }
 
-            lastFailure = connection.Failure;
+            lastFailure = attempt.Failure;
         }
 
         throw new HttpRequestException(
@@ -126,22 +138,37 @@ public static class OutboundHttp
     private static async ValueTask<(Stream? Stream, SocketException? Failure)> TryConnect(
         IPAddress address,
         int port,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
         CancellationToken cancellationToken)
     {
-        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
         try
         {
-            await socket.ConnectAsync(new IPEndPoint(address, port), cancellationToken);
-            return (new NetworkStream(socket, ownsSocket: true), null);
+            return (await connect(address, port, cancellationToken), null);
         }
         catch (SocketException failure)
         {
-            socket.Dispose();
+            // A machine without IPv6 refuses the socket itself. Keep the failure and let the caller try the next
+            // address, so a missing address family is no different from a refused connection.
             return (null, failure);
+        }
+    }
+
+    private static async ValueTask<Stream> Connect(
+        IPAddress address,
+        int port,
+        CancellationToken cancellationToken)
+    {
+        Socket? socket = null;
+
+        try
+        {
+            socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            await socket.ConnectAsync(new IPEndPoint(address, port), cancellationToken);
+            return new NetworkStream(socket, ownsSocket: true);
         }
         catch
         {
-            socket.Dispose();
+            socket?.Dispose();
             throw;
         }
     }
