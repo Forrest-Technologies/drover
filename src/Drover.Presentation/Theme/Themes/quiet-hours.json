@@ -1,0 +1,183 @@
+{
+  "format": 1,
+  "id": "quiet-hours",
+  "name": "Quiet Hours",
+  "intent": "Low stimulus: soft color, no light effects, and every live state said in words.",
+  "group": "expressive",
+  "firstMode": "dark",
+  "suits": ["reduced-motion"],
+  "type": {
+    "interface": "inter",
+    "machine": "jetbrains-mono",
+    "reading": null,
+    "headings": "interface",
+    "machineNumerals": false,
+    "scale": [12, 13, 15, 17, 21, 28],
+    "weights": {
+      "body": 400,
+      "label": 500,
+      "heading": 600
+    },
+    "leading": {
+      "text": 1.6,
+      "heading": 1.3
+    },
+    "tracking": 0.01,
+    "headingTracking": 0.01,
+    "measure": 62
+  },
+  "density": {
+    "spacing": 1.15,
+    "control": {
+      "pointer": 36,
+      "touch": 48
+    },
+    "row": {
+      "pointer": 44,
+      "touch": 52
+    },
+    "composerLines": 8
+  },
+  "shape": {
+    "corners": "square",
+    "cut": {
+      "control": 0,
+      "frame": 0
+    },
+    "registration": false,
+    "radius": {
+      "control": 6,
+      "card": 6,
+      "sheet": 12
+    },
+    "line": 1,
+    "iconStroke": 1.75
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "none",
+      "strength": 0,
+      "step": 16
+    }
+  },
+  "motion": {
+    "scale": 1.3,
+    "bloom": 0,
+    "breath": 3380,
+    "travel": 1690,
+    "live": "fade",
+    "travelLine": 2
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.51,
+      "chroma": 0.055
+    },
+    "facet": 0.04,
+    "line": 2.5,
+    "visor": "outlined"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.78,
+      "chroma": 0.06
+    },
+    "color": {
+      "bg-0": "#101214",
+      "bg-1": "#14171A",
+      "bg-2": "#1A1E22",
+      "bg-3": "#22272C",
+      "line": "#30363C",
+      "text": "#E2E5E7",
+      "text-2": "#B4BABF",
+      "text-3": "#959CA2",
+      "ember": "#D8A672",
+      "ion": "#93C7CC",
+      "violet": "#B0A8D4",
+      "ok": "#93C59F",
+      "warn": "#CDB978",
+      "danger": "#DE9C94",
+      "on-accent": "#101214",
+      "hue-0": "#D9A8B6",
+      "hue-1": "#DBAAA1",
+      "hue-2": "#D5AF91",
+      "hue-3": "#C6B68C",
+      "hue-4": "#B2BE93",
+      "hue-5": "#9DC3A3",
+      "hue-6": "#8DC4B9",
+      "hue-7": "#8AC2CD",
+      "hue-8": "#95BDDA",
+      "hue-9": "#A8B6DF",
+      "hue-10": "#BDAFD9",
+      "hue-11": "#CEAACA",
+      "head-0": "#815965",
+      "head-1": "#835A53",
+      "head-2": "#7E5F46",
+      "head-3": "#726541",
+      "head-4": "#626B47",
+      "head-5": "#4F6F55",
+      "head-6": "#407167",
+      "head-7": "#3E6F78",
+      "head-8": "#486B83",
+      "head-9": "#5A6586",
+      "head-10": "#6B5F81",
+      "head-11": "#785B75",
+      "on-head": "#F1F2F3",
+      "visor": "#0C0E10",
+      "visor-lit": "#B5DCE0",
+      "visor-failed": "#EBC1BC"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.47,
+      "chroma": 0.06
+    },
+    "color": {
+      "bg-0": "#F3F3F0",
+      "bg-1": "#F9F9F7",
+      "bg-2": "#EBEBE6",
+      "bg-3": "#E0E0D9",
+      "line": "#D0D0C8",
+      "text": "#1D2023",
+      "text-2": "#454B50",
+      "text-3": "#585F65",
+      "ember": "#7A5226",
+      "ion": "#2D6267",
+      "violet": "#574F86",
+      "ok": "#33613E",
+      "warn": "#665620",
+      "danger": "#93413A",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#774C59",
+      "hue-1": "#794E47",
+      "hue-2": "#745338",
+      "hue-3": "#685932",
+      "hue-4": "#566039",
+      "hue-5": "#426449",
+      "hue-6": "#30665C",
+      "hue-7": "#2C646D",
+      "hue-8": "#3A5F79",
+      "hue-9": "#4E597D",
+      "hue-10": "#605378",
+      "hue-11": "#6E4E6B",
+      "head-0": "#815965",
+      "head-1": "#835A53",
+      "head-2": "#7E5F46",
+      "head-3": "#726541",
+      "head-4": "#626B47",
+      "head-5": "#4F6F55",
+      "head-6": "#407167",
+      "head-7": "#3E6F78",
+      "head-8": "#486B83",
+      "head-9": "#5A6586",
+      "head-10": "#6B5F81",
+      "head-11": "#785B75",
+      "on-head": "#F1F2F3",
+      "visor": "#0C0E10",
+      "visor-lit": "#B5DCE0",
+      "visor-failed": "#EBC1BC"
+    }
+  }
+}

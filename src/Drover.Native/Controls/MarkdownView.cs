@@ -278,7 +278,7 @@ public sealed class MarkdownView : StackPanel
     {
         CodeNode code when diagrams.TryGetValue(code, out var diagram) =>
             [NativeFilePreviewControl.BuildDiagram(this, diagram)],
-        CodeNode code => [new CodeBlock { Code = code.Code, CodeLanguage = code.Language }],
+        CodeNode code => [new CodeBlock { PlainLabel = CodeContent.CodeLabel, Code = code.Code, CodeLanguage = code.Language }],
         ElementNode { Name: "h1" } heading => [Paragraph(heading.Children, ink, "DvText20", heading: true)],
         ElementNode { Name: "h2" } heading => [Paragraph(heading.Children, ink, "DvText16", heading: true)],
         ElementNode { Name: "h3" or "h4" or "h5" or "h6" } heading => [Paragraph(heading.Children, ink, "DvText14", heading: true)],

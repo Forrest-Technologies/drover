@@ -12,6 +12,9 @@ public static class Repository
     /// <summary>The design tokens as CSS custom properties: the specification <c>Tokens.xaml</c> restates.</summary>
     public static string TokenSpecification => Path.Combine(NativeFolder, "Theme", "tokens.css");
 
+    /// <summary>The theme files, one JSON file per theme: the source of every look.</summary>
+    public static string ThemeFolder => Path.Combine(Root, "src", "Drover.Presentation", "Theme", "Themes");
+
     public static string NativeTokens => Path.Combine(NativeFolder, "Theme", "Tokens.xaml");
 
     #endregion

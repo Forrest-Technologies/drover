@@ -109,6 +109,107 @@ Bloom is used only inside the four state classes below. It is never used for dep
 
 The dark values sit on `:root` and on any element marked `data-theme="dark"`; the light values on `data-theme="light"` and, when the person's system asks for light and no theme is forced, on `:root`. A subtree can therefore show the other theme, which is how the gallery shows both at once.
 
+## Themes
+
+The look is a family of named themes ([ADR 0020](../adr/0020-a-family-of-themes.md)). A theme has a dark and a light mode and sets seven token groups. Night Yard, described above, is the default and the identity used for the mark, screenshots and documentation; every value in this file above this section is Night Yard's.
+
+### The invariants
+
+No theme may change these. They are not tokens, so a theme file has no way to say them:
+
+- The three accent roles and their meanings: `ember` is a person's intent, `ion` is a bot working, `violet` is work passing between bots.
+- Light means live. Only the four live states move, bloom appears only inside them, and each has a static equivalent.
+- Both modes ship and both pass every check.
+- Everything in "What Drover's interface never does" in `DESIGN.md`, including no drop shadows, no blur panels and no decorative gradients: depth is surface and line only.
+- Every screen works at 360 px and at 200 percent text; reduced motion leaves nothing animating.
+- The character parts and a bot's stored look never change with the theme, only how they are drawn. A bot is always a head with a visor.
+
+A look that needs to break one is not a theme. It is a change to `DESIGN.md` with an ADR.
+
+### The token groups and their bounds
+
+| Group | What a theme sets | Bounds |
+| --- | --- | --- |
+| Color | Per mode: surfaces `bg-0` to `bg-3`, `line`, `text`, `text-2`, `text-3`, `ember`, `ion`, `violet`, `ok`, `warn`, `danger`, `on-accent`, the twelve hues, the twelve heads, `on-head`, `visor`, `visor-lit`, `visor-failed` | Text, accent, status and every hue 4.5:1 on every surface; control edges (`text-3`) 3:1 on every surface; `on-accent` 4.5:1 on `ember`; the visor 3:1 against every head at rest, lit and failed |
+| Type | Interface face, machine face, optional reading face for conversation text, which face sets headings, machine text for timestamps and counts, the six-step scale, weights, leading, tracking, measure | Base (the third step) 13 to 16; every face bundled under an accepted license; machine text always a different face from conversation text; sentence case |
+| Density | Spacing multiplier over the 4 px base, control height, list row height, composer lines | Multiplier 0.85 to 1.25; control and row at least 44 on touch and 32 on pointer at every density |
+| Shape | Corner language (`faceted`, `square`, `ticked`), cut or tick sizes, registration marks, radii, line weight, icon stroke | Line 1 or 2; the shape class is the only place corners are drawn |
+| Surfaces | Surface levels (2 or 3), yard texture (`dots`, `lines`, `grid`, `none`), its strength and step | Depth by surface and line only |
+| Motion | Duration scale, bloom, breath and travel cycles, how a live state shows (`loop` or `fade`), travel line weight | Scale 0.8 to 1.3 over 120, 220 and 420 ms; bloom 0 to 8; cycles 0.8 to 1.3 times 2600 and 1300 ms |
+| Characters | Head lightness and chroma, facet highlight, part line weight, visor style (`band`, or `outlined` for themes without bloom) | Parts and stored look never change |
+
+### The first batch
+
+All seven are in the `expressive` group. The `professional` group is defined in the format and holds no theme yet.
+
+| Theme | Intent | What makes it different |
+| --- | --- | --- |
+| Night Yard | A dark, calm workspace where the bots are the lit things | Today's look: Inter at 14, faceted cuts 6 and 10, two surface levels, dot yard, bloom 8, standard motion |
+| Signal Room | Dense and exact, for people running many bots who want more on screen | Spacing 0.85, base 13, rows 32 on pointer, square corners at radius 2, hairline lines, three surface levels, no yard, timestamps and counts in machine text, motion 0.8, bloom 4. Near-black blue; light is cool gray paper |
+| Paper Ledger | Warm paper and a reading face, for long reading and writing in conversation | Light first. Literata for conversation text only, base 16, measure 68, ruled-line yard at low strength, ticked corners, bloom 0 with an outlined visor lit by fill, motion 1.2. Dark is warm brown-black ink |
+| Workbench | Large, high-contrast and touch-first, for phones, bright rooms and low vision | Atkinson Hyperlegible Next at base 16, spacing 1.2, 2 px lines and control edges, faceted cuts 8 and 14, every text color 7:1 or higher, no yard, bloom 6. The theme to suggest when a device asks for large text |
+| Blueprint | Deep blue and a drawing grid, for people who like precise structure | Thin grid yard, ticked corners drawn as registration marks, headings in the machine face at 500, a strong travel line with bloom 3, motion 0.9 |
+| Quiet Hours | Low stimulus: soft color, no light effects, and every live state said in words | Low-chroma accents that still pass, bloom 0, live states as a single fade instead of a loop, durations 1.3, leading 1.6, square corners at radius 6, no yard. The theme to suggest when a device asks for less motion |
+| Foundry | Warm and heavy, soot and brass, for people who find the default cold | Charcoal and soot, ember leaning brass, ion a pale teal, headings at 600 with tighter tracking, faceted cuts 10 and 16, line yard at low strength, bloom 8. Light is warm stone |
+
+Every pair is computed in [`docs/design/themes/contrast.md`](../design/themes/contrast.md) (`python3 scripts/themes/contrast.py`). The sample sheet, [`docs/design/themes/sample-sheet.html`](../design/themes/sample-sheet.html) (`python3 scripts/themes/sample-sheet.py`), draws the conversation with a running tool and an approval card, the crew and the bot editor in every theme and mode at desktop width and 360 px, and twenty-four characters per theme; its pictures are in `docs/screenshots/themes/`. Everything in it is a labeled sample.
+
+Two faces are added, both SIL OFL 1.1: Literata (Paper Ledger's reading face) and Atkinson Hyperlegible Next (Workbench's interface face). Each is fetched only when its theme is chosen where the platform allows; the theme issues that ship them record the download size.
+
+### Theme files
+
+A theme is one JSON file, `src/Drover.Presentation/Theme/Themes/{id}.json`. The format is closed: every key below is required unless marked optional, no other key is allowed, and the types and bounds are exact. The pipeline ([issue 422](https://github.com/Forrest-Technologies/drover/issues/422)) applies these files, the gates ([issue 423](https://github.com/Forrest-Technologies/drover/issues/423)) and the shared checker ([issue 778](https://github.com/Forrest-Technologies/drover/issues/778)) read the bounds from this table, and a person's own theme ([issue 778](https://github.com/Forrest-Technologies/drover/issues/778)) uses the same shape.
+
+| Key | Type | Bounds and meaning |
+| --- | --- | --- |
+| `format` | integer | `1` |
+| `id` | string | Lowercase words joined by `-`, the file's name without `.json` |
+| `name` | string | 1 to 40 characters, plain text, sentence case words; names the look, never a product |
+| `intent` | string | One sentence, plain text, at most 120 characters; shown under the name where a theme is chosen |
+| `group` | `expressive` or `professional` | Where the Appearance page lists the theme ([issue 424](https://github.com/Forrest-Technologies/drover/issues/424)). `expressive`: a look with a character of its own. `professional`: a restrained look for work settings. Grouping only; it changes no token and no bound |
+| `firstMode` | `dark` or `light` | The mode the theme is shown in first where a person has not chosen one |
+| `suits` | list of names | Zero or more of `large-text`, `reduced-motion`: device requests the theme is suggested for |
+| `type.interface` | face id | The interface face |
+| `type.machine` | face id | The machine-text face; never the same as `interface` or `reading` |
+| `type.reading` | face id or `null` | The face of conversation text; `null` uses `interface` |
+| `type.headings` | `interface` or `machine` | Which face sets headings |
+| `type.machineNumerals` | boolean | Timestamps and counts in the machine face |
+| `type.scale` | six numbers | Ascending px sizes of the six steps; the third is the base, 13 to 16; the smallest at least 11 |
+| `type.weights.body`, `.label`, `.heading` | integers | 400 to 700 in steps of 100; body below label, label at most heading |
+| `type.leading.text`, `.heading` | numbers | Text 1.3 to 1.7, headings 1.1 to 1.4 |
+| `type.tracking`, `type.headingTracking` | numbers | Em: -0.02 to 0.04 |
+| `type.measure` | integer | Characters per line of reading text, 55 to 80 |
+| `density.spacing` | number | 0.85 to 1.25, over the 4 px base steps 4, 8, 12, 16, 24, 32, 48, each rounded to a whole pixel and at least 2 |
+| `density.control.pointer`, `.touch` | integers | Smallest control height: pointer 32 to 48, touch 44 to 56 |
+| `density.row.pointer`, `.touch` | integers | Smallest list row height: pointer 32 to 56, touch 44 to 64 |
+| `density.composerLines` | integer | Lines the composer grows to, 4 to 12 |
+| `shape.corners` | `faceted`, `square` or `ticked` | The corner language the shape class draws |
+| `shape.cut.control`, `.frame` | integers | `faceted`: cut sizes, control 4 to 10, frame 8 to 16. `ticked`: tick lengths in the same ranges. `square`: both 0 |
+| `shape.registration` | boolean | `ticked` only: the ticks cross out past the corner as registration marks. `false` for the others |
+| `shape.radius.control`, `.card`, `.sheet` | integers | `square`: 2 to 8, 2 to 12, 4 to 16. `faceted`: radii for what is round by nature, as today. `ticked`: 0 |
+| `shape.line` | integer | 1 or 2: decorative lines and control edges |
+| `shape.iconStroke` | number | 1.5 to 2 on the 24 unit icon grid |
+| `surfaces.levels` | integer | 2: lists and side panels rest on `bg-0`. 3: they rest on `bg-1`, a level of their own |
+| `surfaces.yard.texture` | `dots`, `lines`, `grid` or `none` | The working area's texture |
+| `surfaces.yard.strength` | number | 0 to 0.7: the share of `line` the texture is drawn in; 0 with `none` |
+| `surfaces.yard.step` | integer | 12 to 32 px |
+| `motion.scale` | number | 0.8 to 1.3 over 120, 220 and 420 ms |
+| `motion.bloom` | number | 0 to 8 px; 0 needs `characters.visor` `outlined` |
+| `motion.breath`, `motion.travel` | integers | ms; 2080 to 3380 and 1040 to 1690 |
+| `motion.live` | `loop` or `fade` | `fade`: thinking and a running tool show as one fade to a still state, said in words, never a loop |
+| `motion.travelLine` | integer | 2 or 3 px |
+| `characters.head.lightness`, `.chroma` | numbers | OKLCH of the twelve heads: lightness 0.4 to 0.6, chroma 0.04 to 0.12; the heads in `color` are these at hues 0, 30, ... 330 |
+| `characters.facet` | number | 0 to 0.15: the light face drawn on the head's left half |
+| `characters.line` | number | 2 to 3.5 on the 64 unit grid |
+| `characters.visor` | `band` or `outlined` | `outlined` draws the visor's edge so it reads without bloom |
+| `dark`, `light` | objects | One per mode, each `{ "hues": { "lightness", "chroma" }, "color": { ... } }` |
+| `{mode}.hues.lightness`, `.chroma` | numbers | OKLCH of the twelve hues in that mode |
+| `{mode}.color` | object | Exactly the 43 color tokens of the Color row above, each `#RRGGBB`, named as in `tokens.css` without `--dv-` |
+
+Face ids are the faces Drover bundles: `inter`, `jetbrains-mono`, `literata`, `atkinson-hyperlegible-next`. A file never names a font file, a URL or a path. Derived values are not stored: the scrim is `bg-0` at 72 percent, the yard color is `line` at the yard strength, spacing steps come from the multiplier, durations from the scale. The blocks group of [issue 783](https://github.com/Forrest-Technologies/drover/issues/783) will be added to this format by that issue.
+
+A new theme is a new file in that folder that passes the checks; nothing else names it.
+
 ## Motion rules
 
 1. **Motion shows state, nothing else.** The four states that earn motion, each a class in `base.css` (`dv-state-thinking`, `dv-state-streaming`, `dv-state-tool`, `dv-state-delegation`):
@@ -131,7 +232,7 @@ The dark values sit on `:root` and on any element marked `data-theme="dark"`; th
 
 Its job: pick the bot to talk to, and talk to it in its one main conversation.
 
-A person talks to a bot, not to a thread. Three regions on a wide window: the crew, the main conversation with the chosen bot, and, only when asked for, that bot's side chats. A phone shows one of the three at a time. The crew and other workspace pages share a bottom dock for Chats, Bots, Tools, and Account. In a conversation, one menu opens the bot’s summary, memory, screen, files, and side chats; the composer keeps the bottom of the screen.
+A person talks to a bot, not to a thread. This is decided and not built: when a bot leads a team, its one main conversation will be the room, members will speak there from their own characters, and the person will be able to name any member to address it directly ([issue 155](https://github.com/Forrest-Technologies/drover/issues/155), [ADR 0019](../adr/0019-rooms-are-the-leads-conversation.md)). Three regions on a wide window: the crew, the main conversation with the chosen bot, and, only when asked for, that bot's side chats. A phone shows one of the three at a time. The crew and other workspace pages share a bottom dock for Chats, Bots, Tools, and Account. In a conversation, one menu opens the bot’s summary, memory, screen, files, and side chats; the composer keeps the bottom of the screen.
 
 - **The crew** is the first column: the space's bots as the hierarchy they form, each under the bot that manages it, joined by a thin connector. A row is the bot's head at 32 px, its name, "Paused" in words when it is, and one word for what the bot has for this person: "Waiting for you" (a run of theirs waits for their answer), "Failed" (their newest run failed and they have not looked since), or "New" (a reply they have not seen), in that order, only the first that applies. The word carries the attention or failure color, is part of the row's spoken name ("Marshal, waiting for you"), and never glows or moves: these are facts, not live states. A side chat shows its own word the same way, so a word in the crew can be traced to the chat it came from. The browser tab's title starts with how many bots wait for the person, "(2) Marshal · Drover". The head's visor breathes while the bot works for this person. Choosing a bot opens its main conversation; the bot being talked to is framed. The start page talks to the lead: the first bot at the top of the tree that can answer.
 - **The main conversation** is the one continuing conversation a person has with a bot. The server keeps exactly one for each person and bot and opens it through the bot, so there is no list to pick from and nothing to name. Its header is the bot: the head at 48 px, the name as the page's heading, and one way to the side chats that says how many there are.

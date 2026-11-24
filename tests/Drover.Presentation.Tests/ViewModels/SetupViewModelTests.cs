@@ -244,6 +244,27 @@ public sealed class SetupViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Meet_your_first_bot_lists_models_from_the_working_connection()
+    {
+        var failedId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000c");
+        var workingId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000d");
+        static ModelCatalogResponse Catalog(string model) =>
+            new(model, model, new(null, null, false, true, false, false, [], false, false), new(null, null, null, "usd"), null, [], "available", DateTimeOffset.UnixEpoch);
+        server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[
+            new(failedId, "Just failed", "venice", null, true, "failed", null, [], null, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            new(workingId, "Working", "venice", null, true, "ready", null, [], null, DateTimeOffset.UtcNow.AddDays(-1))]);
+        server.Answer("POST", $"{space}/model-connections/{failedId}/models/refresh", new ModelRefreshResponse(true, null, null, [Catalog("sample-failed")]));
+        server.Answer("POST", $"{space}/model-connections/{workingId}/models/refresh", new ModelRefreshResponse(true, null, null, [Catalog("sample-working")]));
+        var model = MeetStep();
+
+        await model.Open();
+
+        model.Connection!.Id.Should().Be(workingId, "a connection whose test just failed is not chosen over one that works");
+        model.Models.Select(entry => entry.Model).Should().Equal("sample-working");
+    }
+
+    [Fact]
     public async Task A_provider_with_no_catalog_allows_a_typed_model_and_creates_the_named_lead()
     {
         server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());

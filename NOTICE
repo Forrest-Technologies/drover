@@ -7,5 +7,6 @@ Bundled third-party components and their licenses are listed in docs/architectur
 
 The native client includes Uno ICU packaging and Uno.Diagnostics.Eventing (Apache-2.0),
 ICU 77.1 (Unicode License V3 and included third-party notices), and Tmds.DBus
-(MIT). Their complete notices ship in Assets/Licenses alongside the font licenses.
+(MIT). Their complete notices ship in Assets/Licenses alongside the font licenses. The bundled emoji font
+Noto Color Emoji is under SIL OFL 1.1; its license ships beside the font in Assets/Fonts.
 Exact-version license metadata corrections are recorded in licenses/allowed-exceptions.json.

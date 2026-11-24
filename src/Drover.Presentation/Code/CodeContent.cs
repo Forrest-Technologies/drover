@@ -150,5 +150,21 @@ public sealed record CodeContent(CodeKind Kind, string Source, string Text, stri
 
     public const string LogLabel = "Log";
 
+    /// <summary>The label of a fence without a language.</summary>
+    public const string CodeLabel = "Code";
+
+    /// <summary>The quiet mark before a shell command. It is drawn, never copied.</summary>
+    public const string PromptMark = "$ ";
+
+    /// <summary>The wrap toggle's name, whose pressed state says whether lines wrap.</summary>
+    public const string WrapLabel = "Wrap lines";
+
+    public const string ShowHex = "Show hex";
+
+    public const string HideHex = "Hide hex";
+
+    /// <summary>The bytes literal as it was written, one tap away from its hex view.</summary>
+    public const string ShowLiteral = "Show as written";
+
     #endregion
 }
