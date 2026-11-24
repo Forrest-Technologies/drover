@@ -1231,6 +1231,7 @@ async function checkStopBounds(page, width) {
     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
     const { settled, close } = await composerRingCheck(page);
     try {
+        await focusSettled(page);
         await field.focus();
         await page.keyboard.type('hold this run');
         // Send enables once the draft has reached the conversation, a frame after the keystrokes.
@@ -1350,7 +1351,21 @@ async function checkFieldHints(page, name) {
 }
 
 // What opens beside the conversation is opened from the one menu in its header, at every width.
+// A screen that has just opened puts focus on its first control a frame or two later. A person cannot act before
+// that happens, so a check waits for it too: focus must stay on one element for 300 ms.
+async function focusSettled(page) {
+    await page.waitForFunction(() => {
+        const now = performance.now();
+        if (window.droverFocus?.element !== document.activeElement) {
+            window.droverFocus = { element: document.activeElement, since: now };
+        }
+
+        return now - window.droverFocus.since >= 300;
+    }, null, { polling: 50 });
+}
+
 async function openBeside(page, name) {
+    await focusSettled(page);
     await page.getByRole('button', { name: 'More about Sample bot' }).dispatchEvent('click');
     await page.getByRole('menuitem', { name, exact: true }).dispatchEvent('click');
 }

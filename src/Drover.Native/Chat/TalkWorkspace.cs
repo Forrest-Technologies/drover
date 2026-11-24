@@ -778,6 +778,9 @@ internal sealed class TalkWorkspace : Grid
         SetRow(crewAccount, compactCrew ? 1 : 0);
         SetColumn(crewAccount, compactCrew ? 0 : footerLinks.Length);
         SetColumnSpan(crewAccount, compactCrew ? footerLinks.Length + 1 : 1);
+        // On its own row the account starts where the links start, so a row of links that fills the column never
+        // pushes it past the edge.
+        crewAccount.HorizontalAlignment = compactCrew ? HorizontalAlignment.Left : HorizontalAlignment.Right;
         listFooter.Visibility = Shown(!phone);
         dock.Visibility = Shown(phone);
         back.Visibility = Shown(!crewBeside);
