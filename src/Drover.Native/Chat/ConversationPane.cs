@@ -62,7 +62,20 @@ public sealed class ConversationPane : Grid
         DragOver += Carried;
         DragLeave += (_, _) => SetDropping(false);
         Drop += async (_, dropped) => await Dropped(dropped);
-        Unloaded += (_, _) => SetDropping(false);
+        PointerEntered += (_, _) => ResetDropping();
+        PointerMoved += (_, _) => ResetDropping();
+        PointerPressed += (_, _) => ResetDropping();
+        PointerReleased += (_, _) => ResetDropping();
+        PointerWheelChanged += (_, _) => ResetDropping();
+        PreviewKeyDown += (_, key) =>
+        {
+            if (!IsModifier(key.Key))
+            {
+                ResetDropping();
+            }
+        };
+        GotFocus += (_, _) => ResetDropping();
+        Unloaded += (_, _) => ResetDropping();
 
         // The button stays pressable while the conversation is read again: Reload does nothing until the read ends,
         // so a second press neither asks again nor takes the focus off the way forward.
@@ -82,11 +95,23 @@ public sealed class ConversationPane : Grid
         get => model;
         set
         {
-            model?.PropertyChanged -= Changed;
+            if (model is not null)
+            {
+                model.PropertyChanged -= Changed;
+                model.Composer.PropertyChanged -= ComposerChanged;
+            }
+
             model = value;
-            model?.PropertyChanged += Changed;
+
+            if (model is not null)
+            {
+                model.PropertyChanged += Changed;
+                model.Composer.PropertyChanged += ComposerChanged;
+            }
+
             list.Model = value?.List;
             composer.Model = value?.Composer;
+            SyncDropping();
             Show();
         }
     }
@@ -211,18 +236,51 @@ public sealed class ConversationPane : Grid
     // the platform finishes the drag without raising Drop or DragLeave on this pane, leaving the drop line on screen.
     private void SetDropping(bool value)
     {
-        if (dropping != value)
+        composer.ShowDropping(value);
+        SyncDropping();
+    }
+
+    // A drag cancelled with Escape or outside the viewport can end without a DragLeave or Drop from the platform.
+    // Any non-drag interaction with the pane clears the dropping state and restores hit-testing on its children.
+    private void ResetDropping()
+    {
+        if (dropping || (model?.Composer.Dropping ?? false))
         {
-            dropping = value;
-            var interactive = !value;
-            list.IsHitTestVisible = interactive;
-            center.IsHitTestVisible = interactive;
-            composer.IsHitTestVisible = interactive;
-            readBox.IsHitTestVisible = interactive;
+            model?.Composer.CancelDropping();
+            SetDropping(false);
+        }
+    }
+
+    private void ComposerChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
+    {
+        if (string.IsNullOrEmpty(change.PropertyName) || change.PropertyName == nameof(ComposerViewModel.Dropping))
+        {
+            SyncDropping();
+        }
+    }
+
+    private void SyncDropping()
+    {
+        var active = model?.Composer.Dropping ?? false;
+
+        if (dropping == active)
+        {
+            return;
         }
 
-        composer.ShowDropping(value);
+        dropping = active;
+        var interactive = !active;
+        list.IsHitTestVisible = interactive;
+        center.IsHitTestVisible = interactive;
+        composer.IsHitTestVisible = interactive;
+        readBox.IsHitTestVisible = interactive;
     }
+
+    private static bool IsModifier(VirtualKey key) => key is
+        VirtualKey.Shift or VirtualKey.LeftShift or VirtualKey.RightShift
+        or VirtualKey.Control or VirtualKey.LeftControl or VirtualKey.RightControl
+        or VirtualKey.Menu or VirtualKey.LeftMenu or VirtualKey.RightMenu
+        or VirtualKey.LeftWindows or VirtualKey.RightWindows;
 
     // A drop is taken only when it carries files and the conversation takes files now. A picture dragged with no file
     // behind it is not one.

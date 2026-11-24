@@ -257,6 +257,9 @@ public sealed partial class ComposerViewModel : ObservableObject
     /// <summary>Shows or clears the drop line while files are held over the conversation.</summary>
     public void ShowDropping(bool value) => SetProperty(ref dropping, value && TakesFiles, nameof(Dropping));
 
+    /// <summary>Clears the drop line when a drag ends without a drop, without attaching anything.</summary>
+    public void CancelDropping() => ShowDropping(false);
+
     /// <summary>Takes the files dropped on the conversation. What could not be read is said in one sentence.</summary>
     public Task TakeDropped(Func<Task<HandedFiles>> read, ILogger logger)
     {

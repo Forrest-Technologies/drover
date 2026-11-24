@@ -1194,6 +1194,71 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     assert.equal(uploadedFiles[2].name, 'dropped.png');
     assert.deepEqual([...uploadedFiles[2].bytes], png);
 
+    // A drag cancelled without a delivered dragleave or drop (such as Escape inside the viewport): normal pointer
+    // input clears the drop line and restores hit-testing on both the message list and the composer.
+    await holdOver([{ name: 'cancelled.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list before a cancelled drag show the drop line.');
+    await page.evaluate(() => {
+        const { dataTransfer, point, target } = globalThis.droverCheckDrag;
+        const destination = target.isConnected ? target : document.body;
+        destination.dispatchEvent(new DragEvent('dragleave', { dataTransfer, bubbles: true, cancelable: true, ...point }));
+    });
+    const dragPoint = await page.evaluate(() => globalThis.droverCheckDrag.point);
+    await page.mouse.move(dragPoint.clientX, dragPoint.clientY);
+    await page.mouse.move(dragPoint.clientX + 8, dragPoint.clientY + 8);
+    await waitDropLineGone('A cancelled drag left the drop line on screen');
+    assert.equal(uploadedFiles.length, 3, 'A cancelled drag uploads nothing.');
+
+    const copyReply = page.getByRole('button', { name: 'Copy reply', exact: true });
+    const copyBox = await copyReply.boundingBox({ timeout: 5000 });
+    assert.ok(copyBox, 'Copy reply has an accessible box in the message list.');
+    await page.mouse.move(copyBox.x + copyBox.width / 2, copyBox.y + copyBox.height / 2);
+    await page.mouse.down();
+    await page.waitForFunction(
+        () => document.activeElement?.getAttribute('aria-label') === 'Copy reply',
+        null,
+        { timeout: 5000 }).catch(async cause => {
+        const active = await page.evaluate(() => document.activeElement?.outerHTML ?? 'none');
+        throw new Error(`The message list did not take pointer focus after a cancelled drag (active: ${active}).`, { cause });
+    });
+    await page.mouse.move(1, 1);
+    await page.mouse.up();
+
+    const more = page.getByRole('button', { name: 'More options', exact: true });
+    const moreBox = await more.boundingBox({ timeout: 5000 });
+    assert.ok(moreBox, 'More options has an accessible box in the composer.');
+    await page.mouse.click(moreBox.x + moreBox.width / 2, moreBox.y + moreBox.height / 2);
+    const attach = page.getByRole('button', { name: 'Attach', exact: true });
+    await attach.waitFor({ state: 'attached', timeout: 5000 });
+    const closeBox = await more.boundingBox({ timeout: 5000 });
+    assert.ok(closeBox, 'More options still has an accessible box while options are open.');
+    await page.mouse.click(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2);
+    await attach.waitFor({ state: 'detached', timeout: 5000 });
+
+    const fieldBox = await field.boundingBox({ timeout: 5000 });
+    assert.ok(fieldBox, 'The message field has an accessible box in the composer.');
+    await page.mouse.click(fieldBox.x + fieldBox.width / 2, fieldBox.y + fieldBox.height / 2);
+    await page.waitForFunction(() => {
+        const active = document.activeElement;
+        return active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT');
+    }, null, { timeout: 5000 }).catch(async cause => {
+        const active = await page.evaluate(() => document.activeElement?.outerHTML ?? 'none');
+        throw new Error(`The composer field did not take pointer focus after a cancelled drag (active: ${active}).`, { cause });
+    });
+    await page.keyboard.type('after cancel');
+    await page.waitForFunction(
+        () => document.querySelector('[aria-label="Message to Sample bot"]')?.value === 'after cancel',
+        null,
+        { timeout: 5000 }).catch(async cause => {
+        throw new Error(`The composer field did not accept typed text after a cancelled drag (value: ${JSON.stringify(await field.inputValue())}).`, { cause });
+    });
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Delete');
+    await page.waitForFunction(
+        () => document.querySelector('[aria-label="Message to Sample bot"]')?.value === '',
+        null,
+        { timeout: 5000 });
+
     // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
     await field.focus();
     assert.equal(await paste(Array.from({ length: 150 }, (_, index) => ({
