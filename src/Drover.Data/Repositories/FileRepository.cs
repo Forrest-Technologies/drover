@@ -294,7 +294,7 @@ public sealed class FileRepository(DroverDbContext db)
         Guid holdId,
         DateTimeOffset touchedAt,
         CancellationToken cancellationToken) =>
-        await db.Database.ExecuteSqlInterpolatedAsync(
+        await db.Database.ExecuteSqlAsync(
             $"""
             UPDATE file_byte_reservations SET created_at = {touchedAt}
             WHERE id = {holdId} AND space_id = {spaceId}
@@ -323,7 +323,7 @@ public sealed class FileRepository(DroverDbContext db)
             return HoldExtension.SpaceFull;
         }
 
-        var updated = await db.Database.ExecuteSqlInterpolatedAsync(
+        var updated = await db.Database.ExecuteSqlAsync(
             $"""
             UPDATE file_byte_reservations SET bytes = bytes + {additionalBytes}, created_at = {touchedAt}
             WHERE id = {holdId} AND space_id = {spaceId}
