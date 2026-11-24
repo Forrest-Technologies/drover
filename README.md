@@ -55,7 +55,7 @@ Each bot gets a character drawn from a set of parts (head, visor, top, mark, til
 
 ### Conversations
 
-Replies stream in, and each tool call shows its arguments, output, and result as it happens. You can edit an earlier message, regenerate a reply, open a side chat next to the main one, and read a running summary.
+Replies stream in, and each tool call shows its arguments, output, and result as it happens. You can edit an earlier message, regenerate a reply, open a side chat next to the main one, and read a running summary. One bot turn now reads as one unit with a compact ledger of its work. Each piece of work is one row that opens to the call when a person wants the detail.
 
 Search covers your conversations, and you can save one as Markdown or JSON. Attach files and pictures; Drover reads PDF and office documents as text for the model. Projects group conversations around shared files. If you set up a second domain for previews, HTML a bot writes opens there, away from your session cookies.
 
