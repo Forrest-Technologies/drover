@@ -2,7 +2,7 @@
 
 - Status: Proposed in its pull request
 - Date: 2026-11-24
-- Source: the owner's ask of 2026-11-24, with a picture of the look wanted. Follows tracking issue [785](https://github.com/Forrest-Technologies/drover/issues/785)
+- Source: [issue 904](https://github.com/Forrest-Technologies/drover/issues/904), the owner's ask of 2026-11-24 with a picture of the look wanted. Follows tracking issue [785](https://github.com/Forrest-Technologies/drover/issues/785)
 - Supersedes: [0020](0020-a-family-of-themes.md) where it says Night Yard stays the default, that a theme has two modes, and that the color of a person's intent is one fixed color per theme
 
 ## Context
@@ -52,6 +52,6 @@ Drover's interface never does". A bot is still a head with a visor in every them
 - The professional presets of [issue 788](https://github.com/Forrest-Technologies/drover/issues/788) (Slate, Linen,
   Graphite) are still the owner's to decide. Front Office does not replace them.
 - New kinds of card a bot could send (choices to pick from, a board of figures) are not part of this decision. They
-  need a wire format and are their own issue.
+  need a wire format and are [issue 905](https://github.com/Forrest-Technologies/drover/issues/905).
 - The sample sheet of issue 421 still draws the seven themes of ADR 0020. Front Office is not on it; its pictures are
   the app's own, in `docs/screenshots/front-office/`.
