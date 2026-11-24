@@ -61,6 +61,8 @@ The engine still talks to the framework through one small interface, `IAgentRunt
 | Shell tool with a policy and pluggable executor | preview | Not used. `sandbox.run` is a Drover built-in tool (`SandboxTools`), because a tool the framework adds has no catalog row, so it has no grant and the tool gate refuses it. The command goes through `SandboxBroker` to `ISandboxProvider`. The local executor is never registered. |
 | Micro virtual machine code execution | preview | Candidate for a second sandbox adapter that needs no account and no Docker, for "run this snippet" use. Evaluated in Phase 1; it does not replace a full environment. |
 
+The owner chose the lead's conversation as the room for teams ([ADR 0019](../adr/0019-rooms-are-the-leads-conversation.md)). This is decided and not built: group chat and the other team patterns will stay workflows of the lead; a member's contribution will be shown in the lead's conversation from that member's own character, and the person will be able to name any member to address it directly. Every member will still be a bot beneath the lead, so `GovernedAgent`, grants, budgets, the loop check, and cancel are reused without a second permission model. A default cap of four bot turns between two messages of a person, configurable per space under a deployment ceiling, will bound a room; it arrives with the layers of [issue 155](https://github.com/Forrest-Technologies/drover/issues/155).
+
 ### Skills and reach, Phase 2
 
 | Framework feature | Status | How Drover uses it |

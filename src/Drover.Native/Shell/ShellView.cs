@@ -111,10 +111,10 @@ public sealed class ShellView : Grid
     private static string? AddressOf(Microsoft.UI.Xaml.Navigation.PageStackEntry entry) => (entry.Parameter as RouteMatch<Type>)?.Address;
 
     // Dark until a person picks light, or asks to follow the device.
-    private void ApplyTheme() => RequestedTheme = theme.Choice switch
+    private void ApplyTheme() => RequestedTheme = theme.Choice.Mode switch
     {
-        ThemeChoice.Light => ElementTheme.Light,
-        ThemeChoice.System => ElementTheme.Default,
+        ThemeMode.Light => ElementTheme.Light,
+        ThemeMode.System => ElementTheme.Default,
         _ => ElementTheme.Dark,
     };
 

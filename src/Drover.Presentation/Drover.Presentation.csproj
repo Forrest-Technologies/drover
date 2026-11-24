@@ -12,6 +12,12 @@
     <InternalsVisibleTo Include="Drover.Native" />
   </ItemGroup>
 
+  <!-- Night Yard is the one theme that ships through the pipeline so far. The other theme files in the same folder
+       are the designs of issue 421: each is embedded when the issue that ships it lands. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Theme\Themes\night-yard.json" LogicalName="Drover.Themes.night-yard.json" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="HtmlSanitizer" />

@@ -93,6 +93,26 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
         (await Title(over)).Should().Contain("at most 50 rules");
     }
 
+    [Fact]
+    public async Task A_rule_cannot_be_written_on_a_removed_bot()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        var botId = Guid.Parse(bot.Split('/')[^1]);
+        var rule = await Send<BotRuleResponse>(client.Post($"{bot}/rules", MailStaysInside()), HttpStatusCode.Created);
+
+        var removed = await client.Delete($"{Space(alice.SpaceId)}/bots/{botId}");
+        var created = await client.Post($"{bot}/rules", MailStaysInside());
+        var changed = await client.Put($"{bot}/rules/{rule.Id}", MailStaysInside() with { Effect = "block" });
+        var deleted = await client.Delete($"{bot}/rules/{rule.Id}");
+
+        removed.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        created.StatusCode.Should().Be(HttpStatusCode.NotFound, "a removed bot takes no new rule");
+        changed.StatusCode.Should().Be(HttpStatusCode.NotFound, "and none of its rules can be changed");
+        deleted.StatusCode.Should().Be(HttpStatusCode.NotFound, "or removed through it");
+    }
+
     #endregion
 
     #region Access

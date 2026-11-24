@@ -35,6 +35,12 @@ public sealed record ToolCard(
 
     public string? CommandError { get; init; }
 
+    /// <summary>The tool's name in Drover's own form, such as <c>sandbox.run</c>: what a row of work groups by.</summary>
+    public string Tool { get; init; } = string.Empty;
+
+    /// <summary>How long the call took, in milliseconds, once it ended and the run said so; 0 when not known.</summary>
+    public long DurationMs { get; init; }
+
     /// <summary>The note a finished save kept, which the card offers to forget. Null on any other card.</summary>
     public Guid? NoteId { get; init; }
 

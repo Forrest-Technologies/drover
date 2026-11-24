@@ -203,12 +203,13 @@ public sealed class ShellViewModelTests : IDisposable
 
         var changes = 0;
         menu.PropertyChanged += (_, change) => changes += change.PropertyName == nameof(AccountMenuViewModel.Themes) ? 1 : 0;
-        menu.ChooseTheme(ThemeChoice.Light);
+        menu.ChooseTheme(ThemeMode.Light);
 
-        theme.Choice.Should().Be(ThemeChoice.Light);
+        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
         menu.Themes.Single(option => option.InUse).Name.Should().Be("Light theme");
         changes.Should().Be(1);
-        settings.Values[ThemeModel.SettingName].Should().Be("light");
+        ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
+            .Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
     }
 
     [Theory]
@@ -268,14 +269,14 @@ public sealed class ShellViewModelTests : IDisposable
     public void The_theme_is_dark_until_a_person_chooses_and_the_choice_is_kept_under_the_web_clients_name()
     {
         theme.Load();
-        theme.Choice.Should().Be(ThemeChoice.Dark);
+        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Dark));
 
-        theme.Choose(ThemeChoice.System);
-        settings.Values.Should().ContainKey("drover.theme").WhoseValue.Should().Be("system");
+        theme.Choose(ThemeMode.System);
+        settings.Values.Should().ContainKey("drover.theme");
 
         var later = new ThemeModel(settings, NullLogger<ThemeModel>.Instance);
         later.Load();
-        later.Choice.Should().Be(ThemeChoice.System);
+        later.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.System));
     }
 
     [Fact]
@@ -284,10 +285,10 @@ public sealed class ShellViewModelTests : IDisposable
         settings.Refuses = true;
 
         theme.Load();
-        theme.Choice.Should().Be(ThemeChoice.Dark);
+        theme.Choice.Should().Be(ThemeChoice.Default);
 
-        theme.Choose(ThemeChoice.Light);
-        theme.Choice.Should().Be(ThemeChoice.Light);
+        theme.Choose(ThemeMode.Light);
+        theme.Choice.Mode.Should().Be(ThemeMode.Light);
     }
 
     [Fact]
