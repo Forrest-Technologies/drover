@@ -99,9 +99,9 @@ public sealed class AccountMenu : Grid
 
     /// <summary>
     /// Puts the focus on the menu's button, when the menu is showing: where it belongs after the appearance choices,
-    /// which the shell shows over the screen, have closed.
+    /// which the shell shows over the screen, have closed. The ring shows only when the keyboard closed them.
     /// </summary>
-    public bool FocusTrigger() => menu.Trigger.Focus(FocusState.Keyboard);
+    public bool FocusTrigger(FocusState closedWith) => menu.Trigger.Focus(closedWith);
 
     #endregion
 

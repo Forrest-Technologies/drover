@@ -199,16 +199,16 @@ public sealed class ShellViewModelTests : IDisposable
     public void The_appearance_choices_mark_the_mode_in_use_in_words_and_changes_it()
     {
         using var choices = Make<AppearanceViewModel>();
-        choices.Themes.Single(option => option.InUse).AccessibleName.Should().Be("Dark theme, in use");
+        choices.Themes.Single(option => option.InUse).AccessibleName.Should().Be("Dark, in use");
 
         var changes = 0;
         choices.PropertyChanged += (_, change) => changes += change.PropertyName == nameof(AppearanceViewModel.Themes) ? 1 : 0;
         choices.ChooseTheme(ThemeMode.Light);
 
         theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
-        choices.Themes.Single(option => option.InUse).Name.Should().Be("Light theme");
+        choices.Themes.Single(option => option.InUse).Name.Should().Be("Light");
         choices.Themes.Select(option => option.Name).Should()
-            .Equal("Dark theme", "Light theme", "Black theme", "Match this device");
+            .Equal("Dark", "Light", "Black", "Match this device");
         changes.Should().Be(1);
         ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
             .Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
@@ -260,6 +260,52 @@ public sealed class ShellViewModelTests : IDisposable
         choices.Open.Should().BeFalse();
         theme.AppearanceOpen.Should().BeFalse();
         told.Should().Be(2);
+    }
+
+    [Fact]
+    public void A_choice_makes_the_screen_again_at_once_when_the_screen_holds_no_work()
+    {
+        using var choices = Make<AppearanceViewModel>();
+
+        choices.MakesScreenAgain(somethingTyped: false).Should().BeTrue();
+
+        choices.ShapesWait.Should().BeFalse();
+        choices.WaitingNote.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void A_choice_leaves_a_screen_that_holds_work_as_it_is_and_says_so_until_a_screen_is_made(bool typed, bool held)
+    {
+        navigator.HoldsWork = () => held;
+        using var choices = Make<AppearanceViewModel>();
+        List<string?> told = [];
+        choices.PropertyChanged += (_, change) => told.Add(change.PropertyName);
+
+        choices.MakesScreenAgain(typed).Should().BeFalse();
+
+        choices.WaitingNote.Should().Be("Shapes and sizes change when you leave this screen, so your unsaved work is kept.");
+        told.Should().Contain(nameof(AppearanceViewModel.WaitingNote));
+
+        choices.ScreenMade();
+        choices.WaitingNote.Should().BeNull();
+        navigator.HoldsWork = null;
+    }
+
+    [Fact]
+    public void A_later_choice_makes_the_screen_again_once_its_work_is_saved_or_gone()
+    {
+        var held = true;
+        navigator.HoldsWork = () => held;
+        using var choices = Make<AppearanceViewModel>();
+        choices.MakesScreenAgain(somethingTyped: false).Should().BeFalse();
+
+        held = false;
+
+        choices.MakesScreenAgain(somethingTyped: false).Should().BeTrue();
+        choices.WaitingNote.Should().BeNull();
+        navigator.HoldsWork = null;
     }
 
     [Fact]

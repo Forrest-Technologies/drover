@@ -48,7 +48,7 @@ public sealed class ShellView : Grid
         ActualThemeChanged += (_, _) => Paint();
         Loaded += (_, _) => DispatcherQueue.TryEnqueue(PlatformShell.Shown);
 #if DEBUG
-        Loaded += (_, _) => AppearanceRehearsal.StartIfAsked(this, theme);
+        Loaded += (_, _) => AppearanceRehearsal.StartIfAsked(window, theme);
 #endif
         _ = ApplyTheme();
         Paint();
@@ -118,6 +118,9 @@ public sealed class ShellView : Grid
             }
         }
 
+        // Whatever was made is made from the values now in place.
+        appearanceModel.ScreenMade();
+
         if (frame.Content is Screen shown)
         {
             PlatformShell.SetTitle(window, shown.Title);
@@ -131,7 +134,8 @@ public sealed class ShellView : Grid
         }
     }
 
-    private static string? AddressOf(Microsoft.UI.Xaml.Navigation.PageStackEntry entry) => (entry.Parameter as RouteMatch<Type>)?.Address;
+    private static string? AddressOf(Microsoft.UI.Xaml.Navigation.PageStackEntry entry) =>
+        (entry.Parameter as RouteMatch<Type>)?.Address;
 
     // The mode is the window's requested theme: dark until a person picks light, or asks to follow the device. Colors
     // follow it at once. A window has no black mode, so black is the dark mode with the theme's black colors in it.
@@ -159,7 +163,10 @@ public sealed class ShellView : Grid
 
         ThemeTokens.Apply(theme.Theme, theme.IsBlack);
         Paint();
-        if (frame.Content is Screen { Route: { } route } open)
+
+        // A screen that holds what a person typed keeps the shapes it was made with until it is left, because
+        // making it again would drop that work. Its colors have changed already.
+        if (frame.Content is Screen { Route: { } route } open && appearanceModel.MakesScreenAgain(HoldsSomethingTyped(open)))
         {
             Go(open.GetType(), route, NavigationKind.Replace, rebuild: true);
         }
@@ -167,9 +174,33 @@ public sealed class ShellView : Grid
         return true;
     }
 
+    // What the shell can see of unsaved work on any screen: text in a field a person can write in, or a message
+    // with words or files not sent yet. A field showing a saved value counts too, which only makes the screen wait.
+    private static bool HoldsSomethingTyped(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var typed = VisualTreeHelper.GetChild(parent, index) switch
+            {
+                TextBox { IsReadOnly: false, Text.Length: > 0 } => true,
+                PasswordBox { Password.Length: > 0 } => true,
+                Composer { Model.HasSomething: true } => true,
+                var child => HoldsSomethingTyped(child),
+            };
+
+            if (typed)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // The dialog is in the shell only while it is open. Sizes, shapes and type are read when a control is made, so
-    // after a choice that put new values in the resources the dialog is made again as the screen is, and the option
-    // that had the focus has it again.
+    // after a choice that put new values in the resources the dialog is made again, and the option that had the
+    // focus has it again. The new one opens over the old one with no fade, and then the old one goes, so the screen
+    // behind is never within reach in between.
     private void ShowAppearance(bool remade)
     {
         if (!theme.AppearanceOpen)
@@ -183,14 +214,18 @@ public sealed class ShellView : Grid
             return;
         }
 
-        var held = (appearance?.Body as AppearanceChoices)?.FocusHeld;
-        RemoveAppearance();
-
-        var dialog = new Dialog { Title = "Appearance", Body = new AppearanceChoices(appearanceModel) { FocusHeld = held } };
+        var before = appearance;
+        var dialog = new Dialog
+        {
+            Title = "Appearance",
+            Body = new AppearanceChoices(appearanceModel) { FocusHeld = (before?.Body as AppearanceChoices)?.FocusHeld },
+            OpensAtOnce = before is not null,
+        };
         dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AppearanceClosedByPerson(dialog));
         appearance = dialog;
         Children.Add(dialog);
         dialog.Open = true;
+        Remove(before);
     }
 
     // Escape, Back or the Close button.
@@ -204,20 +239,22 @@ public sealed class ShellView : Grid
 
     private void CloseAppearance()
     {
-        if (appearance is null)
+        if (appearance is not { } dialog)
         {
             return;
         }
 
-        RemoveAppearance();
-        FocusAfterAppearance();
+        appearance = null;
+        Remove(dialog);
+
+        // After the dialog has let go of the focus, which it does as it leaves.
+        DispatcherQueue.TryEnqueue(() => FocusAfterAppearance(dialog.ClosedWith));
     }
 
-    private void RemoveAppearance()
+    private void Remove(Dialog? dialog)
     {
-        if (appearance is { } dialog)
+        if (dialog is not null)
         {
-            appearance = null;
             dialog.Open = false;
             dialog.Body = null;
             Children.Remove(dialog);
@@ -225,15 +262,16 @@ public sealed class ShellView : Grid
     }
 
     // The account menu that opened the choices may be gone with its screen. The focus goes to the button of the
-    // account menu now showing, and to the top of the screen where there is none.
-    private void FocusAfterAppearance()
+    // account menu now showing, and to the top of the screen where there is none. The ring shows on the button only
+    // when the keyboard closed the choices.
+    private void FocusAfterAppearance(FocusState closedWith)
     {
-        if (frame.Content is not Screen shown)
+        if (frame.Content is not Screen shown || theme.AppearanceOpen)
         {
             return;
         }
 
-        if (!AccountMenusUnder(shown).Any(menu => menu.ActualWidth > 0 && menu.FocusTrigger()))
+        if (!AccountMenusUnder(shown).Any(menu => menu.ActualWidth > 0 && menu.FocusTrigger(closedWith)))
         {
             shown.Focus(FocusState.Programmatic);
         }

@@ -1214,6 +1214,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.BotName = Bot.Name;
         List.BotHue = BotIdentity.Hue(Bot.Id);
         List.Thinking = Thinking;
+        List.Working = Working;
+        List.Waiting = Waiting;
+        List.ModelIsChosen = Composer.ChosenModel != ComposerViewModel.BotsOwnModel;
+        List.Model = List.ModelIsChosen ? Composer.ChosenModel : Bot.Model;
         List.Asker = ReadOnly ? Asker : null;
         List.Problem = problem;
         List.Notice = Notice;

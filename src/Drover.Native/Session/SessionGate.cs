@@ -2,7 +2,8 @@ namespace Drover.Native.Session;
 
 /// <summary>
 /// Shows what is behind it only to a signed-in person. Anyone else is sent to sign in, or to setup on a new
-/// server. Until it is known which, it shows the mark alone (<see cref="Splash"/>). A server that does not answer, here or on the screen behind it, is said in words, with a way to try again.
+/// server. Until it is known which, it shows the mark alone (<see cref="Splash"/>). A server that does not answer,
+/// here or on the screen behind it, is said in words, with a way to try again.
 /// </summary>
 [Microsoft.UI.Xaml.Markup.ContentProperty(Name = nameof(Body))]
 public sealed class SessionGate : Grid

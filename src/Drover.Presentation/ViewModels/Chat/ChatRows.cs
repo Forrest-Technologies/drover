@@ -23,9 +23,9 @@ public enum ChatEntryShape
 public enum FooterPart
 {
     Copy,
+    Usage,
     Regenerate,
     Versions,
-    Usage,
 }
 
 /// <summary>Which card stands for a tool call in a conversation.</summary>
@@ -114,17 +114,21 @@ public static class ChatRows
         && (message.FinishesReply || message.EndsReply || message.MayRegenerate || message.Versions is not null);
 
     /// <summary>
-    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, another reply, the
-    /// switch between versions, then the hint of what the reply used. The newest reply leaves the hint out: what it
-    /// used stands on the status line under the composer.
+    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, the usage of the reply
+    /// beside it, another reply, then the switch between versions.
     /// </summary>
-    public static IReadOnlyList<FooterPart> FooterParts(ChatMessage message, bool canRegenerate, bool canSwitch, bool canReadUsage, bool newest = false)
+    public static IReadOnlyList<FooterPart> FooterParts(ChatMessage message, bool canRegenerate, bool canSwitch, bool canReadUsage)
     {
         List<FooterPart> parts = [];
 
         if (OffersCopy(message))
         {
             parts.Add(FooterPart.Copy);
+        }
+
+        if (OffersUsage(message, canReadUsage))
+        {
+            parts.Add(FooterPart.Usage);
         }
 
         if (OffersRegenerate(message, canRegenerate))
@@ -135,11 +139,6 @@ public static class ChatRows
         if (canSwitch && message.Versions is not null)
         {
             parts.Add(FooterPart.Versions);
-        }
-
-        if (!newest && OffersUsage(message, canReadUsage))
-        {
-            parts.Add(FooterPart.Usage);
         }
 
         return parts;
@@ -182,28 +181,21 @@ public static class ChatRows
 
     /// <summary>
     /// An older reply that has actions to show keeps them out of sight until asked, and is then one stop for the
-    /// keyboard. A person's message, words still arriving, and a message with nothing to offer are not.
+    /// keyboard that opens and closes. A person's message, words still arriving, and a message with nothing to offer
+    /// are not.
     /// </summary>
     public static bool RevealsActions(ChatMessage message, bool newest, bool hasFooter, bool leadsToRun) =>
         !newest && message is { FromPerson: false, Streaming: false } && (hasFooter || leadsToRun);
 
     /// <summary>
-    /// What the bot is doing now, in the words its messages say it with, for the line under the composer: writing
-    /// or thinking while a reply arrives, thinking before any of it has, and nothing at rest.
+    /// The last words of the newest reply once its run has finished, whoever it was written for: the reply the line
+    /// above the message field is about. None while the newest reply still arrives.
     /// </summary>
-    public static string? LiveState(IReadOnlyList<ChatMessage> messages, bool thinking) =>
-        messages.LastOrDefault(message => message.Streaming) is { } arriving ? Arriving(arriving)
-        : thinking ? TurnLedger.Thinking
-        : null;
-
-    /// <summary>
-    /// The message whose usage the line under the composer shows: the last words of the newest reply, once its run
-    /// has finished and where there is a way to read what it used. None while the newest reply still arrives.
-    /// </summary>
-    public static ChatMessage? StatusReply(IReadOnlyList<ChatMessage> messages, bool canRead)
+    public static ChatMessage? NewestFinished(IReadOnlyList<ChatMessage> messages)
     {
         var newest = NewestReply(messages);
-        return messages.LastOrDefault(message => newest.Contains(message.Key) && OffersUsage(message, canRead));
+        return messages.LastOrDefault(message =>
+            newest.Contains(message.Key) && message is { Streaming: false } and ({ FinishesReply: true } or { EndsReply: true }));
     }
 
     /// <summary>Said under a message sent while the bot works, until the bot has read it.</summary>
@@ -242,6 +234,9 @@ public static class ChatRows
     #endregion
 
     #region Versions
+
+    /// <summary>What an older reply's actions are called where their being shown or hidden is said.</summary>
+    public static string ActionsName(string botName) => $"Actions for {botName}'s reply";
 
     public const string RegenerateLabel = "Write another reply";
 

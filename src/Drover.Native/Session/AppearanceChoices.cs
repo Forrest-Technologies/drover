@@ -19,6 +19,8 @@ public sealed class AppearanceChoices : StackPanel
 
     private IReadOnlyList<AccentOption> accents = [];
 
+    private string? note;
+
     private (string Key, FocusState State)? focusOwed;
 
     #endregion
@@ -65,7 +67,7 @@ public sealed class AppearanceChoices : StackPanel
     private void ModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
     {
         if (!looks.SequenceEqual(model.Looks) || !modes.SequenceEqual(model.Themes)
-            || !accents.SequenceEqual(model.AccentChoices))
+            || !accents.SequenceEqual(model.AccentChoices) || note != model.WaitingNote)
         {
             Draw();
         }
@@ -75,7 +77,7 @@ public sealed class AppearanceChoices : StackPanel
     private void Draw()
     {
         focusOwed = Focused() ?? focusOwed;
-        (looks, modes, accents) = (model.Looks, model.Themes, model.AccentChoices);
+        (looks, modes, accents, note) = (model.Looks, model.Themes, model.AccentChoices, model.WaitingNote);
         options.Clear();
         Children.Clear();
 
@@ -92,6 +94,12 @@ public sealed class AppearanceChoices : StackPanel
             }
 
             Children.Add(Group("Accent", swatches));
+        }
+
+        // Said last, so the options do not move under the pointer when it appears.
+        if (note is not null)
+        {
+            Children.Add(Styles.Text(note, "DvTextSecondary"));
         }
 
         if (focusOwed is { } owed && !options.ContainsKey(owed.Key))
@@ -216,9 +224,13 @@ public sealed class AppearanceChoices : StackPanel
 
     private AppearanceOption Option(string key, object content, bool inUse, string accessibleName, Action choose)
     {
-        var option = new AppearanceOption
+        var option = new AppearanceOption(inUse)
         {
             Content = content,
+            RingInside = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = Tokens.Space("DvSpace3", "DvSpace2"),
             Fill = inUse ? "DvBg3" : null,
             FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary[inUse ? "DvWeightHeading" : "DvWeightLabel"],
         };
@@ -244,25 +256,13 @@ public sealed class AppearanceChoices : StackPanel
         }
     }
 
-    // One choice of a group, of which one is in use: a button to press, one of several to assistive technology.
-    private sealed class AppearanceOption : PlainButton
+    // One choice of a group, of which one is in use: a button to press, one of several to assistive technology,
+    // which is told whether it is the one in use.
+    private sealed class AppearanceOption(bool inUse) : PlainButton
     {
-        #region Constructors
-
-        public AppearanceOption()
-        {
-            RingInside = true;
-            HorizontalAlignment = HorizontalAlignment.Stretch;
-            HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            Padding = Tokens.Space("DvSpace3", "DvSpace2");
-        }
-
-        #endregion
-
         #region Private Methods
 
-        protected override AutomationPeer OnCreateAutomationPeer() =>
-            new RoleButtonPeer(this, AutomationControlType.RadioButton);
+        protected override AutomationPeer OnCreateAutomationPeer() => new ChoicePeer(this, inUse);
 
         #endregion
     }

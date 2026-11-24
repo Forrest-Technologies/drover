@@ -1,8 +1,8 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The account menu: the way to the appearance choices, the ways to the settings screens, what the app is, and signing out. The same menu is
-/// in the bar of a wide window and, compact, in the dock of a narrow one.
+/// The account menu: the way to the appearance choices, the ways to the settings screens, what the app is, and
+/// signing out. The same menu is in the bar of a wide window and, compact, in the dock of a narrow one.
 /// </summary>
 public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 {

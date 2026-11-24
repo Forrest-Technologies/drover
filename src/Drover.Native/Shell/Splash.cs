@@ -26,7 +26,6 @@ public sealed class Splash : Grid
         });
 
         AutomationProperties.SetName(this, Starting);
-        AutomationProperties.SetLiveSetting(this, AutomationLiveSetting.Polite);
         this.WhenShownOrRethemed(Paint);
         Paint();
     }

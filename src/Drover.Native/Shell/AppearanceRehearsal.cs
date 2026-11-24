@@ -6,27 +6,23 @@ namespace Drover.Native.Shell;
 /// <c>DROVER_DEV_APPEARANCE</c> set opens the choices over the first screen. The words in it, separated by commas,
 /// are buttons to press in turn, each the start of a button's accessible name or its words, so <c>Close</c> closes
 /// the dialog. Each is given the keyboard's focus and pressed through its automation peer, as a person's key press
-/// would. Not in a product build.
+/// would. <c>DROVER_DEV_WIDTH</c> makes the window that wide first. Not in a product build.
 /// </summary>
 internal static class AppearanceRehearsal
 {
+    #region Private Fields
+
+    private static readonly TimeSpan pause = TimeSpan.FromSeconds(2);
+
+    #endregion
+
     #region Public Methods
 
-    public static async void StartIfAsked(FrameworkElement shell, ThemeModel theme)
+    public static void StartIfAsked(Window window, ThemeModel theme)
     {
-        if (Environment.GetEnvironmentVariable("DROVER_DEV_APPEARANCE") is not { Length: > 0 } asked || theme.AppearanceOpen)
+        if (Environment.GetEnvironmentVariable("DROVER_DEV_APPEARANCE") is { Length: > 0 } asked && !theme.AppearanceOpen)
         {
-            return;
-        }
-
-        var pause = TimeSpan.FromSeconds(Pause);
-        await Task.Delay(pause);
-        theme.AppearanceOpen = true;
-
-        foreach (var name in asked.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            await Task.Delay(pause);
-            Press(shell, name);
+            _ = Run(window, theme, asked);
         }
     }
 
@@ -34,16 +30,32 @@ internal static class AppearanceRehearsal
 
     #region Private Methods
 
-    private const int Pause = 2;
-
-    private static void Press(FrameworkElement shell, string name)
+    private static async Task Run(Window window, ThemeModel theme, string asked)
     {
-        var option = VisualTreeHelper.GetOpenPopupsForXamlRoot(shell.XamlRoot)
+        var size = window.AppWindow.Size;
+        if (int.TryParse(Environment.GetEnvironmentVariable("DROVER_DEV_WIDTH"), out var width))
+        {
+            window.AppWindow.Resize(new(width, size.Height));
+        }
+
+        await Task.Delay(pause);
+        theme.AppearanceOpen = true;
+
+        foreach (var name in asked.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            await Task.Delay(pause);
+            Press(window, name);
+        }
+    }
+
+    private static void Press(Window window, string name)
+    {
+        var option = VisualTreeHelper.GetOpenPopupsForXamlRoot(window.Content.XamlRoot)
             .SelectMany(popup => ButtonsUnder(popup.Child))
             .FirstOrDefault(button => Named(button).StartsWith(name, StringComparison.OrdinalIgnoreCase));
 
         if (option is not null
-            && new ButtonAutomationPeer(option) is Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider invoker)
+            && FrameworkElementAutomationPeer.CreatePeerForElement(option) is IInvokeProvider invoker)
         {
             option.Focus(FocusState.Keyboard);
             invoker.Invoke();
