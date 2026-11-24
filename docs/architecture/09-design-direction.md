@@ -156,6 +156,23 @@ Every pair is computed in [`docs/design/themes/contrast.md`](../design/themes/co
 
 Two faces are added, both SIL OFL 1.1: Literata (Paper Ledger's reading face) and Atkinson Hyperlegible Next (Workbench's interface face). Each is fetched only when its theme is chosen where the platform allows; the theme issues that ship them record the download size.
 
+### The gates
+
+Every theme must pass the same accessibility bar as Night Yard, and the build enforces it, not review. The gates run over every file in `src/Drover.Presentation/Theme/Themes`, in both modes, on the resolved values: a new theme file that fails one fails the build and cannot merge. A failure names the theme, the mode, the pair and the ratio (`night-yard, dark: TextContrast: text-2 on bg-3 is 3.90:1, needs 4.5:1`). `ThemeGates` (in `Drover.Presentation`) holds them, and `ThemeGateTests` runs them over every file and over a deliberately broken theme for each gate, so a gate that stopped checking fails too. The shared checker of [issue 778](https://github.com/Forrest-Technologies/drover/issues/778) runs the same gates on a person's own theme before anything is applied.
+
+| Gate | Check | Where it runs |
+| --- | --- | --- |
+| Text contrast | Every text and status color (`text`, `text-2`, `text-3`, `ember`, `ion`, `violet`, `ok`, `warn`, `danger`) 4.5:1 on every surface; `on-accent` 4.5:1 on `ember` | `ThemeGates`, unit tests |
+| Interface contrast | Control edges (`text-3`) and the focus ring (`ember`) 3:1 on every surface | `ThemeGates`, unit tests |
+| Bot hues | Each of the twelve hues 4.5:1 on every surface; each head 3:1 against the visor at rest, lit and failed | `ThemeGates`, unit tests |
+| Bounds | Every value inside the bounds of the table in "Theme files": density, base size, durations, bloom, radii and the rest | `ThemeFileReader` through `ThemeGates`, unit tests |
+| Touch targets | Control and list row heights at the theme's density give 44 px for a finger and 32 px for a pointer | `ThemeGates`, unit tests |
+| Invariants | `ember`, `ion` and `violet` are at least 45 degrees apart in the Oklab hue in each mode; no key of a theme file names a gradient or a shadow | `ThemeGates`, unit tests |
+| Reduced motion | With reduced motion set, no element animates in any theme: the four live states are still | Screen checks over the four live states |
+| Text scaling | At 200 percent text scale and 360 px width, the conversation, crew, bot editor and approval card have no sideways scroll and no clipped text | Screen checks |
+
+The WCAG formula is the one the contrast tests use. The line color is decorative and exempt, as in "Contrast, computed". The nine text and status colors and the control edge are the only colors the Interface contrast and Text contrast gates name; a theme's own tighter rule, such as Workbench's 7:1 on every text color, is part of its design and is read from [`docs/design/themes/contrast.md`](../design/themes/contrast.md).
+
 ### Theme files
 
 A theme is one JSON file, `src/Drover.Presentation/Theme/Themes/{id}.json`. The format is closed: every key below is required unless marked optional, no other key is allowed, and the types and bounds are exact. The pipeline ([issue 422](https://github.com/Forrest-Technologies/drover/issues/422)) applies these files, the gates ([issue 423](https://github.com/Forrest-Technologies/drover/issues/423)) and the shared checker ([issue 778](https://github.com/Forrest-Technologies/drover/issues/778)) read the bounds from this table, and a person's own theme ([issue 778](https://github.com/Forrest-Technologies/drover/issues/778)) uses the same shape.
