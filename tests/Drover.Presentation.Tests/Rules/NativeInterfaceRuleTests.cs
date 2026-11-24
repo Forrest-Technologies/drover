@@ -218,6 +218,8 @@ public sealed partial class NativeInterfaceRuleTests
 
     private static Dictionary<string, string> ViewModelWords() =>
         Directory.EnumerateFiles(Path.Combine(Repository.Root, "src", "Drover.Presentation"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .SelectMany(path => WordValue().Matches(File.ReadAllText(path)).Cast<Match>())
             .GroupBy(match => match.Groups[1].Value, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First().Groups[2].Value, StringComparer.Ordinal);
