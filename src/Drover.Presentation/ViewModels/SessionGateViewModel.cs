@@ -24,8 +24,6 @@ public sealed partial class SessionGateViewModel(
 
     public static string UnreachableCause => Failures.Unreachable;
 
-    public static string CheckingNote => "Checking who is signed in.";
-
     #endregion
 
     #region Public Methods

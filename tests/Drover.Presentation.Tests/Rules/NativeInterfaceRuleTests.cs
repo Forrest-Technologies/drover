@@ -217,6 +217,46 @@ public sealed partial class NativeInterfaceRuleTests
         found.Should().BeEmpty();
     }
 
+    [Fact]
+    public void A_var_declared_menu_in_a_header_is_checked()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "var menu = new Menu { Label = \"More\" }; header.Actions.Add(menu);"),
+            found);
+        found.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_var_declared_icon_menu_in_a_header_is_allowed()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "var menu = new Menu { TriggerIcon = IconName.More, ShowTriggerLabel = false }; header.Actions.Add(menu);"),
+            found);
+        found.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void An_inserted_inline_menu_in_a_header_is_checked()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "header.Actions.Insert(0, new Menu { Label = \"More\" });"),
+            found);
+        found.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void An_inserted_icon_menu_in_a_header_is_allowed()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "header.Actions.Insert(0, new Menu { TriggerIcon = IconName.More, ShowTriggerLabel = false });"),
+            found);
+        found.Should().BeEmpty();
+    }
+
     #endregion
 
     #region Private Methods
@@ -320,10 +360,12 @@ public sealed partial class NativeInterfaceRuleTests
     {
         foreach (var added in ActionAdded().Matches(file.Text).Cast<Match>())
         {
-            var value = added.Groups[1].Value.Trim();
+            var value = ActionIndex().Replace(added.Groups[1].Value.Trim(), string.Empty).Trim();
             var declaration = ActionDeclared().Matches(file.Text).Cast<Match>()
                 .FirstOrDefault(decl => decl.Groups[2].Value == value);
-            var type = declaration?.Groups[1].Value
+            var declared = VarActionDeclared().Matches(file.Text).Cast<Match>()
+                .FirstOrDefault(decl => decl.Groups[1].Value == value);
+            var type = declaration?.Groups[1].Value ?? declared?.Groups[2].Value
                 ?? (value.StartsWith("new IconButton", StringComparison.Ordinal) ? "IconButton"
                     : value.StartsWith("new Menu", StringComparison.Ordinal) ? "Menu" : null);
 
@@ -335,10 +377,11 @@ public sealed partial class NativeInterfaceRuleTests
 
             if (type is "Menu")
             {
-                var initializer = declaration is null
-                    ? InlineMenu().Match(value).Groups[1].Value
-                    : ActionMade().Matches(file.Text).Cast<Match>()
-                        .FirstOrDefault(made => made.Groups[1].Value == declaration.Groups[2].Value)?.Groups[2].Value ?? string.Empty;
+                var initializer = declared?.Groups[3].Value
+                    ?? (declaration is null
+                        ? InlineMenu().Match(value).Groups[1].Value
+                        : ActionMade().Matches(file.Text).Cast<Match>()
+                            .FirstOrDefault(made => made.Groups[1].Value == declaration.Groups[2].Value)?.Groups[2].Value ?? string.Empty);
                 if (!initializer.Contains("TriggerIcon", StringComparison.Ordinal)
                     || !initializer.Contains("ShowTriggerLabel = false", StringComparison.Ordinal))
                 {
@@ -375,8 +418,14 @@ public sealed partial class NativeInterfaceRuleTests
     [GeneratedRegex(@"\.Actions\.(?:Add|Insert)\(([^)]*)\)")]
     private static partial Regex ActionAdded();
 
+    [GeneratedRegex(@"^\d+\s*,\s*")]
+    private static partial Regex ActionIndex();
+
     [GeneratedRegex(@"\b(IconButton|Menu)\s+(\w+)\b")]
     private static partial Regex ActionDeclared();
+
+    [GeneratedRegex(@"\bvar\s+(\w+)\s*=\s*new\s+(IconButton|Menu)\s*\{([^}]*)\}")]
+    private static partial Regex VarActionDeclared();
 
     [GeneratedRegex(@"\b(\w+)\s*=\s*new\s*\(\s*\)\s*\{([^}]*)\}")]
     private static partial Regex ActionMade();

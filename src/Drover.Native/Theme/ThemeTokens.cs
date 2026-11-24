@@ -27,17 +27,22 @@ public static class ThemeTokens
     /// <summary>The theme in use. Night Yard until a theme is applied: the token file holds its values.</summary>
     public static ThemeFile Current { get; private set; } = BuiltInThemes.NightYard;
 
+    /// <summary>True when the dark mode of the theme in use is drawn as its black mode.</summary>
+    public static bool Black { get; private set; }
+
     #endregion
 
     #region Public Methods
 
     /// <summary>
-    /// Applies a theme in both of its modes. The mode a person sees is chosen apart, by the requested theme of the
-    /// window.
+    /// Applies a theme in its dark and its light mode. Which of the two a person sees is chosen apart, by the
+    /// requested theme of the window. A window has no third mode, so the black mode takes the place of the dark
+    /// one when <paramref name="black"/> is set.
     /// </summary>
-    public static void Apply(ThemeFile theme)
+    public static void Apply(ThemeFile theme, bool black = false)
     {
-        var (dark, light) = (theme.Resolve(ColorMode.Dark), theme.Resolve(ColorMode.Light));
+        var dark = theme.Resolve(black ? ColorMode.Black : ColorMode.Dark);
+        var light = theme.Resolve(ColorMode.Light);
 
         WriteColors(DarkKey, dark);
         WriteColors(DarkAliasKey, dark);
@@ -47,7 +52,7 @@ public static class ThemeTokens
         WriteFaces(dark.Faces);
         Styles.Reload();
 
-        Current = theme;
+        (Current, Black) = (theme, black);
     }
 
     #endregion

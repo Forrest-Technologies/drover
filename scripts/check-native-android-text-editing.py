@@ -235,28 +235,36 @@ def check_yard_edges(theme):
           f"between system bars at {status_bottom} and {navigation_top}.")
 
 
+def seed_theme(mode):
+    """Keep a theme choice in the app's settings before it starts. The fresh emulator uses a debuggable image."""
+    identity = subprocess.run(["adb", "shell", "id"], text=True, capture_output=True)
+    if identity.returncode != 0 or "uid=0(root)" not in identity.stdout:
+        subprocess.run(["adb", "root"], check=True)
+        wait_for_boot(as_root=True)
+    shell("am", "force-stop", PACKAGE)
+    data = f"/data/user/0/{PACKAGE}"
+    preferences = f"{data}/shared_prefs"
+    path = f"{preferences}/{PACKAGE}_preferences.xml"
+    # The yard is the ruler this check measures with, and the default theme draws none, so the check runs in
+    # Night Yard, whose dots it knows. What it checks is the layout against the system bars, not the theme.
+    choice = f'{{"themeId":"night-yard","mode":"{mode}","accent":"theme","version":2}}'
+    fixture = f'<map><string name="drover.theme">System.String:{choice}</string></map>'
+    shell(f"mkdir -p {preferences} && printf '%s' {shlex.quote(fixture)} > {path} "
+          f"&& chown -R $(stat -c %u:%g {data}) {preferences} && restorecon -RF {preferences}")
+
+
 def check_safe_area():
     # Use a 360 dp viewport for both themes.
     shell("wm", "size", "720x1600")
     shell("wm", "density", "320")
     try:
+        seed_theme("dark")
         start_app()
         normal_top = address_bounds()[1]
         screenshot("360-dark")
         check_yard_edges("dark")
 
-        # The fresh emulator uses a debuggable system image. Seed the app's saved light choice before it launches.
-        identity = subprocess.run(["adb", "shell", "id"], text=True, capture_output=True)
-        if identity.returncode != 0 or "uid=0(root)" not in identity.stdout:
-            subprocess.run(["adb", "root"], check=True)
-            wait_for_boot(as_root=True)
-        shell("am", "force-stop", PACKAGE)
-        data = f"/data/user/0/{PACKAGE}"
-        preferences = f"{data}/shared_prefs"
-        path = f"{preferences}/{PACKAGE}_preferences.xml"
-        fixture = '<map><string name="drover.theme">System.String:light</string></map>'
-        shell(f"mkdir -p {preferences} && printf '%s' {shlex.quote(fixture)} > {path} "
-              f"&& chown -R $(stat -c %u:%g {data}) {preferences} && restorecon -RF {preferences}")
+        seed_theme("light")
         start_app()
         light_top = address_bounds()[1]
         screenshot("360-light")

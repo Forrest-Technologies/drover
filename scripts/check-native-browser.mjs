@@ -818,12 +818,7 @@ try {
                     if (width === 1280) {
                         await checkHtmlPreviewContainment(page, previewFrameRequests, revokedPreviewGrants, () => externalBeaconRequests);
                     }
-                    if (width === 360) {
-                        await page.getByRole('button', { name: 'More about Sample bot' }).dispatchEvent('click');
-                        await page.getByRole('menuitem', { name: 'Files', exact: true }).dispatchEvent('click');
-                    } else {
-                        await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
-                    }
+                    await openBeside(page, 'Files');
                     const panelPreview = page.getByRole('button', { name: 'Preview sample-panel.png', exact: true });
                     const closePanel = page.getByRole('button', { name: 'Close preview of sample-panel.png' });
                     const requestPath = `/api/spaces/${spaceId}/files/${panelFile.id}/native-preview`;
@@ -1236,6 +1231,7 @@ async function checkStopBounds(page, width) {
     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
     const { settled, close } = await composerRingCheck(page);
     try {
+        await focusSettled(page);
         await field.focus();
         await page.keyboard.type('hold this run');
         // Send enables once the draft has reached the conversation, a frame after the keystrokes.
@@ -1354,10 +1350,29 @@ async function checkFieldHints(page, name) {
     }
 }
 
+// What opens beside the conversation is opened from the one menu in its header, at every width.
+// A screen that has just opened puts focus on its first control a frame or two later. A person cannot act before
+// that happens, so a check waits for it too: focus must stay on one element for 300 ms.
+async function focusSettled(page) {
+    await page.waitForFunction(() => {
+        const now = performance.now();
+        if (window.droverFocus?.element !== document.activeElement) {
+            window.droverFocus = { element: document.activeElement, since: now };
+        }
+
+        return now - window.droverFocus.since >= 300;
+    }, null, { polling: 50 });
+}
+
+async function openBeside(page, name) {
+    await focusSettled(page);
+    await page.getByRole('button', { name: 'More about Sample bot' }).dispatchEvent('click');
+    await page.getByRole('menuitem', { name, exact: true }).dispatchEvent('click');
+}
+
 async function checkWorkspacePanels(page, width, theme) {
     const crew = page.getByLabel('Resize the crew sidebar', { exact: true });
     const right = page.getByLabel('Resize the right panel', { exact: true });
-    const activity = page.getByRole('link', { name: 'Activity', exact: true });
     const close = page.getByRole('link', { name: 'Close the activity', exact: true });
     const composer = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
     const emptyActivity = page.getByRole('heading', { name: 'Nothing has run in this conversation yet', exact: true });
@@ -1365,8 +1380,7 @@ async function checkWorkspacePanels(page, width, theme) {
     if (width === 360) {
         assert.equal(await crew.count(), 0);
         assert.equal(await right.count(), 0);
-        await page.getByRole('button', { name: 'More about Sample bot' }).dispatchEvent('click');
-        await page.getByRole('menuitem', { name: 'Activity', exact: true }).dispatchEvent('click');
+        await openBeside(page, 'Activity');
         await emptyActivity.waitFor({ state: 'attached' });
         assert.equal(await composer.count(), 0);
         await page.screenshot({ path: path.join(pictures, `conversation-activity-${width}-${theme}.png`) });
@@ -1375,7 +1389,7 @@ async function checkWorkspacePanels(page, width, theme) {
         return;
     }
 
-    await activity.dispatchEvent('click');
+    await openBeside(page, 'Activity');
     await emptyActivity.waitFor({ state: 'attached' });
 
     async function bounds(control) {
@@ -1411,20 +1425,12 @@ async function checkWorkspacePanels(page, width, theme) {
         .getBoundingClientRect().x > x + 10, narrow.x);
 
     const edge = (await bounds(right)).x;
-    const start = (await bounds(crew)).x;
-    const tabs = ['Activity', 'Summary', 'Memory', 'Screen', 'Files', 'Side chats'];
-    const row = await bounds(activity);
-    for (const name of tabs) {
-        const tab = await bounds(page.getByRole('link', { name, exact: true }));
-        assert(tab.x >= start && tab.x + tab.width <= edge + 1, `${name} crosses a panel divider`);
-        assert(Math.abs(tab.y - row.y) <= 1, `${name} wrapped to another row`);
-    }
 
     await page.screenshot({ path: path.join(pictures, `conversation-activity-${width}-${theme}.png`) });
     await close.dispatchEvent('click');
     await page.waitForURL(url => url.pathname.endsWith(`/talk/${botId}`));
     await right.waitFor({ state: 'detached' });
-    await activity.dispatchEvent('click');
+    await openBeside(page, 'Activity');
     await page.waitForURL('**/activity');
     await page.waitForFunction(x => {
         const box = document.querySelector('[aria-label="Resize the right panel"]')?.getBoundingClientRect();
@@ -1435,7 +1441,7 @@ async function checkWorkspacePanels(page, width, theme) {
 async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPreviewGrants, getBeaconCount) {
     previewFrameRequests.length = 0;
     revokedPreviewGrants.length = 0;
-    await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
+    await openBeside(page, 'Files');
     const previewButton = page.getByRole('button', { name: 'Preview report.html', exact: true });
     await previewButton.waitFor({ state: 'attached', timeout: 5000 });
     const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
