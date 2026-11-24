@@ -11,7 +11,7 @@ internal sealed class ImportExtensionForm : Grid
 
     private readonly ExtensionsViewModel model;
 
-    private readonly Facet frame = new() { Cut = Tokens.Number("DvCut"), Padding = new(Tokens.Number("DvSpace4")) };
+    private readonly Facet frame = new() { Role = FacetRole.Frame, Padding = new(Tokens.Number("DvSpace4")) };
 
     private readonly StackPanel column = new() { Spacing = Tokens.Number("DvSpace4") };
 

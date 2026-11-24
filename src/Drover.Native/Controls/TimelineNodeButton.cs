@@ -119,7 +119,7 @@ internal sealed class TimelineNodeButton : Pressable
     protected override void Paint()
     {
         var frame = (Facet)Frame!;
-        frame.Cut = Tokens.Number("DvCutS");
+        frame.Role = FacetRole.Control;
         frame.Fill = Tokens.Brush(this, isOpen || IsHovered ? "DvBg3" : "DvBg2");
         frame.Edge = Tokens.Brush(this, edge ?? "DvLine");
         frame.Ring = HasKeyboardFocus ? Tokens.Brush(this, "DvEmber") : null;

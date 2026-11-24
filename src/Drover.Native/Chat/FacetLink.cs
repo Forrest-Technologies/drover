@@ -79,7 +79,7 @@ internal sealed class FacetLink : Pressable
         var clear = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var ink = Tokens.Brush(this, IsCurrent || lit ? HoverInk : Ink);
 
-        facet.Cut = Tokens.Number("DvCutS");
+        facet.Role = FacetRole.Control;
         facet.Fill = fill is null ? clear : Tokens.Brush(this, fill);
         facet.Edge = edge is null ? clear : Tokens.Brush(this, edge);
         facet.Ring = HasKeyboardFocus ? Tokens.Brush(this, "DvEmber") : null;

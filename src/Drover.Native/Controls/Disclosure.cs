@@ -179,7 +179,7 @@ public sealed class Disclosure : Grid
         mark.Foreground = Tokens.Brush(this, "DvText3");
         body.Content = Open ? Body : null;
         body.Visibility = Open ? Visibility.Visible : Visibility.Collapsed;
-        frame.Cut = Tokens.Number("DvCut");
+        frame.Role = FacetRole.Frame;
         frame.Edge = Tokens.Brush(this, Edge ?? (Open ? "DvText3" : "DvLine"));
 
         // Read out as one control: the title, then the summary, and whether it is open.

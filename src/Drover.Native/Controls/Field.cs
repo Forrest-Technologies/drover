@@ -38,7 +38,7 @@ public sealed class Field : StackPanel
         placeholder.Margin = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0);
         AutomationProperties.SetAccessibilityView(placeholder, AccessibilityView.Raw);
         AutomationProperties.SetLiveSetting(error, AutomationLiveSetting.Assertive);
-        frame.Cut = Tokens.Number("DvCutS");
+        frame.Role = FacetRole.Control;
         frame.MinHeight = Targets.Minimum;
 #if ANDROID
         frame.Tapped += (_, _) =>

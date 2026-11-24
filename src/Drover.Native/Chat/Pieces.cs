@@ -41,7 +41,7 @@ internal static class Pieces
     {
         var line = Styles.Text(text, "DvTextSecondary");
         line.FontSize = Tokens.Number("DvText13");
-        line.LineHeight = (double)Styles.Dictionary["DvLine13"];
+        line.LineHeight = Tokens.Number("DvLine13");
         return line;
     }
 
@@ -53,7 +53,7 @@ internal static class Pieces
         {
             var name = Styles.Text(fact.Name, "DvTextLabel");
             name.FontSize = Tokens.Number("DvText12");
-            name.LineHeight = (double)Styles.Dictionary["DvLine12"];
+            name.LineHeight = Tokens.Number("DvLine12");
             var row = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
             row.Children.Add(name);
             row.Children.Add(Styles.Text(fact.Value));

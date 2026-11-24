@@ -82,6 +82,8 @@ public static class ThemeResolution
             numbers[$"size-{step}"] = size;
         }
 
+        AddLines(numbers, theme);
+
         foreach (var (spaceStep, index) in spaceSteps.Select((step, index) => (step, index)))
         {
             numbers[$"space-{index + 1}"] = Math.Max(2, Math.Round(spaceStep * density.Spacing));
@@ -94,6 +96,29 @@ public static class ThemeResolution
 
         return numbers;
     }
+
+    // A style cannot multiply, so a line height is worked out here: the size of a step times the leading. A browser
+    // centers a line's letters in its line height, and the native text box keeps them at the top, so each face also
+    // gets the lead it moves its letters down by: half of what the line has over the height the face asks of a line.
+    private static void AddLines(Dictionary<string, double> numbers, ThemeFile theme)
+    {
+        var (type, faces) = (theme.Type, Faces(theme));
+        var (text, heading) = (type.TextLeading, type.HeadingLeading);
+
+        foreach (var step in (int[])[0, 1, 2])
+        {
+            numbers[$"line-{step}"] = type.Scale[step] * text;
+        }
+
+        numbers["line-h1"] = type.Scale[5] * heading;
+        numbers["line-h2"] = type.Scale[4] * heading;
+        numbers["line-h3"] = type.Scale[3] * heading;
+        numbers["lead-body"] = Lead(numbers["line-2"], type.Scale[2], faces.Interface);
+        numbers["lead-mono"] = Lead(numbers["line-0"], type.Scale[0], faces.Machine);
+    }
+
+    private static double Lead(double line, int size, FontFaces.Face face) =>
+        Math.Round((line - (size * face.LineFactor)) / 2, MidpointRounding.AwayFromZero);
 
     private static ThemeFaces Faces(ThemeFile theme)
     {

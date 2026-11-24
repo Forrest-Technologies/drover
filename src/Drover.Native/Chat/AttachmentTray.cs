@@ -89,7 +89,7 @@ public sealed class AttachmentTray : StackPanel
         var chip = new Facet
         {
             Tag = item.Id,
-            Cut = Tokens.Number("DvCutS"),
+            Role = FacetRole.Control,
             Padding = new(Tokens.Number("DvSpace3"), Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1")),
             ColumnSpacing = Tokens.Number("DvSpace2"),
         };

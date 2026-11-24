@@ -161,7 +161,7 @@ public sealed class ToolCallCard : Grid
         framed.Children.Add(endedEdge);
 
         under.FontSize = Tokens.Number("DvText13");
-        under.LineHeight = (double)Styles.Dictionary["DvLine13"];
+        under.LineHeight = Tokens.Number("DvLine13");
         underBox.Child = under;
         underBox.Padding = Tokens.Space("DvSpace3", "DvSpace2");
 
@@ -196,7 +196,7 @@ public sealed class ToolCallCard : Grid
         column.Children.Add(actions);
         column.Children.Add(problem);
 
-        ask.Cut = Tokens.Number("DvCut");
+        ask.Role = FacetRole.Frame;
         ask.Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace3"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace4"));
         ask.Children.Add(column);
         AutomationProperties.SetLabeledBy(ask, askTitle);

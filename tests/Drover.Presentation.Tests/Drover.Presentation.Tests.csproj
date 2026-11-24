@@ -49,6 +49,7 @@
 
   <!-- Event logs recorded from a real server. -->
   <ItemGroup>
+    <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

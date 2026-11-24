@@ -70,6 +70,14 @@
     <Compile Remove="Controls/TimelineFocusCheck.cs" />
   </ItemGroup>
 
+  <PropertyGroup Condition="'$(DroverMultilineFocusCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_MULTILINE_FOCUS_CHECK</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DroverMultilineFocusCheck)' != 'true'">
+    <Compile Remove="Controls/MultilineInputFocusCheck.cs" />
+  </ItemGroup>
+
   <!-- The field input check runs only in a build made for CI, never in a shipping app. -->
   <PropertyGroup Condition="'$(DroverFieldCheck)' == 'true'">
     <DefineConstants>$(DefineConstants);DROVER_FIELD_CHECK</DefineConstants>

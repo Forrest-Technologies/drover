@@ -4,26 +4,10 @@
 
   <!-- The text styles and the structure of the controls Drover draws itself. Every value comes from Tokens.xaml. -->
 
-  <!-- Line heights are the size times the leading token: 1.5 for text, 1.25 for a heading. A style cannot
-       multiply, so each product is a resource here, beside the two tokens it comes from. -->
-  <x:Double x:Key="DvLine12">18</x:Double>
-  <x:Double x:Key="DvLine13">19.5</x:Double>
-  <x:Double x:Key="DvLine14">21</x:Double>
-  <x:Double x:Key="DvLineH1">35</x:Double>
-  <x:Double x:Key="DvLineH2">25</x:Double>
-  <x:Double x:Key="DvLineH3">20</x:Double>
-
-  <!-- The web client's one variable font draws large text with its display cut. The static files the native
-       renderer needs keep the two cuts apart, so the largest size names the display cut here. -->
-  <FontFamily x:Key="DvFontDisplay">ms-appx:///Assets/Fonts/InterDisplay.ttf</FontFamily>
-
-  <!-- A browser centers a line's letters in its line height. The native text box keeps the letters at the top
-       and puts the extra height under them, so each style moves its letters down by half the extra and takes the
-       same amount back below. The box keeps the height the line height gives it. -->
-  <Thickness x:Key="DvLeadIn14">0,2,0,0</Thickness>
-  <Thickness x:Key="DvLeadOut14">0,0,0,-2</Thickness>
-  <Thickness x:Key="DvLeadInMono">0,1,0,0</Thickness>
-  <Thickness x:Key="DvLeadOutMono">0,0,0,-1</Thickness>
+  <!-- The line heights (DvLine12 to DvLineH3) and the lead-in and lead-out of each style (DvLeadIn14, DvLeadInMono,
+       and their outs) depend on the theme in use, so they are not written here. ThemeTokens puts them in
+       Tokens.Dictionary each time a theme is applied, and applying a theme loads this file again so the styles
+       below take the new sizes. -->
 
   <Style x:Key="DvTextBody" TargetType="TextBlock">
     <Setter Property="Padding" Value="{StaticResource DvLeadIn14}" />
@@ -65,7 +49,7 @@
   <Style x:Key="DvTextH1" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
     <Setter Property="Padding" Value="0" />
     <Setter Property="Margin" Value="0" />
-    <Setter Property="FontFamily" Value="{StaticResource DvFontDisplay}" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontHeadingLarge}" />
     <Setter Property="FontSize" Value="{StaticResource DvText28}" />
     <Setter Property="LineHeight" Value="{StaticResource DvLineH1}" />
     <Setter Property="FontWeight" Value="{StaticResource DvWeightHeading}" />
@@ -75,6 +59,7 @@
   <Style x:Key="DvTextH2" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
     <Setter Property="Padding" Value="0" />
     <Setter Property="Margin" Value="0" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontHeading}" />
     <Setter Property="FontSize" Value="{StaticResource DvText20}" />
     <Setter Property="LineHeight" Value="{StaticResource DvLineH2}" />
     <Setter Property="FontWeight" Value="{StaticResource DvWeightHeading}" />
@@ -84,6 +69,7 @@
   <Style x:Key="DvTextH3" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
     <Setter Property="Padding" Value="0" />
     <Setter Property="Margin" Value="0" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontHeading}" />
     <Setter Property="FontSize" Value="{StaticResource DvText16}" />
     <Setter Property="LineHeight" Value="{StaticResource DvLineH3}" />
     <Setter Property="FontWeight" Value="{StaticResource DvWeightHeading}" />
@@ -125,29 +111,34 @@
   <x:Double x:Key="DvConversationMin">400</x:Double>
   <x:Double x:Key="DvRailMin">288</x:Double>
 
-  <!-- A text input with nothing drawn around it: the field that holds it draws the faceted frame. -->
+  <!-- A text input with nothing drawn around it: the field that holds it draws the faceted frame. The transparent root
+       gives the whole control a hit-testable surface so taps outside the inner text line still focus the input. -->
   <ControlTemplate x:Key="DvTextBoxTemplate" TargetType="TextBox">
-    <ScrollViewer x:Name="ContentElement"
-                  Padding="{TemplateBinding Padding}"
-                  IsTabStop="False"
-                  ZoomMode="Disabled"
-                  HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
-                  HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
-                  VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
-                  VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
-                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    <Grid Background="Transparent">
+      <ScrollViewer x:Name="ContentElement"
+                    Padding="{TemplateBinding Padding}"
+                    IsTabStop="False"
+                    ZoomMode="Disabled"
+                    HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
+                    HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                    VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
+                    VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    </Grid>
   </ControlTemplate>
 
   <ControlTemplate x:Key="DvPasswordBoxTemplate" TargetType="PasswordBox">
-    <ScrollViewer x:Name="ContentElement"
-                  Padding="{TemplateBinding Padding}"
-                  IsTabStop="False"
-                  ZoomMode="Disabled"
-                  HorizontalScrollMode="Auto"
-                  HorizontalScrollBarVisibility="Hidden"
-                  VerticalScrollMode="Disabled"
-                  VerticalScrollBarVisibility="Disabled"
-                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    <Grid Background="Transparent">
+      <ScrollViewer x:Name="ContentElement"
+                    Padding="{TemplateBinding Padding}"
+                    IsTabStop="False"
+                    ZoomMode="Disabled"
+                    HorizontalScrollMode="Auto"
+                    HorizontalScrollBarVisibility="Hidden"
+                    VerticalScrollMode="Disabled"
+                    VerticalScrollBarVisibility="Disabled"
+                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    </Grid>
   </ControlTemplate>
 
   <!-- A pressable control on a faceted frame. The control sets the frame's colors for its state. -->

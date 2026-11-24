@@ -22,7 +22,7 @@ public sealed class CrewRow : StackPanel
     {
         var bot = node.Bot;
         Spacing = Tokens.Number("DvSpace3");
-        frame.Cut = Tokens.Number("DvCut");
+        frame.Role = FacetRole.Frame;
         frame.MinHeight = Tokens.Number("DvTargetTouch");
         frame.Padding = Tokens.Space("DvSpace4", "DvSpace3");
 

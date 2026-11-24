@@ -235,7 +235,7 @@ public sealed class UsageTable : Grid
             Text = text,
             Style = (Style)Styles.Dictionary["DvTextCode"],
             FontSize = Tokens.Number("DvText12"),
-            LineHeight = (double)Styles.Dictionary["DvLine12"],
+            LineHeight = Tokens.Number("DvLine12"),
             Foreground = Tokens.Brush(this, "DvText"),
             TextWrapping = TextWrapping.Wrap,
         };
@@ -249,7 +249,7 @@ public sealed class UsageTable : Grid
     {
         var words = Styles.Text(text, style);
         words.FontSize = Tokens.Number("DvText13");
-        words.LineHeight = (double)Styles.Dictionary["DvLine13"];
+        words.LineHeight = Tokens.Number("DvLine13");
         words.TextWrapping = noWrap ? TextWrapping.NoWrap : TextWrapping.Wrap;
         return words;
     }
