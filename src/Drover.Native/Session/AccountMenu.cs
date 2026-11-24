@@ -204,6 +204,9 @@ public sealed class AccountMenu : Grid
         (trigger.Fill, trigger.HoverFill, trigger.Line, trigger.Ink, trigger.Radius, trigger.RingInside) =
             (null, null, null, "DvText2", null, true);
         trigger.MinHeight = Tokens.Number("DvTargetTouch") + Tokens.Number("DvSpace3");
+
+        // The cell is the button, as for the links beside it: padding at its sides would cut the word short.
+        trigger.Padding = new(0);
         trigger.FontSize = Tokens.Number("DvText12");
         trigger.HorizontalAlignment = HorizontalAlignment.Stretch;
 

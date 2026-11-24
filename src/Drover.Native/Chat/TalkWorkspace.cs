@@ -37,16 +37,6 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly Border railBox = new();
 
-    // What Fit shows and hides are these two, which hold the conversation and the rail and are nothing to a screen
-    // reader themselves. Uno 7.0.65 in a browser can leave a landmark hidden from assistive technology for good when
-    // the landmark itself is collapsed and shown again: any rebuild of its hidden tree while the landmark is
-    // collapsed (one runs each time an Icon is made) marks it as left out, and when it is shown again at the place
-    // it had before, the tree is told to build it, finds it built, and never takes "hidden" off it. A landmark that
-    // is never collapsed itself is put back whole each time.
-    private readonly Border mainSlot = new();
-
-    private readonly Border railSlot = new();
-
     private readonly Border listHeader = new();
 
     private readonly ContentPresenter crewNotice = new();
@@ -147,14 +137,14 @@ internal sealed class TalkWorkspace : Grid
         BuildMain();
         BuildRail();
         SetColumn(crewDivider, 1);
-        SetColumn(mainSlot, 2);
+        SetColumn(mainBox, 2);
         SetColumn(railDivider, 3);
-        SetColumn(railSlot, 4);
+        SetColumn(railBox, 4);
         shell.Children.Add(listBox);
         shell.Children.Add(crewDivider);
-        shell.Children.Add(mainSlot);
+        shell.Children.Add(mainBox);
         shell.Children.Add(railDivider);
-        shell.Children.Add(railSlot);
+        shell.Children.Add(railBox);
         gate.Body = shell;
         Children.Add(gate);
 
@@ -170,7 +160,7 @@ internal sealed class TalkWorkspace : Grid
             QueueDraw();
         };
         railBox.KeyDown += CloseRailOnEscape;
-        SizeChanged += (_, _) => Fit();
+        SizeChanged += (_, _) => FitOrDraw();
         this.WhenShownOrRethemed(Paint);
         Draw();
     }
@@ -291,7 +281,6 @@ internal sealed class TalkWorkspace : Grid
         mainBox.Children.Add(mainHeader);
         mainBox.Children.Add(mainBody);
         AutomationProperties.SetLandmarkType(mainBox, AutomationLandmarkType.Main);
-        mainSlot.Child = mainBox;
     }
 
     private void BuildRail()
@@ -327,7 +316,6 @@ internal sealed class TalkWorkspace : Grid
         column.Children.Add(railBody);
         railBox.Child = column;
         AutomationProperties.SetLandmarkType(railBox, AutomationLandmarkType.Custom);
-        railSlot.Child = railBox;
     }
 
     // One height for all three bars, set by the bot's head in the conversation's header, so their lines meet.
@@ -364,7 +352,30 @@ internal sealed class TalkWorkspace : Grid
         if (!drawQueued)
         {
             drawQueued = true;
-            DispatcherQueue.TryEnqueue(Draw);
+            DispatcherQueue.TryEnqueue(DrawWhenQueued);
+        }
+    }
+
+    private void DrawWhenQueued()
+    {
+        if (drawQueued)
+        {
+            Draw();
+        }
+    }
+
+    // The page for another address takes the workspace over, and its size is given again, often before the draw
+    // queued for that address has run. That draw is done then, so what the address shows is made before the columns
+    // are shown and hidden for it, and not while one of them is collapsed.
+    private void FitOrDraw()
+    {
+        if (drawQueued)
+        {
+            Draw();
+        }
+        else
+        {
+            Fit();
         }
     }
 
@@ -749,10 +760,10 @@ internal sealed class TalkWorkspace : Grid
             space - listWidth - mainMinimum) : 0;
 
         listBox.Visibility = Shown(showList);
-        mainSlot.Visibility = Shown(showMain);
-        railSlot.Visibility = Shown(showRail);
-        crewDivider.Visibility = Shown(splitCrew);
-        railDivider.Visibility = Shown(splitRail);
+        Show(mainBox, showMain);
+        Show(railBox, showRail);
+        Show(crewDivider, splitCrew);
+        Show(railDivider, splitRail);
 
         var star = new GridLength(1, GridUnitType.Star);
         crewColumn.Width = !showList ? new(0) : splitCrew ? new(listWidth) : star;
@@ -793,7 +804,7 @@ internal sealed class TalkWorkspace : Grid
 
     private void ResizeCrew(double width)
     {
-        var neighborMinimum = (double)Styles.Dictionary[mainSlot.Visibility is Visibility.Visible ? "DvConversationMin" : "DvRailMin"];
+        var neighborMinimum = (double)Styles.Dictionary[mainBox.Visibility is Visibility.Visible ? "DvConversationMin" : "DvRailMin"];
         var neighborWidth = railDivider.Visibility is Visibility.Visible ? railColumn.Width.Value : 0;
         var available = ActualWidth - crewDividerColumn.Width.Value - railDividerColumn.Width.Value - neighborWidth;
         preferredCrewWidth = Math.Clamp(width, Tokens.Number("DvColumnMin"), available - neighborMinimum);
@@ -817,6 +828,20 @@ internal sealed class TalkWorkspace : Grid
     }
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
+
+    // The conversation, the rail and the dividers are landmarks and controls to a screen reader, and each comes back
+    // where it stood before. Shown again, each is put back in the browser's tree for assistive technology, which
+    // could otherwise keep it hidden there (see SemanticTree).
+    private static void Show(FrameworkElement part, bool shown)
+    {
+        var comesBack = shown && part.Visibility is Visibility.Collapsed;
+        part.Visibility = Shown(shown);
+
+        if (comesBack)
+        {
+            SemanticTree.PutBack(part);
+        }
+    }
 
     private void Paint()
     {
