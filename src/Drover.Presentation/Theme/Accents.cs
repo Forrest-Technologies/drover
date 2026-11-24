@@ -29,7 +29,7 @@ public static class Accents
     private const double DarkestTried = 0.15;
 
     // An accent this close in hue to the theme's own color is the same choice under another name.
-    private const double SameHue = 15;
+    private const double SameHue = 20;
 
     private const double FullTurn = 360;
 

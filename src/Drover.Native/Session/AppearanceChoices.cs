@@ -13,7 +13,11 @@ public sealed class AppearanceChoices : StackPanel
 
     private readonly Dictionary<string, AppearanceOption> options = [];
 
-    private Drawn? drawn;
+    private IReadOnlyList<LookOption> looks = [];
+
+    private IReadOnlyList<ThemeOption> modes = [];
+
+    private IReadOnlyList<AccentOption> accents = [];
 
     private (string Key, FocusState State)? focusOwed;
 
@@ -25,8 +29,8 @@ public sealed class AppearanceChoices : StackPanel
     {
         this.model = model;
         Spacing = Tokens.Number("DvSpace5");
-        Loaded += (_, _) => model.PropertyChanged += ModelChanged;
-        Unloaded += (_, _) => model.PropertyChanged -= ModelChanged;
+        Loaded += (_, _) => Listen(true);
+        Unloaded += (_, _) => Listen(false);
         this.WhenShownOrRethemed(Draw);
     }
 
@@ -34,32 +38,37 @@ public sealed class AppearanceChoices : StackPanel
 
     #region Private Methods
 
+    private void Listen(bool shown)
+    {
+        model.PropertyChanged -= ModelChanged;
+        if (shown)
+        {
+            model.PropertyChanged += ModelChanged;
+        }
+    }
+
+    // One change to the theme is told once for each list, and is drawn once.
     private void ModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
     {
-        if (drawn != Read())
+        if (!looks.SequenceEqual(model.Looks) || !modes.SequenceEqual(model.Themes)
+            || !accents.SequenceEqual(model.AccentChoices))
         {
             Draw();
         }
     }
 
-    private Drawn Read() => new(
-        string.Join('|', model.Looks.Select(look => look.ToString())),
-        string.Join('|', model.Themes.Select(mode => mode.ToString())),
-        string.Join('|', model.AccentChoices.Select(accent => accent.ToString())));
-
     // Everything is made again, so an option that had the focus is given it back once its replacement is shown.
     private void Draw()
     {
         focusOwed = Focused() ?? focusOwed;
-        drawn = Read();
+        (looks, modes, accents) = (model.Looks, model.Themes, model.AccentChoices);
         options.Clear();
         Children.Clear();
 
-        Children.Add(Group("Theme", Rows(model.Looks.Select(LookRow))));
-        Children.Add(Group("Mode", Rows(model.Themes.Select(ModeRow))));
+        Children.Add(Group("Theme", Rows(looks.Select(LookRow))));
+        Children.Add(Group("Mode", Rows(modes.Select(ModeRow))));
 
         // A theme with no accent but its own has nothing to choose here.
-        var accents = model.AccentChoices;
         if (accents.Count > 1)
         {
             var swatches = new FlowPanel { Gap = Tokens.Number("DvSpace2") };
@@ -69,6 +78,11 @@ public sealed class AppearanceChoices : StackPanel
             }
 
             Children.Add(Group("Accent", swatches));
+        }
+
+        if (focusOwed is { } owed && !options.ContainsKey(owed.Key))
+        {
+            focusOwed = null;
         }
     }
 
@@ -108,10 +122,18 @@ public sealed class AppearanceChoices : StackPanel
     }
 
     private AppearanceOption LookRow(LookOption look) => Option(
-        $"look:{look.Id}", Row(look.Name, look.Intent, look.InUse), look.InUse, look.AccessibleName, () => model.ChooseLook(look.Id));
+        $"look:{look.Id}",
+        Row(look.Name, look.Intent, look.InUse),
+        look.InUse,
+        look.AccessibleName,
+        () => model.ChooseLook(look.Id));
 
     private AppearanceOption ModeRow(ThemeOption mode) => Option(
-        $"mode:{mode.Mode}", Row(mode.Name, null, mode.InUse), mode.InUse, mode.AccessibleName, () => model.ChooseTheme(mode.Mode));
+        $"mode:{mode.Mode}",
+        Row(mode.Name, null, mode.InUse),
+        mode.InUse,
+        mode.AccessibleName,
+        () => model.ChooseTheme(mode.Mode));
 
     // The swatch is the accent as the mode the dialog is drawn in shows it. Its name stands beside it, and the one in
     // use carries the tick, so neither the accent nor the choice is told by color alone.
@@ -137,10 +159,10 @@ public sealed class AppearanceChoices : StackPanel
             content.Children.Add(Tick());
         }
 
-        var option = Option($"accent:{accent.Id}", content, accent.InUse, accent.AccessibleName, () => model.ChooseAccent(accent.Id));
+        var option = Option(
+            $"accent:{accent.Id}", content, accent.InUse, accent.AccessibleName, () => model.ChooseAccent(accent.Id));
         option.Line = "DvText3";
         option.HorizontalAlignment = HorizontalAlignment.Left;
-        option.Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0);
         return option;
     }
 
@@ -197,12 +219,11 @@ public sealed class AppearanceChoices : StackPanel
         }
     }
 
-    // What the groups were last drawn from, so that one change to the theme, told three ways, is drawn once.
-    private sealed record Drawn(string Looks, string Modes, string Accents);
-
     // One choice of a group, of which one is in use: a button to press, one of several to assistive technology.
     private sealed class AppearanceOption : PlainButton
     {
+        #region Constructors
+
         public AppearanceOption()
         {
             RingInside = true;
@@ -211,7 +232,13 @@ public sealed class AppearanceChoices : StackPanel
             Padding = Tokens.Space("DvSpace3", "DvSpace2");
         }
 
+        #endregion
+
+        #region Private Methods
+
         protected override AutomationPeer OnCreateAutomationPeer() => new RoleButtonPeer(this, AutomationControlType.RadioButton);
+
+        #endregion
     }
 
     #endregion

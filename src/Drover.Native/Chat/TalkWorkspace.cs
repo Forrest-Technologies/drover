@@ -78,18 +78,6 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly ContentPresenter more = new() { VerticalAlignment = VerticalAlignment.Center };
 
-    private readonly StackPanel beside = new() { Orientation = Orientation.Horizontal };
-
-    private readonly ScrollViewer besideScroll = new()
-    {
-        IsTabStop = false,
-        HorizontalScrollMode = ScrollMode.Auto,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
-        VerticalScrollMode = ScrollMode.Disabled,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
-
     private readonly ContentPresenter mainBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
     private readonly Border railHeader = new();
@@ -103,8 +91,6 @@ internal sealed class TalkWorkspace : Grid
     private readonly TextBlock railTitle = Styles.Text(null);
 
     private readonly ContentPresenter railBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-
-    private readonly Dictionary<SideView, PanelLink> ways = [];
 
     private readonly TalkViewModel model;
 
@@ -128,8 +114,6 @@ internal sealed class TalkWorkspace : Grid
 
     // The rail was closed from the keyboard: the focus goes back to the way that opened it, once it is drawn.
     private bool focusOpener;
-
-    private SideView? openerWay;
 
     #endregion
 
@@ -166,9 +150,9 @@ internal sealed class TalkWorkspace : Grid
             focusClose = true;
             QueueDraw();
         };
-        model.RailOpenerFocusRequested += way =>
+        model.RailOpenerFocusRequested += _ =>
         {
-            (focusOpener, openerWay) = (true, way);
+            focusOpener = true;
             QueueDraw();
         };
         railBox.KeyDown += CloseRailOnEscape;
@@ -260,26 +244,15 @@ internal sealed class TalkWorkspace : Grid
         title.TextTrimming = TextTrimming.CharacterEllipsis;
         title.VerticalAlignment = VerticalAlignment.Center;
         paused.VerticalAlignment = VerticalAlignment.Center;
-        AutomationProperties.SetName(beside, "Beside the conversation");
-        AutomationProperties.SetLandmarkType(beside, AutomationLandmarkType.Navigation);
 
-        SideView[] panels = [SideView.Activity, SideView.Summary, SideView.Memory, SideView.Screen, SideView.Files, SideView.List];
-        foreach (var side in panels)
-        {
-            var way = new PanelLink();
-            ways[side] = way;
-            beside.Children.Add(way);
-        }
-
-        // The name gets the remaining width and can trim before it pushes the menu or links out of the header.
-        GridLength[] widths = [GridLength.Auto, GridLength.Auto, new(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto];
+        // The name gets the remaining width and can trim before it pushes the menu out of the header. The menu is the
+        // one way to what opens beside the conversation, on every width.
+        GridLength[] widths = [GridLength.Auto, GridLength.Auto, new(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto];
         foreach (var width in widths)
         {
             mainHeaderRow.ColumnDefinitions.Add(new() { Width = width });
         }
 
-        mainHeaderRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        mainHeaderRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
         AutomationProperties.SetAutomationId(back, "TalkBack");
         FrameworkElement[] parts = [back, head, title, paused, more];
         foreach (var part in parts)
@@ -288,8 +261,6 @@ internal sealed class TalkWorkspace : Grid
             mainHeaderRow.Children.Add(part);
         }
 
-        besideScroll.Content = beside;
-        mainHeaderRow.Children.Add(besideScroll);
         Bar(mainHeader, mainHeaderRow);
 
         mainBox.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -396,8 +367,7 @@ internal sealed class TalkWorkspace : Grid
         if (focusOpener)
         {
             focusOpener = false;
-            var way = openerWay;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => FocusOpener(way));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusOpener);
         }
     }
 
@@ -451,10 +421,10 @@ internal sealed class TalkWorkspace : Grid
         AutomationProperties.SetHeadingLevel(title, model.At is "main" ? AutomationHeadingLevel.Level1 : AutomationHeadingLevel.Level2);
         paused.Visibility = Shown(ChatRows.IsPaused(shown));
         DrawMenu(shown);
-        DrawWays(shown);
     }
 
-    // The same ways as the links of a wide window, for a window too narrow to show them.
+    // Every way to what opens beside the conversation, with the saves: the one place they are, on every width. The
+    // way to the side chats says how many there are.
     private void DrawMenu(BotSummary shown)
     {
         var items = $"{model.OffersScreen}|{model.SideChatsLabel}";
@@ -504,29 +474,6 @@ internal sealed class TalkWorkspace : Grid
         var item = new MenuItem { Content = label };
         item.Selected += async (_, _) => await saver.Save(model.MainPane?.ThreadId, format, PlatformFiles.SaveText);
         return item;
-    }
-
-    private void DrawWays(BotSummary shown)
-    {
-        Set(SideView.Activity, "Activity", Addresses.Activity(shown.Id), model.Side is SideView.Activity);
-        Set(SideView.Summary, "Summary", Addresses.Summary(shown.Id), model.Side is SideView.Summary);
-        Set(SideView.Memory, "Memory", Addresses.Memory(shown.Id), model.Side is SideView.Memory);
-        Set(SideView.Screen, "Screen", Addresses.Screen(shown.Id), model.Side is SideView.Screen);
-        Set(SideView.Files, "Files", Addresses.Files(shown.Id), model.Side is SideView.Files);
-        Set(SideView.List, model.SideChatsLabel, Addresses.SideChats(shown.Id), model.Side is SideView.List or SideView.New or SideView.Chat);
-        ways[SideView.Screen].Visibility = Shown(model.OffersScreen);
-
-        void Set(SideView side, string label, string address, bool open)
-        {
-            var way = ways[side];
-            if (way.Content as string != label)
-            {
-                way.Content = label;
-            }
-
-            way.Address = address;
-            way.ShowCurrent(open);
-        }
     }
 
     private void DrawRail()
@@ -722,17 +669,10 @@ internal sealed class TalkWorkspace : Grid
         return false;
     }
 
-    // The way that opened the rail: its link in the header where the header shows the links, and otherwise the
-    // conversation's menu, which holds the same ways on a phone and is the nearest control for work handed on.
-    private void FocusOpener(SideView? way)
+    // The way that opened the rail is the conversation's menu, which holds every way to what opens beside it.
+    private void FocusOpener()
     {
-        var opener = menu?.Trigger;
-        if (way is { } side && besideScroll.Visibility is Visibility.Visible && ways[side].Visibility is Visibility.Visible)
-        {
-            opener = ways[side];
-        }
-
-        if (opener is not null)
+        if (menu?.Trigger is { } opener)
         {
             Pieces.FocusWhenShown(opener, opener.TakeFocus);
         }
@@ -793,7 +733,8 @@ internal sealed class TalkWorkspace : Grid
         dock.Visibility = Shown(phone);
         back.Visibility = Shown(!crewBeside);
         crewNotice.Visibility = Shown(!crewBeside);
-        FitHeader(phone, space - listWidth - railWidth < (double)Styles.Dictionary["DvBreakBeside"]);
+        var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
+        mainHeader.Padding = new(inline, Tokens.Number("DvSpace2"), inline, Tokens.Number("DvSpace2"));
     }
 
     private void ResizeCrew(double width)
@@ -812,18 +753,7 @@ internal sealed class TalkWorkspace : Grid
         Fit();
     }
 
-    // Keep links to one row, below the title when the remaining conversation space is narrow.
-    private void FitHeader(bool phone, bool stacked)
-    {
-        var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
-        mainHeader.Padding = new(inline, Tokens.Number("DvSpace2"), inline, Tokens.Number(stacked && !phone ? "DvSpace1" : "DvSpace2"));
-        besideScroll.Visibility = Shown(!phone);
-        SetRow(besideScroll, stacked ? 1 : 0);
-        SetColumn(besideScroll, stacked ? 0 : mainHeaderRow.ColumnDefinitions.Count - 1);
-        SetColumnSpan(besideScroll, stacked ? mainHeaderRow.ColumnDefinitions.Count : 1);
-    }
-
-    // On a phone the menu's button is a finger wide, since it is the only way to what is beside the conversation.
+    // On a phone the menu's button is a finger wide: it is the way to what is beside the conversation.
     private void FitMenu()
     {
         if (menu is not null && ActualWidth > 0)
@@ -847,50 +777,6 @@ internal sealed class TalkWorkspace : Grid
         {
             link.ShowWhere(Addresses.Home);
         }
-    }
-
-    #endregion
-    #region Panel Links
-
-    private sealed class PanelLink : PlainButton
-    {
-        #region Constructors
-
-        public PanelLink()
-        {
-            Padding = Tokens.Space("DvSpace1", "DvSpace1");
-            Radius = null;
-            RingInside = true;
-            FontSize = Tokens.Number("DvText13");
-            Click += (_, _) => Link.Opener?.Invoke(Address);
-            ShowCurrent(false);
-        }
-
-        #endregion
-
-        #region Properties
-
-        public string Address { get; set; } = string.Empty;
-
-        #endregion
-
-        #region Public Methods
-
-        public void ShowCurrent(bool open)
-        {
-            Ink = open ? "DvText" : "DvText2";
-            Underline = open ? "DvText" : null;
-            AutomationProperties.SetItemStatus(this, open ? "Open" : string.Empty);
-            Repaint();
-        }
-
-        #endregion
-
-        #region Private Methods
-
-        protected override AutomationPeer OnCreateAutomationPeer() => new RoleButtonPeer(this, AutomationControlType.Hyperlink);
-
-        #endregion
     }
 
     #endregion

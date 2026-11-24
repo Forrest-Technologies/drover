@@ -146,6 +146,9 @@ public partial class App : Application
 #if DROVER_UNREACHABLE_CHECK
             UnreachableOpenCheck.Start(MainWindow);
 #endif
+#if DEBUG
+            DevGallery.ShowIfAsked(MainWindow);
+#endif
             MainWindow.Activate();
             ActivatorUtilities.CreateInstance<AboutViewModel>(Services).OfferAfterFailure(PlatformFiles.SaveLog);
             StartChecks(MainWindow);

@@ -62,6 +62,8 @@ public sealed class Composer : Grid
 
     private bool focusWanted;
 
+    private FrameworkElement? under;
+
     #endregion
 
     #region Constructors
@@ -138,6 +140,32 @@ public sealed class Composer : Grid
             }
 
             Show();
+        }
+    }
+
+    /// <summary>
+    /// What stands under the field, inside the composer's own width: the conversation's status line. While it shows,
+    /// it takes the room the composer otherwise leaves empty at its foot.
+    /// </summary>
+    public FrameworkElement? Under
+    {
+        get => under;
+        set
+        {
+            if (under is not null)
+            {
+                column.Children.Remove(under);
+            }
+
+            under = value;
+
+            if (under is not null)
+            {
+                column.Children.Add(under);
+                under.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => Fit());
+            }
+
+            Fit();
         }
     }
 
@@ -323,7 +351,8 @@ public sealed class Composer : Grid
         var phone = ActualWidth > 0 && ActualWidth < (double)Styles.Dictionary["DvBreakPhone"];
         var two = phone && (model?.HasTwoActions ?? false);
         var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
-        column.Padding = new(inline, Tokens.Number("DvSpace3"), inline, Tokens.Number("DvSpace4"));
+        var foot = Tokens.Number(under?.Visibility is Visibility.Visible ? "DvSpace1" : "DvSpace4");
+        column.Padding = new(inline, Tokens.Number("DvSpace3"), inline, foot);
 
         if (two == stacked)
         {

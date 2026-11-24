@@ -8,7 +8,7 @@ public sealed class Splash : Grid
 {
     #region Private Fields
 
-    private const string Name = "Drover is starting";
+    private const string Starting = "Drover is starting";
 
     #endregion
 
@@ -25,7 +25,7 @@ public sealed class Splash : Grid
             VerticalAlignment = VerticalAlignment.Center,
         });
 
-        AutomationProperties.SetName(this, Name);
+        AutomationProperties.SetName(this, Starting);
         AutomationProperties.SetLiveSetting(this, AutomationLiveSetting.Polite);
         this.WhenShownOrRethemed(Paint);
         Paint();

@@ -107,7 +107,6 @@
        three. A conversation column narrower than the third puts the ways beside it on a row of their own. -->
   <x:Double x:Key="DvBreakCrew">900</x:Double>
   <x:Double x:Key="DvBreakRail">1200</x:Double>
-  <x:Double x:Key="DvBreakBeside">640</x:Double>
   <x:Double x:Key="DvConversationMin">400</x:Double>
   <x:Double x:Key="DvRailMin">288</x:Double>
 

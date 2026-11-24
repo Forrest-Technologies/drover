@@ -1,8 +1,9 @@
 namespace Drover.Native.Session;
 
 /// <summary>
-/// The account menu: the theme, the ways to the settings screens, what the app is, and signing out. In the bar it
-/// carries the person's name; compact, in a phone's dock, it is an icon over the word "Account".
+/// The account menu: the way to the appearance choices, the ways to the settings screens, what the app is, and
+/// signing out. In the bar it carries the person's name; compact, in a phone's dock, it is an icon over the word
+/// "Account".
 /// </summary>
 public sealed class AccountMenu : Grid
 {
@@ -11,6 +12,8 @@ public sealed class AccountMenu : Grid
     private readonly AccountMenuViewModel model = ActivatorUtilities.CreateInstance<AccountMenuViewModel>(((App)Application.Current).Services);
 
     private readonly Menu menu = new();
+
+    private readonly Dialog appearance = new() { Title = "Appearance" };
 
     private readonly Dialog notifications = new() { Title = "Notifications on this device" };
 
@@ -34,9 +37,11 @@ public sealed class AccountMenu : Grid
 
     public AccountMenu()
     {
+        appearance.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AppearanceChanged());
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
         about.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AboutChanged());
         Children.Add(menu);
+        Children.Add(appearance);
         Children.Add(notifications);
         Children.Add(about);
 
@@ -102,6 +107,7 @@ public sealed class AccountMenu : Grid
         menu.AccessibleLabel = model.AccessibleLabel;
         menu.TriggerIcon = Compact ? IconName.Account : null;
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+        ShowAppearance();
         ShowNotifications();
         ShowUpdates();
         ShowAbout();
@@ -112,11 +118,7 @@ public sealed class AccountMenu : Grid
         }
 
         menu.Items.Clear();
-        foreach (var option in model.Themes)
-        {
-            menu.Items.Add(ThemeItem(option));
-        }
-
+        menu.Items.Add(Item("Appearance", model.OpenAppearance));
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
         menu.Items.Add(Item("Notifications", model.OpenNotifications));
@@ -134,6 +136,23 @@ public sealed class AccountMenu : Grid
 
         menu.Items.Add(Item("About Drover", model.OpenAbout));
         menu.Items.Add(Item("Sign out", () => _ = model.SignOut()));
+    }
+
+    // The choices are in the screen only while the dialog is open. They draw themselves again from the model after
+    // each choice, so the body is made once for each opening.
+    private void ShowAppearance()
+    {
+        if (model.AppearanceOpen && !appearance.Open)
+        {
+            appearance.Body = new AppearanceChoices(model);
+        }
+
+        appearance.Open = model.AppearanceOpen;
+
+        if (!model.AppearanceOpen)
+        {
+            appearance.Body = null;
+        }
     }
 
     // The control is made each time the dialog opens, so the device is asked afresh, and let go when it closes.
@@ -216,28 +235,16 @@ public sealed class AccountMenu : Grid
         return item;
     }
 
-    // The theme in use carries a tick, and says so in words.
-    private MenuItem ThemeItem(ThemeOption option)
+    // The item that opened the dialog is in a closed menu, so the focus goes back to the menu's own button.
+    private void AppearanceChanged()
     {
-        var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
-        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.Children.Add(new TextBlock { Text = option.Name, VerticalAlignment = VerticalAlignment.Center });
-
-        if (option.InUse)
+        if (!appearance.Open && model.AppearanceOpen)
         {
-            var tick = new Icon { NameOfIcon = IconName.Check, VerticalAlignment = VerticalAlignment.Center, Foreground = Tokens.Brush(this, "DvText") };
-            SetColumn(tick, 1);
-            row.Children.Add(tick);
+            model.AppearanceOpen = false;
+            menu.ReturnFocusToTrigger();
         }
-
-        var item = new MenuItem { Content = row };
-        AutomationProperties.SetName(item, option.AccessibleName);
-        item.Selected += (_, _) => model.ChooseTheme(option.Mode);
-        return item;
     }
 
-    // The item that opened the dialog is in a closed menu, so the focus goes back to the menu's own button.
     private void NotificationsChanged()
     {
         if (!notifications.Open && model.NotificationsOpen)

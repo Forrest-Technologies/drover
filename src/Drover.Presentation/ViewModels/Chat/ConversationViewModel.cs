@@ -117,6 +117,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.Forget = Forget;
         List.ReadWhole = ReadWhole;
         List.LoadUsage = runId => api.GetRunUsage(SpaceId, runId);
+        List.Logger = logger;
         Messages = Build();
         ShowList();
         ShowComposer();

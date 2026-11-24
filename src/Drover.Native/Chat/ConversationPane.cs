@@ -2,7 +2,8 @@ namespace Drover.Native.Chat;
 
 /// <summary>
 /// One conversation with a bot: what was said, what the bot is doing, and the field to write in. It fills the
-/// column it is put in: the messages scroll, the composer stays at the foot. A bot's side of work handed to it has
+/// column it is put in: the messages scroll, the composer stays at the foot with one status line under its field: what
+/// the bot is doing now, and what the newest reply used. A bot's side of work handed to it has
 /// a line of words where the field would be. Files dropped anywhere on it are attached to it.
 /// </summary>
 public sealed class ConversationPane : Grid
@@ -12,6 +13,8 @@ public sealed class ConversationPane : Grid
     private readonly MessageList list = new();
 
     private readonly Composer composer = new();
+
+    private readonly ConversationStatus status = new();
 
     private readonly TextBlock loading = Styles.Text(ConversationViewModel.LoadingHint);
 
@@ -48,6 +51,7 @@ public sealed class ConversationPane : Grid
         readBox.Child = readHint;
         readBox.Padding = Tokens.Space("DvSpace4", "DvSpace3");
         readBox.BorderThickness = new(0, Tokens.Number("DvBorder"), 0, 0);
+        composer.Under = status;
         SetRow(composer, 1);
         SetRow(readBox, 1);
 
@@ -83,6 +87,7 @@ public sealed class ConversationPane : Grid
             model?.PropertyChanged += Changed;
             list.Model = value?.List;
             composer.Model = value?.Composer;
+            status.Model = value?.List.Status;
             Show();
         }
     }

@@ -17,6 +17,10 @@ public sealed class MessageListViewModel : ObservableObject
 
     private Guid? shownMoment;
 
+    private IReadOnlyList<ChatMessage>? newestOf;
+
+    private IReadOnlySet<string>? newest;
+
     #endregion
 
     #region Properties
@@ -68,6 +72,12 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>Reads what a finished reply's run used. Without it, replies show no usage.</summary>
     public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; set; }
+
+    /// <summary>Where a failure to read what a reply used is written down.</summary>
+    public ILogger Logger { get; set; } = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+    /// <summary>The one line under the composer: what the bot is doing now, and what the newest reply used.</summary>
+    public ConversationStatusViewModel Status { get; } = new();
 
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
@@ -145,6 +155,20 @@ public sealed class MessageListViewModel : ObservableObject
     public bool IsMoment(ChatMessage message) => Moment is { } moment && message.Key == moment.ToString();
 
     /// <summary>
+    /// True for a message of the newest reply (<see cref="ChatRows.NewestReply"/>), whose actions stay in view. An
+    /// older reply shows its own only while asked.
+    /// </summary>
+    public bool IsNewestReply(ChatMessage message)
+    {
+        if (newest is null || !ReferenceEquals(newestOf, Messages))
+        {
+            (newestOf, newest) = (Messages, ChatRows.NewestReply(Messages));
+        }
+
+        return newest.Contains(message.Key);
+    }
+
+    /// <summary>
     /// Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page. A tool call
     /// is read out once each time its state changes, and a failure once, when it appears.
     /// </summary>
@@ -165,6 +189,7 @@ public sealed class MessageListViewModel : ObservableObject
             Spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
         }
 
+        Status.Show(Messages, Thinking, LoadUsage, Logger);
         OnPropertyChanged(string.Empty);
     }
 
