@@ -111,15 +111,15 @@ The dark values sit on `:root` and on any element marked `data-theme="dark"`; th
 
 ## Themes
 
-The look is a family of named themes ([ADR 0020](../adr/0020-a-family-of-themes.md)). A theme has a dark and a light mode and sets seven token groups. Night Yard, described above, is the default and the identity used for the mark, screenshots and documentation; every value in this file above this section is Night Yard's.
+The look is a family of named themes ([ADR 0020](../adr/0020-a-family-of-themes.md)). A theme has a dark and a light mode, a black mode worked out from the dark one, and sets seven token groups. Front Office is the default ([ADR 0021](../adr/0021-front-office-black-and-accents.md)) and the look used for screenshots and documentation. Night Yard, described above, was the first look and stays in the app; every value in this file above this section is Night Yard's, and the token files hold them.
 
 ### The invariants
 
 No theme may change these. They are not tokens, so a theme file has no way to say them:
 
-- The three accent roles and their meanings: `ember` is a person's intent, `ion` is a bot working, `violet` is work passing between bots.
+- The three accent roles and their meanings: `ember` is a person's intent, `ion` is a bot working, `violet` is work passing between bots. A person may turn the hue of `ember`, their own color, to an accent the theme offers (see "Black and accents"); its meaning does not change, and `ion` and `violet` are never a person's to change.
 - Light means live. Only the four live states move, bloom appears only inside them, and each has a static equivalent.
-- Both modes ship and both pass every check.
+- The dark and the light mode ship, and they and the black mode pass every check.
 - Everything in "What Drover's interface never does" in `DESIGN.md`, including no drop shadows, no blur panels and no decorative gradients: depth is surface and line only.
 - Every screen works at 360 px and at 200 percent text; reduced motion leaves nothing animating.
 - The character parts and a bot's stored look never change with the theme, only how they are drawn. A bot is always a head with a visor.
@@ -133,14 +133,37 @@ A look that needs to break one is not a theme. It is a change to `DESIGN.md` wit
 | Color | Per mode: surfaces `bg-0` to `bg-3`, `line`, `text`, `text-2`, `text-3`, `ember`, `ion`, `violet`, `ok`, `warn`, `danger`, `on-accent`, the twelve hues, the twelve heads, `on-head`, `visor`, `visor-lit`, `visor-failed` | Text, accent, status and every hue 4.5:1 on every surface; control edges (`text-3`) 3:1 on every surface; `on-accent` 4.5:1 on `ember`; the visor 3:1 against every head at rest, lit and failed |
 | Type | Interface face, machine face, optional reading face for conversation text, which face sets headings, machine text for timestamps and counts, the six-step scale, weights, leading, tracking, measure | Base (the third step) 13 to 16; every face bundled under an accepted license; machine text always a different face from conversation text; sentence case |
 | Density | Spacing multiplier over the 4 px base, control height, list row height, composer lines | Multiplier 0.85 to 1.25; control and row at least 44 on touch and 32 on pointer at every density |
-| Shape | Corner language (`faceted`, `square`, `ticked`), cut or tick sizes, registration marks, radii, line weight, icon stroke | Line 1 or 2; the shape class is the only place corners are drawn |
-| Surfaces | Surface levels (2 or 3), yard texture (`dots`, `lines`, `grid`, `none`), its strength and step | Depth by surface and line only |
+| Shape | Corner language (`faceted`, `square`, `ticked`, `rounded`), cut or tick sizes, registration marks, radii, line weight, icon stroke | Line 1 or 2; the shape class is the only place corners are drawn |
+| Surfaces | Surface levels (2 or 3), yard texture (`dots`, `lines`, `grid`, `none`), its strength and step, and how a conversation is laid out (`document` or `bubbles`) | Depth by surface and line only; text reads at 4.5:1 on a person's bubble |
 | Motion | Duration scale, bloom, breath and travel cycles, how a live state shows (`loop` or `fade`), travel line weight | Scale 0.8 to 1.3 over 120, 220 and 420 ms; bloom 0 to 8; cycles 0.8 to 1.3 times 2600 and 1300 ms |
 | Characters | Head lightness and chroma, facet highlight, part line weight, visor style (`band`, or `outlined` for themes without bloom) | Parts and stored look never change |
 
+### Front Office, the default
+
+Front Office is in the `professional` group: neutral surfaces and round, quiet shapes, for work done in front of other people. Dark first.
+
+| Group | Front Office |
+| --- | --- |
+| Color | Near-neutral surfaces, `#0B0C0E` to `#25282D` dark and `#F6F6F7` to `#E2E3E6` light. `ember` an orange (`#F08D5F` dark, `#A24A1C` light), `ion` a cyan-teal, `violet` a magenta-violet, each 4.6:1 or higher on every surface. Heads at chroma 0.08 |
+| Type | Inter at base 15, scale 12, 13, 15, 17, 20, 28, weights 400, 500, 600, measure 68 |
+| Density | Spacing 1.0, controls 36 on a pointer and 44 on touch, rows 44 and 48, composer to 6 lines |
+| Shape | `rounded`: controls radius 20 (a pill at control height), cards and bubbles 18, sheets 24, 1 px lines |
+| Surfaces | Two levels, no yard, conversation in `bubbles` |
+| Motion | Scale 0.9, bloom 3, loops while a state lasts |
+| Characters | The same parts, band visor |
+
+In `bubbles`, a person's message sits on the right in a bubble the color of their intent at 30 percent over the panel surface (the resolved token `bubble`), and a bot's words sit on the left in a bubble of the card surface under its head and name. In `document`, Night Yard's layout, a bot's words run the full width beside its head and a person's bubble is the card surface.
+
+### Black and accents
+
+Neither is stored in a theme file; both are worked out, and the gates run over what is worked out.
+
+- **Black** is for screens that turn their pixels off. It is the dark mode with `bg-0` black and `bg-1`, `bg-2`, `bg-3` taking the dark mode's `bg-0`, `bg-1`, `bg-2`. Every other color is the dark mode's, so each stands on a darker surface than the one it passed on. Following the device chooses between dark and light only; black is a person's choice.
+- **Accents** turn the hue of `ember`. The list is fixed: Orange (55 degrees of the Oklab hue), Green (150) and Blue (255), after the theme's own color. The accent takes the chroma of the theme's `ember` and its lightness, moved lighter in a dark mode or darker in a light one until it reads at 4.5:1 on every surface; `on-accent` is the theme's where it still reads at 4.5:1, and black or white otherwise. A theme offers an accent only when it then passes every gate, so an accent within 45 degrees of the theme's `ion` or `violet` is not offered, and neither is one within 15 degrees of the theme's own `ember`. Front Office offers Green and Blue; Night Yard, whose bots work in cyan and hand over in violet, offers Green.
+
 ### The first batch
 
-All seven are in the `expressive` group. The `professional` group is defined in the format and holds no theme yet.
+The seven themes of ADR 0020 are in the `expressive` group. Front Office is the one theme in the `professional` group so far.
 
 | Theme | Intent | What makes it different |
 | --- | --- | --- |
@@ -158,11 +181,11 @@ Two faces are added, both SIL OFL 1.1: Literata (Paper Ledger's reading face) an
 
 ### The gates
 
-Every theme must pass the same accessibility bar as Night Yard, and the build enforces it, not review. The gates run over every file in `src/Drover.Presentation/Theme/Themes`, in both modes, on the resolved values: a new theme file that fails one fails the build and cannot merge. A failure names the theme, the mode, the pair and the ratio (`night-yard, dark: TextContrast: text-2 on bg-3 is 3.90:1, needs 4.5:1`). `ThemeGates` (in `Drover.Presentation`) holds them, and `ThemeGateTests` runs them over every file and over a deliberately broken theme for each gate, so a gate that stopped checking fails too. The shared checker of [issue 778](https://github.com/Forrest-Technologies/drover/issues/778) runs the same gates on a person's own theme before anything is applied.
+Every theme must pass the same accessibility bar, and the build enforces it, not review. The gates run over every file in `src/Drover.Presentation/Theme/Themes`, in the dark, the light and the black mode, on the resolved values, and over every accent a theme offers: a new theme file that fails one fails the build and cannot merge. A failure names the theme, the mode, the pair and the ratio (`night-yard, dark: TextContrast: text-2 on bg-3 is 3.90:1, needs 4.5:1`). `ThemeGates` (in `Drover.Presentation`) holds them, and `ThemeGateTests` runs them over every file and over a deliberately broken theme for each gate, so a gate that stopped checking fails too. The shared checker of [issue 778](https://github.com/Forrest-Technologies/drover/issues/778) runs the same gates on a person's own theme before anything is applied.
 
 | Gate | Check | Where it runs |
 | --- | --- | --- |
-| Text contrast | Every text and status color (`text`, `text-2`, `text-3`, `ember`, `ion`, `violet`, `ok`, `warn`, `danger`) 4.5:1 on every surface; `on-accent` 4.5:1 on `ember` | `ThemeGates`, unit tests |
+| Text contrast | Every text and status color (`text`, `text-2`, `text-3`, `ember`, `ion`, `violet`, `ok`, `warn`, `danger`) 4.5:1 on every surface; `on-accent` 4.5:1 on `ember`; `text` and `text-2` 4.5:1 on a person's bubble | `ThemeGates`, unit tests |
 | Interface contrast | Control edges (`text-3`) and the focus ring (`ember`) 3:1 on every surface | `ThemeGates`, unit tests |
 | Bot hues | Each of the twelve hues 4.5:1 on every surface; each head 3:1 against the visor at rest, lit and failed | `ThemeGates`, unit tests |
 | Bounds | Every value inside the bounds of the table in "Theme files": density, base size, durations, bloom, radii and the rest | `ThemeFileReader` through `ThemeGates`, unit tests |
@@ -200,16 +223,17 @@ A theme is one JSON file, `src/Drover.Presentation/Theme/Themes/{id}.json`. The 
 | `density.control.pointer`, `.touch` | integers | Smallest control height: pointer 32 to 48, touch 44 to 56 |
 | `density.row.pointer`, `.touch` | integers | Smallest list row height: pointer 32 to 56, touch 44 to 64 |
 | `density.composerLines` | integer | Lines the composer grows to, 4 to 12 |
-| `shape.corners` | `faceted`, `square` or `ticked` | The corner language the shape class draws |
-| `shape.cut.control`, `.frame` | integers | `faceted`: cut sizes, control 4 to 10, frame 8 to 16. `ticked`: tick lengths in the same ranges. `square`: both 0 |
+| `shape.corners` | `faceted`, `square`, `ticked` or `rounded` | The corner language the shape class draws |
+| `shape.cut.control`, `.frame` | integers | `faceted`: cut sizes, control 4 to 10, frame 8 to 16. `ticked`: tick lengths in the same ranges. `square` and `rounded`: both 0 |
 | `shape.registration` | boolean | `ticked` only: the ticks cross out past the corner as registration marks. `false` for the others |
-| `shape.radius.control`, `.card`, `.sheet` | integers | `square`: 2 to 8, 2 to 12, 4 to 16. `faceted`: radii for what is round by nature, as today. `ticked`: 0 |
+| `shape.radius.control`, `.card`, `.sheet` | integers | `square`: 2 to 8, 2 to 12, 4 to 16. `rounded`: 8 to 22, 12 to 24, 16 to 28; a radius is never drawn past half the height of what it rounds, so a control becomes a pill. `faceted`: radii for what is round by nature, as today. `ticked`: 0 |
 | `shape.line` | integer | 1 or 2: decorative lines and control edges |
 | `shape.iconStroke` | number | 1.5 to 2 on the 24 unit icon grid |
 | `surfaces.levels` | integer | 2: lists and side panels rest on `bg-0`. 3: they rest on `bg-1`, a level of their own |
 | `surfaces.yard.texture` | `dots`, `lines`, `grid` or `none` | The working area's texture |
 | `surfaces.yard.strength` | number | 0 to 0.7: the share of `line` the texture is drawn in; 0 with `none` |
 | `surfaces.yard.step` | integer | 12 to 32 px |
+| `surfaces.conversation` | `document` or `bubbles` | `document`: a bot's words run the full width beside its head. `bubbles`: both sides speak in bubbles |
 | `motion.scale` | number | 0.8 to 1.3 over 120, 220 and 420 ms |
 | `motion.bloom` | number | 0 to 8 px; 0 needs `characters.visor` `outlined` |
 | `motion.breath`, `motion.travel` | integers | ms; 2080 to 3380 and 1040 to 1690 |
@@ -223,9 +247,9 @@ A theme is one JSON file, `src/Drover.Presentation/Theme/Themes/{id}.json`. The 
 | `{mode}.hues.lightness`, `.chroma` | numbers | OKLCH of the twelve hues in that mode |
 | `{mode}.color` | object | Exactly the 43 color tokens of the Color row above, each `#RRGGBB`, named as in `tokens.css` without `--dv-` |
 
-Face ids are the faces Drover bundles: `inter`, `jetbrains-mono`, `literata`, `atkinson-hyperlegible-next`. A file never names a font file, a URL or a path. Derived values are not stored: the scrim is `bg-0` at 72 percent, the yard color is `line` at the yard strength, spacing steps come from the multiplier, durations from the scale. The blocks group of [issue 783](https://github.com/Forrest-Technologies/drover/issues/783) will be added to this format by that issue.
+Face ids are the faces Drover bundles: `inter`, `jetbrains-mono`, `literata`, `atkinson-hyperlegible-next`. A file never names a font file, a URL or a path. Derived values are not stored: the scrim is `bg-0` at 72 percent, the yard color is `line` at the yard strength, a person's bubble in `bubbles` is `ember` at 30 percent over `bg-1`, the black mode comes from the dark one, an accent from the theme's `ember`, spacing steps come from the multiplier, durations from the scale. The blocks group of [issue 783](https://github.com/Forrest-Technologies/drover/issues/783) will be added to this format by that issue.
 
-A new theme is a new file in that folder that passes the checks; nothing else names it.
+A new theme is a new file in that folder that passes the checks. A theme that ships in the app is also embedded by `Drover.Presentation.csproj` and listed in `BuiltInThemes`.
 
 ## Motion rules
 

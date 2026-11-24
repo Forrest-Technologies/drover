@@ -75,7 +75,7 @@ public sealed class ThemeAccentTests
     public void An_accent_too_close_in_hue_to_a_bot_working_or_to_the_themes_own_color_is_not_offered()
     {
         // Night Yard's bots work in cyan and hand work over in violet, and blue lies between the two.
-        Accents.For(BuiltInThemes.NightYard).Select(accent => accent.Id).Should().NotContain("blue");
+        Accents.For(BuiltInThemes.NightYard).Select(accent => accent.Id).Should().Equal("theme", "green");
         BuiltInThemes.NightYard.WithAccent("blue").Should().BeSameAs(BuiltInThemes.NightYard);
 
         // Front Office's own color is an orange.
