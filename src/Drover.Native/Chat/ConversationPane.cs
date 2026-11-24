@@ -2,7 +2,8 @@ namespace Drover.Native.Chat;
 
 /// <summary>
 /// One conversation with a bot: what was said, what the bot is doing, and the field to write in. It fills the
-/// column it is put in: the messages scroll, the composer stays at the foot. A bot's side of work handed to it has
+/// column it is put in: the messages scroll, the composer stays at the foot with one status line under it: what the
+/// bot is doing now, and what the newest reply used. A bot's side of work handed to it has
 /// a line of words where the field would be. Files dropped anywhere on it are attached to it.
 /// </summary>
 public sealed class ConversationPane : Grid
@@ -13,6 +14,8 @@ public sealed class ConversationPane : Grid
 
     private readonly Composer composer = new();
 
+    private readonly ConversationStatus status = new();
+
     private readonly TextBlock loading = Styles.Text(ConversationViewModel.LoadingHint);
 
     // One state for a conversation that could not be read, kept while it is read again so the button keeps the focus.
@@ -21,6 +24,9 @@ public sealed class ConversationPane : Grid
     private readonly Border center = new() { Padding = new(Tokens.Number("DvSpace4")) };
 
     private readonly Border readBox = new();
+
+    // The notice that takes the field's place, with the status line under it.
+    private readonly StackPanel readColumn = new();
 
     private readonly TextBlock readHint = Styles.Text(null);
 
@@ -47,7 +53,8 @@ public sealed class ConversationPane : Grid
         loading.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetLiveSetting(loading, AutomationLiveSetting.Polite);
 
-        readBox.Child = readHint;
+        readColumn.Children.Add(readHint);
+        readBox.Child = readColumn;
         readBox.Padding = Tokens.Space("DvSpace4", "DvSpace3");
         readBox.BorderThickness = new(0, Tokens.Number("DvBorder"), 0, 0);
         SetRow(composer, 1);
@@ -112,6 +119,7 @@ public sealed class ConversationPane : Grid
             list.Model = value?.List;
             composer.Model = value?.Composer;
             SyncDropping();
+            status.Model = value?.List.Status;
             Show();
         }
     }
@@ -150,6 +158,7 @@ public sealed class ConversationPane : Grid
         composer.Visibility = Shown(!missing && !reading && model is not null);
         readBox.Visibility = Shown(!missing && reading);
         readHint.Text = model?.ReadHint ?? string.Empty;
+        PlaceStatus(reading);
 
         if (missing)
         {
@@ -202,6 +211,21 @@ public sealed class ConversationPane : Grid
         }
 
         Paint();
+    }
+
+    // The status line stands under the composer, or under the notice that takes the composer's place.
+    private void PlaceStatus(bool reading)
+    {
+        if (reading && !readColumn.Children.Contains(status))
+        {
+            composer.Under = null;
+            readColumn.Children.Add(status);
+        }
+        else if (!reading && !ReferenceEquals(composer.Under, status))
+        {
+            readColumn.Children.Remove(status);
+            composer.Under = status;
+        }
     }
 
     // Files held over the conversation, its messages as much as its field: the composer's frame and a line of words say

@@ -365,8 +365,9 @@ public sealed class TalkViewModel(
     public event Action? RailCloseFocusRequested;
 
     /// <summary>
-    /// Raised once a rail closed from the keyboard is gone, with the way in the conversation's header that opens it
-    /// again: the focus belongs there. Null when no way in the header opens it, as for work handed to another bot.
+    /// Raised once a rail closed from the keyboard is gone, with what was beside the conversation: the focus belongs
+    /// on the menu in the conversation's header, which holds every way to open it again. Null for what the menu
+    /// does not open, as work handed to another bot.
     /// </summary>
     public event Action<SideView?>? RailOpenerFocusRequested;
 

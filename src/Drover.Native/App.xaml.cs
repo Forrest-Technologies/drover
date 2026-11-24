@@ -44,7 +44,7 @@ public partial class App : Application
         Resources.MergedDictionaries.Add(Tokens.Dictionary);
 
         // The numbers the styles are made from come from a theme, so one is applied before the styles are loaded.
-        ThemeTokens.Apply(BuiltInThemes.NightYard);
+        ThemeTokens.Apply(BuiltInThemes.Default);
         Resources.MergedDictionaries.Add(Styles.Dictionary);
 
         // Every piece of text is Inter unless it says otherwise, in a popup as on a page.
@@ -145,6 +145,9 @@ public partial class App : Application
             Restart();
 #if DROVER_UNREACHABLE_CHECK
             UnreachableOpenCheck.Start(MainWindow);
+#endif
+#if DEBUG
+            DevGallery.ShowIfAsked(MainWindow);
 #endif
             MainWindow.Activate();
             ActivatorUtilities.CreateInstance<AboutViewModel>(Services).OfferAfterFailure(PlatformFiles.SaveLog);

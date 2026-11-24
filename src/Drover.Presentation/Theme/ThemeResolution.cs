@@ -18,12 +18,29 @@ public static class ThemeResolution
 
     private const int BaseStep = 2;
 
+    // In a theme whose conversation is bubbles, a person's bubble is the color of their intent at this share, over
+    // the panel surface: a tint dark enough in a dark mode, and pale enough in a light one, for text to stand on.
+    private const double BubbleShare = 0.3;
+
     #endregion
 
     #region Public Methods
 
     public static ThemeTokenSet Resolve(this ThemeFile theme, ColorMode mode) =>
         new(theme, mode, Colors(theme, mode), Numbers(theme), Faces(theme));
+
+    /// <summary>
+    /// The surface of a person's message: the card surface where a bot's words run as a document, and a tint of the
+    /// color of the person's intent where both sides speak in bubbles.
+    /// </summary>
+    public static Rgb Bubble(ThemeFile theme, ColorMode mode)
+    {
+        var colors = theme.In(mode).Colors;
+
+        return theme.Surfaces.Conversation is ConversationStyle.Bubbles
+            ? colors["ember"].MixWith(colors["bg-1"], BubbleShare)
+            : colors["bg-2"];
+    }
 
     #endregion
 
@@ -36,6 +53,7 @@ public static class ThemeResolution
         resolved["scrim"] = Argb.At(colors["bg-0"], ScrimShare);
         resolved["yard-dot"] = Argb.At(colors["line"], theme.Surfaces.YardStrength);
         resolved["list"] = Argb.Opaque(theme.Surfaces.Levels == 3 ? colors["bg-1"] : colors["bg-0"]);
+        resolved["bubble"] = Argb.Opaque(Bubble(theme, mode));
 
         return resolved;
     }

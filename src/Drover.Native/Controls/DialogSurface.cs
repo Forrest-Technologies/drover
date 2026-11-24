@@ -52,7 +52,8 @@ internal sealed class DialogSurface
         title.VerticalAlignment = VerticalAlignment.Center;
         close.Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0);
         close.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
-        close.Click += (_, _) => Closed?.Invoke();
+        close.Click += (_, _) =>
+            Close(close.FocusState is FocusState.Pointer ? FocusState.Pointer : FocusState.Keyboard);
 
         var top = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
         top.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
@@ -117,6 +118,17 @@ internal sealed class DialogSurface
     /// <summary>Raised when the person closed the surface: Escape, Back, or the Close button.</summary>
     public event Action? Closed;
 
+    /// <summary>
+    /// For a surface that takes the place of one already showing: it is simply there, with no fade, so the dim
+    /// behind it does not blink.
+    /// </summary>
+    public bool AtOnce { get; set; }
+
+    /// <summary>
+    /// How the person closed the surface: with the keyboard, or with a pointer or a touch. The keyboard until then.
+    /// </summary>
+    public FocusState ClosedWith { get; private set; } = FocusState.Keyboard;
+
     #endregion
 
     #region Public Methods
@@ -131,6 +143,7 @@ internal sealed class DialogSurface
         if (!popup.IsOpen)
         {
             opener = FocusManager.GetFocusedElement(root) as Control;
+            ClosedWith = FocusState.Keyboard;
             popup.XamlRoot = root;
             root.Changed += Resize;
         }
@@ -149,8 +162,12 @@ internal sealed class DialogSurface
             closesFor = Navigator;
             closesFor?.AddCloser(CloseFromBack);
             popup.IsOpen = true;
-            Motion.FadeIn(layer);
-            SlideIn(root.Size);
+            if (!AtOnce)
+            {
+                Motion.FadeIn(layer);
+                SlideIn(root.Size);
+            }
+
             close.Loaded += FocusClose;
             close.TakeFocus();
         }
@@ -173,7 +190,7 @@ internal sealed class DialogSurface
             root.Changed -= Resize;
         }
 
-        opener?.Focus(FocusState.Keyboard);
+        opener?.Focus(ClosedWith);
         opener = null;
     }
 
@@ -187,14 +204,21 @@ internal sealed class DialogSurface
         close.TakeFocus();
     }
 
-    private void CloseFromBack() => Closed?.Invoke();
+    private void Close(FocusState with)
+    {
+        ClosedWith = with;
+        Closed?.Invoke();
+    }
+
+    // A step back comes from a button or a swipe of the device, not from the keyboard.
+    private void CloseFromBack() => Close(FocusState.Pointer);
 
     private void CloseOnEscape(KeyRoutedEventArgs key)
     {
         if (key.Key is VirtualKey.Escape)
         {
             key.Handled = true;
-            Closed?.Invoke();
+            Close(FocusState.Keyboard);
         }
     }
 

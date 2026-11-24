@@ -1,7 +1,8 @@
 namespace Drover.Ui.Theme;
 
 /// <summary>
-/// The accessibility gates a theme must pass, run over the resolved values of a theme in both modes. A theme file
+/// The accessibility gates a theme must pass, run over the resolved values of a theme in every mode: dark, light,
+/// and the black mode worked out from the dark one. A theme file
 /// that fails one cannot ship: the tests run these over every file in <c>Theme/Themes</c>, so a new theme cannot
 /// merge without passing. The bounds and the contrast pairs are the ones in
 /// <c>docs/architecture/09-design-direction.md</c>, "The token groups and their bounds". The shared checker of
@@ -28,6 +29,8 @@ public static class ThemeGates
 
     private static readonly string[] textAndStatus =
         ["text", "text-2", "text-3", "ember", "ion", "violet", "ok", "warn", "danger"];
+
+    private static readonly string[] bubbleText = ["text", "text-2"];
 
     private static readonly string[] visors = ["visor", "visor-lit", "visor-failed"];
 
@@ -77,15 +80,16 @@ public static class ThemeGates
         }
     }
 
-    /// <summary>Runs every gate that works on resolved values over a theme, in both of its modes.</summary>
+    /// <summary>Runs every gate that works on resolved values over a theme, in each of its modes.</summary>
     public static IReadOnlyList<GateFailure> Check(ThemeFile theme)
     {
         List<GateFailure> failures = [];
 
-        foreach (var mode in (ColorMode[])[ColorMode.Dark, ColorMode.Light])
+        foreach (var mode in Enum.GetValues<ColorMode>())
         {
             var colors = theme.In(mode).Colors;
             failures.AddRange(TextContrast(theme.Id, mode, colors));
+            failures.AddRange(Bubble(theme, mode));
             failures.AddRange(InterfaceContrast(theme.Id, mode, colors));
             failures.AddRange(BotHues(theme.Id, mode, colors));
             failures.AddRange(AccentsAreDistinct(theme.Id, mode, colors));
@@ -109,6 +113,23 @@ public static class ThemeGates
 
         return Pairs(id, mode, gate, colors, textAndStatus, surfaces, TextMinimum)
             .Concat(Pairs(id, mode, gate, colors, ["on-accent"], ["ember"], TextMinimum));
+    }
+
+    // A person's words stand on their bubble in the text color, and what is said under them in the secondary one.
+    private static IEnumerable<GateFailure> Bubble(ThemeFile theme, ColorMode mode)
+    {
+        var bubble = ThemeResolution.Bubble(theme, mode);
+        var colors = theme.In(mode).Colors;
+
+        foreach (var foreground in bubbleText)
+        {
+            var ratio = WcagContrast.Ratio(colors[foreground], bubble);
+            if (ratio < TextMinimum)
+            {
+                var what = $"{foreground} on the bubble {bubble} is {ratio:0.00}:1, needs {TextMinimum}:1";
+                yield return new(theme.Id, mode, ThemeGate.TextContrast, what);
+            }
+        }
     }
 
     // A control's edge is drawn in text-3, and the focus ring in ember, on whatever surface the control stands on.

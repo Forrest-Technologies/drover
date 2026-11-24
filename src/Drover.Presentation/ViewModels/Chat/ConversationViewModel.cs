@@ -117,6 +117,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.Forget = Forget;
         List.ReadWhole = ReadWhole;
         List.LoadUsage = runId => api.GetRunUsage(SpaceId, runId);
+        List.Logger = logger;
         Messages = Build();
         ShowList();
         ShowComposer();
@@ -1213,6 +1214,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.BotName = Bot.Name;
         List.BotHue = BotIdentity.Hue(Bot.Id);
         List.Thinking = Thinking;
+        List.Working = Working;
+        List.Waiting = Waiting;
+        List.ModelIsChosen = Composer.ChosenModel != ComposerViewModel.BotsOwnModel;
+        List.Model = List.ModelIsChosen ? Composer.ChosenModel : Bot.Model;
         List.Asker = ReadOnly ? Asker : null;
         List.Problem = problem;
         List.Notice = Notice;

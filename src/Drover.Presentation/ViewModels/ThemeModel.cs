@@ -1,9 +1,9 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The theme choice: which theme, and in which mode. The app is Night Yard, dark, until a person picks otherwise,
-/// and the choice is kept on the device under the name the web app always used. A value an older version wrote, one
-/// word for the mode, reads as Night Yard in that mode.
+/// The theme choice: which theme, in which mode, with which accent. The app is the default theme, dark, until a
+/// person picks otherwise, and the choice is kept on the device under the name the web app always used. A value
+/// written before a person could choose a theme reads as the default theme in the mode it names.
 /// </summary>
 public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeModel> logger) : ObservableObject
 {
@@ -15,15 +15,28 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
     [ObservableProperty]
     private ThemeChoice choice = ThemeChoice.Default;
 
+    /// <summary>
+    /// True while the appearance choices are showing. It is kept here, with the choice, because a choice can make the
+    /// open screen again and the choices stay open over it.
+    /// </summary>
+    [ObservableProperty]
+    private bool appearanceOpen;
+
     #endregion
 
     #region Properties
 
     /// <summary>
-    /// The theme the choice names. Night Yard when the app has no theme by that name, as a device that never chose
-    /// does.
+    /// The theme the choice names, with the accent it names. The default theme when the app has no theme by that
+    /// name, as a device that never chose does, and the theme's own color when it does not offer that accent.
     /// </summary>
-    public ThemeFile Theme => BuiltInThemes.Get(Choice.ThemeId) ?? BuiltInThemes.NightYard;
+    public ThemeFile Theme => Chosen.WithAccent(Choice.Accent);
+
+    /// <summary>The theme the choice names as its file holds it, in its own color.</summary>
+    public ThemeFile Chosen => BuiltInThemes.Get(Choice.ThemeId) ?? BuiltInThemes.Default;
+
+    /// <summary>True when the choice is the black mode, which the dark mode of the window is then drawn in.</summary>
+    public bool IsBlack => Choice.Mode is ThemeMode.Black;
 
     #endregion
 
@@ -33,6 +46,12 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
 
     /// <summary>Takes another mode of the theme in use.</summary>
     public void Choose(ThemeMode mode) => Choose(Choice with { Mode = mode });
+
+    /// <summary>Takes another accent for the theme in use.</summary>
+    public void ChooseAccent(string accentId) => Choose(Choice with { Accent = accentId });
+
+    /// <summary>Takes another theme, in the mode in use and in the theme's own color.</summary>
+    public void ChooseTheme(string themeId) => Choose(Choice with { ThemeId = themeId, Accent = Accents.ThemeId });
 
     public void Choose(ThemeChoice chosen)
     {
@@ -61,7 +80,7 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
         }
         catch (InvalidOperationException exception)
         {
-            // Storage can be turned off. The app is then Night Yard, dark.
+            // Storage can be turned off. The app is then the default theme, dark.
             logger.LogWarning(exception, "The theme choice could not be read from this device");
             return null;
         }
