@@ -145,9 +145,40 @@ public sealed partial class NativeInterfaceRuleTests
         named.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Lists_of_things_to_open_use_the_list_card()
+    {
+        string[] listFiles =
+        [
+            "Pages/Projects/ProjectListPage.cs", "Pages/Bots/Parts/CrewRow.cs", "Pages/Extensions/ExtensionRow.cs",
+        ];
+        var found = from file in Repository.NativeFiles(".cs")
+                    where listFiles.Contains(file.Path)
+                    from match in OwnFrameOrLink().Matches(file.Text).Cast<Match>()
+                    select $"{file.Path}: {match.Value.Trim()}";
+
+        found.Should().BeEmpty("one card draws every list of things to open");
+    }
+
+    [Fact]
+    public void A_page_that_draws_its_own_frame_or_link_is_caught()
+    {
+        const string Sample = """
+            var frame = new Facet();
+            Facet other = new();
+            var link = new Link { Text = "A project" };
+            Link another = new();
+            """;
+
+        OwnFrameOrLink().Matches(Sample).Count.Should().Be(4);
+    }
+
     #endregion
 
     #region Private Methods
+
+    [GeneratedRegex(@"new\s+Facet\b|\bFacet\s+\w+\s*=\s*new\s*\(|new\s+Link\b|\bLink\s+\w+\s*=\s*new\s*\(")]
+    private static partial Regex OwnFrameOrLink();
 
     // The text a person can see: what is between quotes. Comments and names are not interface text.
     private static string Literals(string source) => string.Join('\n', StringLiteral().Matches(source).Select(match => match.Value));

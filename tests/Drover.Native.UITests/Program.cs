@@ -8,7 +8,7 @@ namespace Drover.Native.UITests;
 /// the folder its artifacts are kept in.
 /// It starts PostgreSQL (the server named by
 /// <c>DROVER_TEST_POSTGRES</c>, or a container), the real server on a loopback HTTPS port, and an account with one
-/// bot, then the app, and exits with 0 only when the app reports that every check passed.
+/// bot and a project, then the app, and exits with 0 only when the app reports that every check passed.
 /// </summary>
 internal static class Program
 {
@@ -133,6 +133,7 @@ internal static class Program
             ["DROVER_UI_CHECK_CERTIFICATE"] = TestCertificate.Hash(certificate),
             ["DROVER_UI_CHECK_REPLY"] = CheckServer.Reply,
             ["DROVER_UI_CHECK_RUN"] = Guid.NewGuid().ToString("N"),
+            ["DROVER_UI_CHECK_PROJECT"] = account.ProjectId.ToString(),
         }, logger);
 
         if (!lines.Contains(Passed))

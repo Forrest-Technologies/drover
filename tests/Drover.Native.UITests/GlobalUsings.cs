@@ -24,6 +24,7 @@ global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Files;
 global using Drover.Contracts.Models;
+global using Drover.Contracts.Projects;
 global using Drover.Contracts.Sandboxes;
 global using Drover.Data;
 global using Drover.Data.Bootstrap;

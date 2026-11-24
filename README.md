@@ -80,7 +80,7 @@ Use the built-in hosted provider, or any server that speaks the chat completions
 
 ### Apps
 
-The web app is the same client code as the Android app, compiled to WebAssembly and served by the server at `/`. You can install it from the browser and turn on notifications.
+The web app is the same client code as the Android app, compiled to WebAssembly and served by the server at `/`. You can install it from the browser and turn on notifications. Projects, Bots and Extensions draw each thing to open with the same card: an icon, the name as a link, one line of facts, and a place for its state or actions.
 
 The Android preview is a signed APK on the [releases page](https://github.com/Forrest-Technologies/drover/releases), for Android 7 or later. You can share text, links, pictures, and documents into Drover from other apps, and a share opened on a cold start still reaches the share screen. A share is cleared when a session or a server changes. On Android 12 or later you can reply from a notification. Notifications go through a push distributor you choose; the [Android guide](docs/android-preview.md) has the setup.
 
