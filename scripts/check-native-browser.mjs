@@ -1245,10 +1245,14 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
         const active = await page.evaluate(() => document.activeElement?.outerHTML ?? 'none');
         throw new Error(`The composer field did not take pointer focus after a cancelled drag (active: ${active}).`, { cause });
     });
+    const fieldBefore = await field.inputValue();
     await page.keyboard.type('after cancel');
     await page.waitForFunction(
-        () => document.querySelector('[aria-label="Message to Sample bot"]')?.value === 'after cancel',
-        null,
+        before => {
+            const value = document.querySelector('[aria-label="Message to Sample bot"]')?.value ?? '';
+            return value.includes('after cancel') && value.length === before.length + 'after cancel'.length;
+        },
+        fieldBefore,
         { timeout: 5000 }).catch(async cause => {
         throw new Error(`The composer field did not accept typed text after a cancelled drag (value: ${JSON.stringify(await field.inputValue())}).`, { cause });
     });
