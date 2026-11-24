@@ -35,6 +35,9 @@ internal sealed class CheckAccount
     /// <summary>The bot the app talks to, and the space it is in.</summary>
     public Guid BotId { get; private set; }
 
+    /// <summary>The project the screen checks open and go back from.</summary>
+    public Guid ProjectId { get; private set; }
+
     public Guid SpaceId { get; private set; }
 
     #endregion
@@ -42,7 +45,7 @@ internal sealed class CheckAccount
     #region Public Methods
 
     /// <summary>
-    /// Makes the account and its bot. A <paramref name="desktop"/> bot also has a sandbox with a screen, started, and a
+    /// Makes the account, its bot, and a project. A <paramref name="desktop"/> bot also has a sandbox with a screen, started, and a
     /// model that reads pictures, for the Android proof.
     /// </summary>
     public static async Task<CheckAccount> Create(
@@ -64,8 +67,14 @@ internal sealed class CheckAccount
             cookies,
             $"{space}/bots",
             new CreateBotRequest("Check bot", "Answer briefly.", connection.Id, null));
+        var project = await Send<ProjectSummary>(
+            http,
+            cookies,
+            $"{space}/projects",
+            new CreateProjectRequest("Check project", "A project the screen checks open and go back from."));
         account.SpaceId = session.Spaces[0].Id;
         account.BotId = bot.Id;
+        account.ProjectId = project.Id;
 
         if (desktop)
         {

@@ -145,12 +145,194 @@ public sealed partial class NativeInterfaceRuleTests
         named.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Every_work_screen_starts_with_one_screen_header()
+    {
+        var found = from file in Repository.NativeFiles(".xaml", ".cs")
+                    where file.Path.StartsWith("Pages/", StringComparison.Ordinal)
+                        && !file.Path.StartsWith("Pages/Dev/", StringComparison.Ordinal)
+                    group file by PageOf(file.Path) into page
+                    where page.Any(file => file.Text.Contains("WorkLayout", StringComparison.Ordinal))
+                    let count = page.Sum(file => HeadersIn(file))
+                    let first = page.Any(HeaderLeads)
+                    where count != 1 || !first
+                    select $"{page.Key}: {count} headers, first {first}";
+
+        found.Should().BeEmpty("one header leads every work screen");
+    }
+
+    [Fact]
+    public void No_back_control_is_an_underlined_link()
+    {
+        var words = ViewModelWords();
+        var found = from file in Repository.NativeFiles(".xaml", ".cs")
+                    where file.Path.StartsWith("Pages/", StringComparison.Ordinal)
+                    from link in BackLinks(file, words)
+                    select link;
+
+        found.Should().BeEmpty("a way back is an icon button in the screen header, not an underlined link");
+    }
+
+    [Fact]
+    public void A_screen_header_holds_only_icon_actions()
+    {
+        var found = new List<string>();
+        foreach (var file in Repository.NativeFiles(".xaml", ".cs").Where(file => file.Path.StartsWith("Pages/", StringComparison.Ordinal)))
+        {
+            if (file.Path.EndsWith(".xaml", StringComparison.Ordinal))
+            {
+                CheckMarkupActions(file, found);
+            }
+            else
+            {
+                CheckCodeActions(file, found);
+            }
+        }
+
+        found.Should().BeEmpty("only an icon button or an icon menu belongs in a screen header");
+    }
+
     #endregion
 
     #region Private Methods
 
+    private static string PageOf(string path) =>
+        path.EndsWith(".xaml.cs", StringComparison.Ordinal) ? path[..^3] : path;
+
+    private static int HeadersIn((string Path, string Text) file) =>
+        file.Path.EndsWith(".xaml", StringComparison.Ordinal)
+            ? XDocument.Parse(file.Text).Descendants().Count(element => element.Name.LocalName == "ScreenHeader")
+            : ScreenHeaderMade().Matches(file.Text).Count;
+
+    private static bool HeaderLeads((string Path, string Text) file)
+    {
+        if (file.Path.EndsWith(".xaml", StringComparison.Ordinal))
+        {
+            var layout = XDocument.Parse(file.Text).Descendants().FirstOrDefault(element => element.Name.LocalName == "WorkLayout");
+            return layout?.Elements().FirstOrDefault()?.Name.LocalName == "ScreenHeader";
+        }
+
+        return BodyAdded().Match(file.Text) is { Success: true } added
+            && added.Groups[1].Value.Contains("header", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, string> ViewModelWords() =>
+        Directory.EnumerateFiles(Path.Combine(Repository.Root, "src", "Drover.Presentation"), "*.cs", SearchOption.AllDirectories)
+            .SelectMany(path => WordValue().Matches(File.ReadAllText(path)).Cast<Match>())
+            .GroupBy(match => match.Groups[1].Value, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Groups[2].Value, StringComparer.Ordinal);
+
+    private static IEnumerable<string> BackLinks((string Path, string Text) file, Dictionary<string, string> words)
+    {
+        if (file.Path.EndsWith(".xaml", StringComparison.Ordinal))
+        {
+            return from element in XDocument.Parse(file.Text).Descendants()
+                   where element.Name.LocalName == "Link"
+                   let text = (string?)element.Attribute("Text") ?? string.Empty
+                   where SaysBack(text, words)
+                   select $"{file.Path}: {text}";
+        }
+
+        return from made in LinkMade().Matches(file.Text).Cast<Match>()
+               let text = LinkText().Match(made.Groups[1].Value).Groups[1].Value.Trim()
+               where SaysBack(text, words)
+               select $"{file.Path}: {text}";
+    }
+
+    private static bool SaysBack(string expression, Dictionary<string, string> words)
+    {
+        if (StringLiteral().Match(expression) is { Success: true } literal)
+        {
+            return literal.Value.Trim('"').StartsWith("Back to", StringComparison.Ordinal);
+        }
+
+        var member = MemberOf().Match(expression);
+        return member.Success && words.TryGetValue(member.Groups[1].Value, out var said)
+            && said.StartsWith("Back to", StringComparison.Ordinal);
+    }
+
+    private static void CheckMarkupActions((string Path, string Text) file, List<string> found)
+    {
+        foreach (var header in XDocument.Parse(file.Text).Descendants().Where(element => element.Name.LocalName == "ScreenHeader"))
+        {
+            foreach (var action in header.Elements())
+            {
+                if (action.Name.LocalName is "IconButton")
+                {
+                    continue;
+                }
+
+                if (action.Name.LocalName is "Menu" && (string?)action.Attribute("TriggerIcon") is { Length: > 0 }
+                    && string.Equals((string?)action.Attribute("ShowTriggerLabel"), "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                found.Add($"{file.Path}: {action.Name.LocalName} in a screen header");
+            }
+        }
+    }
+
+    private static void CheckCodeActions((string Path, string Text) file, List<string> found)
+    {
+        foreach (var added in ActionAdded().Matches(file.Text).Cast<Match>())
+        {
+            var value = added.Groups[1].Value.Trim();
+            var declaration = ActionDeclared().Matches(file.Text).Cast<Match>()
+                .FirstOrDefault(decl => decl.Groups[2].Value == value);
+            var type = declaration?.Groups[1].Value
+                ?? (value.StartsWith("new IconButton", StringComparison.Ordinal) ? "IconButton"
+                    : value.StartsWith("new Menu", StringComparison.Ordinal) ? "Menu" : null);
+
+            if (type is not ("IconButton" or "Menu"))
+            {
+                found.Add($"{file.Path}: {value} in ScreenHeader.Actions");
+                continue;
+            }
+
+            if (type is "Menu" && declaration is not null)
+            {
+                var made = ActionMade().Matches(file.Text).Cast<Match>()
+                    .FirstOrDefault(init => init.Groups[1].Value == declaration.Groups[2].Value);
+                var label = made?.Groups[2].Value ?? string.Empty;
+                if (made is null || !label.Contains("TriggerIcon", StringComparison.Ordinal)
+                    || !label.Contains("ShowTriggerLabel = false", StringComparison.Ordinal))
+                {
+                    found.Add($"{file.Path}: the menu in ScreenHeader.Actions needs an icon trigger and no words");
+                }
+            }
+        }
+    }
+
     // The text a person can see: what is between quotes. Comments and names are not interface text.
     private static string Literals(string source) => string.Join('\n', StringLiteral().Matches(source).Select(match => match.Value));
+
+    [GeneratedRegex(@"(?:new\s+ScreenHeader\b|\bScreenHeader\s+\w+\s*=\s*new\s*\()")]
+    private static partial Regex ScreenHeaderMade();
+
+    [GeneratedRegex(@"(?:\.Body|\bbody)\.(?:Add|Insert)\(([^)]*)\)")]
+    private static partial Regex BodyAdded();
+
+    [GeneratedRegex(@"new\s+Link\s*\{([^}]*)\}")]
+    private static partial Regex LinkMade();
+
+    [GeneratedRegex(@"Text\s*=\s*([^,}]+)")]
+    private static partial Regex LinkText();
+
+    [GeneratedRegex(@"\.(\w+)\b")]
+    private static partial Regex MemberOf();
+
+    [GeneratedRegex(@"\b(?:const\s+)?string\s+(\w+)\s*(?:=>|=)\s*\$?""([^""]*)""")]
+    private static partial Regex WordValue();
+
+    [GeneratedRegex(@"\.Actions\.(?:Add|Insert)\(([^)]*)\)")]
+    private static partial Regex ActionAdded();
+
+    [GeneratedRegex(@"\b(IconButton|Menu)\s+(\w+)\b")]
+    private static partial Regex ActionDeclared();
+
+    [GeneratedRegex(@"\b(\w+)\s*=\s*new\s*\(\s*\)\s*\{([^}]*)\}")]
+    private static partial Regex ActionMade();
 
     [GeneratedRegex(@"#[0-9A-Fa-f]{8}\b|#[0-9A-Fa-f]{6}\b|Color\.FromArgb\(\s*\d|new SKColor\(\s*\d")]
     private static partial Regex RawColor();
