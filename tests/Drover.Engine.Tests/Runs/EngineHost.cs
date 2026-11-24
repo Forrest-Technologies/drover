@@ -14,6 +14,8 @@ public sealed class EngineHost : IAsyncDisposable
 
     private readonly CancellationTokenSource stopping = new();
 
+    private readonly HostLog log = new();
+
     private Task dispatching = Task.CompletedTask;
 
     private bool killed;
@@ -31,7 +33,11 @@ public sealed class EngineHost : IAsyncDisposable
         Action<IServiceCollection>? replaceServices = null)
     {
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(logging => logging
+            .SetMinimumLevel(LogLevel.Warning)
+            .AddFilter("Drover.Engine.Runs", LogLevel.Debug)
+            .AddFilter("Drover.Data.Runs", LogLevel.Debug)
+            .AddProvider(log));
         services.AddDroverData(appConnectionString);
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions()));
@@ -63,6 +69,12 @@ public sealed class EngineHost : IAsyncDisposable
     #region Properties
 
     public IServiceProvider Services => provider;
+
+    /// <summary>What the host's run engine logged, for a test to wait on and for a stop that does not finish.</summary>
+    public HostLog Log => log;
+
+    /// <summary>Ends when the host is asked to stop.</summary>
+    public CancellationToken Stopping => stopping.Token;
 
     public string WorkerId => provider.GetRequiredService<RunDispatcher>().WorkerId;
 
@@ -108,6 +120,13 @@ public sealed class EngineHost : IAsyncDisposable
         try
         {
             await dispatching.WaitAsync(TimeSpan.FromSeconds(20));
+        }
+        catch (TimeoutException exception)
+        {
+            // The thread pool figures tell a dispatcher that is stuck from a process whose threads were all busy.
+            var pool = $"{ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} queued";
+            var message = $"The dispatcher did not stop within 20 s (thread pool: {pool}). Its log:";
+            throw new TimeoutException($"{message}{Environment.NewLine}{log.Tail()}", exception);
         }
         finally
         {

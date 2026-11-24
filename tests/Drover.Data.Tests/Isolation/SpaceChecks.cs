@@ -12,8 +12,8 @@ public static class SpaceChecks
     public static async Task CannotSelectAnotherSpacesRows(IsolationHarness harness, string tableName)
     {
         var (table, world, own, other) = await Arrange(harness, tableName);
-        await using var asB = await harness.Open(world.SpaceB, world.UserB1);
-        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+        await using var asB = await harness.Open(world.SpaceB, InB(table, world));
+        await using var asA = await harness.Open(world.SpaceA, InA(table, world));
 
         Expect.That(await harness.CountRow(asB, table, other) == 1, $"Control: space B cannot see its own row in '{tableName}'.");
         Expect.That(await harness.CountRow(asA, table, own) == 1, $"Control: space A cannot see its own row in '{tableName}'.");
@@ -26,12 +26,12 @@ public static class SpaceChecks
     {
         var (table, world, own, _) = await Arrange(harness, tableName);
         await using var asNobody = await harness.Open(null, null);
-        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+        await using var asA = await harness.Open(world.SpaceA, InA(table, world));
 
         Expect.That(await harness.CountRow(asA, table, own) == 1, $"Control: space A cannot see its own row in '{tableName}'.");
         var visible = await asNobody.Count($"SELECT count(*) FROM {table.Quoted}");
         Expect.That(visible == 0, $"With no tenant set, {visible} row(s) of '{tableName}' were visible.");
-        var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceA, world.UserA1), own.Parents);
+        var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceA, InA(table, world)), own.Parents);
         await Expect.Refused(
             $"Insert into '{tableName}' with no tenant set",
             "42501",
@@ -51,8 +51,8 @@ public static class SpaceChecks
             return;
         }
 
-        await using var asB = await harness.Open(world.SpaceB, world.UserB1);
-        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+        await using var asB = await harness.Open(world.SpaceB, InB(table, world));
+        await using var asA = await harness.Open(world.SpaceA, InA(table, world));
 
         Expect.That(await harness.TouchRow(asB, table, other) == 1, $"Control: space B cannot update its own row in '{tableName}'.");
         Expect.That(await harness.TouchRow(asA, table, own) == 1, $"Control: space A cannot update its own row in '{tableName}'.");
@@ -69,7 +69,7 @@ public static class SpaceChecks
             return;
         }
 
-        await using (var asA = await harness.Open(world.SpaceA, world.UserA1))
+        await using (var asA = await harness.Open(world.SpaceA, InA(table, world)))
         {
             Expect.That(await harness.DeleteRow(asA, table, own) == 1,
                 $"Control: space A cannot delete its own row in '{tableName}'.");
@@ -78,15 +78,15 @@ public static class SpaceChecks
             await asA.Commit();
         }
 
-        await using var asB = await harness.Open(world.SpaceB, world.UserB1);
+        await using var asB = await harness.Open(world.SpaceB, InB(table, world));
         Expect.That(await harness.CountRow(asB, table, other) == 1, $"Space B's row in '{tableName}' is gone after space A's delete.");
     }
 
     public static async Task CannotInsertWithAnotherSpacesId(IsolationHarness harness, string tableName)
     {
         var (table, world, _, other) = await Arrange(harness, tableName);
-        var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceB, world.UserB1), other.Parents);
-        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+        var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceB, InB(table, world)), other.Parents);
+        await using var asA = await harness.Open(world.SpaceA, InA(table, world));
 
         await Expect.Refused(
             $"Space A inserting a row of space B into '{tableName}'",
@@ -97,7 +97,7 @@ public static class SpaceChecks
     public static async Task CannotMoveARowIntoAnotherSpace(IsolationHarness harness, string tableName)
     {
         var (table, world, own, _) = await Arrange(harness, tableName);
-        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+        await using var asA = await harness.Open(world.SpaceA, InA(table, world));
 
         await Expect.Refused(
             $"Space A moving its row in '{tableName}' into space B",
@@ -130,8 +130,8 @@ public static class SpaceChecks
         foreach (var parent in parents)
         {
             var pointing = new Dictionary<string, SeededRow>(own.Parents) { [parent.Name] = other.Parents[parent.Name] };
-            var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceA, world.UserA1), pointing);
-            await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+            var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceA, InA(table, world)), pointing);
+            await using var asA = await harness.Open(world.SpaceA, InA(table, world));
 
             await Expect.Refused(
                 $"Space A inserting a row into '{tableName}' that points at space B's row in '{parent.Name}'",
@@ -152,8 +152,8 @@ public static class SpaceChecks
         SeededRow other,
         Func<TenantSession, TableUnderTest, SeededRow, Task<int>> mutate)
     {
-        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
-        await using var asB = await harness.Open(world.SpaceB, world.UserB1);
+        await using var asA = await harness.Open(world.SpaceA, InA(table, world));
+        await using var asB = await harness.Open(world.SpaceB, InB(table, world));
         var ownBefore = await harness.Snapshot(asA, table, own);
         var otherBefore = await harness.Snapshot(asB, table, other);
         Expect.That(ownBefore.Count == 1 && otherBefore.Count == 1, $"Control: missing rows in '{table.Name}'.");
@@ -161,7 +161,7 @@ public static class SpaceChecks
         SeededRow[] rows = [own, other];
         foreach (var row in rows)
         {
-            await using var attempt = await harness.Open(world.SpaceA, world.UserA1);
+            await using var attempt = await harness.Open(world.SpaceA, InA(table, world));
             await Expect.Refused($"Mutating append-only or truncating table '{table.Name}'", "42501",
                 () => mutate(attempt, table, row));
         }
@@ -170,14 +170,22 @@ public static class SpaceChecks
         (await harness.Snapshot(asB, table, other)).Should().BeEquivalentTo(otherBefore);
     }
 
+    // A table whose rows act for one person cannot have one member read another's row, so its space checks act as the
+    // traveler, who belongs to both spaces: only the space can then be what stops them.
+    private static Guid InA(TableUnderTest table, TenantWorld world) =>
+        table.Seeder.ForOnePersonOnly ? world.Traveler : world.UserA1;
+
+    private static Guid InB(TableUnderTest table, TenantWorld world) =>
+        table.Seeder.ForOnePersonOnly ? world.Traveler : world.UserB1;
+
     private static async Task<(TableUnderTest Table, TenantWorld World, SeededRow Own, SeededRow Other)> Arrange(
         IsolationHarness harness,
         string tableName)
     {
         var table = harness.Table(tableName);
         var world = await harness.NewWorld();
-        var own = await harness.Seed(table, RowPlacement.Shared(world.SpaceA, world.UserA1));
-        var other = await harness.Seed(table, RowPlacement.Shared(world.SpaceB, world.UserB1));
+        var own = await harness.Seed(table, RowPlacement.Shared(world.SpaceA, InA(table, world)));
+        var other = await harness.Seed(table, RowPlacement.Shared(world.SpaceB, InB(table, world)));
         return (table, world, own, other);
     }
 

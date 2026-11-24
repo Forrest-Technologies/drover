@@ -159,20 +159,39 @@ public static class FileEndpoints
         Guid fileId,
         HttpContext context,
         FileService files,
-        TimeProvider time)
+        NativePictureCache pictures,
+        TimeProvider time,
+        ILoggerFactory loggerFactory)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
-
-        if (await files.Open(fileId, timeout.Token) is not { } found)
-        {
-            return TypedResults.NotFound();
-        }
-
-        await using var content = found.Content;
         context.Response.Headers.CacheControl = "no-store";
-        var access = context.GetSpaceAccess();
-        return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
+
+        try
+        {
+            if (await files.Open(fileId, timeout.Token) is not { } found)
+            {
+                return TypedResults.NotFound();
+            }
+
+            await using var content = found.Content;
+            var access = context.GetSpaceAccess();
+            if (FileInspector.KindOf(found.File.ContentType) is FileKind.Image)
+            {
+                return TypedResults.Ok(await pictures.Read(found, access.UserId, timeout.Token));
+            }
+
+            return TypedResults.Ok(
+                await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
+        }
+        catch (OperationCanceledException exception) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            var logger = loggerFactory.CreateLogger(typeof(FileEndpoints).FullName!);
+            logger.LogDebug(
+                "Native file preview timed out ({ExceptionType})",
+                exception.GetType().Name);
+            return TypedResults.Ok(new NativeFilePreview(Refusal: NativePreviewRefusal.TooComplex));
+        }
     }
 
     private static async Task<Results<Ok<FilePreviewResponse>, NotFound>> MintPreview(
@@ -200,7 +219,12 @@ public static class FileEndpoints
     private static ProblemHttpResult UploadProblem(FileUpload upload) =>
         TypedResults.Problem(
             title: upload.Detail,
-            statusCode: upload.Refusal is FileRefusals.TooLarge ? StatusCodes.Status413PayloadTooLarge : StatusCodes.Status422UnprocessableEntity,
+            statusCode: upload.Refusal switch
+            {
+                FileRefusals.TooLarge => StatusCodes.Status413PayloadTooLarge,
+                FileRefusals.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
+                _ => StatusCodes.Status422UnprocessableEntity,
+            },
             extensions: new Dictionary<string, object?> { ["refusal"] = upload.Refusal });
 
     private static FileStreamHttpResult ServeDownload(FileDownload found, bool? download, HttpContext context)

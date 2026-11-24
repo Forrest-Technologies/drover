@@ -17,6 +17,18 @@ public sealed record NativeFilePreview(
 
     public const int MaxImagePixels = 4_000_000;
 
+    public const int MaxPendingPictures = 32;
+
+    public const int MaxPicturesPerUser = 2;
+
+    public const int MaxPicturesPerSpace = 8;
+
+    public const int MaxPendingPicturesPerUser = 12;
+
+    public const int MaxPendingPicturesPerSpace = 20;
+
+    public const int MaxPicturePreviewsPerUserPerMinute = 200;
+
     public const int MaxTextBytes = 16 * 1024;
 
     public const int MaxPdfBytes = 1024 * 1024;

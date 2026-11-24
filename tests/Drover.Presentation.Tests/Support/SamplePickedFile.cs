@@ -12,13 +12,24 @@ public sealed class SamplePickedFile(string name, byte[] content, bool sizeKnown
 
     #endregion
 
+    #region Properties
+
+    /// <summary>How many times the file was opened to be read: once for each upload that started.</summary>
+    public int Opened { get; private set; }
+
+    #endregion
+
     #region Interface Implementations
 
     public string Name => name;
 
     public long Size => sizeKnown ? content.Length : 0;
 
-    public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(new MemoryStream(content));
+    public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken)
+    {
+        Opened++;
+        return Task.FromResult<Stream>(new MemoryStream(content));
+    }
 
     #endregion
 }

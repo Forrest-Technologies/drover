@@ -12,7 +12,9 @@ internal sealed record CheckSettings(
     string Certificate,
     string Reply,
     string? ReportPath,
-    string? RunId)
+    string? RunId,
+    string? ProofPicture = null,
+    Guid? ProofBot = null)
 {
     #region Private Fields
 
@@ -32,6 +34,10 @@ internal sealed record CheckSettings(
 
     public const string RestartName = "DROVER_UI_CHECK_RESTART";
 
+    public const string ProofPictureName = "DROVER_UI_CHECK_PROOF_PICTURE";
+
+    public const string ProofBotName = "DROVER_UI_CHECK_PROOF_BOT";
+
     private static readonly Lazy<CheckSettings?> current = new(Read);
 
     #endregion
@@ -43,6 +49,9 @@ internal sealed record CheckSettings(
 
     public bool ChecksRestart =>
         string.Equals(Value(RestartName), "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The manual Android proof asked for: the picture to attach and the bot whose sandbox to open.</summary>
+    public bool IsProof => ProofPicture is not null && ProofBot is not null;
 
     #endregion
 
@@ -78,7 +87,17 @@ internal sealed record CheckSettings(
             return null;
         }
 
-        return new(origin, email, password, certificate, reply, Value(ReportName), Value(RunIdName));
+        var bot = Guid.TryParse(Value(ProofBotName), out var proofBot) ? proofBot : (Guid?)null;
+        return new(
+            origin,
+            email,
+            password,
+            certificate,
+            reply,
+            Value(ReportName),
+            Value(RunIdName),
+            Value(ProofPictureName),
+            bot);
     }
 
     private static string? Value(string name)

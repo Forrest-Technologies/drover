@@ -1,0 +1,134 @@
+name: Android proof
+
+# Run by hand, only when proof is needed that the Android basics work on a device: a picture attached in a
+# conversation reaches the server whole, and a finger dragged over the sandbox screen reaches the sandbox as a press,
+# moves and a release. It never runs on a push, a pull request or a tag, and it is not part of the Android preview
+# build, so neither is made slower by it. It runs on a GitHub-hosted runner and never on a self-hosted one.
+# A pull request that fixes one of these links the artifact of a run of this workflow; see
+# docs/architecture/18-native-client.md, "Android proof".
+# The proof runs the branch or tag it is started on (Run workflow, "Use workflow from", or `gh workflow run
+# android-proof.yml --ref <branch>`), and checks out exactly that commit. There is no input that names another ref.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: android-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  proof:
+    name: Android proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The key and paths are those of native.yml, so a proof run reuses what the pull request build downloaded.
+      - name: Cache Android dependency downloads
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ${{ env.NUGET_PACKAGES }}
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.cache/dotnet-android/MavenCacheDirectory
+            ~/.local/share/Xamarin/zips
+          key: android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'global.json', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json', '**/*.gradle', '**/*.gradle.kts', '**/gradle.properties', '**/gradle-wrapper.properties', '**/libs.versions.toml', '**/gradle.lockfile', '**/pom.xml') }}
+          restore-keys: |
+            android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 platforms;android-37.2 build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android workload
+        run: dotnet workload install android --version 11.0.100
+      # The preview app refuses a test server's certificate, as it must. The build made for the screen checks is the
+      # same app with the check hooks in it, which trust the one certificate of the run (see "Screen checks").
+      - name: Build the app made for the checks
+        run: |
+          dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release \
+            -p:DroverUiChecks=true -p:ApplicationDisplayVersion=checks -warnaserror -o "$RUNNER_TEMP/proof-app"
+      - name: Build the harness
+        run: dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+      - name: Start an emulator and run the proof
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          artifacts="$GITHUB_WORKSPACE/artifacts/android-proof"
+          mkdir -p "$artifacts"
+          sudo chmod a+rw /dev/kvm
+          sdkmanager 'emulator' 'system-images;android-35;default;x86_64'
+          printf 'no\n' | avdmanager create avd -n drover-proof -d pixel_5 -k 'system-images;android-35;default;x86_64'
+          "$ANDROID_HOME/emulator/emulator" -avd drover-proof -no-window -no-audio \
+            -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$artifacts/emulator.log" 2>&1 &
+          trap 'adb emu kill || true' EXIT
+
+          # Ready is what the device says it is: connected, then booted. Each wait is bounded and says what it saw.
+          if ! timeout 180 adb wait-for-device; then
+            echo "::error::No emulator connected within 180 seconds."
+            tail -n 40 "$artifacts/emulator.log"
+            exit 1
+          fi
+          deadline=$((SECONDS + 300))
+          until [[ "$(adb shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; do
+            if (( SECONDS > deadline )); then
+              echo "::error::The emulator did not finish booting within 300 seconds (sys.boot_completed was not 1)."
+              tail -n 40 "$artifacts/emulator.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          adb shell input keyevent KEYCODE_WAKEUP
+          adb shell wm dismiss-keyguard
+          for scale in window_animation_scale transition_animation_scale animator_duration_scale; do
+            adb shell settings put global "$scale" 0
+          done
+
+          adb install -r "$RUNNER_TEMP"/proof-app/*-Signed.apk
+          serial="$(adb devices | awk '/^emulator-/{ print $1; exit }')"
+          if [[ -z "$serial" ]]; then
+            echo "::error::The proof needs the emulator this job started."
+            exit 1
+          fi
+          set +e
+          DROVER_ANDROID_SERIAL="$serial" dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- \
+            android-proof "$artifacts" 2>&1 | tee "$artifacts/harness-and-server.log"
+          proof=${PIPESTATUS[0]}
+          set -e
+          exit "$proof"
+      - name: Say what the proof found
+        if: always()
+        run: |
+          {
+            echo '## Android proof'
+            echo
+            echo "Built from \`${GITHUB_REF_NAME}\` at \`$(git rev-parse HEAD)\`."
+            echo
+            cat artifacts/android-proof/proof-summary.md || echo 'The proof did not get as far as a verdict. See the artifact.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-proof
+          path: artifacts/android-proof/
+          if-no-files-found: warn
+          retention-days: 14

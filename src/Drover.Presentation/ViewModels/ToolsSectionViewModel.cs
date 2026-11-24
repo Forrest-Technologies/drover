@@ -55,7 +55,7 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
         .. editor.ToolConnections.Select(connection => new ToolGroup(
             connection.Name,
             connection.Id,
-            connection.Status is "connected" ? null : connection.LastError,
+            connection.Status is ConnectionStatuses.Ready ? null : connection.LastError,
             [.. editor.Tools!.Where(tool => tool.ConnectionId == connection.Id)])),
     ];
 

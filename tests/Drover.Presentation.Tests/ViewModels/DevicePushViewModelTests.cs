@@ -23,7 +23,7 @@ public sealed class DevicePushViewModelTests : IDisposable
 
     public DevicePushViewModelTests()
     {
-        session = new(server.CreateApi());
+        session = new(server.CreateApi(), new ShareInbox());
     }
 
     #endregion

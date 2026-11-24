@@ -111,6 +111,77 @@ public static partial class CodeLines
     /// <summary>The words of the button that lays out all of a capped block: "Show all 1,200 lines".</summary>
     public static string ShowAll(int lines) => $"Show all {lines.ToString("N0", CultureInfo.InvariantCulture)} lines";
 
+    /// <summary>
+    /// How much of a table is laid out as a grid. Each cell is a control, so a grid is bounded by what it holds and by
+    /// how many cells it has: at most <see cref="MaxColumns"/> columns, <see cref="MaxCells"/> cells, and
+    /// <see cref="MaxCharacters"/> characters of cells, in the first <see cref="MaxLines"/> rows or, with
+    /// <paramref name="all"/>, in every row. A table past any of these is laid out as text instead, which costs no
+    /// more than its characters, so a table of many empty cells cannot build a huge grid.
+    /// </summary>
+    public static TableLayout TableLayoutOf(CodeTable table, bool all = false)
+    {
+        if (table.ColumnCount > MaxColumns)
+        {
+            return TableLayout.Text;
+        }
+
+        var cells = table.Header?.Count ?? 0;
+        var characters = table.Header?.Sum(cell => cell.Length) ?? 0;
+
+        foreach (var row in all ? table.Rows : table.Rows.Take(MaxLines))
+        {
+            cells += row.Count;
+            characters += row.Sum(cell => cell.Length);
+
+            if (cells > MaxCells || characters > MaxCharacters)
+            {
+                return TableLayout.Text;
+            }
+        }
+
+        return !all && table.Rows.Count > MaxLines ? TableLayout.FirstRows : TableLayout.Whole;
+    }
+
+    /// <summary>The words of the button that lays out all of a capped table: "Show all 1,200 rows".</summary>
+    public static string ShowAllRows(int rows) => $"Show all {rows.ToString("N0", CultureInfo.InvariantCulture)} rows";
+
+    /// <summary>
+    /// The text with each tab turned into the spaces that reach the next tab stop, <see cref="TabWidth"/> columns
+    /// apart, so columns line up as a terminal shows them. Only what is drawn is changed; a copy keeps the tabs.
+    /// </summary>
+    public static string ExpandTabs(string text)
+    {
+        if (!text.Contains('\t'))
+        {
+            return text;
+        }
+
+        var expanded = new StringBuilder(text.Length);
+        var column = 0;
+
+        foreach (var character in text)
+        {
+            switch (character)
+            {
+                case '\t':
+                    var spaces = TabWidth - (column % TabWidth);
+                    expanded.Append(' ', spaces);
+                    column += spaces;
+                    break;
+                case '\n':
+                    expanded.Append(character);
+                    column = 0;
+                    break;
+                default:
+                    expanded.Append(character);
+                    column++;
+                    break;
+            }
+        }
+
+        return expanded.ToString();
+    }
+
     #endregion
 
     #region Private Methods
@@ -149,7 +220,29 @@ public static partial class CodeLines
     /// <summary>The most characters laid out before "Show all" is asked for: 64 KiB.</summary>
     public const int MaxCharacters = 65_536;
 
+    /// <summary>The columns between tab stops.</summary>
+    public const int TabWidth = 4;
+
+    /// <summary>The most columns a table is laid out with as a grid.</summary>
+    public const int MaxColumns = 64;
+
+    /// <summary>The most cells, the header's among them, a table is laid out with as a grid.</summary>
+    public const int MaxCells = 8_192;
+
     #endregion
+}
+
+/// <summary>How much of a table is laid out at once.</summary>
+public enum TableLayout
+{
+    /// <summary>Every row.</summary>
+    Whole,
+
+    /// <summary>The first <see cref="CodeLines.MaxLines"/> rows, with a button for the rest.</summary>
+    FirstRows,
+
+    /// <summary>Its text, capped as any text is: it holds too many columns, cells, or characters to lay out as a grid.</summary>
+    Text,
 }
 
 /// <summary>What one line of a diff is.</summary>

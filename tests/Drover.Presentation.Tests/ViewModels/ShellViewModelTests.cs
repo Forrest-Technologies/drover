@@ -25,7 +25,7 @@ public sealed class ShellViewModelTests : IDisposable
 
     public ShellViewModelTests()
     {
-        session = new(server.CreateApi());
+        session = new(server.CreateApi(), new ShareInbox());
         theme = new(settings, NullLogger<ThemeModel>.Instance);
         services = new ServiceCollection()
             .AddLogging()

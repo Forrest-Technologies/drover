@@ -144,6 +144,14 @@ jobs:
             echo "| Peak memory of the 2 GB builder, page cache included | ${peak_bytes} bytes |"
             echo "| Out-of-memory kills | ${oom_kills} |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check the image default for uploaded files
+        run: |
+          docker run --rm --network none --entrypoint sh drover:local -ec '
+            test "$(id -u)" != 0
+            test "$Files__Path" = /var/lib/drover/files
+            probe="$(mktemp "$Files__Path/.probe.XXXXXXXX")"
+            rm "$probe"
+          '
       - name: Scan the built Drover image with Grype
         env:
           GRYPE_VERSION: "0.121.3"

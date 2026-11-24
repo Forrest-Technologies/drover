@@ -116,6 +116,74 @@ public sealed class CodeLinesTests
         capped.Shown.Should().HaveLength(CodeLines.MaxCharacters).And.EndWith(face);
     }
 
+    [Fact]
+    public void A_table_of_fewer_than_four_hundred_very_wide_rows_is_laid_out_as_capped_text()
+    {
+        var wide = new string('x', 2_000);
+        var text = string.Concat(Enumerable.Range(1, 100).Select(row => $"{row}\t{wide}\n"));
+        var table = CodeTable.Read(text)!;
+
+        table.Rows.Count.Should().BeLessThan(CodeLines.MaxLines);
+        CodeLines.TableLayoutOf(table).Should().Be(TableLayout.Text, "its cells hold more than the 64 KiB cap");
+        CodeLines.Capped(text).IsCut.Should().BeTrue("as text it is cut at the same cap");
+    }
+
+    [Fact]
+    public void A_table_past_four_hundred_narrow_rows_shows_its_first_rows_and_a_small_one_shows_whole()
+    {
+        var many = CodeTable.Read(string.Concat(Enumerable.Range(1, 500).Select(row => $"{row}\tok\n")))!;
+        var few = CodeTable.Read("a\tb\n1\t2\n")!;
+
+        CodeLines.TableLayoutOf(many).Should().Be(TableLayout.FirstRows);
+        CodeLines.TableLayoutOf(few).Should().Be(TableLayout.Whole);
+    }
+
+    [Fact]
+    public void A_sparse_table_wider_than_the_column_bound_is_laid_out_as_text()
+    {
+        var row = $"x{new string('\t', CodeLines.MaxColumns)}";
+        var text = string.Concat(Enumerable.Repeat($"{row}\n", 50));
+        var table = CodeTable.Read(text)!;
+
+        table.ColumnCount.Should().Be(CodeLines.MaxColumns + 1);
+        text.Length.Should().BeLessThan(CodeLines.MaxCharacters, "its characters alone would pass the cap");
+        CodeLines.TableLayoutOf(table).Should().Be(TableLayout.Text);
+        CodeLines.TableLayoutOf(table, all: true).Should().Be(TableLayout.Text);
+    }
+
+    [Fact]
+    public void A_table_of_many_empty_cells_under_the_column_bound_is_held_to_the_cell_bound()
+    {
+        var row = $"x{new string('\t', CodeLines.MaxColumns - 1)}";
+        var text = string.Concat(Enumerable.Repeat($"{row}\n", CodeLines.MaxLines));
+        var table = CodeTable.Read(text)!;
+
+        (table.ColumnCount * table.Rows.Count).Should().BeGreaterThan(CodeLines.MaxCells);
+        text.Length.Should().BeLessThan(CodeLines.MaxCharacters);
+        CodeLines.TableLayoutOf(table).Should().Be(TableLayout.Text, "empty cells cost a control each");
+    }
+
+    [Fact]
+    public void All_of_a_table_is_held_to_the_same_bounds_as_its_first_rows()
+    {
+        var narrow = CodeTable.Read(string.Concat(Enumerable.Range(1, 500).Select(row => $"{row}\tok\n")))!;
+        var many = CodeTable.Read(string.Concat(Enumerable.Range(1, CodeLines.MaxCells).Select(row => $"{row}\tok\n")))!;
+
+        CodeLines.TableLayoutOf(narrow, all: true).Should().Be(TableLayout.Whole);
+        CodeLines.TableLayoutOf(many).Should().Be(TableLayout.FirstRows, "its first rows fit");
+        CodeLines.TableLayoutOf(many, all: true).Should().Be(TableLayout.Text, "all of its cells would not");
+    }
+
+    [Fact]
+    public void A_capped_table_offers_all_its_rows_in_words() => CodeLines.ShowAllRows(1_200).Should().Be("Show all 1,200 rows");
+
+    [Theory]
+    [InlineData("a\tb", "a   b")]
+    [InlineData("abcd\tb", "abcd    b")]
+    [InlineData("\tx\n12\ty", "    x\n12  y")]
+    [InlineData("no tabs", "no tabs")]
+    public void Tabs_are_drawn_as_spaces_to_the_next_stop_of_four(string text, string drawn) => CodeLines.ExpandTabs(text).Should().Be(drawn);
+
     [Theory]
     [InlineData("", 0)]
     [InlineData("a", 1)]
