@@ -104,10 +104,9 @@
 
   <!-- The conversation workspace. Below the first it shows one of the crew, the conversation, and what is beside
        it; from the first on the crew stands beside the conversation; from the second on there is room for all
-       three. A conversation column narrower than the third puts the ways beside it on a row of their own. -->
+       three. -->
   <x:Double x:Key="DvBreakCrew">900</x:Double>
   <x:Double x:Key="DvBreakRail">1200</x:Double>
-  <x:Double x:Key="DvBreakBeside">640</x:Double>
   <x:Double x:Key="DvConversationMin">400</x:Double>
   <x:Double x:Key="DvRailMin">288</x:Double>
 

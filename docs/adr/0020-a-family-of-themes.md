@@ -1,6 +1,6 @@
 # 0020. The look is a family of themes, with Night Yard as the default
 
-- Status: Proposed in its pull request; accepted once the owner approves the sample sheet on issue 421
+- Status: Proposed in its pull request; accepted once the owner approves the sample sheet on issue 421. Superseded in part by [0021](0021-front-office-black-and-accents.md): the default theme, the black mode, and a person's choice of accent
 - Date: 2026-11-21
 - Source: [issue 421](https://github.com/Forrest-Technologies/drover/issues/421), tracking issue [785](https://github.com/Forrest-Technologies/drover/issues/785)
 

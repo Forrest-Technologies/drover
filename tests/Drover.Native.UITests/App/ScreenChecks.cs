@@ -163,17 +163,17 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     /// <summary>
     /// Another theme reaches the open screen without a restart, in every group that changes at run time: a color
     /// repaints in place, and the numbers (type, density, shape, bloom, motion) are what the screen is made again
-    /// from. The sample is Night Yard with a different value in each group, and switching back must give exactly
-    /// what was there before.
+    /// from. The sample has a value in each group that the default theme does not, and switching back must give
+    /// exactly what was there before.
     /// </summary>
     private async Task SwitchTheme()
     {
         var theme = ((App)Application.Current).Services.GetRequiredService<ThemeModel>();
         BuiltInThemes.AddSample(SampleTheme.Value);
         var before = await Observed(Row(), "the crew before the switch");
-        if (!before.TextSizes.Contains(14))
+        if (!before.TextSizes.Contains(BuiltInThemes.Default.Type.Scale[2]))
         {
-            throw new CheckFailedException("Night Yard's base size is not on the open screen before the switch");
+            throw new CheckFailedException("the default theme's base size is not on the open screen before the switch");
         }
 
         theme.Choose(new ThemeChoice(SampleTheme.Id, ThemeMode.Dark));
@@ -181,7 +181,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             "the open screen made again from the sample theme",
             seen => seen.RowMinimum == Row(sample: true) && seen.Corners == CornerLanguage.Ticked);
 
-        // A text with no style of its own keeps the platform's default size, 14, so Night Yard's base size is not
+        // A text with no style of its own keeps the platform's default size, so the default theme's base size is not
         // required to be gone.
         Expect(sample.TextSizes.Contains(SampleTheme.BaseSize), "type: the base step of the scale");
         Expect(sample.Space == SampleTheme.SpaceFour, "density: the spacing multiplier");
@@ -202,11 +202,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         theme.Choose(ThemeChoice.Default with { Mode = ThemeMode.Dark });
         var back = await UntilSeen(
-            "the open screen made again from Night Yard",
+            "the open screen made again from the default theme",
             seen => seen.RowMinimum == before.RowMinimum
                 && seen.Corners == before.Corners
                 && !seen.TextSizes.Contains(SampleTheme.BaseSize));
-        Expect(back == before, "Night Yard is exactly what it was before");
+        Expect(back == before, "the default theme is exactly what it was before");
     }
 
     // Waits for the open screen to show what is asked, and says what it showed last when it never does.

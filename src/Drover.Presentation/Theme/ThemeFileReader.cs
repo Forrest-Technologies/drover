@@ -273,6 +273,7 @@ public static partial class ThemeFileReader
                     ["faceted"] = CornerLanguage.Faceted,
                     ["square"] = CornerLanguage.Square,
                     ["ticked"] = CornerLanguage.Ticked,
+                    ["rounded"] = CornerLanguage.Rounded,
                 });
             var cut = Keys(shape["cut"], "shape.cut", "control", "frame");
             var radius = Keys(shape["radius"], "shape.radius", "control", "card", "sheet");
@@ -298,7 +299,9 @@ public static partial class ThemeFileReader
 
         private SizePair ReadCuts(Dictionary<string, JsonElement> cut, CornerLanguage corners)
         {
-            var (control, frame) = corners is CornerLanguage.Square ? ((0, 0), (0, 0)) : ((4, 10), (8, 16));
+            var (control, frame) = corners is CornerLanguage.Square or CornerLanguage.Rounded
+                ? ((0, 0), (0, 0))
+                : ((4, 10), (8, 16));
 
             return new(
                 Whole(cut, "control", "shape.cut.control", control.Item1, control.Item2),
@@ -313,6 +316,7 @@ public static partial class ThemeFileReader
             {
                 CornerLanguage.Square => ((2, 8), (2, 12), (4, 16)),
                 CornerLanguage.Ticked => ((0, 0), (0, 0), (0, 0)),
+                CornerLanguage.Rounded => ((8, 22), (12, 24), (16, 28)),
                 _ => ((0, 16), (0, 16), (0, 16)),
             };
 
@@ -324,7 +328,7 @@ public static partial class ThemeFileReader
 
         private ThemeSurfaces ReadSurfaces(Dictionary<string, JsonElement> top)
         {
-            var surfaces = Keys(top["surfaces"], "surfaces", "levels", "yard");
+            var surfaces = Keys(top["surfaces"], "surfaces", "levels", "yard", "conversation");
             var yard = surfaces is null ? null : Keys(surfaces["yard"], "surfaces.yard", "texture", "strength", "step");
             if (surfaces is null || yard is null)
             {
@@ -349,7 +353,17 @@ public static partial class ThemeFileReader
                 Problems.Add("surfaces.yard.strength must be 0 when the texture is 'none'");
             }
 
-            return new(levels, texture, strength, Whole(yard, "step", "surfaces.yard.step", 12, 32));
+            var conversation = Choice(
+                surfaces,
+                "conversation",
+                "surfaces.conversation",
+                new Dictionary<string, ConversationStyle>
+                {
+                    ["document"] = ConversationStyle.Document,
+                    ["bubbles"] = ConversationStyle.Bubbles,
+                });
+
+            return new(levels, texture, strength, Whole(yard, "step", "surfaces.yard.step", 12, 32), conversation);
         }
 
         private ThemeMotion ReadMotion(Dictionary<string, JsonElement> top)
@@ -622,7 +636,7 @@ public static partial class ThemeFileReader
         public static readonly ThemeShape Shape =
             new(CornerLanguage.Faceted, new(6, 10), false, 6, 10, 16, 1, 1.75);
 
-        public static readonly ThemeSurfaces Surfaces = new(2, YardTexture.None, 0, 16);
+        public static readonly ThemeSurfaces Surfaces = new(2, YardTexture.None, 0, 16, ConversationStyle.Document);
 
         public static readonly ThemeMotion Motion = new(1, 8, 2600, 1300, LiveStyle.Loop, 2);
 

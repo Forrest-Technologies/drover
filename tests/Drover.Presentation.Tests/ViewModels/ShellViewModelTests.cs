@@ -196,20 +196,129 @@ public sealed class ShellViewModelTests : IDisposable
     }
 
     [Fact]
-    public void The_account_menu_marks_the_theme_in_use_in_words_and_changes_it()
+    public void The_appearance_choices_mark_the_mode_in_use_in_words_and_changes_it()
     {
-        using var menu = Make<AccountMenuViewModel>();
-        menu.Themes.Single(option => option.InUse).AccessibleName.Should().Be("Dark theme, in use");
+        using var choices = Make<AppearanceViewModel>();
+        choices.Themes.Single(option => option.InUse).AccessibleName.Should().Be("Dark, in use");
 
         var changes = 0;
-        menu.PropertyChanged += (_, change) => changes += change.PropertyName == nameof(AccountMenuViewModel.Themes) ? 1 : 0;
-        menu.ChooseTheme(ThemeMode.Light);
+        choices.PropertyChanged += (_, change) => changes += change.PropertyName == nameof(AppearanceViewModel.Themes) ? 1 : 0;
+        choices.ChooseTheme(ThemeMode.Light);
 
-        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
-        menu.Themes.Single(option => option.InUse).Name.Should().Be("Light theme");
+        theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
+        choices.Themes.Single(option => option.InUse).Name.Should().Be("Light");
+        choices.Themes.Select(option => option.Name).Should()
+            .Equal("Dark", "Light", "Black", "Match this device");
         changes.Should().Be(1);
         ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
-            .Should().Be(new ThemeChoice("night-yard", ThemeMode.Light));
+            .Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
+    }
+
+    [Fact]
+    public void The_appearance_choices_list_the_themes_and_the_accents_of_the_one_in_use_and_changes_them()
+    {
+        using var choices = Make<AppearanceViewModel>();
+        choices.Looks.Select(look => look.Id).Should().Equal("front-office", "night-yard");
+        choices.Looks.Single(look => look.InUse).AccessibleName.Should().StartWith("Front Office, in use. ");
+        choices.AccentChoices.Select(accent => accent.Id).Should().Equal("theme", "green", "blue");
+        choices.AccentChoices.Single(accent => accent.InUse).AccessibleName.Should().Be("Theme color, in use");
+
+        choices.ChooseAccent("blue");
+        choices.AccentChoices.Single(accent => accent.InUse).Name.Should().Be("Blue");
+        theme.Theme.Dark.Colors["ember"].Should().Be(choices.AccentChoices.Single(accent => accent.InUse).Dark);
+
+        choices.ChooseLook("night-yard");
+        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Dark));
+        choices.Looks.Single(look => look.InUse).Name.Should().Be("Night Yard");
+        choices.AccentChoices.Single(accent => accent.InUse).Id.Should().Be("theme");
+    }
+
+    [Fact]
+    public void The_account_menu_opens_the_appearance_choices_and_they_stay_open_through_each_choice_until_closed()
+    {
+        using var menu = Make<AccountMenuViewModel>();
+        using var choices = Make<AppearanceViewModel>();
+        var told = 0;
+        choices.PropertyChanged += (_, change) => told += change.PropertyName == nameof(AppearanceViewModel.Open) ? 1 : 0;
+        choices.Open.Should().BeFalse();
+
+        menu.OpenAppearance();
+        choices.Open.Should().BeTrue();
+        told.Should().Be(1);
+
+        choices.ChooseLook("night-yard");
+        choices.Open.Should().BeTrue();
+        choices.ChooseLook("front-office");
+        choices.ChooseAccent("blue");
+        choices.Open.Should().BeTrue();
+        choices.ChooseTheme(ThemeMode.Black);
+        choices.Open.Should().BeTrue();
+        theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Black, "blue"));
+        told.Should().Be(1);
+
+        choices.Close();
+        choices.Open.Should().BeFalse();
+        theme.AppearanceOpen.Should().BeFalse();
+        told.Should().Be(2);
+    }
+
+    [Fact]
+    public void A_choice_makes_the_screen_again_at_once_when_the_screen_holds_no_work()
+    {
+        using var choices = Make<AppearanceViewModel>();
+
+        choices.MakesScreenAgain(somethingTyped: false).Should().BeTrue();
+
+        choices.ShapesWait.Should().BeFalse();
+        choices.WaitingNote.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void A_choice_leaves_a_screen_that_holds_work_as_it_is_and_says_so_until_a_screen_is_made(bool typed, bool held)
+    {
+        navigator.HoldsWork = () => held;
+        using var choices = Make<AppearanceViewModel>();
+        List<string?> told = [];
+        choices.PropertyChanged += (_, change) => told.Add(change.PropertyName);
+
+        choices.MakesScreenAgain(typed).Should().BeFalse();
+
+        choices.WaitingNote.Should().Be("Shapes and sizes change when you leave this screen, so your unsaved work is kept.");
+        told.Should().Contain(nameof(AppearanceViewModel.WaitingNote));
+
+        choices.ScreenMade();
+        choices.WaitingNote.Should().BeNull();
+        navigator.HoldsWork = null;
+    }
+
+    [Fact]
+    public void A_later_choice_makes_the_screen_again_once_its_work_is_saved_or_gone()
+    {
+        var held = true;
+        navigator.HoldsWork = () => held;
+        using var choices = Make<AppearanceViewModel>();
+        choices.MakesScreenAgain(somethingTyped: false).Should().BeFalse();
+
+        held = false;
+
+        choices.MakesScreenAgain(somethingTyped: false).Should().BeTrue();
+        choices.WaitingNote.Should().BeNull();
+        navigator.HoldsWork = null;
+    }
+
+    [Fact]
+    public void Opening_the_appearance_choices_is_not_told_as_a_change_to_the_options()
+    {
+        using var menu = Make<AccountMenuViewModel>();
+        using var choices = Make<AppearanceViewModel>();
+        List<string?> told = [];
+        choices.PropertyChanged += (_, change) => told.Add(change.PropertyName);
+
+        menu.OpenAppearance();
+
+        told.Should().Equal(nameof(AppearanceViewModel.Open));
     }
 
     [Theory]
@@ -269,14 +378,14 @@ public sealed class ShellViewModelTests : IDisposable
     public void The_theme_is_dark_until_a_person_chooses_and_the_choice_is_kept_under_the_web_clients_name()
     {
         theme.Load();
-        theme.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.Dark));
+        theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Dark));
 
         theme.Choose(ThemeMode.System);
         settings.Values.Should().ContainKey("drover.theme");
 
         var later = new ThemeModel(settings, NullLogger<ThemeModel>.Instance);
         later.Load();
-        later.Choice.Should().Be(new ThemeChoice("night-yard", ThemeMode.System));
+        later.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.System));
     }
 
     [Fact]
