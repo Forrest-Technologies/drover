@@ -1523,11 +1523,12 @@ async function withDeadline(promise, milliseconds, what) {
     }
 }
 
-// The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
+// Drawn words belong to a semantic element: its accessible name, or its own content when it is standalone text.
+// The polite announcer repeats words in a separate div, so it is never a match.
 function shown(page, words) {
-    // The polite announcer retains the last message even after the rendered status disappears.
-    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true }))
-        .and(page.locator(':not(#uno-live-region-polite, #uno-live-region-polite *)')).first();
+    const named = `[id^="uno-semantics-"][aria-label="${words}"]`;
+    const drawn = `[id^="uno-semantics-"][data-uno-standalone-text="true"]:text-is("${words}")`;
+    return page.locator(`${named}, ${drawn}`);
 }
 
 async function waitForShown(page, words) {
@@ -1596,9 +1597,14 @@ async function checkConversationSearch(page, width) {
     await nothing.waitFor({ state: 'detached', timeout: 10000 });
 
     await typeSearch(page, searchBox, 'lighthouse');
-    await page.locator('[aria-label="2 messages found."]')
-        .or(page.getByText('2 messages found.', { exact: true }))
-        .waitFor({ state: 'attached', timeout: 10000 });
+    // The count is drawn as the semantic TextBlock's accessible name. The polite announcer keeps the same words as
+    // hidden text, so matching both forms with a union can resolve to two elements when the announcement is present.
+    const resultCountWords = '2 messages found.';
+    await page.waitForFunction(words =>
+        document.querySelectorAll(`[aria-label="${words}"]`).length >= 1, resultCountWords, { timeout: 10000 });
+    const resultCountMatches = await page.locator(`[aria-label="${resultCountWords}"]`).count();
+    assert.equal(resultCountMatches, 1,
+        `The text finder result count must resolve to exactly one element; found ${resultCountMatches}.`);
 
     const firstHit = page.getByRole('link', { name: /The lighthouse keeper visits on Tuesdays\./ });
     const secondHit = page.getByRole('link', { name: /The lighthouse lamp was polished today\./ });
