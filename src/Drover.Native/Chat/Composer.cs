@@ -64,6 +64,8 @@ public sealed class Composer : Grid
 
     private FrameworkElement? under;
 
+    private long underWatch;
+
     #endregion
 
     #region Constructors
@@ -144,8 +146,9 @@ public sealed class Composer : Grid
     }
 
     /// <summary>
-    /// What stands under the field, inside the composer's own width: the conversation's status line. While it shows,
-    /// it takes the room the composer otherwise leaves empty at its foot.
+    /// What stands under the frame, inside the composer's own width and tight to it: the conversation's status line.
+    /// It is a footer of the composer: the frame keeps its height whether the line is there or not, and while the line
+    /// shows it takes the room the composer otherwise leaves empty at its foot.
     /// </summary>
     public FrameworkElement? Under
     {
@@ -155,6 +158,7 @@ public sealed class Composer : Grid
             if (under is not null)
             {
                 column.Children.Remove(under);
+                under.UnregisterPropertyChangedCallback(VisibilityProperty, underWatch);
             }
 
             under = value;
@@ -162,7 +166,7 @@ public sealed class Composer : Grid
             if (under is not null)
             {
                 column.Children.Add(under);
-                under.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => Fit());
+                underWatch = under.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => Fit());
             }
 
             Fit();

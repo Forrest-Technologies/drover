@@ -1,11 +1,10 @@
 namespace Drover.Native.Chat;
 
 /// <summary>
-/// One quiet line under a finished reply: copy the reply, ask for another, switch between its versions, and, on a
-/// reply that is not the newest, a hint of what wrote it and what it used (<see cref="UsageHint"/>). The newest
-/// reply's usage stands on the line under the composer instead. What an older reply used is read only when asked for:
-/// a conversation with many replies makes no request until a person opens one. On a narrow screen the hint, last on
-/// the line, moves to a line of its own before any button does.
+/// One quiet line of icons under a finished reply: copy the reply, the usage of the reply, ask for another, and switch
+/// between its versions. "Usage for this reply" opens a popover of the model that wrote it and what it used
+/// (<see cref="UsagePopover"/>); no model, tokens or cost are written under the reply. What a reply used is read only
+/// when that is pressed: a conversation with many replies makes no request until a person opens one.
 /// </summary>
 public sealed class ReplyFooter : Grid
 {
@@ -27,14 +26,18 @@ public sealed class ReplyFooter : Grid
     // The versions' switch stands here when the message is a reply that has versions.
     private readonly StackPanel versionsSlot = new() { VerticalAlignment = VerticalAlignment.Center };
 
-    private readonly UsageHint usage = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly IconButton usage = new()
+    {
+        Icon = IconName.Info,
+        Label = ReplyUsageViewModel.Label,
+        Ink = "DvText3",
+        VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed,
+    };
 
-    // The hint stands here on a reply whose usage is not on the line under the composer.
-    private readonly StackPanel usageSlot = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly UsagePopover popover = new();
 
     private string copyText = string.Empty;
-
-    private bool usageOffered;
 
     #endregion
 
@@ -43,7 +46,8 @@ public sealed class ReplyFooter : Grid
     public ReplyFooter()
     {
         copy.Text = () => copyText;
-        usage.Closed += () => UsageClosed?.Invoke();
+        popover.Closed += () => UsageClosed?.Invoke();
+        usage.Click += async (_, _) => await popover.Open(usage);
 
         regenerate.Click += async (_, _) => await Regenerate();
 
@@ -53,7 +57,6 @@ public sealed class ReplyFooter : Grid
             line.Children.Add(PartOf(part));
         }
 
-        usageSlot.Children.Add(usage);
         Children.Add(line);
     }
 
@@ -61,15 +64,15 @@ public sealed class ReplyFooter : Grid
 
     #region Properties
 
-    /// <summary>What the reply used, and the model that wrote it. Without it the line shows no hint.</summary>
+    /// <summary>What the reply used, and the model that wrote it. Without it the line offers no usage.</summary>
     public ReplyUsageViewModel? Model
     {
-        get => usage.Model;
-        set => usage.Model = value;
+        get => popover.Model;
+        set => popover.Model = value;
     }
 
     /// <summary>True while the popover of what the reply used is open, so the reply keeps this line in view.</summary>
-    public bool UsageOpen => usage.IsOpen;
+    public bool UsageOpen => popover.IsOpen;
 
     /// <summary>Raised when that popover has closed.</summary>
     public event Action? UsageClosed;
@@ -78,7 +81,7 @@ public sealed class ReplyFooter : Grid
     public bool HasAny =>
         copy.Visibility is Visibility.Visible
         || regenerate.Visibility is Visibility.Visible
-        || (usageOffered && usage.Visibility is Visibility.Visible)
+        || usage.Visibility is Visibility.Visible
         || versionsSlot.Children.Any(part => part.Visibility is Visibility.Visible);
 
     /// <summary>Asks for another reply. Without it, the line offers none.</summary>
@@ -103,8 +106,7 @@ public sealed class ReplyFooter : Grid
         copyText = parts.Contains(FooterPart.Copy) ? replyText : string.Empty;
         copy.Visibility = copyText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         regenerate.Visibility = parts.Contains(FooterPart.Regenerate) && OnRegenerate is not null ? Visibility.Visible : Visibility.Collapsed;
-        usageOffered = parts.Contains(FooterPart.Usage);
-        usageSlot.Visibility = usageOffered ? Visibility.Visible : Visibility.Collapsed;
+        usage.Visibility = parts.Contains(FooterPart.Usage) && Model is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Puts the focus on the regenerate icon.</summary>
@@ -118,8 +120,8 @@ public sealed class ReplyFooter : Grid
     {
         FooterPart.Copy => copy,
         FooterPart.Regenerate => regenerate,
-        FooterPart.Versions => versionsSlot,
-        _ => usageSlot,
+        FooterPart.Usage => usage,
+        _ => versionsSlot,
     };
 
     private async Task Regenerate()

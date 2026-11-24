@@ -1,7 +1,10 @@
 namespace Drover.Presentation.ViewModels.Chat;
 
-/// <summary>One part of the status line. A number is drawn in the machine font.</summary>
-public sealed record StatusPart(string Text, bool IsNumber = false);
+/// <summary>
+/// One part of the status line. A number is drawn in the machine font, and what the bot is doing now in the color of
+/// a bot at work: it is the one live state on the line.
+/// </summary>
+public sealed record StatusPart(string Text, bool IsNumber = false, bool IsState = false);
 
 /// <summary>What a conversation holds now, as far as its status line says it.</summary>
 /// <param name="Messages">What was said.</param>
@@ -19,7 +22,7 @@ public sealed record ConversationStatusFacts(
     bool ModelIsChosen = false);
 
 /// <summary>
-/// The one quiet line above a conversation's message field (docs/ux/conversation-display.md, section 1). While a run
+/// The one quiet line under a conversation's composer (docs/ux/conversation-display.md, section 1). While a run
 /// works: what the bot is doing, then the model. At rest: the model that wrote the newest reply, then the tokens and
 /// the cost of that reply once they are read. A part that is not known is left out, never shown as zero. What the
 /// newest reply used is read once, when the line first shows that reply, and the line then opens the whole of it.
@@ -134,7 +137,7 @@ public sealed class ConversationStatusViewModel : ObservableObject
 
         if (State(facts) is { } state)
         {
-            parts.Add(new(state));
+            parts.Add(new(state, IsState: true));
         }
 
         if (ModelWords(facts) is { } model)

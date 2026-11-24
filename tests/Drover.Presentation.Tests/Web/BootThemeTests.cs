@@ -49,6 +49,16 @@ public sealed class BootThemeTests : IAsyncLifetime
     [InlineData("""{"themeId":"front-office","mode":"sepia","version":2}""", "dark", Dark)]
     [InlineData("""{"themeId":"front-office","version":2}""", "dark", Dark)]
     [InlineData(null, "dark", Dark)]
+    [InlineData(" Light ", "light", Light)]
+    [InlineData("BLACK", "black", Black)]
+    [InlineData("2", "dark", Dark)]
+    [InlineData("light,black", "dark", Dark)]
+    [InlineData("""{"themeId":"front-office","mode":"2","version":2}""", "dark", Dark)]
+    [InlineData("""{"themeId":"front-office","mode":" light ","version":2}""", "dark", Dark)]
+    [InlineData("""{"ThemeId":"front-office","Mode":"light","Version":2}""", "dark", Dark)]
+    [InlineData("""{"mode":"light","version":2}""", "dark", Dark)]
+    [InlineData("""{"themeId":"","mode":"light","version":2}""", "dark", Dark)]
+    [InlineData("""{"themeId":"front-office","mode":"light","accent":5,"version":2}""", "dark", Dark)]
     public async Task The_first_paint_is_in_the_mode_the_device_kept(string? stored, string mode, string surface)
     {
         // The device prefers the opposite, so the color can only come from what was kept.
@@ -75,7 +85,7 @@ public sealed class BootThemeTests : IAsyncLifetime
     [Fact]
     public async Task The_script_runs_under_the_servers_policy_without_a_refusal()
     {
-        var refusals = new List<string>();
+        List<string> refusals = [];
         var page = await Start("""{"themeId":"front-office","mode":"light","accent":"theme","version":2}""", ColorScheme.Dark, refusals);
 
         (await Mode(page)).Should().Be("light");

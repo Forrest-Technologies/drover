@@ -88,7 +88,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>True when that model was chosen for this conversation only.</summary>
     public bool ModelIsChosen { get; set; }
 
-    /// <summary>The one line above the message field: what the bot is doing now, and what the newest reply used.</summary>
+    /// <summary>The one line under the composer: what the bot is doing now, and what the newest reply used.</summary>
     public ConversationStatusViewModel Status { get; } = new();
 
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>

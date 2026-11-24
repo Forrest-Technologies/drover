@@ -1,8 +1,8 @@
 namespace Drover.Presentation.ViewModels.Chat;
 
 /// <summary>
-/// What a finished reply used, behind the reply's one action "Usage for this reply" and behind the status line above
-/// the message field: the model that wrote it and, once read, the tokens and the cost, shown in a popover. The status
+/// What a finished reply used, behind the reply's one action "Usage for this reply" and behind the status line under
+/// the composer: the model that wrote it and, once read, the tokens and the cost, shown in a popover. The status
 /// line reads the newest reply's once, when it first shows that reply (<see cref="ConversationStatusViewModel"/>); a
 /// reply's own action reads only when pressed, so a conversation with many replies makes no request for them.
 /// </summary>

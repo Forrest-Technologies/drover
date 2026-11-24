@@ -76,17 +76,21 @@ internal static class ChatSamples
         [
             Fitting(new MessageList { Model = Thinking() }),
         ]),
-        new("Status line", "One line under the composer: what the bot is doing now, then the model that wrote the newest reply and what that reply used, as one button. The model and the figures are samples.", () =>
+        new("A turn of two messages", "Words further on in a turn hang under its first, in line with them, without a head of their own.", () =>
         [
-            Wide(new Composer { Model = new() { BotName = "Sample lead bot", Running = true }, Under = new ConversationStatus { Model = Status(thinking: true, finished: false) } }),
-            Wide(new Composer { Model = new() { BotName = "Sample lead bot" }, Under = new ConversationStatus { Model = Status(thinking: false, finished: true) } }),
-            Wide(new Composer { Model = new() { BotName = "Sample lead bot", Running = true }, Under = new ConversationStatus { Model = Status(thinking: true, finished: true) } }),
+            Fitting(new MessageList { Model = Turn() }),
+        ]),
+        new("Status line", "One line of text under the composer: what the bot is doing now and the model while it works, and at rest the model that wrote the newest reply, its tokens and its cost. The model and the figures are samples.", () =>
+        [
+            Wide(new Composer { Model = new() { BotName = "Sample lead bot", Running = true }, Under = StatusLine(working: true, finished: false) }),
+            Wide(new Composer { Model = new() { BotName = "Sample lead bot" }, Under = StatusLine(working: false, finished: true) }),
+            Wide(new Composer { Model = new() { BotName = "Sample lead bot" }, Under = StatusLine(working: false, finished: false) }),
         ]),
         new("A reply's reasoning and sources", "Reasoning stays closed until opened; while it arrives the bot's head breathes and the section's edge is lit. Sources sit under the words and open outside the app.", () =>
         [
             Fitting(new MessageList { Model = Reasoned() }),
         ]),
-        new("A reply's model", "An older reply's actions end with the model that wrote it, beside what the reply used once that was read. The newest reply's stand on the status line.", () =>
+        new("A reply's usage", "Each finished reply has one action beside copy, which opens what the reply used. Nothing about it is written under the reply.", () =>
         [
             Fitting(new MessageList { Model = WrittenBy() }),
         ]),
@@ -144,27 +148,50 @@ internal static class ChatSamples
         List<ChatMessage> messages =
         [
             new("sample-older-question", true, "A first sample question."),
-            new("sample-older-answer", false, "A sample answer that is no longer the newest.") { RunId = sampleRun, EndsReply = true, FinishesReply = true, Model = "sample-model" },
+            new("sample-older-answer", false, "A sample answer that is no longer the newest.") { RunId = sampleRun, EndsReply = true, FinishesReply = true, Model = "sample-vendor/sample-model" },
             new("sample-newest-question", true, "A second sample question."),
-            new("sample-newest-answer", false, "A sample answer, the newest one.") { RunId = sampleStrongerRun, EndsReply = true, FinishesReply = true, Model = "sample-model" },
+            new("sample-newest-answer", false, "A sample answer, the newest one.") { RunId = sampleStrongerRun, EndsReply = true, FinishesReply = true, Model = "sample-vendor/sample-model" },
         ];
 
-        var list = new MessageListViewModel { BotName = "Sample lead bot", BotHue = BotIdentity.Hue(lead), Messages = messages };
-        list.Update();
-        return list;
+        return Sample(messages);
     }
 
     /// <summary>A sample conversation whose bot is thinking and has not begun to answer.</summary>
     public static MessageListViewModel Thinking()
     {
         List<ChatMessage> messages = [new("sample-waiting-question", true, "A sample question the bot is thinking about.")];
-        var list = new MessageListViewModel { BotName = "Sample lead bot", BotHue = BotIdentity.Hue(lead), Messages = messages, Thinking = true };
-        list.Update();
-        return list;
+        return Sample(messages, thinking: true);
     }
 
-    /// <summary>A sample status line: the bot thinking, a finished reply by a sample model with sample figures, or both.</summary>
-    public static ConversationStatusViewModel Status(bool thinking, bool finished)
+    /// <summary>A sample turn of two messages after an older reply that holds a link.</summary>
+    public static MessageListViewModel Turn()
+    {
+        List<ChatMessage> messages =
+        [
+            new("sample-link-question", true, "A first sample question."),
+            new("sample-link-answer", false, "A sample answer with [a sample link](https://sample.example/page) in it.")
+            {
+                RunId = sampleRun,
+                EndsReply = true,
+                FinishesReply = true,
+            },
+            new("sample-turn-question", true, "A second sample question."),
+            new("sample-turn-first", false, "The first sample message of a turn.") { RunId = sampleStrongerRun },
+            new("sample-turn-second", false, "A second, longer sample message of the same turn, which goes on for a while.")
+            {
+                RunId = sampleStrongerRun,
+                ContinuesTurn = true,
+                EndsReply = true,
+                FinishesReply = true,
+                Model = "sample-vendor/sample-model",
+            },
+        ];
+
+        return Sample(messages);
+    }
+
+    /// <summary>A sample status line: the bot thinking, a finished reply by a sample model with sample figures, or a new conversation.</summary>
+    public static ConversationStatusViewModel Status(bool working, bool finished)
     {
         List<ChatMessage> messages = finished
             ? [new("sample-status-answer", false, "A sample answer.") { RunId = sampleRun, EndsReply = true, Model = "sample-vendor/sample-model" }]
@@ -172,9 +199,33 @@ internal static class ChatSamples
 
         // A sample: the gallery reads no usage, so the figures are the ones written here.
         var status = new ConversationStatusViewModel();
-        status.Show(messages, thinking, runId => Task.FromResult(new RunUsageDetail(runId, "USD", new(null, 1_200, 300), null)), Log.For<ConversationStatus>());
+        status.Show(
+            new(messages, working, Thinking: working, Model: "sample-vendor/sample-model"),
+            SampleUsage,
+            Log.For<ConversationStatus>());
         return status;
     }
+
+    // A sample conversation with the sample bot, the sample model and sample figures: the gallery reads no usage.
+    private static MessageListViewModel Sample(IReadOnlyList<ChatMessage> messages, bool thinking = false)
+    {
+        var list = new MessageListViewModel
+        {
+            BotName = "Sample lead bot",
+            BotHue = BotIdentity.Hue(lead),
+            Messages = messages,
+            Thinking = thinking,
+            Model = "sample-vendor/sample-model",
+            LoadUsage = SampleUsage,
+        };
+        list.Update();
+        return list;
+    }
+
+    private static Task<RunUsageDetail> SampleUsage(Guid runId) =>
+        Task.FromResult(new RunUsageDetail(runId, "USD", new(0.02m, 1_040, 200), null));
+
+    private static ConversationStatus StatusLine(bool working, bool finished) => new() { Model = Status(working, finished) };
 
     /// <summary>A sample conversation with a reply that reasoned and cited sources, and one whose reasoning is arriving.</summary>
     public static MessageListViewModel Reasoned()

@@ -46,17 +46,25 @@
         }).catch(() => { });
     }
 
-    // The choice is kept as JSON with a "mode", and before that as the mode alone, one word. A value that is
-    // neither, no value, or storage that is turned off is a device that has not chosen: dark.
+    // The choice is kept as JSON with a theme and a "mode", and before that as the mode alone, one word. A value
+    // that is neither, no value, or storage that is turned off is a device that has not chosen: dark. The app reads
+    // the same value the same way (ThemeChoice.Parse), so the first paint is the mode the app then draws.
     function storedMode() {
         try {
             const stored = (localStorage.getItem("drover.theme") ?? "").trim();
-            const mode = stored.startsWith("{") ? JSON.parse(stored).mode : stored;
+            const mode = stored.startsWith("{") ? modeOf(JSON.parse(stored)) : stored;
             const word = typeof mode === "string" ? mode.toLowerCase() : "";
             return ["light", "dark", "black", "system"].includes(word) ? word : "dark";
         } catch {
             return "dark";
         }
+    }
+
+    // An object names a mode only when it names a theme, and its accent, when it has one, is a word.
+    function modeOf(choice) {
+        const named = typeof choice.themeId === "string" && choice.themeId !== "";
+        const accent = choice.accent === undefined || choice.accent === null || typeof choice.accent === "string";
+        return named && accent ? choice.mode : "";
     }
 
     function isWriting() {

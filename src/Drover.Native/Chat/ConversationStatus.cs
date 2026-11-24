@@ -1,20 +1,38 @@
 namespace Drover.Native.Chat;
 
 /// <summary>
-/// The one quiet line under a conversation's composer: what the bot is doing now, in words, then the model that
-/// wrote the newest finished reply and what that reply used, as one button that opens the whole of it
-/// (<see cref="UsageHint"/>). Each part is there only when it has something to say, and with nothing to say the line
-/// takes no room. It stays one line on a narrow screen: the model's name is cut short first.
+/// The one quiet line under a conversation's composer: text only, its parts joined by a middle dot. While a run
+/// works it says what the bot is doing, in the color of a bot at work, then the model. At rest it names the model
+/// that wrote the newest reply, then the tokens and the cost of that reply, the numbers in the machine font. When it
+/// has usage to open it is one button that opens the popover of it; otherwise it is plain text. It never wraps and
+/// never moves: where the line is too narrow it shows the leading parts that fit, and the first is cut short if it
+/// alone is too long. The whole sentence is its accessible name. With nothing to say the line takes no room.
 /// </summary>
 public sealed class ConversationStatus : Grid
 {
     #region Private Fields
 
-    private readonly TextBlock state = Styles.Text(null, "DvTextCaption");
+    private readonly TextBlock words = Line();
 
-    private readonly UsageHint usage = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly PlainButton button = new()
+    {
+        Ink = "DvText3",
+        HoverInk = "DvText2",
+        HoverFill = null,
+        Radius = null,
+        MinHeight = Targets.Minimum,
+        Padding = new(Tokens.Number("DvSpace1"), 0, Tokens.Number("DvSpace1"), 0),
+        HorizontalAlignment = HorizontalAlignment.Left,
+        HorizontalContentAlignment = HorizontalAlignment.Left,
+    };
+
+    private readonly Border plain = new() { Padding = new(Tokens.Number("DvSpace1"), 0, Tokens.Number("DvSpace1"), 0) };
+
+    private readonly UsagePopover popover = new();
 
     private ConversationStatusViewModel? model;
+
+    private bool lit;
 
     #endregion
 
@@ -22,17 +40,16 @@ public sealed class ConversationStatus : Grid
 
     public ConversationStatus()
     {
-        ColumnSpacing = Tokens.Number("DvSpace2");
-        ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        state.VerticalAlignment = VerticalAlignment.Center;
-        state.TextWrapping = TextWrapping.NoWrap;
-        state.Margin = new(Tokens.Number("DvSpace1"), 0, 0, 0);
-        SetColumn(usage, 1);
-        Children.Add(state);
-        Children.Add(usage);
-        AutomationProperties.SetName(this, Name);
+        MinHeight = Targets.Minimum;
+        Children.Add(plain);
+        Children.Add(button);
         AutomationProperties.SetAutomationId(this, "ConversationStatus");
+        button.Click += async (_, _) => await popover.Open(button);
+        button.PointerEntered += (_, _) => Light(true);
+        button.PointerExited += (_, _) => Light(button.FocusState is FocusState.Keyboard);
+        button.GotFocus += (_, _) => Light(true);
+        button.LostFocus += (_, _) => Light(false);
+        SizeChanged += (_, _) => Write();
         this.WhenShownOrRethemed(Show);
     }
 
@@ -57,7 +74,14 @@ public sealed class ConversationStatus : Grid
 
     #region Private Methods
 
-    protected override AutomationPeer OnCreateAutomationPeer() => new RolePeer(this, AutomationControlType.Group);
+    private static TextBlock Line()
+    {
+        var line = Styles.Text(null, "DvTextCaption");
+        line.TextWrapping = TextWrapping.NoWrap;
+        line.TextTrimming = TextTrimming.CharacterEllipsis;
+        line.VerticalAlignment = VerticalAlignment.Center;
+        return line;
+    }
 
     // A conversation can say what changed from the server's answer, off the screen's own turn.
     private void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
@@ -72,21 +96,90 @@ public sealed class ConversationStatus : Grid
         }
     }
 
-    private void Show()
+    private void Light(bool value)
     {
-        var said = model?.State;
-        state.Text = said ?? string.Empty;
-        state.Visibility = said is null ? Visibility.Collapsed : Visibility.Visible;
-        state.Foreground = Tokens.Brush(this, "DvIon");
-        usage.Model = model?.Usage;
-        Visibility = model?.HasAny is true ? Visibility.Visible : Visibility.Collapsed;
+        lit = value;
+        Write();
     }
 
-    #endregion
+    // The line is a button only when it opens something. Its words are the same text either way.
+    private void Show()
+    {
+        var opens = model?.Usage is not null;
+        popover.Model = model?.Usage;
+        Visibility = model?.HasAny is true ? Visibility.Visible : Visibility.Collapsed;
+        button.Visibility = opens ? Visibility.Visible : Visibility.Collapsed;
+        plain.Visibility = opens ? Visibility.Collapsed : Visibility.Visible;
 
-    #region Fixed Words
+        if (opens && !ReferenceEquals(button.Content, words))
+        {
+            plain.Child = null;
+            button.Content = words;
+        }
+        else if (!opens && !ReferenceEquals(plain.Child, words))
+        {
+            button.Content = null;
+            plain.Child = words;
+        }
 
-    public new const string Name = "Conversation status";
+        var name = model?.Name ?? string.Empty;
+        AutomationProperties.SetName(button, name);
+        AutomationProperties.SetName(words, name);
+        ToolTipService.SetToolTip(button, opens ? ConversationStatusViewModel.OpensUsage : null);
+        Write();
+    }
+
+    // As many of the leading parts as fit the line's width, and never fewer than the first.
+    private void Write()
+    {
+        var parts = model?.Parts ?? [];
+        var room = ActualWidth - (2 * Tokens.Number("DvSpace1"));
+        var fits = parts.Count;
+        Fill(words, parts);
+
+        while (fits > 1 && room > 0 && Measured() > room)
+        {
+            fits--;
+            Fill(words, parts.Take(fits));
+        }
+
+        words.Foreground = Tokens.Brush(this, lit ? "DvText2" : "DvText3");
+
+        // What was measured with all the room there is must not stand as the line's size.
+        words.InvalidateMeasure();
+    }
+
+    private double Measured()
+    {
+        words.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+        return Math.Ceiling(words.DesiredSize.Width);
+    }
+
+    private void Fill(TextBlock line, IEnumerable<StatusPart> parts)
+    {
+        line.Inlines.Clear();
+
+        foreach (var part in parts)
+        {
+            if (line.Inlines.Count > 0)
+            {
+                line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = ConversationStatusViewModel.Separator });
+            }
+
+            var run = new Microsoft.UI.Xaml.Documents.Run { Text = part.Text };
+            if (part.IsNumber)
+            {
+                run.FontFamily = Tokens.FontMono;
+            }
+
+            if (part.IsState)
+            {
+                run.Foreground = Tokens.Brush(this, "DvIon");
+            }
+
+            line.Inlines.Add(run);
+        }
+    }
 
     #endregion
 }

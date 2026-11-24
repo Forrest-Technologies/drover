@@ -50,7 +50,12 @@ internal static class AppearanceRehearsal
 
     private static void Press(Window window, string name)
     {
-        var option = VisualTreeHelper.GetOpenPopupsForXamlRoot(window.Content.XamlRoot)
+        if (window.Content?.XamlRoot is not { } root)
+        {
+            return;
+        }
+
+        var option = VisualTreeHelper.GetOpenPopupsForXamlRoot(root)
             .SelectMany(popup => ButtonsUnder(popup.Child))
             .FirstOrDefault(button => Named(button).StartsWith(name, StringComparison.OrdinalIgnoreCase));
 

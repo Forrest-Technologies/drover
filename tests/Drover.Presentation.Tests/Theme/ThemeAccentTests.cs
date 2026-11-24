@@ -105,6 +105,61 @@ public sealed class ThemeAccentTests
     }
 
     [Fact]
+    public void The_bubble_gate_runs_in_the_light_mode_and_names_it_and_checks_the_text_color_too()
+    {
+        var office = BuiltInThemes.Default;
+        // An intent nearly black tints the light bubble too dark for the text on it.
+        Dictionary<string, Rgb> colors = new(office.Light.Colors) { ["ember"] = Rgb.Parse("#000000") };
+        var failures = ThemeGates.Check(office with { Light = office.Light with { Colors = colors } });
+
+        failures.Should().Contain(failure => failure.Mode == ColorMode.Light && failure.What.StartsWith("text-2 on the bubble"));
+
+        Dictionary<string, Rgb> faint = new(office.Dark.Colors) { ["text"] = office.Dark.Colors["bg-3"] };
+        ThemeGates.Check(office with { Dark = office.Dark with { Colors = faint } }).Should().Contain(failure =>
+            failure.Mode == ColorMode.Dark && failure.What.StartsWith("text on the bubble"));
+    }
+
+    [Theory]
+    [InlineData("\"control\": 20,\n      \"card\": 18", "\"control\": 7,\n      \"card\": 18", "shape.radius.control")]
+    [InlineData("\"control\": 20,\n      \"card\": 18", "\"control\": 23,\n      \"card\": 18", "shape.radius.control")]
+    [InlineData("\"card\": 18", "\"card\": 25", "shape.radius.card")]
+    [InlineData("\"sheet\": 24", "\"sheet\": 29", "shape.radius.sheet")]
+    [InlineData("\"control\": 0,\n      \"frame\": 0", "\"control\": 4,\n      \"frame\": 0", "shape.cut.control")]
+    [InlineData("\"registration\": false", "\"registration\": true", "shape.registration")]
+    public void A_rounded_theme_outside_its_bounds_is_refused(string from, string to, string names)
+    {
+        var text = File.ReadAllText(Path.Combine(Repository.ThemeFolder, "front-office.json"));
+        text.Should().Contain(from);
+
+        ThemeGates.CheckFile(text.Replace(from, to), "front-office")
+            .Should().Contain(failure => failure.Gate == ThemeGate.Bounds && failure.What.Contains(names));
+    }
+
+    [Fact]
+    public void A_theme_whose_own_color_is_gray_has_no_hue_to_turn_and_offers_no_accent()
+    {
+        var office = BuiltInThemes.Default;
+        Dictionary<string, Rgb> dark = new(office.Dark.Colors) { ["ember"] = Rgb.Parse("#B0B0B0") };
+        Dictionary<string, Rgb> light = new(office.Light.Colors) { ["ember"] = Rgb.Parse("#555555") };
+        var gray = office with { Dark = office.Dark with { Colors = dark }, Light = office.Light with { Colors = light } };
+
+        Accents.For(gray).Select(accent => accent.Id).Should().Equal(Accents.ThemeId);
+    }
+
+    [Fact]
+    public void Text_on_an_accent_falls_back_to_black_or_white_where_the_themes_own_no_longer_reads()
+    {
+        // A theme whose text on the accent is a mid gray: it cannot read on a turned accent, so black or white does.
+        var office = BuiltInThemes.Default;
+        Dictionary<string, Rgb> dark = new(office.Dark.Colors) { ["on-accent"] = Rgb.Parse("#6F4A3A") };
+        var theme = office with { Dark = office.Dark with { Colors = dark } };
+        var turned = Accents.Turned(theme, 255).Dark.Colors;
+
+        turned["on-accent"].ToString().Should().BeOneOf("#000000", "#FFFFFF");
+        WcagContrast.Ratio(turned["on-accent"], turned["ember"]).Should().BeGreaterThanOrEqualTo(4.5);
+    }
+
+    [Fact]
     public void A_color_made_from_a_lightness_a_chroma_and_a_hue_reads_back_as_them_and_keeps_its_hue_when_brought_into_range()
     {
         var (lightness, chroma, hue) = Rgb.FromOklch(0.7, 0.1, 150).ToOklch();
@@ -112,7 +167,7 @@ public sealed class ThemeAccentTests
         lightness.Should().BeApproximately(0.7, 0.01);
         chroma.Should().BeApproximately(0.1, 0.01);
         hue.Should().BeApproximately(150, 2);
-        Rgb.FromOklch(0.7, 0.4, 255).Hue().Should().BeApproximately(255, 3);
+        Rgb.FromOklch(0.7, 0.4, 255).Hue().Should().BeApproximately(255, 1);
     }
 
     [Fact]

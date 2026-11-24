@@ -28,7 +28,8 @@ public readonly record struct Rgb(byte Red, byte Green, byte Blue)
     public override string ToString() => $"#{Red:X2}{Green:X2}{Blue:X2}";
 
     /// <summary>
-    /// The hue of this color in the Oklab space, in degrees from 0 up to 360. A gray has no hue and reads as 0.
+    /// The hue of this color in the Oklab space, in degrees from 0 up to 360. A gray has no hue: what it reads as
+    /// here is noise, so ask only of a color that has chroma.
     /// </summary>
     public double Hue()
     {

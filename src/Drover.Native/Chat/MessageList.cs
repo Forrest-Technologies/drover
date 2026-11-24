@@ -193,7 +193,7 @@ public sealed class MessageList : Grid
         thinkingPlate.Children.Remove(thinkingHead);
         thinkingPlate.Children.Remove(thinkingFrom);
         thinkingPlate.Role = FacetRole.Control;
-        thinkingHead.Size = bubbles ? 24 : 48;
+        thinkingHead.Size = (int)Tokens.Number(bubbles ? "DvAvatar24" : "DvAvatar48");
         thinkingHead.VerticalAlignment = VerticalAlignment.Center;
         thinkingPlate.Children.Add(thinkingHead);
 

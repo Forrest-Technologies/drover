@@ -427,21 +427,24 @@ internal sealed class TalkWorkspace : Grid
     // way to the side chats says how many there are.
     private void DrawMenu(BotSummary shown)
     {
-        var items = $"{model.OffersScreen}|{model.SideChatsLabel}";
+        var items = $"{model.OffersScreen}|{model.SideChatsLabel}|{model.Side}";
         if (menu is not null && menuBot == shown.Id && items == menuItems)
         {
             menu.Bot = shown;
             return;
         }
 
-        (string Label, string Address)[] wanted =
+        var chats = model.Side is SideView.List or SideView.New or SideView.Chat;
+        (string Label, string Address, bool Open)[] wanted =
         [
-            ("Activity", Addresses.Activity(shown.Id)),
-            ("Summary", Addresses.Summary(shown.Id)),
-            ("Memory", Addresses.Memory(shown.Id)),
-            .. model.OffersScreen ? [("Screen", Addresses.Screen(shown.Id))] : Array.Empty<(string, string)>(),
-            ("Files", Addresses.Files(shown.Id)),
-            (model.SideChatsLabel, Addresses.SideChats(shown.Id)),
+            ("Activity", Addresses.Activity(shown.Id), model.Side is SideView.Activity),
+            ("Summary", Addresses.Summary(shown.Id), model.Side is SideView.Summary),
+            ("Memory", Addresses.Memory(shown.Id), model.Side is SideView.Memory),
+            .. model.OffersScreen
+                ? [("Screen", Addresses.Screen(shown.Id), model.Side is SideView.Screen)]
+                : Array.Empty<(string, string, bool)>(),
+            ("Files", Addresses.Files(shown.Id), model.Side is SideView.Files),
+            (model.SideChatsLabel, Addresses.SideChats(shown.Id), chats),
         ];
 
         // A different bot gets a menu of its own, which asks afresh whether that bot may notify the person.
@@ -461,9 +464,11 @@ internal sealed class TalkWorkspace : Grid
         menu.Bot = shown;
     }
 
-    private MenuItem Item((string Label, string Address) way)
+    // The item of what is open beside the conversation says so, as the rail's own header names it for the eye.
+    private MenuItem Item((string Label, string Address, bool Open) way)
     {
         var item = new MenuItem { Content = way.Label };
+        AutomationProperties.SetItemStatus(item, way.Open ? "Open" : string.Empty);
         item.Selected += (_, _) => model.OpenSide(way.Address);
         return item;
     }

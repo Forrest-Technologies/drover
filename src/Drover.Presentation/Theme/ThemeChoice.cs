@@ -12,7 +12,18 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
     // The version of the stored object from which the theme it names is one a person chose.
     private const int ChosenTheme = 2;
 
-    private static readonly JsonSerializerOptions stored = new(JsonSerializerDefaults.Web);
+    // The names are read as they are written, in the one casing, as the page that paints before the app reads them.
+    private static readonly JsonSerializerOptions stored =
+        new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = false };
+
+    // A mode is one of these words. A number or a list of words is not one, whatever an enum would make of it.
+    private static readonly Dictionary<string, ThemeMode> modes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["system"] = ThemeMode.System,
+        ["dark"] = ThemeMode.Dark,
+        ["light"] = ThemeMode.Light,
+        ["black"] = ThemeMode.Black,
+    };
 
     #endregion
 
@@ -36,7 +47,7 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
             return Default;
         }
 
-        if (Enum.TryParse<ThemeMode>(value, ignoreCase: true, out var mode) && Enum.IsDefined(mode))
+        if (modes.TryGetValue(value.Trim(), out var mode))
         {
             return Default with { Mode = mode };
         }
@@ -58,9 +69,7 @@ public sealed record ThemeChoice(string ThemeId, ThemeMode Mode, string Accent =
         {
             var read = JsonSerializer.Deserialize<StoredChoice>(value, stored);
 
-            if (read is not { ThemeId.Length: > 0 }
-                || !Enum.TryParse<ThemeMode>(read.Mode, ignoreCase: true, out var mode)
-                || !Enum.IsDefined(mode))
+            if (read is not { ThemeId.Length: > 0, Mode: not null } || !modes.TryGetValue(read.Mode, out var mode))
             {
                 return null;
             }

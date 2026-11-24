@@ -123,8 +123,6 @@ public sealed class ChatEntry : ContentControl
 
     private Guid? usageRun;
 
-    private string? usageModel;
-
     private bool moment;
 
     private ConversationStyle? laidStyle;
@@ -143,6 +141,12 @@ public sealed class ChatEntry : ContentControl
     private bool pinned;
 
     private bool focusWithin;
+
+    // A press on a link in the words and the press the list hears of it come in either order. Each is remembered for
+    // the turn it came in, so the link opens and the actions stay as they were.
+    private bool linkPressed;
+
+    private bool pressToggled;
 
     #endregion
 
@@ -204,7 +208,8 @@ public sealed class ChatEntry : ContentControl
         footer.UsageClosed += () => DispatcherQueue.TryEnqueue(ShowFocus);
         Tapped += Pressed;
         KeyDown += KeyPressed;
-        SizeChanged += Resized;
+        SizeChanged += (_, _) => Fit();
+        words.LinkPressed += LinkPressed;
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -270,15 +275,31 @@ public sealed class ChatEntry : ContentControl
     /// <summary>Hides the actions a press showed, for when a press shows another reply's.</summary>
     public void Unpin() => Pin(false);
 
+    /// <summary>True for an older reply that keeps actions out of sight until asked: it opens and closes.</summary>
+    internal bool Reveals => reveals;
+
+    /// <summary>True while an older reply's actions are in view.</summary>
+    internal bool ActionsShown => footer.Visibility is Visibility.Visible || run.Visibility is Visibility.Visible;
+
+    /// <summary>Shows or hides an older reply's actions, as a press does, for assistive technology.</summary>
+    internal void ShowActions(bool value)
+    {
+        if (reveals)
+        {
+            Pin(value);
+        }
+    }
+
     #endregion
 
     #region Laying Out
 
-    protected override AutomationPeer OnCreateAutomationPeer() => new RolePeer(this, AutomationControlType.Group);
+    protected override AutomationPeer OnCreateAutomationPeer() => new ChatEntryPeer(this);
 
     private FrameworkElement Lay(ChatEntryShape wanted, bool bubbles)
     {
-        Detach(words, reasoning, ledger, sources, tools, files, footer, versions, editor, bubble, reply, sentBy, pending, plate, head, name, writing, run);
+        Detach(words, reasoning, ledger, sources, tools, files, footer, versions, editor);
+        Detach(bubble, reply, sentBy, pending, plate, head, name, writing, run);
         fromRow = null;
         words.HorizontalAlignment = HorizontalAlignment.Stretch;
 
@@ -297,9 +318,14 @@ public sealed class ChatEntry : ContentControl
     private StackPanel Continued(bool bubbles)
     {
         footer.Hold(versions);
-        return bubbles
-            ? Column(HorizontalAlignment.Stretch, InBubble(), sources, tools, files, footer)
-            : Column(HorizontalAlignment.Stretch, words, sources, tools, files, footer);
+        if (!bubbles)
+        {
+            return Column(HorizontalAlignment.Stretch, words, sources, tools, files, footer);
+        }
+
+        var column = Column(HorizontalAlignment.Stretch, InBubble(), sources, tools, files, footer);
+        reply.HorizontalAlignment = HorizontalAlignment.Left;
+        return column;
     }
 
     // Who speaks, on one line: the bot's head where the theme sets it there, its name, that it is writing, and, at the
@@ -307,11 +333,16 @@ public sealed class ChatEntry : ContentControl
     private Grid From(bool withHead)
     {
         // A surface no one sees, so a press between the name and the link is a press on this line.
-        var from = new Grid { ColumnSpacing = Tokens.Number("DvSpace2"), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var from = new Grid
+        {
+            ColumnSpacing = Tokens.Number("DvSpace2"),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        };
         FrameworkElement[] parts = withHead ? [head, name, writing, run] : [name, writing, run];
         foreach (var part in parts)
         {
-            from.ColumnDefinitions.Add(new() { Width = ReferenceEquals(part, run) ? new(1, GridUnitType.Star) : GridLength.Auto });
+            var width = ReferenceEquals(part, run) ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+            from.ColumnDefinitions.Add(new() { Width = width });
             Grid.SetColumn(part, from.Children.Count);
             from.Children.Add(part);
         }
@@ -336,10 +367,11 @@ public sealed class ChatEntry : ContentControl
     // sources, the calls that stay cards, the files, and the footer.
     private StackPanel SpokenInBubbles()
     {
-        head.Size = 24;
+        head.Size = (int)Tokens.Number("DvAvatar24");
         head.VerticalAlignment = VerticalAlignment.Center;
         footer.Hold(versions);
-        var body = Column(HorizontalAlignment.Stretch, From(withHead: true), reasoning, ledger, InBubble(), sources, tools, files, footer);
+        var from = From(withHead: true);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, InBubble(), sources, tools, files, footer);
         reply.HorizontalAlignment = HorizontalAlignment.Left;
         return body;
     }
@@ -348,7 +380,7 @@ public sealed class ChatEntry : ContentControl
     // the words and the sources they cite, the calls that stay cards, and what the reply used.
     private Grid Spoken()
     {
-        head.Size = 48;
+        head.Size = (int)Tokens.Number("DvAvatar48");
         plate.Children.Add(head);
         var from = From(withHead: false);
 
@@ -505,8 +537,7 @@ public sealed class ChatEntry : ContentControl
         ShowActions();
     }
 
-    // The footer is for a finished reply: copy, another reply, and, on a reply that is not the newest, the hint of what
-    // wrote it and what it used.
+    // The footer is for a finished reply: copy, the usage of the reply, another reply, and its versions.
     private void ShowFooter(ChatMessage message, ChatEntryParameters parameters)
     {
         hasFooter = false;
@@ -517,62 +548,52 @@ public sealed class ChatEntry : ContentControl
 
         // While the bot writes, nothing stands under its words.
         footer.OnRegenerate = parameters.Regenerate is not null ? Act : null;
-        footer.Show(message.Text, ChatRows.FooterParts(message, parameters.Regenerate is not null, parameters.ShowVersion is not null, parameters.LoadUsage is not null, newest));
+        var parts = ChatRows.FooterParts(
+            message,
+            parameters.Regenerate is not null,
+            parameters.ShowVersion is not null,
+            parameters.LoadUsage is not null);
+        footer.Show(message.Text, parts);
         hasFooter = !message.Streaming && footer.HasAny;
     }
 
     // The newest reply keeps its actions in view. An older one shows them while asked: the keyboard's focus is in it,
-    // a press showed them, or the popover of what it used is open.
+    // a press showed them, or the popover of what it used is open. Actions that go while the focus is on one of them
+    // leave the focus on the reply, not on a control that is no longer there.
     private void ShowActions()
     {
         var asked = ChatRows.ShowsActions(newest, focusWithin || pinned || footer.UsageOpen);
-        footer.Visibility = Shown(hasFooter && asked);
-        run.Visibility = Shown(leads && asked);
-    }
+        var before = ActionsShown;
+        var (footerShown, runShown) = (hasFooter && asked, leads && asked);
 
-    // The list is not drawn again by itself when a message in it only gets shorter, as when an older reply's actions
-    // go (seen on the desktop build: the layout is right and the picture is the one from before). So a message that
-    // was laid out shorter draws its first text again, which draws the list as it now is.
-    private void Resized(object sender, SizeChangedEventArgs size)
-    {
-        Fit();
-
-        if (size.NewSize.Height < size.PreviousSize.Height)
+        if ((!footerShown && Focused(footer) is not null) || (!runShown && Focused(run) is not null))
         {
-            DrawAgainSoon();
+            var state = (Focused(footer) ?? Focused(run))!.FocusState;
+            Focus(state is FocusState.Pointer ? FocusState.Pointer : FocusState.Programmatic);
+        }
+
+        footer.Visibility = Shown(footerShown);
+        run.Visibility = Shown(runShown);
+
+        if (reveals && before != ActionsShown && FrameworkElementAutomationPeer.FromElement(this) is ChatEntryPeer peer)
+        {
+            peer.Changed(before);
         }
     }
 
-    // Text given its color anew is drawn anew, and the list with it. The first text of the message is enough. The
-    // picture already on its way was made of the layout from before, and how long it takes is the device's own, so
-    // the text is drawn again after a short wait and once more after a longer one.
-    private async void DrawAgainSoon()
+    // What has the focus, when it is the given part of the reply or inside it.
+    private UIElement? Focused(FrameworkElement part)
     {
-        string[] waits = ["DvDur1", "DvDur3"];
-        foreach (var wait in waits)
+        if (XamlRoot is not { } root || FocusManager.GetFocusedElement(root) is not UIElement focused)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(Tokens.Number(wait)));
-
-            if (FirstText(this) is { Foreground: SolidColorBrush ink } text)
-            {
-                text.Foreground = new SolidColorBrush(ink.Color);
-            }
+            return null;
         }
-    }
 
-    private static TextBlock? FirstText(DependencyObject under)
-    {
-        for (var at = 0; at < VisualTreeHelper.GetChildrenCount(under); at++)
+        for (DependencyObject? at = focused; at is not null && !ReferenceEquals(at, this); at = VisualTreeHelper.GetParent(at))
         {
-            var child = VisualTreeHelper.GetChild(under, at);
-            if (child is UIElement { Visibility: Visibility.Collapsed })
+            if (ReferenceEquals(at, part))
             {
-                continue;
-            }
-
-            if ((child as TextBlock ?? FirstText(child)) is { } found)
-            {
-                return found;
+                return focused;
             }
         }
 
@@ -632,16 +653,21 @@ public sealed class ChatEntry : ContentControl
         Pieces.FocusWhenShown(versions, versions.TakeFocus);
     }
 
-    // The newest reply's usage stands on the line under the composer, so only an older reply holds a hint of its own.
+    // One view model for a run, kept while the reply is of that run: its words arrive again with the model that wrote
+    // them, and what was read must not be lost with the first of them.
     private void ShowUsage(ChatMessage message, ChatEntryParameters parameters)
     {
-        var offered = !newest && ChatRows.OffersUsage(message, parameters.LoadUsage is not null) ? message.RunId : null;
+        var offered = ChatRows.OffersUsage(message, parameters.LoadUsage is not null) ? message.RunId : null;
 
-        if (offered != usageRun || message.Model != usageModel)
+        if (offered != usageRun)
         {
-            (usageRun, usageModel) = (offered, message.Model);
-            footer.Model = offered is { } runId ? new(runId, parameters.LoadUsage!, Log.For<ReplyFooter>(), message.Model) : null;
+            usageRun = offered;
+            footer.Model = offered is { } runId
+                ? new(runId, parameters.LoadUsage!, Log.For<ReplyFooter>(), message.Model)
+                : null;
         }
+
+        footer.Model?.Model = message.Model;
     }
 
     private static FrameworkElement Card(ToolCard tool, ChatEntryParameters parameters) => ChatRows.Shape(tool, parameters.Takeovers) switch
@@ -698,7 +724,8 @@ public sealed class ChatEntry : ContentControl
     {
         var clear = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var bubbles = ThemeTokens.Current.Surfaces.Conversation is ConversationStyle.Bubbles;
-        ring.BorderBrush = (moment || reveals) && FocusState is not FocusState.Unfocused ? Tokens.Brush(this, "DvEmber") : clear;
+        var ringed = (moment || reveals) && FocusState is not FocusState.Unfocused;
+        ring.BorderBrush = ringed ? Tokens.Brush(this, "DvEmber") : clear;
         plate.Edge = shown?.Streaming is true ? Tokens.Brush(this, "DvIon") : null;
 
         // A bubble where both sides speak in bubbles has no line around it: its edge is its own surface.
@@ -743,13 +770,31 @@ public sealed class ChatEntry : ContentControl
     }
 
     // A press on an older reply's words or on its name shows its actions, and a second press hides them. A press on a
-    // button, a field or a card is that control's own, and a press that ends a selection of the words selects.
+    // button, a field or a card is that control's own, a press that ends a selection of the words selects, and a
+    // press on a link in the words opens the link.
     private void Pressed(object sender, TappedRoutedEventArgs press)
     {
-        if (reveals && OnWords(press.OriginalSource as DependencyObject) && !HasSelection(press.OriginalSource))
+        var source = press.OriginalSource;
+        if (!reveals || linkPressed || !OnWords(source as DependencyObject) || HasSelection(source))
         {
+            return;
+        }
+
+        Pin(!pinned);
+        pressToggled = true;
+        DispatcherQueue.TryEnqueue(() => pressToggled = false);
+    }
+
+    private void LinkPressed()
+    {
+        if (pressToggled)
+        {
+            pressToggled = false;
             Pin(!pinned);
         }
+
+        linkPressed = true;
+        DispatcherQueue.TryEnqueue(() => linkPressed = false);
     }
 
     // Enter or Space on the reply itself does what a press does, so its actions stay once the focus moves on.

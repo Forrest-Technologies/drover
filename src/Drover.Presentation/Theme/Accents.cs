@@ -71,16 +71,30 @@ public static class Accents
             ? turned.GetOrAdd((theme, accent.Id), _ => Turn(theme, hue))
             : theme;
 
+    /// <summary>The theme turned to a hue, whether or not it then passes the gates and is offered.</summary>
+    internal static ThemeFile Turned(ThemeFile theme, double hue) => Turn(theme, hue);
+
     #endregion
 
     #region Private Methods
 
     private static IReadOnlyList<Accent> Offered(ThemeFile theme) =>
     [
-        .. all.Where(accent => accent.Hue is not { } hue
-            || (HueDistance(hue, theme.Dark.Colors["ember"].Hue()) >= SameHue
-                && ThemeGates.Check(Turn(theme, hue)).Count == 0)),
+        .. all.Where(accent => accent.Hue is not { } hue || (IsAnotherColor(theme, hue) && PassesTurned(theme, hue))),
     ];
+
+    // In both stored modes: far enough in hue from the theme's own color, and a color the turn changes at all. A
+    // gray has no hue to turn, so a theme whose own color is gray offers no accent.
+    private static bool IsAnotherColor(ThemeFile theme, double hue)
+    {
+        var turned = Turn(theme, hue);
+
+        return new[] { (theme.Dark, turned.Dark), (theme.Light, turned.Light) }.All(pair =>
+            HueDistance(hue, pair.Item1.Colors["ember"].Hue()) >= SameHue
+            && pair.Item1.Colors["ember"] != pair.Item2.Colors["ember"]);
+    }
+
+    private static bool PassesTurned(ThemeFile theme, double hue) => ThemeGates.Check(Turn(theme, hue)).Count == 0;
 
     private static ThemeFile Turn(ThemeFile theme, double hue) =>
         theme with { Dark = Turn(theme.Dark, hue, lighten: true), Light = Turn(theme.Light, hue, lighten: false) };

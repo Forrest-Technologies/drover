@@ -189,7 +189,7 @@ public static class ChatRows
 
     /// <summary>
     /// The last words of the newest reply once its run has finished, whoever it was written for: the reply the line
-    /// above the message field is about. None while the newest reply still arrives.
+    /// under the composer is about. None while the newest reply still arrives.
     /// </summary>
     public static ChatMessage? NewestFinished(IReadOnlyList<ChatMessage> messages)
     {

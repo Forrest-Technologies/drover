@@ -20,6 +20,17 @@ public sealed class ThemeChoiceTests
         ThemeChoice.Parse("""{"themeId":"night-yard","mode":"light"}""", NullLogger.Instance)
             .Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
 
+    [Theory]
+    [InlineData(" Light ", ThemeMode.Light)]
+    [InlineData("BLACK", ThemeMode.Black)]
+    public void A_mode_word_is_read_in_any_case_with_space_around_it(string stored, ThemeMode mode) =>
+        ThemeChoice.Parse(stored, NullLogger.Instance).Mode.Should().Be(mode);
+
+    [Fact]
+    public void A_theme_is_a_choice_only_from_the_version_that_let_a_person_choose_one() =>
+        ThemeChoice.Parse("""{"themeId":"night-yard","mode":"light","version":1}""", NullLogger.Instance)
+            .Should().Be(new ThemeChoice("front-office", ThemeMode.Light));
+
     [Fact]
     public void A_stored_choice_with_no_accent_or_an_empty_one_has_the_themes_own_color()
     {
@@ -41,6 +52,15 @@ public sealed class ThemeChoiceTests
     [InlineData("""{"themeId":"","mode":"dark"}""")]
     [InlineData("""{"themeId":"signal-room","mode":"purple"}""")]
     [InlineData("[]")]
+    [InlineData("2")]
+    [InlineData("3")]
+    [InlineData("light,black")]
+    [InlineData("""{"themeId":"front-office","mode":"2","version":2}""")]
+    [InlineData("""{"themeId":"front-office","mode":"dark,light","version":2}""")]
+    [InlineData("""{"themeId":"front-office","mode":" light ","version":2}""")]
+    [InlineData("""{"ThemeId":"front-office","Mode":"light","Version":2}""")]
+    [InlineData("""{"mode":"light","version":2}""")]
+    [InlineData("""{"themeId":"front-office","mode":"light","accent":5,"version":2}""")]
     public void A_value_that_is_nothing_usable_is_the_default_and_never_an_error(string? stored) =>
         ThemeChoice.Parse(stored, NullLogger.Instance).Should().Be(ThemeChoice.Default);
 
