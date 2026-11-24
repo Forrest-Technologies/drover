@@ -16,7 +16,7 @@ public static class BotParts
     {
         var small = Styles.Text(text, "DvTextParagraph");
         small.FontSize = Tokens.Number("DvText13");
-        small.LineHeight = (double)Styles.Dictionary["DvLine13"];
+        small.LineHeight = Tokens.Number("DvLine13");
         return small.Inked(ink);
     }
 

@@ -73,16 +73,26 @@ public sealed class ShellView : Grid
 
     // The frame keeps its own back stack. A step back or forward through history reuses it when the entry there is
     // the address asked for, and otherwise the screen is simply shown in place.
-    private void Go(Type screen, RouteMatch<Type> match, NavigationKind kind)
+    private void Go(Type screen, RouteMatch<Type> match, NavigationKind kind, bool rebuild = false)
     {
         // A screen that shows a tab named in its address stays as it is when only that changes.
-        if (frame.Content is Screen open && open.GetType() == screen && open.Reopen(match))
+        if (!rebuild && frame.Content is Screen open && open.GetType() == screen && open.Reopen(match))
         {
             PlatformShell.SetTitle(window, open.Title);
             return;
         }
 
-        if (kind is NavigationKind.Travel && frame.CanGoBack && AddressOf(frame.BackStack[^1]) == match.Address)
+        if (rebuild)
+        {
+            // A frame does not navigate to the page and parameter it already shows, so it passes through a blank
+            // page. Neither stop is kept in the back stack.
+            var instantly = new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo();
+            frame.Navigate(typeof(Page), null, instantly);
+            frame.Navigate(screen, match, instantly);
+            frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
+            frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
+        }
+        else if (kind is NavigationKind.Travel && frame.CanGoBack && AddressOf(frame.BackStack[^1]) == match.Address)
         {
             frame.GoBack();
         }
@@ -110,13 +120,30 @@ public sealed class ShellView : Grid
 
     private static string? AddressOf(Microsoft.UI.Xaml.Navigation.PageStackEntry entry) => (entry.Parameter as RouteMatch<Type>)?.Address;
 
-    // Dark until a person picks light, or asks to follow the device.
-    private void ApplyTheme() => RequestedTheme = theme.Choice.Mode switch
+    // The mode is the window's requested theme: dark until a person picks light, or asks to follow the device. Colors
+    // follow it at once. Another theme puts new numbers, faces and colors in the resources, and the open screen is
+    // made again from them, so every group changes without a restart.
+    private void ApplyTheme()
     {
-        ThemeMode.Light => ElementTheme.Light,
-        ThemeMode.System => ElementTheme.Default,
-        _ => ElementTheme.Dark,
-    };
+        RequestedTheme = theme.Choice.Mode switch
+        {
+            ThemeMode.Light => ElementTheme.Light,
+            ThemeMode.System => ElementTheme.Default,
+            _ => ElementTheme.Dark,
+        };
+
+        if (ReferenceEquals(theme.Theme, ThemeTokens.Current))
+        {
+            return;
+        }
+
+        ThemeTokens.Apply(theme.Theme);
+        Paint();
+        if (frame.Content is Screen { Route: { } route } open)
+        {
+            Go(open.GetType(), route, NavigationKind.Replace, rebuild: true);
+        }
+    }
 
     private void Paint()
     {
