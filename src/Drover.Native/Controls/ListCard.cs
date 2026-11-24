@@ -47,7 +47,7 @@ public sealed class ListCard : StackPanel
 
         frame.PointerEntered += (_, _) => Hover(true);
         frame.PointerExited += (_, _) => Hover(false);
-        frame.Tapped += (_, args) => Tapped(args.OriginalSource as DependencyObject);
+        frame.Tapped += (_, args) => OpenFrom(args.OriginalSource as DependencyObject);
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -149,7 +149,7 @@ public sealed class ListCard : StackPanel
 
         if (Leading is { } leading)
         {
-            Grid.SetColumn(leading, 0);
+            leading.SetValue(Grid.ColumnProperty, 0);
             line.Children.Add(leading);
         }
 
@@ -204,13 +204,13 @@ public sealed class ListCard : StackPanel
 
         if (Status is { } status)
         {
-            Grid.SetColumn(status, 2);
+            status.SetValue(Grid.ColumnProperty, 2);
             line.Children.Add(status);
         }
 
         if (Trailing is { } trailing)
         {
-            Grid.SetColumn(trailing, 3);
+            trailing.SetValue(Grid.ColumnProperty, 3);
             line.Children.Add(trailing);
         }
 
@@ -242,7 +242,7 @@ public sealed class ListCard : StackPanel
         Paint();
     }
 
-    private void Tapped(DependencyObject? source)
+    private void OpenFrom(DependencyObject? source)
     {
         if (opened is null || Within(link, source) || Within(Trailing, source))
         {

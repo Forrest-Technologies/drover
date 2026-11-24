@@ -170,7 +170,7 @@ public sealed partial class NativeInterfaceRuleTests
             Link another = new();
             """;
 
-        OwnFrameOrLink().Matches(Sample).Count.Should().Be(4);
+        OwnFrameOrLink().Count(Sample).Should().Be(4);
     }
 
     #endregion
