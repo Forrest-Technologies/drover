@@ -1209,13 +1209,13 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await waitDropLineGone('A cancelled drag left the drop line on screen');
     assert.equal(uploadedFiles.length, 3, 'A cancelled drag uploads nothing.');
 
-    const copyReply = page.getByRole('button', { name: 'Copy reply', exact: true });
-    const copyBox = await copyReply.boundingBox({ timeout: 5000 });
-    assert.ok(copyBox, 'Copy reply has an accessible box in the message list.');
-    await page.mouse.move(copyBox.x + copyBox.width / 2, copyBox.y + copyBox.height / 2);
+    const listButton = page.getByRole('button', { name: 'Preview sample-retry-exhausted.png', exact: true });
+    const listButtonBox = await listButton.boundingBox({ timeout: 5000 });
+    assert.ok(listButtonBox, 'Preview sample-retry-exhausted.png has an accessible box in the message list.');
+    await page.mouse.move(listButtonBox.x + listButtonBox.width / 2, listButtonBox.y + listButtonBox.height / 2);
     await page.mouse.down();
     await page.waitForFunction(
-        () => document.activeElement?.getAttribute('aria-label') === 'Copy reply',
+        () => document.activeElement?.getAttribute('aria-label') === 'Preview sample-retry-exhausted.png',
         null,
         { timeout: 5000 }).catch(async cause => {
         const active = await page.evaluate(() => document.activeElement?.outerHTML ?? 'none');
