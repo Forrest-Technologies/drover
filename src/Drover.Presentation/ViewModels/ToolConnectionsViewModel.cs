@@ -43,6 +43,15 @@ public sealed partial class ToolConnectionsViewModel(
     [ObservableProperty]
     private bool addingBusy;
 
+    [ObservableProperty]
+    private ToolConnectionSummary? replacingHeader;
+
+    [ObservableProperty]
+    private string headerName = "Authorization";
+
+    [ObservableProperty]
+    private string headerValue = string.Empty;
+
     #endregion
 
     #region Properties
@@ -213,12 +222,30 @@ public sealed partial class ToolConnectionsViewModel(
             Say(connection, null, $"The sign-in to {connection.Name} is removed.");
         });
 
-    public Task ReplaceHeader(ToolConnectionSummary connection, ReplaceToolHeaderRequest request) =>
-        Change(connection, async () =>
+    public void StartReplacingHeader(ToolConnectionSummary connection)
+    {
+        ReplacingHeader = connection;
+        HeaderName = "Authorization";
+        HeaderValue = string.Empty;
+    }
+
+    public void CancelReplacingHeader()
+    {
+        ReplacingHeader = null;
+        HeaderValue = string.Empty;
+    }
+
+    public async Task ReplaceHeader(ToolConnectionSummary connection)
+    {
+        var request = new ReplaceToolHeaderRequest(HeaderName.Trim(), HeaderValue);
+        await Change(connection, async () =>
         {
             Replace(await api.ReplaceToolHeader(SpaceId, connection.Id, request));
+            ReplacingHeader = null;
+            HeaderValue = string.Empty;
             Say(connection, null, $"The header for {connection.Name} is replaced.");
         });
+    }
 
     public Task Accept(ConnectionToolSummary tool)
     {
