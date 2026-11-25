@@ -37,26 +37,22 @@ internal static class IncomingIntents
     // current ones, goes nowhere.
     private static void OpenConversation(Intent? intent)
     {
-        if (intent?.Action != AndroidNotifications.OpenAction
-            || !AndroidNotifications.Conversation(intent, out var bot, out var thread)
-            || !Guid.TryParse(intent.GetStringExtra("user"), out var user)
-            || intent.GetStringExtra("registration") is not { Length: > 0 } registration)
+        if (intent?.Action == AndroidNotifications.OpenAction
+            && AndroidNotifications.ReadTarget(intent) is { } target)
         {
-            return;
+            _ = OpenIfOurs(target);
         }
-
-        var address = intent.GetBooleanExtra("main", true) ? Addresses.Talk(bot) : Addresses.SideChat(bot, thread);
-        Guid? space = Guid.TryParse(intent.GetStringExtra("space"), out var named) ? named : null;
-        _ = OpenIfOurs(user, registration, address, space);
     }
 
-    private static async Task OpenIfOurs(Guid user, string registration, string address, Guid? space)
+    private static async Task OpenIfOurs(ConversationTarget target)
     {
         var services = IPlatformApplication.Current?.Services;
         if (services?.GetService<AndroidPushRegistration>() is { } registrations
-            && await registrations.BelongsTo(user, registration))
+            && await registrations.BelongsTo(target.User, target.Registration))
         {
-            services.GetService<IncomingNavigation>()?.Open(address, space);
+            var address = target.Main ? Addresses.Talk(target.Bot) : Addresses.SideChat(target.Bot, target.Thread);
+            services.GetService<IncomingNavigation>()?.Open(address, target.Space);
+            AndroidNotifications.Dismiss(target);
         }
     }
 

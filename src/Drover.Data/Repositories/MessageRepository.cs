@@ -19,6 +19,17 @@ public sealed class MessageRepository(DroverDbContext db)
             .OrderBy(message => message.Position)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The latest bot reply in the conversation version the person sees.</summary>
+    public Task<Message?> FindLatestReply(Guid threadId, CancellationToken cancellationToken) =>
+        db.Messages
+            .AsNoTracking()
+            .Where(message => message.ThreadId == threadId && message.Role == MessageRole.Assistant
+                && message.Position != null && message.ShelvedAt == null && !message.Withheld)
+            .OrderByDescending(message => message.Position)
+            .ThenByDescending(message => message.CreatedAt)
+            .ThenByDescending(message => message.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
     /// <summary>
     /// The versions of each place in the conversation that has more than one, by the id of every version: the ids of
     /// the messages that share its parent, oldest first. A place with one version is left out.

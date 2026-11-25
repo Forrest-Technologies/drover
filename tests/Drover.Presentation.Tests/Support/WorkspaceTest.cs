@@ -23,9 +23,10 @@ public abstract class WorkspaceTest : IDisposable
 
     #region Constructors
 
-    protected WorkspaceTest()
+    protected WorkspaceTest(StreamPresence? presence = null)
     {
-        var api = Server.CreateApi();
+        Presence = presence;
+        var api = Server.CreateApi(presence);
         Session = new(api, Inbox);
         Toasts = new(TimeProvider.System);
         Talk = new(api, Session, Navigator, Toasts, Inbox, Ui, NullLoggerFactory.Instance);
@@ -54,6 +55,8 @@ public abstract class WorkspaceTest : IDisposable
         [new(SpaceId, "personal", "Sam Sample", "sam", "owner")]);
 
     protected FakeServer Server { get; } = new();
+
+    protected StreamPresence? Presence { get; }
 
     protected UiLoop Ui { get; } = new();
 

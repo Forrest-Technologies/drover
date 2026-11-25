@@ -82,7 +82,16 @@ Use the built-in hosted provider, or any server that speaks the chat completions
 
 The web app is the same client code as the Android app, compiled to WebAssembly and served by the server at `/`. You can install it from the browser and turn on notifications. Every work screen starts with one header that names the screen, takes you back with one labelled button, and holds its icon actions. Pressable controls take their smallest height from the pointer, so a phone gives them 44 px and a desktop 32 px, and a screen shows at most one primary action at rest. Projects and Bots draw each thing to open with a card: an icon, the name as a link, one line of facts, and a place for its state or actions. Extensions use the same card frame for their name, what they add and their state, with their worded actions beneath it. Model and tool connections use that card too: the name, one line of facts and a state badge, with their actions in a More menu. Adding a connection or importing an extension opens a sheet from the header, and replacing a key or a header opens a dialog.
 
-The Android preview is a signed APK on the [releases page](https://github.com/Forrest-Technologies/drover/releases), for Android 7 or later. You can share text, links, pictures, and documents into Drover from other apps, and a share opened on a cold start still reaches the share screen. A share is cleared when a session or a server changes. On Android 12 or later you can reply from a notification. Notifications go through a push distributor you choose; the [Android guide](docs/android-preview.md) has the setup.
+The Android preview is a signed APK on the [releases page](https://github.com/Forrest-Technologies/drover/releases)
+for Android 7 or later. You can share text, links, pictures, and documents into Drover from other apps, and a share
+opened on a cold start still reaches the share screen. A share is cleared when a session or a server changes.
+Notifications go through a push distributor you choose. The [Android guide](docs/android-preview.md) has the setup.
+
+On Android, expand a notification to read recent replies from a conversation. Updates to the same conversation
+share one notification, and updates from several conversations appear together. Tap a notification to open that
+conversation in its space. On Android 12 or later, unlock your phone to reply from the notification. A sent reply
+joins the stack. If the send cannot be confirmed, the notification keeps what you typed. To show reply text on the
+lock screen, turn on **Show message text on the lock screen** under **Notifications**. It starts off.
 
 ## Security
 
