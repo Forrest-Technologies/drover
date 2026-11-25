@@ -157,7 +157,7 @@ public sealed partial class BotSandboxViewModel(
     public string PageTitle => Bot is null ? "Sandbox · Drover" : $"{Bot.Name}'s sandbox · Drover";
 
     /// <summary>The words of the link back to the bot.</summary>
-    public string BackLabel => Bot?.Name ?? "Bot";
+    public string BackLabel => $"Back to {Bot?.Name ?? "Bot"}";
 
     public string Heading => $"{Bot?.Name}'s sandbox";
 

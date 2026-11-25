@@ -1958,6 +1958,16 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
     #endregion
 
+    #region Words
+
+    [Fact]
+    public void The_way_back_names_the_bots_list()
+    {
+        BotEditorViewModel.Back.Should().Be("Back to bots");
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ModelCatalogResponse CatalogModel(string id, bool toolCalling, bool vision = false) =>

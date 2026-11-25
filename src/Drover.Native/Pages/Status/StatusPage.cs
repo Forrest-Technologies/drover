@@ -42,14 +42,11 @@ public sealed class StatusPage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
-        header.Children.Add(PageParts.Title("Status"));
+        body.Add(new ScreenHeader { Title = "Status" });
         if (!opening && model.Report is not null)
         {
-            header.Children.Add(PageParts.Action("Check again", model.Load, Refresh, !model.Loading));
+            body.Add(PageParts.Action("Check again", model.Load, Refresh, !model.Loading));
         }
-
-        body.Add(header);
         if (opening)
         {
             body.Add(PageParts.Waiting("Checking the server and the space's connections."));

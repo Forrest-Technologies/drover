@@ -78,6 +78,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("stop while working", StopWhileWorking);
                 await Step("back", Back);
                 await Step("projects list", ProjectsList);
+                await Step("project back", ProjectBack);
                 await Step("switch the theme", SwitchTheme);
             }
 
@@ -496,6 +497,30 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             await Press("ProjectCard");
             await Until("the project screen", () =>
                 navigator.Current == Addresses.Project(project) ? window.Content : null);
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// The header's back button on a project takes a person to the projects screen, at both widths the app must work
+    /// at. The screen checks make one project through the API and pass its address to the app.
+    /// </summary>
+    private async Task ProjectBack()
+    {
+        var project = settings.ProjectId
+            ?? throw new CheckFailedException("no project was named for the screen checks");
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Project(project));
+            await Shown("ScreenBack");
+            await Press("ScreenBack");
+            await Until("the projects screen", () =>
+                navigator.Current == Addresses.Projects && Find("ScreenBack") is null ? window.Content : null);
         }
 
         navigator.NavigateTo(Addresses.Home);

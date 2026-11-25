@@ -5,13 +5,6 @@ internal static class PageParts
 {
     #region Public Methods
 
-    public static TextBlock Title(string text)
-    {
-        var heading = Styles.Text(text, "DvTextH2");
-        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level1);
-        return heading;
-    }
-
     /// <summary>The name at the head of a card: a small heading, a level below the screen's title.</summary>
     public static TextBlock CardTitle(string text)
     {

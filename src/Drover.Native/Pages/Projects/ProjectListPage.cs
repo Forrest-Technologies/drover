@@ -11,7 +11,7 @@ public sealed class ProjectListPage : Screen
 
     private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
 
-    private readonly TextBlock titleText = PageParts.Title(ProjectListViewModel.Heading);
+    private readonly ScreenHeader header = new() { Title = ProjectListViewModel.Heading };
 
     private readonly TextBlock memberNoteText = Styles.Text(ProjectListViewModel.MemberNote, "DvTextSecondary");
 
@@ -68,7 +68,7 @@ public sealed class ProjectListPage : Screen
         createPanel.Children.Add(draftName);
         createPanel.Children.Add(createButton);
 
-        layout.Body.Add(titleText);
+        layout.Body.Add(header);
         layout.Body.Add(memberNoteText);
         layout.Body.Add(createPanel);
         layout.Body.Add(statusPanel);

@@ -568,6 +568,57 @@ public sealed class ChatViewModelTests : IDisposable
         attached.Should().BeFalse("the conversation stopped taking files while they were read");
     }
 
+    [Fact]
+    public async Task Dropping_files_clears_the_drop_line()
+    {
+        var composer = Composer(takesFiles: true);
+        var attached = 0;
+        composer.OnFiles = files =>
+        {
+            attached += files.Count;
+            return Task.CompletedTask;
+        };
+
+        composer.ShowDropping(true);
+        composer.Dropping.Should().BeTrue();
+
+        await composer.TakeDropped(() => Task.FromResult(new HandedFiles(SampleFiles(1))), NullLogger.Instance);
+
+        composer.Dropping.Should().BeFalse();
+        attached.Should().Be(1);
+
+        composer.ShowDropping(true);
+        composer.TakesFiles = false;
+        composer.Dropping.Should().BeFalse("a conversation that stops taking files clears the drop line");
+    }
+
+    [Fact]
+    public void Cancelling_a_drag_clears_the_drop_line_without_attaching_anything()
+    {
+        var composer = Composer(takesFiles: true);
+        var attached = 0;
+        List<(string Words, ToastKind Kind)> told = [];
+        List<string?> changed = [];
+        composer.OnFiles = files =>
+        {
+            attached += files.Count;
+            return Task.CompletedTask;
+        };
+        composer.OnNotice = (words, kind) => told.Add((words, kind));
+        composer.PropertyChanged += (_, change) => changed.Add(change.PropertyName);
+
+        composer.ShowDropping(true);
+        composer.Dropping.Should().BeTrue();
+        changed.Clear();
+
+        composer.CancelDropping();
+
+        composer.Dropping.Should().BeFalse();
+        changed.Should().Contain(nameof(ComposerViewModel.Dropping));
+        attached.Should().Be(0);
+        told.Should().BeEmpty();
+    }
+
     #endregion
 
     #region What A Reply Used
