@@ -302,7 +302,7 @@ public sealed class ProjectPage : Screen
         statusNote.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
         bodyPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
 
-        statusNote.Text = model.Editing ? null : model.Working ?? model.Problem;
+        statusNote.Text = model.Editing || model.ConfirmingRemove ? null : model.Working ?? model.Problem;
         statusNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
 
         statePanel.Children.Clear();
@@ -356,7 +356,8 @@ public sealed class ProjectPage : Screen
         editNote.Text = model.Working ?? model.Problem;
         editNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
         discardBody.Text = ProjectViewModel.DiscardQuestion(model.Name);
-        removeProblem.Text = model.Problem;
+        removeProblem.Text = model.Working ?? model.Problem;
+        removeProblem.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
         removeDialog.Title = ProjectViewModel.RemoveTitle(model.Name);
         removeFileDialog.Title = model.RemovingFile is { } file
             ? ProjectViewModel.RemoveTitle(file.File.Name)
@@ -554,26 +555,38 @@ public sealed class ProjectPage : Screen
 
     private ListCard ConversationCard(ThreadSummary thread)
     {
-        var card = new ListCard { Title = model.ThreadLabel(thread) };
+        var label = model.ThreadLabel(thread);
+        var card = new ListCard { Title = label };
         card.Opened += () => navigator.NavigateTo(Addresses.Conversation(thread.Id));
         if (model.CanMoveOut(thread.Id))
         {
-            card.Trailing = More(thread.Id);
+            card.Trailing = More(thread.Id, label);
         }
 
         return card;
     }
 
-    private Menu More(Guid threadId)
+    private Menu More(Guid threadId, string label)
     {
-        var menu = new Menu { Label = "More", TriggerIcon = IconName.More, ShowTriggerLabel = false };
+        var menu = new Menu
+        {
+            Label = "More",
+            AccessibleLabel = $"More for {label}",
+            TriggerIcon = IconName.More,
+            ShowTriggerLabel = false,
+        };
         menu.Items.Add(TaskItem(ProjectViewModel.MoveOutLabel, () => model.MoveOut(threadId)));
         return menu;
     }
 
     private MenuItem TaskItem(string label, Func<Task> work)
     {
-        var item = new MenuItem { Content = label };
+        var item = new MenuItem
+        {
+            Content = label,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            IsEnabled = model.Working is null,
+        };
         item.Selected += async (_, _) => await Run(work);
         return item;
     }

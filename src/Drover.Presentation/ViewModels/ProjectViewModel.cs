@@ -428,7 +428,11 @@ public sealed partial class ProjectViewModel(
 
     public void PrepareRemove() => ConfirmingRemove = true;
 
-    public void CancelRemove() => ConfirmingRemove = false;
+    public void CancelRemove()
+    {
+        Problem = null;
+        ConfirmingRemove = false;
+    }
 
     /// <summary>Removes the project after the person confirms. Conversations stay, outside the project.</summary>
     public async Task Remove()

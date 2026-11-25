@@ -172,8 +172,9 @@ internal sealed partial class DialogSurface
             }
 
             var focus = initial ?? close;
+            focus.Loaded -= FocusInitial;
             focus.Loaded += FocusInitial;
-            focus.Focus(FocusState.Keyboard);
+            MoveFocus(focus);
         }
     }
 
@@ -207,7 +208,19 @@ internal sealed partial class DialogSurface
         if (sender is FrameworkElement focus)
         {
             focus.Loaded -= FocusInitial;
-            focus.Focus(FocusState.Keyboard);
+            MoveFocus(focus);
+        }
+    }
+
+    private static void MoveFocus(FrameworkElement element)
+    {
+        if (element is Field field)
+        {
+            field.TakeFocus();
+        }
+        else
+        {
+            element.Focus(FocusState.Keyboard);
         }
     }
 

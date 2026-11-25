@@ -742,18 +742,18 @@ try {
                     await checkPhoneNavLayout(page, width);
                 }
                 if (name === 'projects') {
-                    await checkProjectListKeyboard(page);
+                    await checkProjectListKeyboard(page, width, theme);
                 }
                 if (name === 'project') {
                     const cpu = await context.newCDPSession(page);
                     await cpu.send('Emulation.setCPUThrottlingRate', { rate: 4 });
                     try {
-                        await checkProjectDraftsAndKeyboard(page);
+                        await checkProjectDraftsAndKeyboard(page, width, theme);
                     } finally {
                         await cpu.send('Emulation.setCPUThrottlingRate', { rate: 1 });
                         await cpu.detach();
                     }
-                    await checkProjectMoveFlow(page);
+                    await checkProjectMoveFlow(page, width, theme);
                 }
                 if (name === 'project-member') {
                     assert.equal(await page.getByRole('button', { name: 'Edit project', exact: true }).count(), 0,
@@ -1775,12 +1775,16 @@ async function checkPhoneNavLayout(page, width) {
     assert.equal(overflow, false, `Horizontal overflow detected in PhoneNav at ${width}px.`);
 }
 
-async function checkProjectListKeyboard(page) {
+async function checkProjectListKeyboard(page, width, theme) {
     const add = page.getByRole('button', { name: 'New project', exact: true });
     await add.focus();
     await page.keyboard.press('Enter');
     const field = page.getByRole('textbox', { name: 'Name', exact: true });
     await field.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-new-dialog-${width}-${theme}.png`) });
+    await page.getByRole('button', { name: 'Create project', exact: true }).dispatchEvent('click');
+    await waitForShown(page, 'Enter a name for the project.');
+    await page.screenshot({ path: path.join(pictures, `project-new-refusal-${width}-${theme}.png`) });
     await field.focus();
     await page.keyboard.type('Draft');
     await page.waitForTimeout(150);
@@ -1794,16 +1798,19 @@ async function checkProjectListKeyboard(page) {
     await add.dispatchEvent('click');
     await field.waitFor({ state: 'attached', timeout: 5000 });
     assert.equal(await field.inputValue(), '', 'Reopening New project must start with an empty Name field');
+    assert.equal(await shown(page, 'Enter a name for the project.').count(), 0,
+        'Reopening New project must clear the previous refusal');
     await page.keyboard.press('Escape');
     await field.waitFor({ state: 'detached', timeout: 5000 });
 }
 
-async function checkProjectDraftsAndKeyboard(page) {
+async function checkProjectDraftsAndKeyboard(page, width, theme) {
     await page.getByRole('button', { name: 'Edit project', exact: true }).dispatchEvent('click');
     const nameField = page.getByRole('textbox', { name: 'Name', exact: true });
     const instructionsField = page.getByRole('textbox', { name: 'Instructions', exact: true });
     await nameField.waitFor({ state: 'attached', timeout: 5000 });
     await instructionsField.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-edit-sheet-${width}-${theme}.png`) });
     await nameField.focus();
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.type('Weekly draft');
@@ -1865,36 +1872,70 @@ async function checkProjectDraftsAndKeyboard(page) {
         `Expected Tab from Instructions to stay in the sheet, got ${activeName}`);
     await page.keyboard.press('Escape');
     await page.getByRole('heading', { name: 'Discard changes?', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-discard-dialog-${width}-${theme}.png`) });
     await page.getByRole('button', { name: 'Keep editing', exact: true }).dispatchEvent('click');
     await page.getByRole('button', { name: 'Cancel', exact: true }).dispatchEvent('click');
     await page.getByRole('button', { name: 'Discard', exact: true }).dispatchEvent('click');
     await nameField.waitFor({ state: 'detached', timeout: 5000 });
 }
 
-async function checkProjectMoveFlow(page) {
+async function checkProjectMoveFlow(page, width, theme) {
     const address = `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project`;
     const write = () => page.waitForResponse(reply => reply.request().method() === 'PUT'
         && new URL(reply.url()).pathname === address && reply.ok());
 
     await focusSettled(page);
     await page.getByRole('button', { name: 'New conversation', exact: true }).dispatchEvent('click');
-    await page.getByRole('menuitem', { name: 'Move a conversation here', exact: true }).dispatchEvent('click');
+    const moveHere = page.getByRole('menuitem', { name: 'Move a conversation here', exact: true });
+    await moveHere.waitFor({ state: 'attached', timeout: 5000 });
+    await moveHere.dispatchEvent('click');
     const move = page.getByRole('button', { name: 'Move Quarterly planning to this project', exact: true });
     await move.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-move-dialog-${width}-${theme}.png`) });
     const movedIn = write();
     await move.dispatchEvent('click');
     const inReply = await movedIn;
     assert.equal(JSON.parse(inReply.request().postData() ?? '{}').projectId, projectId,
         'Move in must send this project, not the conversation or its bot');
+    await page.getByText('You have no other conversations to move here.', { exact: true })
+        .waitFor({ state: 'attached', timeout: 10000 });
+    await page.screenshot({ path: path.join(pictures, `project-move-empty-${width}-${theme}.png`) });
     await page.getByRole('button', { name: 'Done', exact: true }).dispatchEvent('click');
+    const conversation = page.getByRole('link', { name: 'Quarterly planning', exact: true });
+    await conversation.waitFor({ state: 'attached', timeout: 5000 });
 
+    const more = page.getByRole('button', { name: 'More for Quarterly planning', exact: true });
+    await more.waitFor({ state: 'attached', timeout: 5000 });
     await focusSettled(page);
-    await page.getByRole('button', { name: 'More', exact: true }).first().dispatchEvent('click');
+    await more.dispatchEvent('click');
+    const moveOut = page.getByRole('menuitem', { name: 'Move out of this project', exact: true });
+    await moveOut.waitFor({ state: 'attached', timeout: 5000 });
     const movedOut = write();
-    await page.getByRole('menuitem', { name: 'Move out of this project', exact: true }).dispatchEvent('click');
+    await moveOut.dispatchEvent('click');
     const outReply = await movedOut;
     assert.equal(JSON.parse(outReply.request().postData() ?? '{}').projectId, null,
         'Move out must send no project');
+    await conversation.waitFor({ state: 'detached', timeout: 10000 });
+
+    await focusSettled(page);
+    await page.getByRole('button', { name: 'More', exact: true }).dispatchEvent('click');
+    const removeProject = page.getByRole('menuitem', { name: 'Remove project', exact: true });
+    await removeProject.waitFor({ state: 'attached', timeout: 5000 });
+    await removeProject.dispatchEvent('click');
+    const keepProject = page.getByRole('button', { name: 'Keep project', exact: true });
+    await keepProject.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-remove-dialog-${width}-${theme}.png`) });
+    await keepProject.dispatchEvent('click');
+    await keepProject.waitFor({ state: 'detached', timeout: 5000 });
+
+    const removeFile = page.getByRole('button', { name: 'Remove brief.txt', exact: true });
+    await removeFile.waitFor({ state: 'attached', timeout: 5000 });
+    await removeFile.dispatchEvent('click');
+    const keepFile = page.getByRole('button', { name: 'Keep file', exact: true });
+    await keepFile.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-remove-file-dialog-${width}-${theme}.png`) });
+    await keepFile.dispatchEvent('click');
+    await keepFile.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 async function selectNativeTextRange(field, start, end, direction) {

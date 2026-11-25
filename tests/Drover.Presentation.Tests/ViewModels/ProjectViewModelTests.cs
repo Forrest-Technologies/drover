@@ -273,6 +273,11 @@ public sealed class ProjectViewModelTests : ViewModelTest
         screen.ConfirmingRemove.Should().BeTrue();
         screen.Problem.Should().Be("Only an owner or admin can remove a project.");
 
+        screen.CancelRemove();
+        screen.ConfirmingRemove.Should().BeFalse();
+        screen.Problem.Should().BeNull();
+
+        screen.PrepareRemove();
         Server.Answer("DELETE", projectPath, HttpStatusCode.NoContent);
         await screen.Remove();
 

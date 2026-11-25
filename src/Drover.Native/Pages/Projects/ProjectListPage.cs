@@ -160,7 +160,6 @@ public sealed class ProjectListPage : Screen
 
     private void RefreshView()
     {
-        var ready = model.State is ProjectListState.Empty or ProjectListState.Listed;
         memberNoteText.Visibility = model.State is ProjectListState.Listed && !model.CanManage
             ? Visibility.Visible
             : Visibility.Collapsed;
