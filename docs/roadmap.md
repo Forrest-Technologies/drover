@@ -100,6 +100,8 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #840 test: the Android safe-area check sometimes finds no dark rows at the bottom of the screen
 - #841 fix: pushing an Android preview tag starts the desktop release workflow and fails its version check (pull request #842 is open)
 - #844 feat: an attachment shows how far its upload is, and can be retried or cancelled
+- [#953](https://github.com/Forrest-Technologies/drover/issues/953) Android notifications show reply previews,
+  group conversations, and keep quick reply. Lock screen text starts off.
 
 **Interface specs.** [uploads.md](ux/uploads.md)
 
