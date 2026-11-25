@@ -144,7 +144,7 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void RetrySync() => StartSync();
+    public void RetrySync() => StartSync(ignoreReach: true);
 
     [RelayCommand]
     public void Close() => theme.AppearanceOpen = false;
@@ -190,6 +190,7 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
             return;
         }
 
+        loadPending = false;
         pendingSync = true;
         StartSync();
     }
@@ -213,6 +214,8 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
         loadedForUser = userId;
         loadPending = true;
+        pendingSync = false;
+        SyncNote = null;
         _ = LoadFromServer(userId.Value, choiceVersion);
     }
 
@@ -257,7 +260,11 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
-            loadPending = true;
+            if (session.Current?.UserId == userId && choiceVersion == version)
+            {
+                loadPending = true;
+            }
+
             logger.LogWarning(
                 exception,
                 "The appearance choice could not be loaded for user {UserId}",
@@ -265,22 +272,23 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void StartSync()
+    private void StartSync(bool ignoreReach = false)
     {
-        if (syncRunning || !pendingSync || session.Current is null || session.Unreachable)
+        if (syncRunning || !pendingSync || session.Current is null || (!ignoreReach && session.Unreachable))
         {
             return;
         }
 
         syncRunning = true;
-        _ = FlushPending();
+        _ = FlushPending(ignoreReach);
     }
 
-    private async Task FlushPending()
+    private async Task FlushPending(bool ignoreReach)
     {
+        var failed = false;
         try
         {
-            while (!disposed && pendingSync && session.Current is not null && !session.Unreachable)
+            while (!disposed && pendingSync && session.Current is not null && (ignoreReach || !session.Unreachable))
             {
                 pendingSync = false;
                 var userId = session.Current.UserId;
@@ -289,10 +297,14 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
                 try
                 {
                     await api.SetAppearance(ToSetting(choice));
-                    if (session.Current?.UserId != userId)
+                    if (disposed || session.Current?.UserId != userId)
                     {
                         pendingSync = false;
-                        SyncNote = null;
+                        if (!disposed)
+                        {
+                            SyncNote = null;
+                        }
+
                         return;
                     }
 
@@ -300,15 +312,19 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
                 }
                 catch (Exception exception)
                 {
-                    if (session.Current?.UserId != userId)
+                    if (disposed || session.Current?.UserId != userId)
                     {
                         pendingSync = false;
-                        SyncNote = null;
+                        if (!disposed)
+                        {
+                            SyncNote = null;
+                        }
+
                         return;
                     }
 
                     pendingSync = true;
-                    SyncNote = "Saved on this device. Drover could not save it to your account.";
+                    failed = true;
                     logger.LogWarning(
                         exception,
                         "The appearance choice could not be saved for user {UserId}",
@@ -320,6 +336,10 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         finally
         {
             syncRunning = false;
+            if (failed && !disposed && session.Current is not null)
+            {
+                SyncNote = "Saved on this device. Drover could not save it to your account.";
+            }
         }
     }
 

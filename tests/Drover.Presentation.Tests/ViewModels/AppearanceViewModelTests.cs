@@ -104,6 +104,26 @@ public sealed class AppearanceViewModelTests : ViewModelTest, IDisposable
         theme.Choice.Should().Be(new ThemeChoice("front-office", ThemeMode.Black, "blue"));
         model.SyncNote.Should().Be("Saved on this device. Drover could not save it to your account.");
         model.RetrySyncCommand.Should().NotBeNull();
+
+        Server.Answer("PUT", Path, HttpStatusCode.NoContent);
+        model.RetrySync();
+        await Eventually(() => model.SyncNote is null);
+
+        Server.Sent("PUT", Path).Last().Should()
+            .Be("""{"themeId":"front-office","mode":"black","accent":"blue"}""");
+    }
+
+    [Fact]
+    public async Task SignIn_applies_saved_server_choice_without_echoing_save()
+    {
+        Server.Answer("GET", Path, new AppearanceSetting("night-yard", "black", "green"));
+
+        Session.Begin(Person);
+        await Eventually(() => theme.Choice == new ThemeChoice("night-yard", ThemeMode.Black, "green"));
+
+        ThemeChoice.Parse(settings.Values[ThemeModel.SettingName], NullLogger.Instance)
+            .Should().Be(new ThemeChoice("night-yard", ThemeMode.Black, "green"));
+        Server.Requests.Should().NotContain(request => request.Method == "PUT" && request.Path == Path);
     }
 
     #endregion

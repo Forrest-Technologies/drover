@@ -57,7 +57,7 @@ public sealed partial class AppearanceService(
 
     #region Private Methods
 
-    [GeneratedRegex("^[a-z]+(-[a-z]+)*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A[a-z]+(-[a-z]+)*\z", RegexOptions.CultureInvariant)]
     private static partial Regex ThemeId();
 
     #endregion

@@ -10,6 +10,7 @@ public sealed class AppearanceApiTests(PostgresServer postgres) : ServerTestBase
     private static IReadOnlyList<AppearanceSetting> Invalid { get; } =
     [
         new("Front-Office", "dark", "theme"),
+        new("front-office\n", "dark", "theme"),
         new("front-office", "dim", "theme"),
         new("front-office", "dark", "purple"),
         new("an-id-that-runs-well-past-the-forty-characters-a-theme-may-have", "dark", "theme"),
