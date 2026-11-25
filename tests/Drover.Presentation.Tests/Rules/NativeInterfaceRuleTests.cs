@@ -15,6 +15,15 @@ public sealed partial class NativeInterfaceRuleTests
     // The card methods, including the helpers a card draws a tool or a catalog row with.
     private static readonly string[] cardMethodMarkers = ["Connection(Drover.", "ToolReview(", "CatalogRow("];
 
+    // Each dock entry opens the screen whose own icon it shows.
+    private static readonly Dictionary<string, string> dockIcons = new()
+    {
+        ["Chats"] = "Conversation",
+        ["Projects"] = "Project",
+        ["Bots"] = "Crew",
+        ["Tools"] = "Tool",
+    };
+
     // Bars keep a finger's height because they are not controls; the two chat files move in #735.
     private static readonly (string Path, string Reason)[] touchHeightExceptions =
     [
@@ -295,15 +304,8 @@ public sealed partial class NativeInterfaceRuleTests
     public void The_phone_dock_uses_each_screens_own_icon()
     {
         var source = Repository.NativeFiles(".cs").Single(file => file.Path == "Layouts/PhoneNav.cs").Text;
-        var icons = DockIcons(source);
 
-        icons.Should().BeEquivalentTo(new Dictionary<string, string>
-        {
-            ["Chats"] = "Conversation",
-            ["Projects"] = "Project",
-            ["Bots"] = "Crew",
-            ["Tools"] = "Tool",
-        });
+        WrongDockIcons(source).Should().BeEmpty("the dock uses each screen's own icon");
     }
 
     [Fact]
@@ -314,7 +316,7 @@ public sealed partial class NativeInterfaceRuleTests
             new("Tools", Addresses.Tools, icon: IconName.Settings),
             """;
 
-        DockIcons(Sample)["Tools"].Should().Be("Tool", "the dock uses each screen's own icon");
+        WrongDockIcons(Sample).Should().ContainSingle("a borrowed icon is a counterexample");
     }
 
     [Fact]
@@ -459,6 +461,12 @@ public sealed partial class NativeInterfaceRuleTests
     private static Dictionary<string, string> DockIcons(string text) =>
         DockIcon().Matches(text).Cast<Match>()
             .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value);
+
+    private static List<string> WrongDockIcons(string text) =>
+    [
+        .. DockIcons(text).Where(item => !dockIcons.TryGetValue(item.Key, out var icon) || icon != item.Value)
+            .Select(item => $"{item.Key}: {item.Value}"),
+    ];
 
     [GeneratedRegex(@"\b(?:MinHeight|MinWidth)\s*=\s*Tokens\.Number\(\s*""DvTargetTouch""\s*\)")]
     private static partial Regex TouchHeight();

@@ -496,7 +496,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
 
         navigator.NavigateTo(Addresses.Bots);
-        await Shown("CrewRow");
+        await Shown("NewBot");
         CheckHeights("Bots", minimum);
 
         navigator.NavigateTo(Addresses.Status);
