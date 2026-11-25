@@ -13,6 +13,8 @@ public sealed class AppearanceChoices : StackPanel
 
     private readonly Dictionary<string, AppearanceOption> options = [];
 
+    private readonly StackPanel body = new();
+
     private readonly SpokenWords spoken = new();
 
     private IReadOnlyList<LookOption> looks = [];
@@ -25,6 +27,8 @@ public sealed class AppearanceChoices : StackPanel
 
     private string? syncNote;
 
+    private Button? retryButton;
+
     private (string Key, FocusState State)? focusOwed;
 
     #endregion
@@ -34,7 +38,9 @@ public sealed class AppearanceChoices : StackPanel
     public AppearanceChoices(AppearanceViewModel model)
     {
         this.model = model;
-        Spacing = Tokens.Number("DvSpace5");
+        body.Spacing = Tokens.Number("DvSpace5");
+        Children.Add(body);
+        Children.Add(spoken);
         Loaded += (_, _) => Listen(true);
         Unloaded += (_, _) => Listen(false);
         this.WhenShownOrRethemed(Draw);
@@ -81,14 +87,22 @@ public sealed class AppearanceChoices : StackPanel
     // Everything is made again, so an option that had the focus is given it back once its replacement is shown.
     private void Draw()
     {
+        var retryFocus = retryButton?.FocusState ?? FocusState.Unfocused;
         focusOwed = Focused() ?? focusOwed;
         (looks, modes, accents, note, syncNote) =
             (model.Looks, model.Themes, model.AccentChoices, model.WaitingNote, model.SyncNote);
-        options.Clear();
-        Children.Clear();
+        if (syncNote is null && retryFocus is not FocusState.Unfocused && focusOwed is null
+            && looks.FirstOrDefault(look => look.InUse) is { } activeLook)
+        {
+            focusOwed = ($"look:{activeLook.Id}", retryFocus);
+        }
 
-        Children.Add(Group("Theme", Rows(looks.Select(LookRow))));
-        Children.Add(Group("Mode", Rows(modes.Select(ModeRow))));
+        options.Clear();
+        retryButton = null;
+        body.Children.Clear();
+
+        body.Children.Add(Group("Theme", Rows(looks.Select(LookRow))));
+        body.Children.Add(Group("Mode", Rows(modes.Select(ModeRow))));
 
         // A theme with no accent but its own has nothing to choose here.
         if (accents.Count > 1)
@@ -99,21 +113,20 @@ public sealed class AppearanceChoices : StackPanel
                 swatches.Children.Add(AccentSwatch(accent));
             }
 
-            Children.Add(Group("Accent", swatches));
+            body.Children.Add(Group("Accent", swatches));
         }
 
         // Said last, so the options do not move under the pointer when it appears.
         if (note is not null)
         {
-            Children.Add(Styles.Text(note, "DvTextSecondary"));
+            body.Children.Add(Styles.Text(note, "DvTextSecondary"));
         }
 
         if (syncNote is not null)
         {
-            Children.Add(SyncFailure(syncNote));
+            body.Children.Add(SyncFailure(syncNote));
         }
 
-        Children.Add(spoken);
         spoken.Say(syncNote);
 
         if (focusOwed is { } owed && !options.ContainsKey(owed.Key))
@@ -174,6 +187,7 @@ public sealed class AppearanceChoices : StackPanel
             Padding = new(Tokens.Number("DvSpace2"), 0, Tokens.Number("DvSpace2"), 0),
         };
         retry.Click += (_, _) => model.RetrySync();
+        retryButton = retry;
 
         var line = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
         line.Children.Add(words);

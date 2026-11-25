@@ -3,13 +3,6 @@ namespace Drover.Server.Appearance;
 /// <summary>Account routes for the theme choice that follows a signed-in person across devices.</summary>
 public static class AppearanceEndpoints
 {
-    #region Private Fields
-
-    private const string NotASetting =
-        "Not a valid theme, mode, and accent. Use a lowercase hyphenated theme id and a supported mode and accent.";
-
-    #endregion
-
     #region Public Methods
 
     public static IEndpointRouteBuilder MapAppearanceEndpoints(this RouteGroupBuilder api)
@@ -41,10 +34,7 @@ public static class AppearanceEndpoints
         AppearanceService appearance) =>
         await appearance.Set(context.User.GetUserId(), setting, context.RequestAborted)
             ? TypedResults.NoContent()
-            : TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [nameof(AppearanceSetting.ThemeId)] = [NotASetting],
-            });
+            : TypedResults.ValidationProblem(AppearanceService.ValidationErrors(setting));
 
     #endregion
 }

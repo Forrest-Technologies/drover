@@ -42,16 +42,36 @@ public sealed partial class AppearanceService(
         return true;
     }
 
-    public static bool IsWellFormed(AppearanceSetting? setting) =>
-        setting is
+    public static bool IsWellFormed(AppearanceSetting? setting) => ValidationErrors(setting).Count == 0;
+
+    public static Dictionary<string, string[]> ValidationErrors(AppearanceSetting? setting)
+    {
+        Dictionary<string, string[]> errors = [];
+        if (setting is null)
         {
-            ThemeId: { Length: > 0 and <= AppearanceSetting.MaxThemeIdLength } themeId,
-            Mode: { } mode,
-            Accent: { Length: > 0 and <= AppearanceSetting.MaxAccentLength } accent,
+            errors[nameof(AppearanceSetting.ThemeId)] = ["Choose a theme, mode, and accent."];
+            return errors;
         }
-        && ThemeId().IsMatch(themeId)
-        && AppearanceSetting.Modes.Contains(mode)
-        && AppearanceSetting.Accents.Contains(accent);
+
+        if (setting.ThemeId is not { Length: > 0 and <= AppearanceSetting.MaxThemeIdLength } themeId
+            || !ThemeId().IsMatch(themeId))
+        {
+            errors[nameof(AppearanceSetting.ThemeId)] = ["Use a lowercase hyphenated theme id."];
+        }
+
+        if (setting.Mode is null || !AppearanceSetting.Modes.Contains(setting.Mode))
+        {
+            errors[nameof(AppearanceSetting.Mode)] = ["Choose a supported mode."];
+        }
+
+        if (setting.Accent is not { Length: > 0 and <= AppearanceSetting.MaxAccentLength } accent
+            || !AppearanceSetting.Accents.Contains(accent))
+        {
+            errors[nameof(AppearanceSetting.Accent)] = ["Choose a supported accent."];
+        }
+
+        return errors;
+    }
 
     #endregion
 

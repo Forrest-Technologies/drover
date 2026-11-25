@@ -126,5 +126,30 @@ public sealed class AppearanceViewModelTests : ViewModelTest, IDisposable
         Server.Requests.Should().NotContain(request => request.Method == "PUT" && request.Path == Path);
     }
 
+    [Fact]
+    public async Task AccountSwitch_during_in_flight_save_preserves_new_users_choice()
+    {
+        Server.Answer("GET", Path, HttpStatusCode.NotFound);
+        Server.Answer("PUT", Path, HttpStatusCode.NoContent);
+        var gate = Server.Hold("PUT", Path);
+
+        Session.Begin(Person);
+        await Eventually(() => Server.Requests.Any(request => request.Method == "GET" && request.Path == Path));
+
+        model.ChooseTheme(ThemeMode.Black);
+        await Eventually(() => Server.Requests.Count(request => request.Method == "PUT" && request.Path == Path) == 1);
+
+        var otherPerson = Person with { UserId = Guid.Parse("0196f1a0-0000-7000-8000-000000000003") };
+        Session.Begin(otherPerson);
+        model.ChooseLook("night-yard");
+        model.ChooseTheme(ThemeMode.Light);
+
+        gate.TrySetResult();
+        await Eventually(() => Server.Requests.Count(request => request.Method == "PUT" && request.Path == Path) == 2);
+
+        Server.Sent("PUT", Path).Last().Should()
+            .Be("""{"themeId":"night-yard","mode":"light","accent":"theme"}""");
+    }
+
     #endregion
 }

@@ -30,6 +30,8 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
     private Guid? loadedForUser;
 
+    private Guid? loadingForUser;
+
     private long choiceVersion;
 
     private bool loadPending;
@@ -245,6 +247,12 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (loadingForUser == userId)
+        {
+            return;
+        }
+
+        loadingForUser = userId;
         try
         {
             var setting = await api.GetAppearance();
@@ -269,6 +277,13 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
                 exception,
                 "The appearance choice could not be loaded for user {UserId}",
                 userId);
+        }
+        finally
+        {
+            if (loadingForUser == userId)
+            {
+                loadingForUser = null;
+            }
         }
     }
 
@@ -297,30 +312,30 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
                 try
                 {
                     await api.SetAppearance(ToSetting(choice));
-                    if (disposed || session.Current?.UserId != userId)
+                    if (disposed)
                     {
-                        pendingSync = false;
-                        if (!disposed)
-                        {
-                            SyncNote = null;
-                        }
-
                         return;
+                    }
+
+                    if (session.Current?.UserId != userId)
+                    {
+                        ignoreReach = false;
+                        continue;
                     }
 
                     SyncNote = null;
                 }
                 catch (Exception exception)
                 {
-                    if (disposed || session.Current?.UserId != userId)
+                    if (disposed)
                     {
-                        pendingSync = false;
-                        if (!disposed)
-                        {
-                            SyncNote = null;
-                        }
-
                         return;
+                    }
+
+                    if (session.Current?.UserId != userId)
+                    {
+                        ignoreReach = false;
+                        continue;
                     }
 
                     pendingSync = true;
