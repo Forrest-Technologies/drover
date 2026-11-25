@@ -39,7 +39,7 @@ public sealed class BotWordsTests
         BotSummaries.Limits(new BotDraft(), null).Should().Be("No limit", "an empty model-call limit means there is no limit");
         BotSummaries.Limits(new BotDraft(), space).Should().Be("No limit · 5,000,000 tokens · 49 handoffs");
         BotSummaries.Limits(new BotDraft { MaxSteps = " 1 ", MaxDelegations = "0" }, space).Should().Be("1 model call · 5,000,000 tokens · 0 handoffs");
-        BotSummaries.Limits(new BotDraft { MaxTokens = "20000" }, null).Should().Be("20,000 tokens");
+        BotSummaries.Limits(new BotDraft { MaxTokens = "20000" }, null).Should().Be("No limit · 20,000 tokens");
         BotSummaries.Limits(new BotDraft { MaxTokens = "lots" }, space).Should().Be("No limit · 5,000,000 tokens · 49 handoffs", "a half-typed limit is not shown as one");
         new BotDraft { MaxDelegations = "1.5" }.FindProblem().Should().Be("The limit on handoffs is a whole number.");
         new BotDraft { MaxSteps = "7", MaxTokens = "9000", MaxDelegations = "2" }.ToRequest().RunLimits.Should().Be(new RunLimitsBody(7, 9000, 2));
