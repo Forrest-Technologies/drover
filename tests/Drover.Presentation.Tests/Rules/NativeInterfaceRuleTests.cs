@@ -161,6 +161,41 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void Connection_cards_put_their_actions_in_a_menu()
+    {
+        string[] files = ["Pages/Models/ModelConnectionsPage.cs", "Pages/Tools/ToolConnectionsPage.cs"];
+        var found = from path in files
+                    let source = Repository.NativeFiles(".cs").Single(file => file.Path == path).Text
+                    from button in CardActions(CardMethod(source))
+                    select $"{path}: {button}";
+
+        found.Should().BeEmpty("a card's actions belong in its More menu, apart from sign in and accept change");
+    }
+
+    [Fact]
+    public void A_worded_button_on_a_card_is_caught()
+    {
+        const string Sample = """
+            body.Children.Add(Action("View models", () => model.ShowCatalog(connection)));
+            body.Children.Add(new Button { Content = "Test connection" });
+            """;
+
+        CardActions(Sample).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void The_sign_in_and_accept_change_buttons_on_a_card_are_allowed()
+    {
+        const string Sample = """
+            body.Children.Add(Action("Sign in", () => model.SignIn(connection)));
+            body.Children.Add(Action("Sign in again", () => model.SignIn(connection)));
+            body.Children.Add(Action($"Accept the change to {tool.Name}", () => model.Accept(tool)));
+            """;
+
+        CardActions(Sample).Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_page_that_draws_its_own_frame_or_link_is_caught()
     {
         const string Sample = """
@@ -288,6 +323,34 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Private Methods
+
+    private static string CardMethod(string source)
+    {
+        var lines = source.Split('\n');
+        var start = Array.FindIndex(lines, line => line.Contains("Connection(Drover.", StringComparison.Ordinal));
+        start.Should().BeGreaterThanOrEqualTo(0, "the page draws its connections in a Connection method");
+        List<string> method = [];
+        for (var index = start; index < lines.Length; index++)
+        {
+            method.Add(lines[index]);
+            if (index > start && lines[index] == "    }")
+            {
+                break;
+            }
+        }
+
+        return string.Join('\n', method);
+    }
+
+    private static IEnumerable<string> CardActions(string body) =>
+        from match in CardButton().Matches(body).Cast<Match>()
+        let label = match.Groups[1].Value.Trim('$', '"')
+        where !label.StartsWith("Sign in", StringComparison.Ordinal)
+            && !label.StartsWith("Accept the change to", StringComparison.Ordinal)
+        select match.Value.Trim();
+
+    [GeneratedRegex(@"(?:PageParts\.)?Action\(\s*(\$?""[^""]*"")|new\s+Button\b")]
+    private static partial Regex CardButton();
 
     [GeneratedRegex(@"new\s+Facet\b|\bFacet\s+\w+\s*=\s*new\s*\(|new\s+Link\b|\bLink\s+\w+\s*=\s*new\s*\(")]
     private static partial Regex OwnFrameOrLink();
