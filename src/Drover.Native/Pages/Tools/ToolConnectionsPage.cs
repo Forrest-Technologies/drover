@@ -9,7 +9,7 @@ public sealed class ToolConnectionsPage : Screen
 
     private readonly WorkLayout layout = new();
 
-    private readonly StackPanel content = new() { Spacing = Tokens.Number("DvSpace3") };
+    private readonly StackPanel headerContent = new() { Spacing = Tokens.Number("DvSpace3") };
 
     private readonly ToolConnectionsViewModel model = Make<ToolConnectionsViewModel>();
 
@@ -191,7 +191,7 @@ public sealed class ToolConnectionsPage : Screen
             }
         });
 
-        layout.Body.Add(content);
+        layout.Body.Add(headerContent);
         layout.Body.Add(addSheet);
         layout.Body.Add(replaceDialog);
         layout.Body.Add(removeDialog);
@@ -222,7 +222,7 @@ public sealed class ToolConnectionsPage : Screen
 
     private void Refresh()
     {
-        content.Children.Clear();
+        headerContent.Children.Clear();
 
         var header = new ScreenHeader { Title = "Tool connections" };
         if (model.CanEdit && model.Connections is { Count: > 0 })
@@ -238,8 +238,8 @@ public sealed class ToolConnectionsPage : Screen
             header.Actions.Add(add);
         }
 
-        content.Children.Add(header);
-        content.Children.Add(new StatusNote
+        headerContent.Children.Add(header);
+        headerContent.Children.Add(new StatusNote
         {
             Text = model.Notice,
             Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok,
@@ -254,21 +254,21 @@ public sealed class ToolConnectionsPage : Screen
                 ActionLabel = "Try again",
             };
             failed.Action += async (_, _) => { await model.Load(); Refresh(); };
-            content.Children.Add(failed);
+            headerContent.Children.Add(failed);
         }
         else if (model.Connections is null)
         {
-            content.Children.Add(PageParts.Waiting("Loading the tool connections."));
+            headerContent.Children.Add(PageParts.Waiting("Loading the tool connections."));
         }
         else if (model.Connections.Count == 0)
         {
-            content.Children.Add(Empty());
+            headerContent.Children.Add(Empty());
         }
         else
         {
             foreach (var connection in model.Connections)
             {
-                content.Children.Add(Connection(connection));
+                headerContent.Children.Add(Connection(connection));
             }
         }
 
