@@ -30,6 +30,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     // resumes after the conversation is gone still reads it, and never the disposed source.
     private readonly CancellationTokenSource leaving = new();
 
+    // Remote reconciliation and local message changes replace or extend the same stored timeline. One finishes
+    // before the next starts, so a late remote read cannot overwrite a message or version chosen meanwhile.
+    private readonly SemaphoreSlim timelineGate = new(1, 1);
+
     private ConversationParameters parameters;
 
     private IReadOnlyList<MessageResponse> stored = [];
@@ -89,6 +93,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool gone;
 
+    private long seenThreadRevision;
+
+    private long pendingThreadRevision;
+
     #endregion
 
     #region Constructors
@@ -103,6 +111,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         ConversationParameters parameters)
     {
         (this.api, this.session, this.toasts, this.inbox, this.ui, this.logger, this.parameters) = (api, session, toasts, inbox, ui, logger, parameters);
+        seenThreadRevision = pendingThreadRevision = parameters.ThreadRevision;
         Composer.OnSend = text => Rendered(Send(text));
         Composer.OnCancel = () => Rendered(Stop());
         Composer.OnFiles = files => Rendered(Attach(files));
@@ -284,7 +293,13 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private async Task ReadAgain()
     {
+        var revision = pendingThreadRevision;
         await Rendered(Start());
+        if (!LoadFailed)
+        {
+            seenThreadRevision = Math.Max(seenThreadRevision, revision);
+        }
+
         await ParametersSet();
     }
 
@@ -375,12 +390,78 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     // The start page's conversation becomes seen when the person chooses its bot: the conversation stays, the address changes.
     private async Task ParametersSet()
     {
+        pendingThreadRevision = Math.Max(pendingThreadRevision, parameters.ThreadRevision);
         if (parameters.Opened && !markedOnOpen && thread is not null && !loading)
         {
             markedOnOpen = true;
             await MarkSeen();
         }
+
+        await TakeReportedChanges();
     }
+
+    // A signal says to fetch again, never what changed. Revisions coalesce repeated signals while one read is in
+    // flight. The timeline gate makes this read atomic with sends and version changes, and a later revision loops.
+    private async Task TakeReportedChanges()
+    {
+        while (CanTakeReportedChanges() && pendingThreadRevision > seenThreadRevision)
+        {
+            var revision = pendingThreadRevision;
+            try
+            {
+                await timelineGate.WaitAsync(left);
+            }
+            catch (OperationCanceledException) when (left.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!CanTakeReportedChanges() || revision <= seenThreadRevision)
+                {
+                    continue;
+                }
+
+                var latest = await api.GetThread(SpaceId, thread!.Id, left);
+                var said = api.ListMessages(SpaceId, latest.Id, left);
+                var tools = LoadToolHistory(latest.Id, latest.ActiveRunId, left);
+                await Task.WhenAll(said, tools);
+                (stored, history, thread, seenThreadRevision) = (await said, await tools, latest, revision);
+
+                if (latest.ActiveRunId is { } runId && run?.RunId != runId)
+                {
+                    Watch(runId);
+                }
+
+                await ReportBusy();
+                ShowNewest();
+                await MarkSeen();
+            }
+            catch (OperationCanceledException) when (left.IsCancellationRequested)
+            {
+                logger.LogDebug("Stopped taking in a change to thread {ThreadId}", thread?.Id);
+                return;
+            }
+            catch (Exception exception) when (Failures.IsReportable(exception))
+            {
+                logger.LogWarning(
+                    exception,
+                    "A change to thread {ThreadId} could not be read in the {Screen}",
+                    thread?.Id,
+                    nameof(ConversationViewModel));
+                return;
+            }
+            finally
+            {
+                timelineGate.Release();
+            }
+        }
+    }
+
+    private bool CanTakeReportedChanges() =>
+        thread is not null && !ReadOnly && !loading && !LoadFailed && !missing && !gone && !sending && !retrying
+        && !changing && run is not { IsActive: true };
 
     // Past tool calls are shown as their runs' logs left them. Without the log the conversation still reads: each call
     // is then shown as the stored messages tell it.
@@ -486,8 +567,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     {
         sending = true;
         (problem, notice) = (null, null);
+        var delivered = false;
+        var enteredTimeline = false;
         try
         {
+            await timelineGate.WaitAsync(left);
+            enteredTimeline = true;
             thread = await OpenThread();
             var fileIds = inFlight = draft.FileIds;
             var sent = await api.SendMessage(SpaceId, thread.Id, text, fileIds: fileIds);
@@ -506,19 +591,30 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             await ReportBusy();
 
             ShowNewest();
-            return true;
+            delivered = true;
+        }
+        catch (OperationCanceledException) when (left.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped sending to thread {ThreadId}", thread?.Id);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
             problem = $"Your message was not sent. {Failures.Sentence(exception)} It is back in the message field.";
-            return false;
         }
         finally
         {
+            if (enteredTimeline)
+            {
+                timelineGate.Release();
+            }
+
             sending = false;
             inFlight = [];
         }
+
+        await TakeReportedChanges();
+        return delivered;
     }
 
     // The first message of a new side chat makes its thread, and the address follows.
@@ -658,8 +754,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
         retrying = true;
         (problem, notice) = (null, null);
+        var enteredTimeline = false;
         try
         {
+            await timelineGate.WaitAsync(left);
+            enteredTimeline = true;
             var next = await api.RetryRun(SpaceId, failure.RunId);
             thread = thread with { ActiveRunId = next.Id, Attention = thread.Attention with { Failed = false, LastFailure = null } };
             await ThreadChanged(thread);
@@ -669,6 +768,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             // The line and its button are gone; Stop, in the composer, took their place.
             returnToComposer = true;
         }
+        catch (OperationCanceledException) when (left.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped retrying thread {ThreadId}", thread?.Id);
+        }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
@@ -676,8 +779,15 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            if (enteredTimeline)
+            {
+                timelineGate.Release();
+            }
+
             retrying = false;
         }
+
+        await TakeReportedChanges();
     }
 
     #endregion
@@ -701,8 +811,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
         changing = true;
         (problem, notice) = (null, null);
+        var enteredTimeline = false;
         try
         {
+            await timelineGate.WaitAsync(left);
+            enteredTimeline = true;
             var started = await ask(thread);
             stored = await api.ListMessages(SpaceId, thread.Id);
             thread = thread with
@@ -715,6 +828,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             await ReportBusy();
             ShowNewest();
         }
+        catch (OperationCanceledException) when (left.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped changing thread {ThreadId}", thread?.Id);
+        }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
@@ -722,8 +839,15 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            if (enteredTimeline)
+            {
+                timelineGate.Release();
+            }
+
             changing = false;
         }
+
+        await TakeReportedChanges();
     }
 
     // The server shows the other version with what followed it; the conversation is read again to show it.
@@ -736,13 +860,20 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
         changing = true;
         problem = null;
+        var enteredTimeline = false;
         try
         {
+            await timelineGate.WaitAsync(left);
+            enteredTimeline = true;
             await api.ShowMessageVersion(SpaceId, thread.Id, messageId);
             var said = api.ListMessages(SpaceId, thread.Id);
             var tools = LoadToolHistory(thread.Id, null);
             await Task.WhenAll(said, tools);
             (stored, history, run) = (await said, await tools, run is { IsActive: true } ? run : null);
+        }
+        catch (OperationCanceledException) when (left.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped changing thread {ThreadId}", thread?.Id);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -751,8 +882,15 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            if (enteredTimeline)
+            {
+                timelineGate.Release();
+            }
+
             changing = false;
         }
+
+        await TakeReportedChanges();
     }
 
     #endregion
@@ -1029,17 +1167,25 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
                 Changed();
             }
 
-            stored = await api.ListMessages(SpaceId, threadId, cancellationToken);
-            (run, problem, notice) = (view, null, view.Notice());
-
-            // A message sent just as the run ended is answered by a run of its own, which is followed next.
-            thread = await api.GetThread(SpaceId, threadId, cancellationToken);
-            await ThreadChanged(thread);
-            await MarkSeen();
-            if (thread.ActiveRunId is { } next && next != runId)
+            await timelineGate.WaitAsync(cancellationToken);
+            try
             {
-                Watch(next);
-                return;
+                stored = await api.ListMessages(SpaceId, threadId, cancellationToken);
+                (run, problem, notice) = (view, null, view.Notice());
+
+                // A message sent just as the run ended is answered by a run of its own, which is followed next.
+                thread = await api.GetThread(SpaceId, threadId, cancellationToken);
+                await ThreadChanged(thread);
+                await MarkSeen();
+                if (thread.ActiveRunId is { } next && next != runId)
+                {
+                    Watch(next);
+                    return;
+                }
+            }
+            finally
+            {
+                timelineGate.Release();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1055,6 +1201,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         await ReportBusy();
+        await TakeReportedChanges();
         Changed();
     }
 
