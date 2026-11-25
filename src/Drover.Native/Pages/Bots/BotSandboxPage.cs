@@ -256,13 +256,13 @@ public sealed class BotSandboxPage : Screen
                     ActionCommand = model.LoadCommand,
                 },
                 BotSandboxContent.NotPermitted => Empty(
-                    BotSandboxViewModel.NotPermittedTitle, BotSandboxViewModel.NotPermittedCause, "Back to the crew", Addresses.Home),
+                    BotSandboxViewModel.NotPermittedTitle, BotSandboxViewModel.NotPermittedCause, "Back to conversations", Addresses.Home),
                 BotSandboxContent.Missing => Empty(
-                    BotSandboxViewModel.MissingTitle, BotSandboxViewModel.MissingCause, "See the bots", Addresses.Bots),
+                    BotSandboxViewModel.MissingTitle, BotSandboxViewModel.MissingCause, "Back to bots", Addresses.Bots),
                 BotSandboxContent.NoProvider => Empty(
                     BotSandboxViewModel.NoProviderTitle, BotSandboxViewModel.NoProviderCause, "Open the status page", Addresses.Status),
                 BotSandboxContent.NoSandbox => Empty(
-                    model.NoSandboxTitle, BotSandboxViewModel.NoSandboxCause, "Open its settings", Addresses.Bot(model.BotId)),
+                    model.NoSandboxTitle, BotSandboxViewModel.NoSandboxCause, "Open bot settings", Addresses.Bot(model.BotId)),
                 BotSandboxContent.Sandbox => section,
                 _ => LoadingNote(),
             };

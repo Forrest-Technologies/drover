@@ -103,7 +103,7 @@ public sealed class ScreenPanelViewModel(
         ScreenPanelState.Failed => TryAgain,
         ScreenPanelState.NoProvider => "Open the status page",
         ScreenPanelState.NoScreenButTerminal => "Open its terminal",
-        ScreenPanelState.NoScreen or ScreenPanelState.NoSandbox => "Open its settings",
+        ScreenPanelState.NoScreen or ScreenPanelState.NoSandbox => "Open bot settings",
         _ => null,
     };
 

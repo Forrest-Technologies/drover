@@ -9,6 +9,6 @@ public sealed class NotFound : StackPanel
         Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace5"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace5"));
         Children.Add(Styles.Text("Not found", "DvTextH1"));
         Children.Add(Styles.Text("There is no page at this address."));
-        Children.Add(new Link { Text = "Go to the start page", Address = Addresses.Home });
+        Children.Add(new Link { Text = "Back to conversations", Address = Addresses.Home });
     }
 }

@@ -22,7 +22,7 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     public static string NowTerm => "Now";
 
-    public static string SameWords => "The words are the same. What the tool accepts as input changed.";
+    public static string SameWords => "The description is the same. The tool's input changed.";
 
     public static string Accept => "Accept the change for every bot";
 
