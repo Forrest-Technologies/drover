@@ -486,7 +486,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     /// </summary>
     private async Task ProjectsList()
     {
-        var project = settings.ProjectId ?? throw new CheckFailedException("no project was named for the screen checks");
+        var project = settings.ProjectId
+            ?? throw new CheckFailedException("no project was named for the screen checks");
         var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
         foreach (var width in requiredWidths)
         {

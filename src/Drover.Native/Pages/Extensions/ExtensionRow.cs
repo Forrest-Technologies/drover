@@ -14,7 +14,7 @@ internal sealed class ExtensionRow : Grid
 
     private readonly ListCard card = new();
 
-    private readonly FlexPanel beneath = new() { Gap = Tokens.Number("DvSpace3"), RowGap = Tokens.Number("DvSpace2") };
+    private readonly StackPanel beneath = new() { Spacing = Tokens.Number("DvSpace3") };
 
     private readonly Button turnOn = new() { Kind = ButtonKind.Primary };
 
@@ -29,7 +29,6 @@ internal sealed class ExtensionRow : Grid
     public ExtensionRow(ExtensionsViewModel model)
     {
         this.model = model;
-        card.Beneath = beneath;
         Children.Add(card);
         turnOn.Click += (_, _) => _ = model.TurnOn(shown!);
     }
@@ -60,8 +59,13 @@ internal sealed class ExtensionRow : Grid
             ? null
             : new Badge { Text = ExtensionWords.Status(extension), Kind = ExtensionsViewModel.StatusKind(extension) };
         beneath.Children.Clear();
-        beneath.Children.Add(Actions(extension));
+        if (extension.BotId is { } botId)
+        {
+            beneath.Children.Add(Actions(botId, extension));
+        }
+
         ShowServer(extension);
+        card.Beneath = beneath.Children.Count > 0 ? beneath : null;
         Refresh();
     }
 
@@ -81,21 +85,17 @@ internal sealed class ExtensionRow : Grid
 
     #region Private Methods
 
-    private FlexPanel Actions(ExtensionSummary extension)
+    private FlexPanel Actions(Guid botId, ExtensionSummary extension)
     {
         var actions = new FlexPanel { Gap = Tokens.Number("DvSpace3"), RowGap = Tokens.Number("DvSpace2") };
         (turnOn.Parent as Panel)?.Children.Remove(turnOn);
+        actions.Children.Add(BotParts.Action(
+            ExtensionsViewModel.SetUpLabel(extension),
+            () => navigator.NavigateTo(Addresses.Bot(botId))));
 
-        if (extension.BotId is { } botId)
+        if (model.ShowsTurnOn(extension))
         {
-            actions.Children.Add(BotParts.Action(
-                ExtensionsViewModel.SetUpLabel(extension),
-                () => navigator.NavigateTo(Addresses.Bot(botId))));
-
-            if (model.ShowsTurnOn(extension))
-            {
-                actions.Children.Add(turnOn);
-            }
+            actions.Children.Add(turnOn);
         }
 
         return actions;

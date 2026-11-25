@@ -21,7 +21,8 @@ public sealed class ProjectListPage : Screen
 
     private readonly StackPanel listPanel = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private readonly NamedGroup projects = new(ProjectListViewModel.Heading, "DvSpace3") { Role = AutomationControlType.List };
+    private readonly NamedGroup projects =
+        new(ProjectListViewModel.Heading, "DvSpace3") { Role = AutomationControlType.List };
 
     private readonly Field draftName;
 

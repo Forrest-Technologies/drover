@@ -47,6 +47,7 @@ public sealed class ListCard : StackPanel
 
         frame.PointerEntered += (_, _) => Hover(true);
         frame.PointerExited += (_, _) => Hover(false);
+        frame.PointerCanceled += (_, _) => Hover(false);
         frame.Tapped += (_, args) => OpenFrom(args.OriginalSource as DependencyObject);
         this.WhenShownOrRethemed(Paint);
     }
@@ -145,6 +146,7 @@ public sealed class ListCard : StackPanel
         line.Children.Clear();
         text.Children.Clear();
         link = null;
+        hovered = false;
         focused = false;
 
         if (Leading is { } leading)
@@ -254,8 +256,9 @@ public sealed class ListCard : StackPanel
 
     private void Paint()
     {
-        frame.Fill = Tokens.Brush(this, hovered ? "DvBg2" : "DvBg1");
-        frame.Edge = Tokens.Brush(this, hovered ? "DvText3" : "DvLine");
+        var hovering = hovered && opened is not null;
+        frame.Fill = Tokens.Brush(this, hovering ? "DvBg2" : "DvBg1");
+        frame.Edge = Tokens.Brush(this, hovering ? "DvText3" : "DvLine");
         frame.Ring = focused && opened is not null ? Tokens.Brush(this, "DvEmber") : null;
     }
 
