@@ -41,7 +41,6 @@ internal sealed record AndroidNotificationContent(
 }
 
 
-
 internal sealed record ConversationTarget(Guid Bot, Guid Thread, bool Main, Guid User, string Registration, Guid? Space)
 {
     #region Properties

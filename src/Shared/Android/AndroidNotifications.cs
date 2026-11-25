@@ -1,20 +1,27 @@
 namespace Drover.App.Platforms.Android;
 
 internal static class AndroidNotifications
-
 {
     #region Private Fields
 
     private const string Channel = "drover-runs";
+
     private const string ContentKey = "drover.conversation.content";
+
     private const int NoticeId = 1;
+
     private const int SummaryId = 2;
+
     private const string LockScreenPreview = "drover.push.lock-screen-preview";
+
     private static readonly object gate = new();
 
     internal const string ReplyText = "drover.reply.text";
+
     internal const string OpenAction = "com.forresttechnologies.drover.OPEN_CONVERSATION";
+
     internal const string ReplyAction = "com.forresttechnologies.drover.REPLY";
+
     internal const string DismissAction = "com.forresttechnologies.drover.DISMISS_CONVERSATION";
 
     #endregion
