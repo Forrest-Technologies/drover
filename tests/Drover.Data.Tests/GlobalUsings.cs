@@ -18,6 +18,7 @@ global using Drover.Data.Repositories;
 global using Drover.Data.Tenancy;
 global using Drover.Data.Tests.Isolation;
 global using Drover.Data.Tests.Seeders;
+global using Drover.Domain.Appearance;
 global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;
 global using Drover.Domain.Extensions;

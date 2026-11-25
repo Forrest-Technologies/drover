@@ -80,7 +80,7 @@ Observed on PostgreSQL 16, two users in one space, connected as `drover_app`:
 
 The migration helper `IsolateBySpace(table, audience: true)` emits both policies.
 
-User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.current_user_id()` alone. Special cases, each written out in the migration and each covered by a named test:
+User-owned tables (`user_sessions`, `push_subscriptions`, `user_appearance`) use `user_id = sys.current_user_id()` alone. `user_appearance` stores one theme id, mode and accent for the account, outside any space route. Special cases, each written out in the migration and each covered by a named test:
 
 | Table | Policy |
 | --- | --- |

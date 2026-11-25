@@ -33,7 +33,7 @@ Checked against the code on the trunk, not against older documents.
 | Tools | MCP tool servers with no auth, a header or a sign-in. Built-in tools for time, web pages, web search, memory, images, delegation and the crew |
 | Sandboxes | Optional, turned on with one sandbox service key in `.env` and a restart; the status page names the setting when none is set. A sandbox runs commands, handles files, shows a screen a bot can use, and a person can watch and take over. A finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Uploads use a writable directory in the image; a failed write answers 503 with `storage_unavailable` |
 | Models | Two kinds of connection: one hosted provider with its own adapter, and any server that speaks the chat completions API. A stored catalog of each connection's models. Stored fallback lists. Usage and cost per run and per bot |
-| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Going back names where it goes: Back to conversations or Back to bots. A thing that is gone reads as not found, as in Bot not found or Conversation not found. Pressable controls take their smallest height from the device's pointer: 44 px for a finger, 32 px for a mouse. A screen shows at most one primary action at rest. Lists of projects and bots draw each item with a card that opens on tap, click, Enter or Space. Extensions use the same card frame, with their actions in words beneath it. Model and tool connections use the same card with their actions in a More menu; their add forms open in a sheet from the header, replacing a key or a header opens a dialog, and Extensions has one add menu for import and make. Projects read first and open a sheet to change their name and instructions; a new project is made from a dialog. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
+| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Going back names where it goes: Back to conversations or Back to bots. A thing that is gone reads as not found, as in Bot not found or Conversation not found. Pressable controls take their smallest height from the device's pointer: 44 px for a finger, 32 px for a mouse. A screen shows at most one primary action at rest. Lists of projects and bots draw each item with a card that opens on tap, click, Enter or Space. Extensions use the same card frame, with their actions in words beneath it. Model and tool connections use the same card with their actions in a More menu; their add forms open in a sheet from the header, replacing a key or a header opens a dialog, and Extensions has one add menu for import and make. Projects read first and open a sheet to change their name and instructions; a new project is made from a dialog. Theme, mode and accent choices apply at once, stay available offline and follow a signed-in person's account across devices. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
 | People | Password sign-in, a setup code for the first account, device sessions. Each person has their own space. Roles exist (owner, admin, member), and there is no way yet to invite a second person |
 | Security | Row-level security in PostgreSQL enforces isolation between spaces and people. Grants are checked at call time and narrow down the hierarchy. Secrets are encrypted with a key ring and never returned. A deployment policy sets every limit, and limits only narrow. Containers run read-only with capabilities dropped. Every pull request runs code scanning, secret scanning, dependency and license checks |
 | Documentation | `README.md`, `AGENTS.md`, `CODE_STYLE.md`, `DESIGN.md`, nineteen architecture files, eighteen decision records, and guides for self-hosting, desktop installers and the Android preview |
@@ -48,7 +48,7 @@ Checked against the code on the trunk, not against older documents.
 | Complete | No desktop or iOS release. No app update notice | 08 |
 | Complete | No shared spaces in practice: nobody can be invited | 09 |
 | Complete | A room is recorded as the lead bot's conversation with a cap on bot replies between a person's messages (ADR 0019), but no room view is built. Searchable text and a bounded finder are in place without a find control. Message actions, voice and offline reading are open | 13, 18, 19, 20 |
-| Yours to shape | One look in two modes. No shortcuts list, no command palette, few display choices | 12, 14 |
+| Yours to shape | Two built-in themes have dark, light and black modes, accents and account-wide sync. No shortcuts list, no command palette, few display choices | 12, 14 |
 | Secure | Known defects in sandbox network rules, sessions, logs and outbound calls | 02 |
 | Secure | No single page that says what is protected and how it is proven. No proof of who may call each route | 02 |
 | Secure | Password only. No identity provider, no second step, no readable audit log | 09 |
@@ -496,7 +496,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 ### 14 Make it yours
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/14) · 20 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/14) · 21 issues
 
 **Goal.** Make the app yours with more themes, a theme editor, shortcuts, a command palette, notification choices and starting-point bots.
 
@@ -522,6 +522,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #783 feat: code, output, cards and previews follow the theme through a blocks token group
 - #784 docs: theme file reference and schema for people who write themes by hand
 - #788 feat: professional presets: Slate, Linen and Graphite, restrained looks people can pick
+- #908 feat: save a person's theme, mode and accent on their account across devices
 
 ### 15 Tools and reach
 
