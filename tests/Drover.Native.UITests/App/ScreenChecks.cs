@@ -606,6 +606,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             navigator.NavigateTo(Addresses.Project(project));
             await Shown("ScreenBack");
             var edit = await Shown("EditProject");
+            await Until("EditProject to take focus", () =>
+            {
+                edit.Focus(FocusState.Keyboard);
+                return IsFocused(edit) ? edit : null;
+            });
             if (VisibleEditor() is { } shown)
             {
                 throw new CheckFailedException($"the project showed a text field before Edit: {shown.GetType().Name}");

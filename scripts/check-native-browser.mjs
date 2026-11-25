@@ -1878,8 +1878,10 @@ async function checkProjectMoveFlow(page) {
     const move = page.getByRole('button', { name: 'Move Quarterly planning to this project', exact: true });
     await move.waitFor({ state: 'attached', timeout: 5000 });
     await move.dispatchEvent('click');
+    await page.getByText('You have no other conversations to move here.', { exact: true })
+        .waitFor({ state: 'attached', timeout: 5000 });
     await page.getByRole('button', { name: 'Done', exact: true }).dispatchEvent('click');
-    const conversation = page.getByRole('link', { name: 'Quarterly planning', exact: true });
+    const conversation = page.getByText('Quarterly planning', { exact: true });
     await conversation.waitFor({ state: 'attached', timeout: 5000 });
 
     await focusSettled(page);
