@@ -79,6 +79,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("back", Back);
                 await Step("projects list", ProjectsList);
                 await Step("project back", ProjectBack);
+                await Step("target sizes", TargetSizes);
 #if !__IOS__
                 await Step("tool server sheet", ToolServerSheet);
 #endif
@@ -482,6 +483,52 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await Press("TalkBack");
         await Until("the crew without the conversation", () =>
             Find("CrewRow") is { } row && Find("ComposerField") is null ? row : null);
+    }
+
+    /// <summary>
+    /// Every pressable control on Bots and Status is at least a pointer's height with a pointer, or a finger's
+    /// height on a device. The card's row carries the height of the link inside its name, so the link itself is not
+    /// measured.
+    /// </summary>
+    private async Task TargetSizes()
+    {
+        var minimum = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() ? 44d : 32d;
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+
+        navigator.NavigateTo(Addresses.Bots);
+        await Shown("CrewRow");
+        CheckHeights("Bots", minimum);
+
+        navigator.NavigateTo(Addresses.Status);
+        await Until("the status report", () => WindowSays("This server") ? window.Content : null);
+        CheckHeights("Status", minimum);
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    private void CheckHeights(string screen, double minimum)
+    {
+        if (window.Content is not FrameworkElement root)
+        {
+            throw new CheckFailedException($"{screen} has no content to measure");
+        }
+
+        var small = Descendants(root).Prepend(root)
+            .OfType<FrameworkElement>()
+            .Where(IsShown)
+            .Where(element => element is Pressable or ToggleButton or CheckBox)
+            .Where(element => element is not RowLink)
+            .Where(element => element.ActualHeight < minimum - 0.5)
+            .Select(element => $"{element.GetType().Name} {AutomationProperties.GetName(element)}: {element.ActualHeight:0.#}px")
+            .ToList();
+
+        if (small.Count > 0)
+        {
+            throw new CheckFailedException(
+                $"{screen} has pressable controls below {minimum:0}px: {string.Join("; ", small)}");
+        }
     }
 
     /// <summary>
