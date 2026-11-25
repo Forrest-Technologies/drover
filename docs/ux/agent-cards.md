@@ -6,7 +6,7 @@ Wording follows the [copy guide](copy-guide.md). Code, tables and other machine 
 
 **The rule behind every card:** a card is the bot's content in a frame Drover draws. Drover owns the frame, the state words and every button that does something other than send words. The bot owns only the words it wrote, and those words are drawn as plain text, inside the frame, in the bot's turn. A press never does more than the card shows.
 
-Designed against the default theme of #906 (Front Office) on `feat/uno-assistant-parity`. Every card is built from tokens and the `Facet` frame, so it is correct in every theme of the family and in dark, light and black.
+Designed against the default theme of #906 (Front Office) on `develop`. Every card is built from tokens and the `Facet` frame, so it is correct in every theme of the family and in dark, light and black.
 
 ## Contents
 
@@ -346,7 +346,7 @@ Every card of section 3 has these states. A slot card maps its own states onto t
 | Sending | After `Send answer` or a quick reply, until the server answers | every control disabled, the line in `text-3` in the note's place | `Sending your answer.` |
 | Answered | This person answered | the body is replaced by one line in `text-2` | `You chose {labels}.`, `You answered: {text}`, `You chose {labels} and answered: {text}`, `You sent this form.` with the facts under it |
 | Answered on another device | The answer arrived from elsewhere while this card was open | the answered line, and the note (`Info`) | `Answered on another device.` |
-| Answered by someone else | In a conversation shared with other people, another person answered | the line | `{person} chose {labels}.`, `{person} answered: {text}`, `{person} sent this form.` |
+| Answered by someone else | In a conversation shared with other people, the person the run acts for answered, and this viewer is someone else there | the line | `{person} chose {labels}.`, `{person} answered: {text}`, `{person} sent this form.` |
 | Closed | A `conversation.show` card no one answered, and a message from a person came after it | the body without the action row, options drawn as text, and the line | `Closed. The conversation went on.` |
 | Expired | An `ask.person` card whose run ended (stopped, failed, or past the wait limit of #485) before an answer | the body without the action row, and the line | `Expired. The run ended before an answer.` |
 | Skipped | An `ask.person` card the person skipped | the line | `You skipped this question.` |
@@ -440,7 +440,7 @@ public sealed record CardAnswer(Guid ToolCallId, IReadOnlyList<int>? Choices = n
 | Contract | Change |
 | --- | --- |
 | `MessagePartResponse` | kind `answer` is added to the list in its summary. New member `CardAnswer? Answer` |
-| `SendMessageRequest` | `CardAnswer? Answer = null` as the last parameter (#880) |
+| `SendMessageRequest` | `CardAnswer? Answer = null` as the last parameter (#924) |
 | `ConversationExport` | the fallback and the answer for each card (#925) |
 
 No new run event type. A card travels in the standard tool events and the stored parts.
@@ -464,7 +464,29 @@ No new run event type. A card travels in the standard tool events and the stored
 
 ### 7.4 Answering
 
-#925 builds what #880 section 2 calls "Engine: answering": `AnswerPart`, `CardAnswers.Check`, the 409, and the words written by the server through `CardText.Words`. The endpoint is the existing send route, `POST /api/spaces/{spaceId}/threads/{threadId}/messages`, with `answer` set. Who may answer: the person the run acts for, under row-level security, so another person's private conversation is not found (404).
+#925 builds what #880 section 2 calls "Engine: answering": `AnswerPart`, `CardAnswers.Check`, the 409, and the words written by the server through `CardText.Words`. The endpoint is the existing send route, `POST /api/spaces/{spaceId}/threads/{threadId}/messages`, with `answer` set.
+
+**Who may answer.** One rule, the same in section 5 and here: only the person the run acts for (`Run.PrincipalUserId`) answers a card, in a private conversation and in a shared one alike.
+
+- Row-level security still hides another person's private conversation, so an answer there is not found (404).
+- In a shared conversation any member may still write a message, as today, but `CardAnswers.Check` compares the sender with the run's `PrincipalUserId` and refuses anyone else with 403 and the sentence `Only {person} can answer this.` Row-level security alone does not do this, because every member of a shared conversation can see it.
+- Everyone else in a shared conversation sees the card as Read only while it waits, and as Answered by someone else once the person the run acts for has answered.
+- A slot card keeps its own issue's rule (section 4): for some only an owner or admin of the space answers.
+
+**What `CardAnswers.Check` checks.** The client sends only indexes and what was typed, so every part of a `CardAnswer` is checked on the server before any words are written. A failed check is 400 with a sentence, unless its row names another status, and no message is stored.
+
+| Check | Refused when |
+| --- | --- |
+| The call | `ToolCallId` is not a completed `conversation.show` call in this `threadId` of this `spaceId`, in the message version shown (section 6) |
+| The kind | the stored card is not `replies`, `choices` or `form`. A `checklist`, `table`, `board` or unknown kind has no answer |
+| The sender | not the run's `PrincipalUserId` (403, above) |
+| Once | the card was already answered, or a person's message came after it (409, section 6) |
+| Choices | an index outside the stored list, an index given twice, more than one index for `replies` or when `Multiple` is false, or none at all without `Text` |
+| Something else | `Text` on a kind that does not offer it, or `Text` over 2,000 characters |
+| Form values | a key the stored form does not declare, a required field missing, a `text` value over 200 characters, a `number` that is not a finite number or is outside its `min` and `max`, a `date` that is not a real `yyyy-mm-dd` day, a `choice` value that is not one of its options |
+| Plain text | a control character other than a line break in `Text`, or any control character in a value of `Values` |
+
+The limits are the numbers of `CardLimits` (1.3), read by the server, never sent by the client.
 
 ## 8. Keyboard, touch and 360 px
 
@@ -528,6 +550,8 @@ Built bottom up. Each issue is one pull request.
 
 ## Acceptance checks
 
+- [ ] Only the person the run acts for can answer a card in a shared conversation, and another member gets 403 and no message is stored (`tests/Drover.Engine.Tests`, `CardAnswersTests.Only_the_person_the_run_acts_for_answers_in_a_shared_conversation`).
+- [ ] An answer naming a call from another conversation, a kind with no answer, an index out of range or twice, an undeclared or out of range form value, or a control character is refused and stores nothing (`CardAnswersTests.An_answer_that_breaks_a_check_is_refused`, one case per row of 7.4).
 - [ ] A press on a quick reply, a picker or a form sends exactly the words `CardText.Words` writes from the stored card, whatever the request's text says (`tests/Drover.Engine.Tests`, `CardAnswersTests.The_server_writes_the_words_from_the_stored_card`).
 - [ ] A card schema has no field that carries a value, an address or an action other than a board row's `https` link (`tests/Drover.Engine.Tests`, `ConversationCardsTests.An_option_has_one_string_and_no_hidden_value`).
 - [ ] Every limit of 1.3 refuses with its sentence, and no card is drawn.

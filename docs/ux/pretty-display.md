@@ -6,7 +6,7 @@ Wording follows the [copy guide](copy-guide.md). Cards a bot sends are in [agent
 
 **The rule behind it:** the same kind of content looks and acts the same wherever it shows. Machine text (code, commands, output, arguments, results, JSON, logs, differences, tables a program printed, configuration) is always one block, with one bar, in the machine face, colored only by the theme's `blocks` group. Words people and bots wrote are always markdown, never a block. A long value is always cut the same way and always reachable in full.
 
-Designed against the default theme of #906 (Front Office) on `feat/uno-assistant-parity`, where #677 already draws blocks by what they hold. This file says what changes from that, and what stays.
+Designed against the default theme of #906 (Front Office) on `develop`, where #677 already draws blocks by what they hold. This file says what changes from that, and what stays.
 
 ## 1. Where content shows today
 
@@ -140,13 +140,15 @@ Saved: a toast `Saved {name}.` Cancelled: nothing. Failed: a toast `Could not sa
 - **Folding.** An object or an array with more than 20 members, or deeper than the second level, starts folded, drawn as one line: `"rows": [ 40 items ]`, `"meta": { 12 keys }`. A press on the line, or Enter or Space on it, opens one level. An open one can be folded again. `Open all` and `Fold all` are items of the block's `More` menu, and buttons in full screen.
 - Each foldable line is a row with a chevron (`ChevronRight` folded, `ChevronDown` open) before it, and is one stop for the keyboard. Arrow keys move between foldable rows, Right opens, Left folds.
 - A folded line's accessible name: `{key}, list of {n} items, folded` or `{key}, object with {n} keys, folded`.
-- Past 2,000 lines the block is drawn as highlighted text with no folding, because a tree that long costs too much to draw on a phone.
+- **Bounded before it is read.** JSON from a tool or a bot is untrusted, so the outline is built only when the text is at most `CodeContent.MaxDetectLength` characters (1,048,576) and nests at most `ToolResults.MaxReadDepth` levels (64), read with a reader that stops at that depth and never by recursion. Past either, the block is highlighted text with no folding, decided before anything is indented or drawn.
+- Past 2,000 lines once indented the block is also drawn as highlighted text with no folding, because a tree that long costs too much to draw on a phone.
 - Where folding JSON shows: tool arguments and results, Activity, the input schema of a tool (2.7), the result of "Try it", an audit entry's detail (#590).
 
 ### 2.7 Differences
 
 - A unified diff is drawn as #677 does: added lines in `ok`, removed lines in `danger`, each keeping its `+` or `-`, hunk headers in `text-3`.
 - **Before and after.** Wherever the app shows a value before and after a change, it is one difference block, worked out by lines, with the label `Changes`: a tool's description and its input schema in Tool connections, a note a bot changed (`Updated a note`), a routine a bot asks to change (#158), a credential's hosts (#207). A value of one line is shown as two lines, `-` before and `+` after.
+- **Bounded.** A tool's description and schema come from a remote tool server and are untrusted, so the line difference is worked out only when each side is at most 2,000 lines and 64 KiB (`TextDifference.MaxLines`, `TextDifference.MaxLength`, #931). Past either, nothing is matched: the block shows every line before as removed, then every line after as added, so it stays correct and costs one pass.
 - **A tool's input.** A tool in Tool connections gains a `What it accepts` `Disclosure`, closed, holding its input schema as a folded JSON block. A changed tool shows the schema's difference there instead.
 - At 360 px a difference is always unified, never side by side.
 
@@ -278,7 +280,9 @@ Nothing else is added. Collapse, folding and cutting are not extras: they are ho
 - [ ] Terminal escapes never reach the screen or the clipboard (`TerminalTextTests.Escapes_are_removed_and_a_carriage_return_keeps_the_last_state`).
 - [ ] A command is drawn whole, every line, in every place it shows (`CommandTextTests.A_multi_line_command_is_kept_whole`).
 - [ ] A JSON object past 20 members or the second level starts folded, and copy gives the original text (`JsonOutlineTests.Large_and_deep_members_start_folded_and_copy_is_the_original`).
+- [ ] JSON past the size or depth cap is drawn as highlighted text with no folding, without being indented first (`JsonOutlineTests.Json_past_the_size_or_depth_cap_is_not_folded`).
 - [ ] Before and after show as one difference with `+` and `-` kept (`TextDifferenceTests.Lines_removed_and_added_keep_their_marks`).
+- [ ] Before and after past 2,000 lines or 64 KiB a side show the removed block, then the added block, with no matching (`TextDifferenceTests.Past_the_cap_shows_removed_then_added`).
 - [ ] A link whose text names another host shows the real host (`MarkdownLinkTests.Link_text_that_names_another_host_shows_the_real_host`).
 - [ ] No block uses `ember`, `ion` or `violet`.
 - [ ] Every sentence in this file appears exactly as written.
