@@ -213,6 +213,12 @@ public sealed partial class ModelConnectionsViewModel(
                 : $"{entry.DisplayName} is no longer marked as reading pictures.");
         });
 
+    public void HideCatalog()
+    {
+        ShownCatalog = null;
+        Catalog = null;
+    }
+
     public Task RefreshCatalog(ModelConnectionSummary connection) =>
         Change(connection, async () =>
         {
