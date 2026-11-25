@@ -1858,6 +1858,7 @@ async function checkProjectDraftsAndKeyboard(page) {
     await page.keyboard.press('Escape');
     await page.getByRole('heading', { name: 'Discard changes?', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
     await page.getByRole('button', { name: 'Keep editing', exact: true }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).dispatchEvent('click');
     await page.getByRole('button', { name: 'Discard', exact: true }).dispatchEvent('click');
     await nameField.waitFor({ state: 'detached', timeout: 5000 });
 }
