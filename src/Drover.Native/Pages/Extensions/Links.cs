@@ -1,6 +1,6 @@
 namespace Drover.Native.Pages;
 
-/// <summary>The links of the extensions screens: the main text color, underlined, as tall as a finger.</summary>
+/// <summary>The links of the extensions screens: the main text color, underlined, as tall as a control.</summary>
 internal static class Links
 {
     #region Public Methods

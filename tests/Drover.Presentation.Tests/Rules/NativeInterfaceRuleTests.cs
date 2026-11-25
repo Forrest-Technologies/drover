@@ -30,7 +30,6 @@ public sealed partial class NativeInterfaceRuleTests
         ("Layouts/WorkLayout.cs", "the top bar and its home link are a bar, not a control"),
         ("Layouts/NavLink.cs", "the links of the top bar are a bar, not controls"),
         ("Session/AccountMenu.cs", "the account menu trigger belongs to the top bar"),
-        ("Chat/FileCard.cs", "conversation files move to Targets.Minimum in #735"),
         ("Chat/NativeFilePreviewControl.cs", "conversation previews move to Targets.Minimum in #735"),
     ];
 
@@ -52,7 +51,6 @@ public sealed partial class NativeInterfaceRuleTests
         ("Pages/Tools/ToolConnectionsPage.cs", "Tools sheets and dialogs"),
         ("Pages/Extensions/ImportExtensionForm.cs", "extension import form"),
         ("Pages/Extensions/ExtensionEditorPage.xaml", "extension editor"),
-        ("Pages/Extensions/ExtensionServerSteps.cs", "extension connection steps"),
         ("Pages/Bots/BotEditorPage.xaml.cs", "bot editor save bar"),
         ("Pages/Bots/Parts/RuleForm.cs", "bot editor rule form"),
         ("Pages/Bots/Parts/RoutinesSectionView.cs", "bot editor routine form"),
@@ -277,9 +275,11 @@ public sealed partial class NativeInterfaceRuleTests
         const string Sample = """
             toggle.MinHeight = Tokens.Number("DvTargetTouch");
             var link = new Link { MinWidth = Tokens.Number("DvTargetTouch") };
+            <dv:Button MinHeight="{StaticResource DvTargetTouch}" />
+            <dv:Button MinWidth="{ThemeResource DvTargetTouch}" />
             """;
 
-        TouchHeight().Count(Sample).Should().Be(2);
+        TouchHeight().Count(Sample).Should().Be(4);
     }
 
     [Fact]
@@ -305,15 +305,17 @@ public sealed partial class NativeInterfaceRuleTests
     {
         var source = Repository.NativeFiles(".cs").Single(file => file.Path == "Layouts/PhoneNav.cs").Text;
 
-        WrongDockIcons(source).Should().BeEmpty("the dock uses each screen's own icon");
+        DockIcons(source).Should().BeEquivalentTo(dockIcons, "the dock uses each screen's own icon");
     }
 
     [Fact]
     public void A_borrowed_dock_icon_is_caught()
     {
         const string Sample = """
-            new("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
-            new("Tools", Addresses.Tools, icon: IconName.Settings),
+            new NavLink("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
+            new NavLink("Projects", Addresses.Projects, icon: IconName.Project),
+            new NavLink("Bots", Addresses.Bots, icon: IconName.Crew),
+            new NavLink("Tools", Addresses.Tools, icon: IconName.Settings),
             """;
 
         WrongDockIcons(Sample).Should().ContainSingle("a borrowed icon is a counterexample");
@@ -462,19 +464,23 @@ public sealed partial class NativeInterfaceRuleTests
         DockIcon().Matches(text).Cast<Match>()
             .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value);
 
-    private static List<string> WrongDockIcons(string text) =>
-    [
-        .. DockIcons(text).Where(item => !dockIcons.TryGetValue(item.Key, out var icon) || icon != item.Value)
-            .Select(item => $"{item.Key}: {item.Value}"),
-    ];
+    private static List<string> WrongDockIcons(string text)
+    {
+        var found = DockIcons(text);
+        return
+        [
+            .. dockIcons.Where(expected => !found.TryGetValue(expected.Key, out var icon) || icon != expected.Value)
+                .Select(expected => $"{expected.Key}: {(found.TryGetValue(expected.Key, out var icon) ? icon : "missing")}"),
+        ];
+    }
 
-    [GeneratedRegex(@"\b(?:MinHeight|MinWidth)\s*=\s*Tokens\.Number\(\s*""DvTargetTouch""\s*\)")]
+    [GeneratedRegex(@"\b(?:MinHeight|MinWidth)\s*=\s*(?:Tokens\.Number\(\s*""DvTargetTouch""\s*\)|""\{(?:StaticResource|ThemeResource) DvTargetTouch\}"")")]
     private static partial Regex TouchHeight();
 
     [GeneratedRegex(@"ButtonKind\.Primary|Kind\s*=\s*""Primary""")]
     private static partial Regex PrimaryButton();
 
-    [GeneratedRegex(@"new\(""(Chats|Projects|Bots|Tools)""[^)]*IconName\.(\w+)\)")]
+    [GeneratedRegex(@"new(?:\s+NavLink)?\(""(Chats|Projects|Bots|Tools)""[^)]*IconName\.(\w+)\)")]
     private static partial Regex DockIcon();
 
     private static string CardMethod(string source) =>

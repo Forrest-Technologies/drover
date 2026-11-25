@@ -515,13 +515,22 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             throw new CheckFailedException($"{screen} has no content to measure");
         }
 
-        var small = Descendants(root).Prepend(root)
+        var pressables = Descendants(root).Prepend(root)
             .OfType<FrameworkElement>()
             .Where(IsShown)
-            .Where(element => element is Pressable or ToggleButton or CheckBox)
+            .Where(element => element is Pressable or ToggleButton)
             .Where(element => element is not RowLink)
+            .ToList();
+
+        if (pressables.Count == 0)
+        {
+            throw new CheckFailedException($"{screen} has no pressable controls to measure");
+        }
+
+        var small = pressables
             .Where(element => element.ActualHeight < minimum - 0.5)
-            .Select(element => $"{element.GetType().Name} {AutomationProperties.GetName(element)}: {element.ActualHeight:0.#}px")
+            .Select(element =>
+                $"{element.GetType().Name} {AutomationProperties.GetName(element)}: {element.ActualHeight:0.#}px")
             .ToList();
 
         if (small.Count > 0)

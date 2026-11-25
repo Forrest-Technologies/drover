@@ -7,6 +7,8 @@ public sealed class StatusPage : Screen
 
     private readonly WorkLayout layout = new();
 
+    private static readonly ILogger logger = Log.For<StatusPage>();
+
     private readonly StatusPageViewModel model = Make<StatusPageViewModel>();
 
     private bool opening = true;
@@ -38,6 +40,22 @@ public sealed class StatusPage : Screen
         Refresh();
     }
 
+    private async Task Finish(Task pending)
+    {
+        try
+        {
+            await pending;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "The status check could not finish");
+        }
+        finally
+        {
+            Refresh();
+        }
+    }
+
     private void Refresh()
     {
         var body = layout.Body;
@@ -52,7 +70,12 @@ public sealed class StatusPage : Screen
                 IsEnabled = !model.Loading,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            check.Click += async (_, _) => { await model.Load(); Refresh(); };
+            check.Click += (_, _) =>
+            {
+                var pending = model.Load();
+                Refresh();
+                _ = Finish(pending);
+            };
             header.Actions.Add(check);
         }
 
