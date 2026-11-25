@@ -13,6 +13,8 @@ Each file here is the design for one group of roadmap issues. A spec is written 
 | [sign-in.md](sign-in.md) | #524, #860 |
 | [audit-log.md](audit-log.md) | #590 |
 | [conversation-display.md](conversation-display.md) | #862, #863, #594, #598, #600 |
+| [agent-cards.md](agent-cards.md) | #905, #924, #880, #925, #926, #927, #928, #929, #930, #544; the slots of #207, #885, #158, #488, #490, #510 |
+| [pretty-display.md](pretty-display.md) | #783, #595, #565, #931, #932, #933, #934, #935, #936, #596 |
 | [copy-guide.md](copy-guide.md) | #864, #865, #866, and every spec |
 
 Several of these issues were written with their wording marked provisional until a design was approved. These specs are that design. Where a spec repeats an issue's wording, the wording is now final. Where a spec changes it, the spec says so and the spec wins.

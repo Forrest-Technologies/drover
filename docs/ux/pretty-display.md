@@ -1,6 +1,6 @@
 # Pretty display: code, output and everything else the app shows
 
-Issues: #595, #596, #565, #783, and the layers listed in [Issues](#issues).
+Issues: #783, #595, #565, #931, #932, #933, #934, #935, #936, #596. The order to build them is under [Issues](#issues).
 
 Wording follows the [copy guide](copy-guide.md). Cards a bot sends are in [agent-cards.md](agent-cards.md); a block inside a card follows this file.
 
@@ -262,12 +262,12 @@ Nothing else is added. Collapse, folding and cutting are not extras: they are ho
 | Display 1 | #783 | Presentation and native | the `blocks` group, with Front Office's row (2.16) |
 | Display 1 | #595 | Native, then presentation | 2.2 to 2.5 (bar, wrap, collapse, save), 2.9 (tables), math. Highlighting is built (#677); what is left is 2.15 |
 | Display 1 | #565 | Native | copy that tells the truth, tables for screen readers, diagrams in replies |
-| Display 2 | #NEW-7 | Presentation | 2.8's cleaning and whole commands, 2.6's JSON outline, 2.7's line difference, 2.13's middle cut, as pure functions |
-| Display 2 | #NEW-8 | Native | one block everywhere: 2.1, 2.8, 2.10, 2.11 in Activity, the sandbox page, file text, failure reports and "Try it" |
-| Display 2 | #NEW-10 | Native | folding JSON (2.6) |
-| Display 2 | #NEW-11 | Native | before and after as a difference, and `What it accepts` (2.7) |
-| Display 3 | #NEW-12 | Native | long values, `Show all` and `Show less`, selectable text (2.13) |
-| Display 3 | #NEW-13 | Native | the machine face rules, `Field.Machine`, and the real host of a link (2.12, 2.14) |
+| Display 2 | #931 | Presentation | 2.8's cleaning and whole commands, 2.6's JSON outline, 2.7's line difference, 2.13's middle cut, as pure functions |
+| Display 2 | #932 | Native | one block everywhere: 2.1, 2.8, 2.10, 2.11 in Activity, the sandbox page, file text, failure reports and "Try it" |
+| Display 2 | #933 | Native | folding JSON (2.6) |
+| Display 2 | #934 | Native | before and after as a difference, and `What it accepts` (2.7) |
+| Display 3 | #935 | Native | long values, `Show all` and `Show less`, selectable text (2.13) |
+| Display 3 | #936 | Native | the machine face rules, `Field.Machine`, and the real host of a link (2.12, 2.14) |
 | Display 3 | #596 | All layers | the picture viewer and source markers |
 
 ## Acceptance checks

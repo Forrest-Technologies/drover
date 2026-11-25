@@ -1,6 +1,6 @@
 # Cards a bot sends
 
-Issues: #905 (the proposal), #880, #544, #207, #885, #158, #488, #490, #510, and the layers listed in [Issues](#issues).
+Issues: #905 (the proposal), #924, #880, #925, #926, #927, #928, #929, #930, #544, and the slot cards of #207, #885, #158, #488, #490 and #510. The order to build them is under [Issues](#issues).
 
 Wording follows the [copy guide](copy-guide.md). Code, tables and other machine text inside a card follow [pretty-display.md](pretty-display.md).
 
@@ -102,7 +102,7 @@ Which report should I start with?
 
 ## 2. The frame every card uses
 
-Every card in a conversation is drawn in one frame, `CardFrame`: the cards of this spec, the slot cards of section 4, and the existing approval, takeover, file and delegation cards (#NEW-9). One frame means one header, one padding, one spacing and one action row on every card.
+Every card in a conversation is drawn in one frame, `CardFrame`: the cards of this spec, the slot cards of section 4, and the existing approval, takeover, file and delegation cards (#930). One frame means one header, one padding, one spacing and one action row on every card.
 
 ```text
 +------------------------------------------------------------+
@@ -309,7 +309,7 @@ The title, then `fallback` in `text-2` as plain text, then the `Info` note `This
 
 | Piece | Where | Properties | Notes |
 | --- | --- | --- | --- |
-| `CardFrame` | `src/Drover.Native/Controls` | `Title`, `Text`, `State` (badge text or null), `Waiting` (bool, sets the edge), `Body`, `Actions`, `Note`, `NoteKind`, `Bare` (bool: only the action row, for quick replies), `AccessibleName` | The one frame of section 2. A rule test holds that every card in `src/Drover.Native/Chat` is drawn in it (#NEW-9) |
+| `CardFrame` | `src/Drover.Native/Controls` | `Title`, `Text`, `State` (badge text or null), `Waiting` (bool, sets the edge), `Body`, `Actions`, `Note`, `NoteKind`, `Bare` (bool: only the action row, for quick replies), `AccessibleName` | The one frame of section 2. A rule test holds that every card in `src/Drover.Native/Chat` is drawn in it (#930) |
 | `ChoiceList` | `src/Drover.Native/Controls` | `Label`, `Options`, `Multiple`, `Selected` (two-way, a list of indexes), `Disabled` | Rows built on `PlainButton` inside an `ArrowKeyZone`. Radio role for one, check box role for several. Row height `density.row`, at least `Targets.Minimum` |
 | Icons `Radio`, `RadioOn`, `Box`, `BoxOn` | `src/Drover.Presentation/Icons` | | In the cut style of the set: an octagon for a radio, a square with a cut corner for a box. The `On` forms fill with `text` |
 | Icons `StateToDo`, `StateDoing`, `StateDone`, `StateFailed` | the same | | For the checklist. Drawn in the color of their word |
@@ -320,17 +320,17 @@ These cards keep the security behavior their issues give them. This spec does no
 
 | Card | Tool or source | Title (Drover's words) | Body | Action row | Issue |
 | --- | --- | --- | --- | --- | --- |
-| Approval | any call set to Ask | `{bot} asks to {request}` | facts, or the arguments as a JSON block | `Approve`*, `Deny` | existing, `ToolCallCard`; frame in #NEW-9 |
+| Approval | any call set to Ask | `{bot} asks to {request}` | facts, or the arguments as a JSON block | `Approve`*, `Deny` | existing, `ToolCallCard`; frame in #930 |
 | Question | `ask.person` | `{bot} asks` | the picker body of 3.2 | `Send answer`*, `Skip this question` | #544 |
 | Credential | `credential.request` | `{bot} asks for a credential` | the bot's text, the hosts line Drover draws, the hidden fields | `Save credential`*, `Skip this request` (the bot may rename both, as #207 says) | #207, #885 |
-| Screen takeover | `computer.handover` | as `TakeoverCard` today | as today | as today | existing; frame in #NEW-9 |
+| Screen takeover | `computer.handover` | as `TakeoverCard` today | as today | as today | existing; frame in #930 |
 | Tool server proposal | `tools.propose_connection` | `Add tool server?` | the host as the largest text, the full address in the machine face, `Proposed by {bot}`, the bot's name and purpose as quoted text | `Connect`*, `Decline` | #490 |
 | Tool server from the catalog | `tools.suggest_connection` | `Add tool server?` | the #490 body, filled from the catalog entry | `Connect`*, `Decline` | #488 |
 | Interactive view from a tool server | a tool server's interface resource | `From {server}: {tool}` | the sealed frame of #510, or its text | `Show as text` | #510 |
 | Routine | `routine.add`, `routine.change` | `Set up a routine?`, `Change this routine?` | the schedule sentence and the whole prompt; for a change, each fact before and after | `Create routine`* or `Change routine`*, `Decline` | #158 |
 | A new bot | `crew.add` | `{bot} asks to make a bot` | the facts as today | `Approve`*, `Deny` | existing |
-| File | a file the bot shared | the file's name | the preview | `Download`, `Save`, `Share` as today | existing, `FileCard`; frame in #NEW-9 |
-| Delegation | `delegate` | as `DelegationCard` today | as today | as today | existing; frame in #NEW-9 |
+| File | a file the bot shared | the file's name | the preview | `Download`, `Save`, `Share` as today | existing, `FileCard`; frame in #930 |
+| Delegation | `delegate` | as `DelegationCard` today | as today | as today | existing; frame in #930 |
 | Tool call | any other call | its label, as today | its disclosure, with blocks from [pretty-display.md](pretty-display.md) | none | existing |
 
 For a person who may not answer one of these, the note is the issue's own sentence. Where an issue gives none: `Only {person} can answer this.`; on a card only an owner or admin can answer: `An owner or admin of this space can answer this.` This settles #490 and #488: a member reads `An owner or admin of this space can connect this tool server.`
@@ -380,7 +380,7 @@ A card is drawn from what the server stored, live and later alike. There is no c
 
 ## 7. Contracts
 
-At the level a builder needs. Names are new unless the text says otherwise. #NEW-1 builds 7.1 and 7.2, #880 builds 7.3, #NEW-2 builds 7.4.
+At the level a builder needs. Names are new unless the text says otherwise. #924 builds 7.1 and 7.2, #880 builds 7.3, #925 builds 7.4.
 
 ### 7.1 `Drover.Contracts.Cards`
 
@@ -440,7 +440,7 @@ public sealed record CardAnswer(Guid ToolCallId, IReadOnlyList<int>? Choices = n
 | --- | --- |
 | `MessagePartResponse` | kind `answer` is added to the list in its summary. New member `CardAnswer? Answer` |
 | `SendMessageRequest` | `CardAnswer? Answer = null` as the last parameter (#880) |
-| `ConversationExport` | the fallback and the answer for each card (#NEW-2) |
+| `ConversationExport` | the fallback and the answer for each card (#925) |
 
 No new run event type. A card travels in the standard tool events and the stored parts.
 
@@ -463,7 +463,7 @@ No new run event type. A card travels in the standard tool events and the stored
 
 ### 7.4 Answering
 
-#NEW-2 builds what #880 section 2 calls "Engine: answering": `AnswerPart`, `CardAnswers.Check`, the 409, and the words written by the server through `CardText.Words`. The endpoint is the existing send route, `POST /api/spaces/{spaceId}/threads/{threadId}/messages`, with `answer` set. Who may answer: the person the run acts for, under row-level security, so another person's private conversation is not found (404).
+#925 builds what #880 section 2 calls "Engine: answering": `AnswerPart`, `CardAnswers.Check`, the 409, and the words written by the server through `CardText.Words`. The endpoint is the existing send route, `POST /api/spaces/{spaceId}/threads/{threadId}/messages`, with `answer` set. Who may answer: the person the run acts for, under row-level security, so another person's private conversation is not found (404).
 
 ## 8. Keyboard, touch and 360 px
 
@@ -514,15 +514,15 @@ Built bottom up. Each issue is one pull request.
 
 | Stack | Issue | Layer | Builds |
 | --- | --- | --- | --- |
-| Cards 1 | #NEW-1 | Contracts | 7.1, 7.2 |
+| Cards 1 | #924 | Contracts | 7.1, 7.2 |
 | Cards 1 | #880 | Engine | 7.3: the tool, its validation and grants |
-| Cards 1 | #NEW-2 | Engine and server | 7.4, the 409, the export |
-| Cards 2 | #NEW-3 | Presentation | cards from stored parts, section 6; the view models and states of section 5 |
-| Cards 2 | #NEW-4 | Native | `CardFrame`, `ChoiceList`, the icons; quick replies and the picker |
-| Cards 2 | #NEW-5 | Native | the form |
-| Cards 2 | #NEW-6 | Native | checklist, table and board, and the Not shown state |
+| Cards 1 | #925 | Engine and server | 7.4, the 409, the export |
+| Cards 2 | #926 | Presentation | cards from stored parts, section 6; the view models and states of section 5 |
+| Cards 2 | #927 | Native | `CardFrame`, `ChoiceList`, the icons; quick replies and the picker |
+| Cards 2 | #928 | Native | the form |
+| Cards 2 | #929 | Native | checklist, table and board, and the Not shown state |
 | Cards 3 | #544 | All layers | the waiting question on the picker body |
-| Cards 3 | #NEW-9 | Native | approval, takeover, file and delegation cards in `CardFrame` |
+| Cards 3 | #930 | Native | approval, takeover, file and delegation cards in `CardFrame` |
 | Slots | #207, #885, #158, #488, #490, #510 | As each says | their bodies in `CardFrame`, with the words of section 4 |
 
 ## Acceptance checks

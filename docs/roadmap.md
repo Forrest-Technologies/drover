@@ -439,9 +439,9 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 ### 13 Conversation tools
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/13) · 35 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/13) · 41 issues
 
-**Goal.** Act on a message, find anything said in one or every conversation, and manage conversations, with the remaining interface defects fixed.
+**Goal.** Act on a message, find anything said in one or every conversation, and manage conversations, with the remaining interface defects fixed. Code, output and everything else the app shows look and act the same wherever they appear.
 
 **Issues.**
 
@@ -480,6 +480,14 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #711 feat: project names and project files in search results, server
 - #712 feat: project names and project files in search results, native client
 - #713 docs: search layer 3.8, server bench, numbers and docs 02, 04 and 18
+- #931 feat: pure helpers for pretty display: terminal text, whole commands, a JSON outline, line differences, middle cuts and link hosts
+- #932 feat: one block for machine text everywhere: Activity, the sandbox page, text files, failure reports and Try it
+- #933 feat: folding JSON in every block that holds it
+- #934 feat: before and after as one difference, and what a tool accepts, in Tool connections and conversation cards
+- #935 feat: long values cut the same way everywhere, Show all and Show less for long text, and text a bot or machine wrote can be selected
+- #936 feat: the machine face used by one rule, a field for identifiers, and a link that shows its real host
+
+**Interface specs.** [pretty-display.md](ux/pretty-display.md): build #595's first layer, then #931, #932, #933 and #934, then #935 and #936.
 
 ### 14 Make it yours
 
@@ -512,9 +520,9 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 ### 15 Tools and reach
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 26 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 34 issues
 
-**Goal.** Give a bot more built-in tools, let a bot read files and cards from tool servers, and let a person use Drover from other programs with an access token.
+**Goal.** Give a bot more built-in tools, let a bot answer with cards a person can press, read files and cards from tool servers, and let a person use Drover from other programs with an access token.
 
 **Issues.**
 
@@ -544,6 +552,16 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #551 feat: small tools: time zone and date arithmetic, edit an image, describe an image by address
 - #552 feat: a bot stuck in a loop cannot flood a tool server
 - #880 feat: a bot's reply can show choices, a short form, a table or a checklist drawn with Drover's own controls
+- #924 feat: card contracts: one CardSpec for every kind of card a bot sends, its limits, its words and its plain-text fallback
+- #925 feat: answering a card: the person's message carries an answer part, the server writes its words, a second answer is refused
+- #926 feat: cards in the conversation's view models: drawn from stored parts, with every state and its exact words
+- #927 feat: the card frame, the choice list, quick replies and the picker in the native client
+- #928 feat: the short form a bot sends, drawn in the card frame
+- #929 feat: the checklist, the table and the board a bot sends, and a card kind this app does not know
+- #930 refactor: approval, takeover, file and delegation cards share the one card frame
+- #905 feat: cards a bot can send: choices to pick from and a board of figures (the proposal; built by the issues above)
+
+**Interface specs.** [agent-cards.md](ux/agent-cards.md): build #924, #880 and #925, then #926, #927, #928 and #929, then #544 and #930. The credential, tool server and routine cards (#207, #488, #490, #510, and #158 in milestone 17) are drawn in the same frame.
 
 ### 16 Sandbox experience
 
