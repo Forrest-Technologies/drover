@@ -79,6 +79,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("back", Back);
                 await Step("projects list", ProjectsList);
                 await Step("project back", ProjectBack);
+#if !__IOS__
+                await Step("tool server sheet", ToolServerSheet);
+#endif
                 await Step("switch the theme", SwitchTheme);
             }
 
@@ -528,6 +531,40 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await AtWidth(PhoneWidth);
     }
 
+    /// <summary>
+    /// The add form opens as a sheet from the header action and takes the focus into its Name field. The check then
+    /// takes the keyboard close path Escape uses and requires the focus to go back to the action that opened it.
+    /// </summary>
+    private async Task ToolServerSheet()
+    {
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        navigator.NavigateTo(Addresses.Tools);
+        var add = await Shown("AddToolServer");
+        await Until("AddToolServer to take focus", () =>
+        {
+            add.Focus(FocusState.Keyboard);
+            return IsFocused(add) ? add : null;
+        });
+
+        await Press("AddToolServer");
+        var name = await Shown("ToolServerName");
+        await Until("the Name field to take focus", () => IsFocused(name) ? name : null);
+
+        var sheet = Roots()
+            .SelectMany(root => Descendants(root).Prepend(root))
+            .OfType<Sheet>()
+            .FirstOrDefault(element => element.Open)
+            ?? throw new CheckFailedException("the add sheet is not open");
+        sheet.CloseFromKeyboardForCheck();
+
+        await Until("the sheet to close", () => Find("ToolServerName") is null ? window.Content : null);
+        await Until("the focus to return to AddToolServer", () => IsFocused(add) ? add : null);
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
     #endregion
 
     #region Actions
@@ -600,6 +637,24 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         invoker.Invoke();
+    }
+
+    private bool IsFocused(FrameworkElement element)
+    {
+        if (window.Content?.XamlRoot is not { } root)
+        {
+            return false;
+        }
+
+        for (var at = FocusManager.GetFocusedElement(root) as DependencyObject; at is not null; at = VisualTreeHelper.GetParent(at))
+        {
+            if (ReferenceEquals(at, element))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.

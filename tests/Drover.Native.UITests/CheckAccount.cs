@@ -72,6 +72,9 @@ internal sealed class CheckAccount
             cookies,
             $"{space}/projects",
             new CreateProjectRequest("Check project", "A project the screen checks open."));
+        // One connection so the tool screen shows its header action, which opens the add sheet in the screen checks.
+        await Send<Drover.Contracts.Tools.ToolConnectionSummary>(http, cookies, $"{space}/tool-connections",
+            new Drover.Contracts.Tools.CreateToolConnectionRequest("Check tools", "https://tools.example.test/mcp", "oauth"));
         account.SpaceId = session.Spaces[0].Id;
         account.BotId = bot.Id;
         account.ProjectId = project.Id;

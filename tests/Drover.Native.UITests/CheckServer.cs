@@ -120,6 +120,8 @@ internal sealed class CheckServer(
         builder.UseSetting("ConnectionStrings:Drover", database.AppConnectionString);
         builder.UseSetting("DataProtection:KeyPath", Path.Combine(folder, "keys"));
         builder.UseSetting("Files:Path", Path.Combine(folder, "files"));
+        // A tool sign-in connection needs a public address to save; the checks never start one.
+        builder.UseSetting("Drover:PublicUrl", "https://127.0.0.1:1/");
         builder.UseSetting("Drover:SignInRateLimit:PermitLimit", "1000");
         builder.ConfigureLogging(logging =>
         {

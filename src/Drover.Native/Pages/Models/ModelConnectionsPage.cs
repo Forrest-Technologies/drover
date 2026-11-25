@@ -1,13 +1,47 @@
 namespace Drover.Native.Pages;
 
-/// <summary>Inspect, add, and test model connections and replace their encrypted keys.</summary>
+/// <summary>Inspect, add, and test connections and replace their encrypted keys.</summary>
 public sealed class ModelConnectionsPage : Screen
 {
     #region Private Fields
 
+    private static readonly ILogger logger = Log.For<ModelConnectionsPage>();
+
     private readonly WorkLayout layout = new();
 
+    private readonly StackPanel headerContent = new() { Spacing = Tokens.Number("DvSpace3") };
+
     private readonly ModelConnectionsViewModel model = Make<ModelConnectionsViewModel>();
+
+    private readonly Sheet addSheet = new() { Title = "Add a model connection" };
+
+    private readonly Dialog replaceDialog = new();
+
+    private readonly SegmentedControl provider = new() { Label = "Provider", Options = ModelConnectionsViewModel.Providers };
+
+    private readonly Field nameField;
+
+    private readonly Field baseUrlField;
+
+    private readonly Field keyField;
+
+    private readonly Field newKeyField;
+
+    private readonly StatusNote addProblem = new() { Kind = NoteKind.Danger };
+
+    private readonly StatusNote addBusy = new() { Kind = NoteKind.Info };
+
+    private readonly StatusNote replaceProblem = new() { Kind = NoteKind.Danger };
+
+    private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
+
+    private readonly Button cancelAdd;
+
+    private readonly Button addButton;
+
+    private readonly Button cancelReplace;
+
+    private readonly Button saveKey;
 
     #endregion
 
@@ -15,6 +49,60 @@ public sealed class ModelConnectionsPage : Screen
 
     public ModelConnectionsPage()
     {
+        nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
+        baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url",
+            "Any server that speaks the chat completions API.");
+        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", KeyHint());
+        newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
+            "Stored encrypted. It is not shown again.");
+        provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
+        {
+            model.ChooseProvider(provider.Value ?? model.Kind);
+            UpdateAddForm();
+        });
+        nameField.Submitted += (_, _) => Run(model.Add);
+        baseUrlField.Submitted += (_, _) => Run(model.Add);
+        keyField.Submitted += (_, _) => Run(model.Add);
+        newKeyField.Submitted += (_, _) => Run(ReplaceKey);
+
+        cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
+        addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
+        addSheet.Body = PageParts.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy);
+        addSheet.Actions = PageParts.Row(cancelAdd, addButton);
+        nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
+        addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (addSheet.Open)
+            {
+                addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
+            }
+            else
+            {
+                CloseAdd();
+            }
+        });
+
+        cancelReplace = PageParts.Action("Cancel", CancelReplace, Refresh);
+        saveKey = PageParts.Action("Save key", ReplaceKey, Refresh, kind: ButtonKind.Primary);
+        replaceDialog.Body = PageParts.SheetBody(newKeyField, replaceProblem, replaceBusy);
+        replaceDialog.Actions = PageParts.Row(cancelReplace, saveKey);
+        newKeyField.Loaded += (_, _) => { if (replaceDialog.Open) { newKeyField.TakeFocus(); } };
+        replaceDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (replaceDialog.Open)
+            {
+                replaceDialog.DispatcherQueue.TryEnqueue(() => newKeyField.TakeFocus());
+            }
+            else
+            {
+                CloseReplace();
+            }
+        });
+
+        layout.Body.Add(headerContent);
+        layout.Body.Add(addSheet);
+        layout.Body.Add(replaceDialog);
+        Unloaded += (_, _) => CloseAll();
         Content = layout;
         Refresh();
     }
@@ -37,133 +125,269 @@ public sealed class ModelConnectionsPage : Screen
 
     private void Refresh()
     {
-        var body = layout.Body;
-        body.Clear();
-        body.Add(new ScreenHeader { Title = "Model connections" });
-        if (model.CanEdit && !model.Adding && model.Connections is { Count: > 0 })
-        {
-            var add = Action("Add a model connection", () => { model.StartAdding(); return Task.CompletedTask; }, ButtonKind.Primary);
-            add.Content = PageParts.WithIcon(IconName.Plus, "Add a model connection");
-            body.Add(add);
-        }
-        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
+        headerContent.Children.Clear();
 
-        if (model.Adding)
+        var header = new ScreenHeader { Title = "Model connections" };
+        if (model.CanEdit && model.Connections is { Count: > 0 })
         {
-            body.Add(AddForm());
+            var add = new IconButton
+            {
+                Icon = IconName.Plus,
+                Label = "Add a model connection",
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            AutomationProperties.SetAutomationId(add, "AddModelConnection");
+            add.Click += (_, _) => OpenAddSheet();
+            header.Actions.Add(add);
         }
+
+        headerContent.Children.Add(header);
+        headerContent.Children.Add(new StatusNote
+        {
+            Text = model.Notice,
+            Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok,
+        });
 
         if (model.LoadProblem is { } problem)
         {
-            var failed = new EmptyState { Title = "Drover could not load the model connections", Cause = problem, ActionLabel = "Try again" };
+            var failed = new EmptyState
+            {
+                Title = "Drover could not load the model connections",
+                Cause = problem,
+                ActionLabel = "Try again",
+            };
             failed.Action += async (_, _) => { await model.Load(); Refresh(); };
-            body.Add(failed);
+            headerContent.Children.Add(failed);
         }
         else if (model.Connections is null)
         {
-            body.Add(PageParts.Waiting("Loading the model connections."));
+            headerContent.Children.Add(PageParts.Waiting("Loading the model connections."));
         }
-        else if (model.Connections.Count == 0 && !model.Adding)
+        else if (model.Connections.Count == 0)
         {
-            if (model.CanEdit)
-            {
-                var empty = new EmptyState
-                {
-                    Title = "No model connection yet",
-                    Cause = "Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.",
-                    ActionLabel = "Add a model connection",
-                };
-                empty.Action += (_, _) => { model.StartAdding(); Refresh(); };
-                body.Add(empty);
-            }
-            else
-            {
-                body.Add(Styles.Text("This space has no model connections yet. An owner or admin of the space can add one.", "DvTextSecondary"));
-            }
+            headerContent.Children.Add(Empty());
         }
         else
         {
             foreach (var connection in model.Connections)
             {
-                body.Add(Connection(connection));
+                headerContent.Children.Add(Connection(connection));
             }
         }
+
+        UpdateAddForm();
+        UpdateReplaceForm();
+        addSheet.Open = model.Adding;
+        replaceDialog.Open = model.Replacing is not null;
     }
 
-    private Facet AddForm()
+    private UIElement Empty()
     {
-        var provider = new SegmentedControl { Label = "Provider", Options = ModelConnectionsViewModel.Providers, Value = model.Kind, Disabled = model.AddingBusy };
-        provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => { model.ChooseProvider(provider.Value ?? model.Kind); Refresh(); });
-        var fields = PageParts.Column(
-            PageParts.CardTitle("Add a model connection"), provider,
-            PageParts.Field("Connection name", model.Name, value => model.Name = value, disabled: model.AddingBusy));
-        if (model.Kind is "openai_compatible")
+        if (!model.CanEdit)
         {
-            fields.Children.Add(PageParts.Field("Base address", model.BaseUrl, value => model.BaseUrl = value, "url", "Any server that speaks the chat completions API.", model.AddingBusy));
+            return Styles.Text(
+                "This space has no model connections yet. An owner or admin of the space can add one.",
+                "DvTextSecondary");
         }
 
-        fields.Children.Add(PageParts.Field("Key", model.ApiKey, value => model.ApiKey = value, "password", model.Kind is "openai_compatible"
-            ? "Leave this empty if the server needs no key." : "Made in your Venice account, under API keys.", model.AddingBusy));
-        fields.Children.Add(new StatusNote { Text = model.AddProblem, Kind = NoteKind.Danger });
-        fields.Children.Add(PageParts.Row(
-            Action("Cancel", () => { model.Adding = false; return Task.CompletedTask; }),
-            Action(model.AddingBusy ? "Adding" : "Add and test", model.Add, ButtonKind.Primary)));
-        return PageParts.Card(fields);
+        var empty = new EmptyState
+        {
+            Title = "No model connection yet",
+            Cause = "Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.",
+            ActionLabel = "Add a model connection",
+        };
+        empty.Action += (_, _) => OpenAddSheet();
+        return empty;
     }
 
-    private Facet Connection(Drover.Contracts.Models.ModelConnectionSummary connection)
+    private void OpenAddSheet()
+    {
+        model.StartAdding();
+        UpdateAddForm();
+        addSheet.Open = true;
+        addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
+    }
+
+    private Task CancelAdd()
+    {
+        CloseAdd();
+        return Task.CompletedTask;
+    }
+
+    private void CloseAdd()
+    {
+        if (model.Adding || model.ApiKey.Length > 0)
+        {
+            model.CancelAdding();
+        }
+
+        UpdateAddForm();
+    }
+
+    private Task CancelReplace()
+    {
+        CloseReplace();
+        return Task.CompletedTask;
+    }
+
+    private void CloseReplace()
+    {
+        if (model.Replacing is not null)
+        {
+            model.CancelReplacing();
+        }
+
+        UpdateReplaceForm();
+    }
+
+    private void CloseAll()
+    {
+        model.CancelAdding();
+        model.CancelReplacing();
+        UpdateAddForm();
+        UpdateReplaceForm();
+    }
+
+    private void UpdateAddForm()
+    {
+        var busy = model.AddingBusy;
+        if (provider.Value != model.Kind)
+        {
+            provider.Value = model.Kind;
+        }
+
+        provider.Disabled = busy;
+        nameField.Value = model.Name;
+        nameField.Disabled = busy;
+        baseUrlField.Value = model.BaseUrl;
+        baseUrlField.Disabled = busy;
+        keyField.Value = model.ApiKey;
+        keyField.Disabled = busy;
+        keyField.Hint = KeyHint();
+        baseUrlField.Visibility = model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
+        addProblem.Text = model.AddProblem;
+        addBusy.Text = busy ? "Adding the connection." : string.Empty;
+        addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        cancelAdd.IsEnabled = !busy;
+        addButton.IsEnabled = !busy;
+    }
+
+    private void UpdateReplaceForm()
+    {
+        var busy = model.ChangePending;
+        newKeyField.Value = model.Replacing is null ? string.Empty : model.NewKey;
+        newKeyField.Disabled = busy;
+        replaceProblem.Text = model.KeyProblem;
+        replaceBusy.Text = busy ? "Saving the key." : string.Empty;
+        replaceBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        cancelReplace.IsEnabled = !busy;
+        saveKey.IsEnabled = !busy && model.Replacing is not null;
+    }
+
+    private string KeyHint() => model.Kind is "openai_compatible"
+        ? "Leave this empty if the server needs no key."
+        : "Made in your Venice account, under API keys.";
+
+    private Drover.Contracts.Models.ModelConnectionSummary? Replacing() =>
+        model.Replacing is { } id ? model.Connections?.FirstOrDefault(connection => connection.Id == id) : null;
+
+    private Task ReplaceKey()
+    {
+        var connection = Replacing();
+        return connection is null ? Task.CompletedTask : model.ReplaceKey(connection);
+    }
+
+    private void OpenReplace(Drover.Contracts.Models.ModelConnectionSummary connection)
+    {
+        model.StartReplacing(connection);
+        replaceDialog.Title = $"Replace the key for {connection.Name}";
+        UpdateReplaceForm();
+        replaceDialog.Open = true;
+        replaceDialog.DispatcherQueue.TryEnqueue(() => newKeyField.TakeFocus());
+    }
+
+    private ListCard Connection(Drover.Contracts.Models.ModelConnectionSummary connection)
     {
         var status = ModelConnectionsViewModel.StatusOf(connection);
-        var head = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween, CenterItems = false };
-        head.Children.Add(PageParts.Column(PageParts.CardTitle(connection.Name), Styles.Text(ModelConnectionsViewModel.Facts(connection), "DvTextMono")));
-        head.Children.Add(new Badge { Text = status.Words, Kind = status.Kind });
-        var body = PageParts.Column(head);
+        var card = new ListCard
+        {
+            Title = connection.Name,
+            Facts = ModelConnectionsViewModel.Facts(connection),
+            Status = new Badge { Text = status.Words, Kind = status.Kind },
+            Trailing = CardMenu(connection),
+        };
+
+        var beneath = PageParts.Column();
         if (model.Problems.TryGetValue(connection.Id, out var problem))
         {
-            body.Children.Add(new StatusNote { Kind = NoteKind.Danger, Text = problem });
+            beneath.Children.Add(new StatusNote { Kind = NoteKind.Danger, Text = problem });
         }
 
-        var actions = PageParts.Row(Action("View models", () => model.ShowCatalog(connection)));
-        if (model.CanEdit && model.ShownCatalog == connection.Id)
-        {
-            actions.Children.Add(Action("Refresh models", () => model.RefreshCatalog(connection)));
-        }
-
-        body.Children.Add(actions);
         if (model.ShownCatalog == connection.Id && model.Catalog is { } catalog)
         {
             if (catalog.Count == 0)
             {
-                body.Children.Add(Styles.Text("This connection has no listed models. You can enter a model ID in the bot’s Model section.", "DvTextSecondary"));
+                beneath.Children.Add(Styles.Text(
+                    "This connection has no listed models. You can enter a model ID in the bot's Model section.",
+                    "DvTextSecondary"));
             }
 
             foreach (var entry in catalog)
             {
-                body.Children.Add(CatalogRow(connection, entry));
+                beneath.Children.Add(CatalogRow(connection, entry));
             }
+        }
+
+        card.Beneath = beneath.Children.Count > 0 ? beneath : null;
+        return card;
+    }
+
+    private Menu? CardMenu(Drover.Contracts.Models.ModelConnectionSummary connection)
+    {
+        var menu = new Menu
+        {
+            Label = "More",
+            AccessibleLabel = $"More for {connection.Name}",
+            TriggerIcon = IconName.More,
+            ShowTriggerLabel = false,
+        };
+        var enabled = !model.ChangePending;
+        var shown = model.ShownCatalog == connection.Id;
+
+        menu.Items.Add(PageParts.MenuEntry(shown ? "Hide models" : "View models", () =>
+        {
+            if (shown)
+            {
+                HideCatalog();
+            }
+            else
+            {
+                Run(() => model.ShowCatalog(connection));
+            }
+        }, enabled));
+        if (shown && model.CanEdit)
+        {
+            menu.Items.Add(PageParts.MenuEntry("Refresh models", () => Run(() => model.RefreshCatalog(connection)), enabled));
         }
 
         if (model.CanEdit)
         {
-            var keys = PageParts.Row(Action("Test connection", () => model.Test(connection)));
-            if (model.Replacing == connection.Id)
-            {
-                keys.Children.Add(PageParts.Field("New key", model.NewKey, value => model.NewKey = value, "password", "Stored encrypted. It is not shown again.", model.ChangePending));
-                keys.Children.Add(Action("Cancel", () => { model.CancelReplacing(); return Task.CompletedTask; }));
-                keys.Children.Add(Action("Save key", () => model.ReplaceKey(connection), ButtonKind.Primary));
-            }
-            else
-            {
-                keys.Children.Add(Action("Replace key", () => { model.StartReplacing(connection); return Task.CompletedTask; }));
-            }
-
-            body.Children.Add(keys);
+            menu.Items.Add(PageParts.MenuEntry("Test connection", () => Run(() => model.Test(connection)), enabled));
+            menu.Items.Add(PageParts.MenuEntry("Replace key", () => OpenReplace(connection), enabled));
         }
 
-        return PageParts.Card(body);
+        return menu.Items.Count == 0 ? null : menu;
     }
 
-    private UIElement CatalogRow(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry)
+    private void HideCatalog()
+    {
+        model.HideCatalog();
+        Refresh();
+    }
+
+    private UIElement CatalogRow(
+        Drover.Contracts.Models.ModelConnectionSummary connection,
+        Drover.Contracts.Models.ModelCatalogResponse entry)
     {
         var state = entry.State is "available" ? string.Empty : $" ({entry.State})";
         var words = ModelConnectionsViewModel.VisionWords(entry) is { } vision ? $" · {vision}" : string.Empty;
@@ -174,21 +398,38 @@ public sealed class ModelConnectionsPage : Screen
             return line;
         }
 
-        var reads = new Switch { Label = ModelConnectionsViewModel.VisionLabel(entry), Value = entry.Capabilities.Vision, IsEnabled = !model.ChangePending };
-        reads.OnChanged(() => model.ChangePending, on => SetVision(connection, entry, on));
+        var reads = new Switch
+        {
+            Label = ModelConnectionsViewModel.VisionLabel(entry),
+            Value = entry.Capabilities.Vision,
+            IsEnabled = !model.ChangePending,
+        };
+        reads.OnChanged(() => model.ChangePending, on => Run(() => model.SetVision(connection, entry, on)));
         return PageParts.Column(line, reads);
     }
 
-    private async void SetVision(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry, bool readsImages)
+    private void Run(Func<Task> work)
     {
-        var pending = model.SetVision(connection, entry, readsImages);
+        var pending = work();
         Refresh();
-        await pending;
-        Refresh();
+        _ = Finish(pending);
     }
 
-    private Button Action(string label, Func<Task> work, ButtonKind kind = ButtonKind.Quiet) =>
-        PageParts.Action(label, work, Refresh, !model.ChangePending, kind);
+    private async Task Finish(Task pending)
+    {
+        try
+        {
+            await pending;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "An action on the model connections page failed");
+        }
+        finally
+        {
+            Refresh();
+        }
+    }
 
     #endregion
 }

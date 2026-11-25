@@ -43,6 +43,18 @@ public sealed partial class ToolConnectionsViewModel(
     [ObservableProperty]
     private bool addingBusy;
 
+    [ObservableProperty]
+    private ToolConnectionSummary? replacingHeader;
+
+    [ObservableProperty]
+    private string headerName = "Authorization";
+
+    [ObservableProperty]
+    private string headerValue = string.Empty;
+
+    [ObservableProperty]
+    private string? headerProblem;
+
     #endregion
 
     #region Properties
@@ -213,12 +225,45 @@ public sealed partial class ToolConnectionsViewModel(
             Say(connection, null, $"The sign-in to {connection.Name} is removed.");
         });
 
-    public Task ReplaceHeader(ToolConnectionSummary connection, ReplaceToolHeaderRequest request) =>
-        Change(connection, async () =>
+    public void StartReplacingHeader(ToolConnectionSummary connection)
+    {
+        problems.Remove(connection.Id);
+        HeaderProblem = null;
+        ReplacingHeader = connection;
+        HeaderName = "Authorization";
+        HeaderValue = string.Empty;
+    }
+
+    public void CancelReplacingHeader()
+    {
+        if (ReplacingHeader is { } connection)
+        {
+            problems.Remove(connection.Id);
+        }
+
+        HeaderProblem = null;
+        ReplacingHeader = null;
+        HeaderName = "Authorization";
+        HeaderValue = string.Empty;
+    }
+
+    public async Task ReplaceHeader(ToolConnectionSummary connection)
+    {
+        HeaderProblem = null;
+        var request = new ReplaceToolHeaderRequest(HeaderName.Trim(), HeaderValue);
+        await Change(connection, async () =>
         {
             Replace(await api.ReplaceToolHeader(SpaceId, connection.Id, request));
+            ReplacingHeader = null;
+            HeaderValue = string.Empty;
             Say(connection, null, $"The header for {connection.Name} is replaced.");
         });
+
+        if (problems.Remove(connection.Id, out var reason))
+        {
+            HeaderProblem = reason;
+        }
+    }
 
     public Task Accept(ConnectionToolSummary tool)
     {

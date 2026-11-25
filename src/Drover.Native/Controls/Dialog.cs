@@ -5,7 +5,7 @@ namespace Drover.Native.Controls;
 /// reached, Tab stays inside it, and Escape closes it. Closing puts the focus back where it was.
 /// </summary>
 [Microsoft.UI.Xaml.Markup.ContentProperty(Name = nameof(Body))]
-public class Dialog : Grid
+public partial class Dialog : Grid
 {
     #region Private Fields
 
