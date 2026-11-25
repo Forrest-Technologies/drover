@@ -137,7 +137,7 @@ The repository is public, so this repository setting must be in place **before t
 
 1. Actions settings: require approval for workflows from all outside contributors.
 
-Also: a tag protection rule for `v*`, a protected `release` environment, and branch protection on `main` requiring the `ci` and `security` checks.
+Also: a tag protection rule for `v*`, a protected `release` environment, and branch protection on `main` and `develop` requiring the `ci` and `security` checks.
 
 Two more settings the checks themselves depend on, found on the first pull request:
 
@@ -150,9 +150,10 @@ Two more settings the checks themselves depend on, found on the first pull reque
 
 | Workflow | Triggers | Jobs |
 | --- | --- | --- |
-| `ci.yml` | Pull request, push to `main` | Restore, a Debug build of the Web SDK test projects (local builds run Debug), build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health, and check that the browser client is served at the root and `/native/` sends the browser there. |
-| `native.yml` | Pull request, push to `main` | The native client: Android build and emulator checks, desktop builds on Linux, macOS, and Windows, and the browser publish with its smoke check under the server's content security policy. |
-| `security.yml` | Pull request, push to `main`, weekly | CodeQL, dependency review, secret scan, workflow lint, Dockerfile lint |
+| `ci.yml` | Pull request, push to `main` and `develop` | Restore, a Debug build of the Web SDK test projects (local builds run Debug), build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health, and check that the browser client is served at the root and `/native/` sends the browser there. |
+| `native.yml` | Pull request, push to `main` and `develop` | The native client: Android build and emulator checks, desktop builds on Linux, macOS, and Windows, and the browser publish with its smoke check under the server's content security policy. |
+| `security.yml` | Pull request, push to `main` and `develop`, weekly | CodeQL, dependency review, secret scan, workflow lint, Dockerfile lint |
+| `android-preview.yml` | Pull request affecting Android, push to protected `develop` or `main`, legacy Android preview tag | Build APK; protected pushes sign in the Android environment and publish a prerelease from `develop` or stable APK from `main`. Android releases do not change the desktop latest-release pointer. |
 | `release.yml` | Version tag | Verify the tag is on `main`, build, test, SBOM, source archive, provenance and SBOM attestations, GitHub release. No images. |
 | `framework-canary.yml` | Weekly, and on demand | Move the agent framework packages to their newest versions, prerelease included, run the conformance and engine tests, and open an issue if they fail |
 

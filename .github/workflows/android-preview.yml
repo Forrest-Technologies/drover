@@ -1,9 +1,11 @@
-name: Android preview
+name: Android releases
 
 on:
   pull_request:
     paths:
       - '.github/workflows/android-preview.yml'
+      - 'scripts/android-release-metadata.py'
+      - 'scripts/test-android-release-metadata.py'
       - 'src/Drover.Native/**'
       - 'src/Drover.Presentation/**'
       - 'src/Shared/**'
@@ -13,6 +15,7 @@ on:
       - 'Directory.*.props'
       - 'global.json'
   push:
+    branches: [develop, main]
     tags:
       - 'v*-android-preview.*'
 
@@ -25,6 +28,11 @@ concurrency:
 jobs:
   build:
     name: Build APK
+    outputs:
+      display: ${{ steps.version.outputs.display }}
+      code: ${{ steps.version.outputs.code }}
+      tag: ${{ steps.version.outputs.tag }}
+      channel: ${{ steps.version.outputs.channel }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
@@ -38,9 +46,9 @@ jobs:
           persist-credentials: false
       # Keep the key and paths exactly as in native.yml so both Android builds share one cache. The dependency
       # declaration is in src/Drover.Native/Drover.Native.csproj, matched by **/*.csproj in the key below.
-      # This workflow publishes on tags, so the cache is only for pull request checks, never for a release build.
+      # The cache is only for pull request checks, never for a release build.
       - name: Cache Android dependency downloads # zizmor: ignore[cache-poisoning] caches are ref-scoped and release jobs never restore this one
-        if: github.ref_type != 'tag'
+        if: github.event_name == 'pull_request'
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: |
@@ -53,20 +61,16 @@ jobs:
           key: android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'global.json', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json', '**/*.gradle', '**/*.gradle.kts', '**/gradle.properties', '**/gradle-wrapper.properties', '**/libs.versions.toml', '**/gradle.lockfile', '**/pom.xml') }}
           restore-keys: |
             android-downloads-${{ runner.os }}-${{ runner.arch }}-v1-
-      - name: Check preview tag and version
+      - name: Check release source and version
         id: version
         shell: bash
         run: |
-          version=0.1.0
+          python3 scripts/test-android-release-metadata.py
+          python3 scripts/android-release-metadata.py
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-android-preview\.[1-9][0-9]*$ ]]; then
-              echo "::error::Use a tag like v0.1.0-android-preview.1"
-              exit 1
-            fi
-            version="${BASH_REMATCH[1]}"
-            git merge-base --is-ancestor HEAD refs/remotes/origin/main
+            git merge-base --is-ancestor HEAD refs/remotes/origin/main || \
+              git merge-base --is-ancestor HEAD refs/remotes/origin/develop
           fi
-          echo "display=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
@@ -83,19 +87,21 @@ jobs:
       - name: Build release APK
         env:
           DISPLAY_VERSION: ${{ steps.version.outputs.display }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           dotnet publish src/Drover.Native -f net11.0-android -c Release -warnaserror \
             -p:DroverNativeTargetFrameworks=net11.0-android -p:AndroidPackageFormats=apk \
-            "-p:ApplicationDisplayVersion=$DISPLAY_VERSION" "-p:ApplicationVersion=$GITHUB_RUN_NUMBER" \
+            "-p:ApplicationDisplayVersion=$DISPLAY_VERSION" "-p:ApplicationVersion=$VERSION_CODE" \
             -o artifacts/android
       - name: Check the packaged Android app
         env:
           DISPLAY_VERSION: ${{ steps.version.outputs.display }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           apk=artifacts/android/com.forresttechnologies.drover.client.apk
           aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
           badging=$("$aapt" dump badging "$apk")
-          grep -Fq "package: name='com.forresttechnologies.drover.client' versionCode='$GITHUB_RUN_NUMBER' versionName='$DISPLAY_VERSION'" <<< "$badging"
+          grep -Fq "package: name='com.forresttechnologies.drover.client' versionCode='$VERSION_CODE' versionName='$DISPLAY_VERSION'" <<< "$badging"
           grep -q '^launchable-activity:' <<< "$badging"
           manifest=$("$aapt" dump xmltree "$apk" AndroidManifest.xml)
           grep -q 'A: android:icon(' <<< "$manifest"
@@ -113,7 +119,7 @@ jobs:
 
   sign:
     name: Sign and verify APK
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_protected && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -138,6 +144,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ vars.ANDROID_SIGNING_KEY_ALIAS }}
           CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
         shell: bash
         run: |
           umask 077
@@ -161,7 +168,7 @@ jobs:
           echo "Aligned the unsigned APK."
 
           mkdir release
-          apk="drover-$GITHUB_REF_NAME.apk"
+          apk="drover-$RELEASE_TAG.apk"
           java -jar "$tools/lib/apksigner.jar" sign \
             --ks "$key" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD \
@@ -193,9 +200,9 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish GitHub prerelease
-    if: github.ref_type == 'tag'
-    needs: sign
+    name: Publish Android release
+    if: github.event_name == 'push' && github.ref_protected && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [build, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -205,12 +212,26 @@ jobs:
         with:
           name: signed-android-apk
           path: release
-      - name: Publish preview
+      - name: Publish Android APK
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          CHANNEL: ${{ needs.build.outputs.channel }}
         run: |
-          apk="drover-$GITHUB_REF_NAME.apk"
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "Drover Uno Android $GITHUB_REF_NAME" --prerelease --latest=false \
-            --notes 'Install the Uno APK and sign in with the HTTPS address of your Drover server. It installs alongside the earlier Android preview. See the [Android preview guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
+          apk="drover-$RELEASE_TAG.apk"
+          flags=(--latest=false)
+          if [[ "$CHANNEL" == preview ]]; then
+            flags+=(--prerelease)
+          elif [[ "$CHANNEL" != stable ]]; then
+            echo "::error::No release channel was selected."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            flags+=(--verify-tag)
+          else
+            flags+=(--target "$GITHUB_SHA")
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${flags[@]}" \
+            --title "Drover Android $RELEASE_TAG" \
+            --notes 'Install the APK and sign in with the HTTPS address of your Drover server. See the [Android guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
             "release/$apk" "release/$apk.sha256"
