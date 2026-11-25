@@ -29,6 +29,12 @@ public sealed class MessageList : Grid
 
     private readonly TextBlock startHint = Styles.Text(null);
 
+    // The two ends of the page while the conversation goes on past them. Scrolling toward an end shows more of it;
+    // these are the same steps for a keyboard and a screen reader.
+    private readonly Button earlier = new() { Content = MessageListViewModel.EarlierLabel, HorizontalAlignment = HorizontalAlignment.Center };
+
+    private readonly Button newest = new() { Content = MessageListViewModel.NewestLabel, HorizontalAlignment = HorizontalAlignment.Center };
+
     private readonly Grid thinking = new() { ColumnSpacing = Tokens.Number("DvSpace3") };
 
     private readonly Facet thinkingPlate = new();
@@ -68,6 +74,12 @@ public sealed class MessageList : Grid
 
     private bool atFoot = true;
 
+    // The first message of the page as it was last drawn: when another one stands there, the page grew or let go
+    // above the reader, and what they were reading is put back where it was.
+    private string? firstShown;
+
+    private bool extendQueued;
+
     private bool drawQueued;
 
     private readonly System.Diagnostics.Stopwatch drawn = System.Diagnostics.Stopwatch.StartNew();
@@ -85,7 +97,13 @@ public sealed class MessageList : Grid
 
         column.MaxWidth = Tokens.Number("DvMeasure");
         column.Padding = Tokens.Space("DvSpace4", "DvSpace5");
+        AutomationProperties.SetAutomationId(earlier, "MessageListEarlier");
+        AutomationProperties.SetAutomationId(newest, "MessageListNewest");
+        earlier.Click += (_, _) => ShowEarlier();
+        newest.Click += (_, _) => ShowNewestFromAction();
         column.Children.Add(start);
+        column.Children.Add(earlier);
+        column.Children.Add(newest);
         column.Children.Add(thinking);
         column.Children.Add(failure);
         column.Children.Add(problem);
@@ -99,7 +117,11 @@ public sealed class MessageList : Grid
             floor.MinHeight = scroller.ActualHeight;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, KeepFoot);
         };
-        scroller.ViewChanged += (_, _) => atFoot = scroller.VerticalOffset >= scroller.ScrollableHeight - Tokens.Number("DvFocusWidth");
+        scroller.ViewChanged += (_, _) =>
+        {
+            atFoot = model is not { Later: > 0 } && scroller.VerticalOffset >= scroller.ScrollableHeight - Tokens.Number("DvFocusWidth");
+            Extend();
+        };
         column.SizeChanged += (_, _) => KeepFoot();
 
         Children.Add(scroller);
@@ -271,6 +293,11 @@ public sealed class MessageList : Grid
             return;
         }
 
+        // A link to a moment moves the page to its message first, so the message is there to land on.
+        var moment = list.TakeMoment();
+        var shown = list.Shown;
+        var held = moment is null ? Hold(shown) : null;
+        firstShown = shown.Count > 0 ? shown[0].Key : null;
         AutomationProperties.SetName(scroller, list.Name);
         var with = Parameters(list);
 
@@ -282,31 +309,40 @@ public sealed class MessageList : Grid
         // The messages stand between the hint that opens an empty conversation and what follows the newest of them.
         Keyed.Sync(
             column,
-            list.Messages,
+            shown,
             message => message.Key,
             _ => NewEntry(),
             (entry, message) => entry.Show(message, with, list.IsMoment(message), list.IsNewestReply(message)),
-            start: 1,
-            tail: 4);
+            start: 2,
+            tail: 5);
+
+        earlier.Visibility = Shown(list.Earlier > 0);
+        newest.Visibility = Shown(list.Later > 0);
 
         LayThinking();
         thinking.Visibility = Shown(list.ShowsThinking);
         thinkingName.Text = list.BotName;
         ShowFailure(list);
-        // A note with nothing to say takes no room between the messages and the foot of the column.
+        // A note with nothing to say takes no room between the messages and the foot of the column. How the
+        // conversation ended is said after its newest message, so not while the page ends before it.
+        var ends = list.Later == 0;
+        failure.Visibility = Shown(ends && list.Failure is not null);
         problem.Text = list.Problem;
-        problem.Visibility = Shown(!string.IsNullOrWhiteSpace(list.Problem));
+        problem.Visibility = Shown(ends && !string.IsNullOrWhiteSpace(list.Problem));
         notice.Text = list.Notice;
-        notice.Visibility = Shown(!string.IsNullOrWhiteSpace(list.Notice));
+        notice.Visibility = Shown(ends && !string.IsNullOrWhiteSpace(list.Notice));
         spoken.Say(list.Spoken);
         Paint();
+        held?.Invoke();
 
-        if (list.TakeMoment() is { } moment)
+        if (moment is { } landed)
         {
             // Layout grows right after this draw, so leave the foot now before SizeChanged pulls the list back down.
             atFoot = false;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ShowMoment(moment));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ShowMoment(landed));
         }
+
+        QueueExtend();
     }
 
     private ChatEntry NewEntry()
@@ -347,8 +383,6 @@ public sealed class MessageList : Grid
     // A new failure gets a line of its own, so what a person opened on the last one does not carry over.
     private void ShowFailure(MessageListViewModel list)
     {
-        failure.Visibility = Shown(list.Failure is not null);
-
         if (list.Failure is not { } failed || list.FailureCause is not { } cause)
         {
             shownFailure = null;
@@ -384,6 +418,99 @@ public sealed class MessageList : Grid
 
     #region Scrolling
 
+    // The reader came near an end of the page while the conversation goes on past it: a step more of it is shown,
+    // before they reach the end. One view of messages is kept ready each way. Not while the keyboard is on the
+    // action at that end: the person there takes each step themselves, and the action stays where they are.
+    private void Extend()
+    {
+        if (model is not { } list || scroller.ViewportHeight <= 0)
+        {
+            return;
+        }
+
+        if (list.Earlier > 0 && scroller.VerticalOffset < scroller.ViewportHeight && !HasFocus(earlier))
+        {
+            list.ShowEarlier();
+        }
+        else if (list.Later > 0 && scroller.VerticalOffset > scroller.ScrollableHeight - scroller.ViewportHeight && !HasFocus(newest))
+        {
+            list.ShowLater();
+        }
+    }
+
+    private static bool HasFocus(Button action) => action.FocusState is not FocusState.Unfocused;
+
+    // After a draw is laid out, the page may still end too near the reader: one step did not fill a view.
+    private void QueueExtend()
+    {
+        if (extendQueued || model is not { } list || (list.Earlier == 0 && list.Later == 0))
+        {
+            return;
+        }
+
+        extendQueued = true;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            extendQueued = false;
+            Extend();
+        });
+    }
+
+    private void ShowEarlier()
+    {
+        model?.ShowEarlier();
+
+        // The action goes when nothing comes before the page; the focus it held stays in the list.
+        if (model is { Earlier: 0 } && HasFocus(earlier))
+        {
+            scroller.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void ShowNewestFromAction()
+    {
+        var focused = HasFocus(newest);
+        model?.ShowNewest();
+
+        if (focused)
+        {
+            scroller.Focus(FocusState.Programmatic);
+        }
+    }
+
+    // When the page begins with another message than before, messages came or went above the reader. The message
+    // they are reading is held where it is on the screen: what is to do after the draw is handed back, and nothing
+    // is while the reader follows the foot or no message stays on the page. A person who asked for earlier messages
+    // from the action above the page reads on from it, so the action is what is held.
+    private Action? Hold(IReadOnlyList<ChatMessage> shown)
+    {
+        if (atFoot || firstShown is null || shown.Count == 0 || shown[0].Key == firstShown)
+        {
+            return null;
+        }
+
+        HashSet<string> stays = [.. shown.Select(message => message.Key)];
+        var view = scroller.VerticalOffset;
+        FrameworkElement? reading = HasFocus(earlier)
+            ? earlier
+            : column.Children.OfType<ChatEntry>().FirstOrDefault(entry =>
+                entry.Tag is string name && stays.Contains(name) && Top(entry) + entry.ActualHeight > view);
+
+        if (reading is null)
+        {
+            return null;
+        }
+
+        var before = Top(reading) - view;
+        return () =>
+        {
+            column.UpdateLayout();
+            scroller.ChangeView(null, Top(reading) - before, null, disableAnimation: true);
+        };
+    }
+
+    private double Top(FrameworkElement entry) => entry.TransformToVisual(floor).TransformPoint(new(0, 0)).Y;
+
     // The column grew or shrank. A reader at the foot stays at the foot; one who scrolled up stays where they are.
     private void KeepFoot()
     {
@@ -404,9 +531,8 @@ public sealed class MessageList : Grid
             return;
         }
 
-        var top = entry.TransformToVisual(floor).TransformPoint(new(0, 0)).Y;
         atFoot = false;
-        var offset = MomentViewport.Offset(top, entry.ActualHeight, scroller.ViewportHeight, scroller.ScrollableHeight);
+        var offset = MomentViewport.Offset(Top(entry), entry.ActualHeight, scroller.ViewportHeight, scroller.ScrollableHeight);
         scroller.ChangeView(null, offset, null, disableAnimation: true);
         entry.Land();
     }

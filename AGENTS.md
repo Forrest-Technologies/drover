@@ -145,6 +145,7 @@ hadolint Dockerfile
 - Motion shows state: thinking, streaming, tool running, delegation. Nothing loops when nothing is happening. Honor reduced motion with a static equivalent.
 - Minimal copy and chrome. Reveal advanced controls when a choice makes them relevant. Never a wall of settings.
 - When a feature needs setup, say what is missing in plain words and link to it.
+- A list that can grow without end (messages, events, log lines, search results) is shown through `ListWindow`: a page of it on the screen, all of it kept. Never one element for every item, and never a cut list. Read "Long lists" in `docs/architecture/18-native-client.md` first; a keyed list without a stated bound fails the build.
 - Every control works by keyboard and has an accessible name. This is required, not polish.
 - Do not name or compare against other products anywhere in code, documentation, or interface text.
 

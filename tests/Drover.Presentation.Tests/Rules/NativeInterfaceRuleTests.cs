@@ -67,6 +67,16 @@ public sealed partial class NativeInterfaceRuleTests
         "Theme/Motion.cs", "Controls/AvatarCanvas.cs", "Controls/TravelLine.cs", "Controls/LiveLight.cs",
     ];
 
+    // Every list kept in step with a keyed collection, and what keeps the number of its children small. A list that
+    // can grow without end is shown through ListWindow instead of being listed here with a wish.
+    private static readonly (string Path, string Bound)[] keyedLists =
+    [
+        ("Chat/MessageList.cs", "the page of a ListWindow: MessageListViewModel.Shown"),
+        ("Chat/ChatEntry.cs", "one message's tool cards and files, and the work of one delegation"),
+        ("Chat/WorkLedger.cs", "the steps of one turn"),
+        ("Controls/Timeline.cs", "the moments of one run"),
+    ];
+
     private static readonly string[] sizeAttributes =
     [
         "Margin", "Padding", "Width", "Height", "MinWidth", "MinHeight", "MaxWidth", "MaxHeight", "FontSize", "Spacing",
@@ -76,6 +86,47 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Public Methods
+
+    [Fact]
+    public void Every_keyed_list_says_what_bounds_it()
+    {
+        var found = from file in Repository.NativeFiles(".cs")
+                    where file.Path != "Chat/Keyed.cs" && file.Text.Contains("Keyed.Sync(", StringComparison.Ordinal)
+                    select file.Path;
+
+        found.Should().BeEquivalentTo(
+            keyedLists.Select(list => list.Path),
+            "every child of a keyed list is made and laid out, so a list is short by what it holds or is shown through ListWindow (docs/architecture/18-native-client.md, Long lists)");
+        keyedLists.Should().OnlyContain(list => list.Bound.Length > 0);
+    }
+
+    [Fact]
+    public void The_message_list_draws_its_page_and_never_the_whole_conversation()
+    {
+        var list = Repository.NativeFiles(".cs").Single(file => file.Path == "Chat/MessageList.cs").Text;
+
+        list.Should().Contain("list.Shown");
+        list.Should().NotContain("list.Messages", "the whole conversation is the view model's; the page is what is drawn");
+    }
+
+    [Fact]
+    public void Shipping_builds_omit_the_long_conversation_check_and_ci_runs_it()
+    {
+        var nativeRoot = Path.Combine(Repository.Root, "src", "Drover.Native");
+        var project = File.ReadAllText(Path.Combine(nativeRoot, "Drover.Native.csproj"));
+        var app = File.ReadAllText(Path.Combine(nativeRoot, "App.xaml.cs"));
+        var workflow = File.ReadAllText(Path.Combine(Repository.Root, ".github", "workflows", "native.yml"));
+
+        project.Should().Contain("""<PropertyGroup Condition="'$(DroverLongConversationCheck)' == 'true'">""");
+        project.Should().Contain("""<ItemGroup Condition="'$(DroverLongConversationCheck)' != 'true'">""");
+        project.Should().Contain("""<Compile Remove="Chat/LongConversationCheck.cs" />""");
+        app.Should().Contain("#if DROVER_LONG_CONVERSATION_CHECK");
+        workflow.Should().Contain("DroverLongConversationCheck=true");
+        workflow.Should().Contain("Long conversation check passed.");
+        Regex.Matches(workflow, "grep -a -q -E '([^']*)'").Should().OnlyContain(
+            hooks => hooks.Groups[1].Value.Contains("LongConversationCheck", StringComparison.Ordinal),
+            "no shipping build may carry the check");
+    }
 
     [Fact]
     public void No_color_is_written_outside_the_token_file()
@@ -150,8 +201,10 @@ public sealed partial class NativeInterfaceRuleTests
     [Fact]
     public void Nothing_repeats_or_ticks_outside_the_four_live_states()
     {
+        // The long conversation check times the frames the screen draws while it scrolls. It shows nothing of its
+        // own and is not in a shipping build (Shipping_builds_omit_the_long_conversation_check_and_ci_runs_it).
         var inCode = from file in Repository.NativeFiles(".cs")
-                     where !liveStateFiles.Contains(file.Path)
+                     where !liveStateFiles.Contains(file.Path) && file.Path != "Chat/LongConversationCheck.cs"
                      from match in Looping().Matches(file.Text).Cast<Match>()
                      select $"{file.Path}: {match.Value}";
 
