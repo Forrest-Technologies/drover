@@ -483,7 +483,7 @@ public sealed class ProjectPage : Screen
         var row = new Grid
         {
             ColumnSpacing = Tokens.Number("DvSpace2"),
-            MinHeight = Tokens.Number("DvTargetTouch"),
+            MinHeight = Targets.Minimum,
         };
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });

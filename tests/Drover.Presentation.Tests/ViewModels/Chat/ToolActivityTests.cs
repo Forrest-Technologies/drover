@@ -71,7 +71,7 @@ public sealed class ToolActivityTests
         card.Card = Live(log.Where(stored => stored.Seq <= CommandStarted)).AllTools().Last();
         card.ParametersSet();
         (card.Card.Label, card.Card.State).Should().Be(("Running a command", "Running"));
-        card.Running.Should().BeTrue("a line travels the card's top edge while the tool runs");
+        card.Running.Should().BeTrue("a line travels around the card while the tool runs");
         card.IsAsk.Should().BeFalse();
 
         card.Card = Live(log, messages).AllTools().Last();

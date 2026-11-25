@@ -139,6 +139,7 @@ hadolint Dockerfile
 - No invented content: no made-up numbers, names, activity, or filler copy, in screens or in the gallery. Real data, an honest empty state, or a value visibly marked as a sample.
 - Name the screen's job in one sentence before laying it out, and put that sentence in the pull request.
 - A pull request that changes the interface includes screenshots: dark, light, and 360 px wide, and each state it adds (empty, loading, error).
+- The README shows the important screens (the conversation with a bot at work, the bot tree, the bot editor, tool grants) at desktop and phone width, dark and light, kept in `docs/images/readme/`. Capture them with the live mode of `scripts/check-native-browser.mjs` (`DROVER_LIVE_ORIGIN`, `DROVER_LIVE_SCENES`; 1280 and 360 px) against a running server with a test account whose data is labeled as a sample. The CI `browser-screens` artifact is a smoke test of fixtures, not a showcase. A pull request that changes how one of those screens looks replaces its images, so the README never shows an old look.
 - Use the tokens in `Tokens.xaml`, which restates `tokens.css`. No raw colors, sizes, or durations in controls.
 - Dark is primary; light must work. Every text and status color keeps 4.5:1 contrast.
 - Motion shows state: thinking, streaming, tool running, delegation. Nothing loops when nothing is happening. Honor reduced motion with a static equivalent.
@@ -162,6 +163,11 @@ If you cannot meet one of these, stop and say which and why. Do not work around 
 ## 14. How work is tracked
 
 - GitHub Issues are the source of truth for tasks. `ROADMAP.md` gives direction and links to tracking issues; it never holds status.
+- Start feature, fix, test, and documentation branches from `develop` and target `develop` in pull requests.
+- `develop` is preview; `main` is production. Promote reviewed work with a `develop` to `main` pull request. Do not create a separate preview branch.
+- Ordinary contributors need passing checks and maintainer approval from `steven-forresttechnologies` or `VelocityLabs` on both branches; new commits dismiss stale approvals.
+- Repository admins may use the protection ruleset bypass only through a pull request. Direct pushes remain protected. Before using the admin exception, verify every required check passes for the exact current PR head; do not use it to merge failing or pending checks.
+- Preserve an explicitly documented dependency branch until its prerequisite merges, then retarget to `develop`. Earlier issue references to `main` or `feat/uno-assistant-parity` describe prior source snapshots, not the default PR target.
 - One issue, one branch, one pull request. The pull request body starts with `Closes #n` and says how the issue's verification plan was carried out.
 - Name every new work branch `<type>/<short-description>` before the first commit.
   Use `feat/` for features, `bug/` or `fix/` for fixes, and `docs/`, `test/`, `build/`, `refactor/`, or `chore/` as appropriate.
