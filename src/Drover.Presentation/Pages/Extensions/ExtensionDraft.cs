@@ -35,7 +35,7 @@ public sealed class ExtensionDraft
 
     public string ServerAddress { get; set; } = string.Empty;
 
-    /// <summary>How Drover proves who is calling: <c>none</c>, <c>header</c>, or <c>oauth</c>.</summary>
+    /// <summary>How Drover signs in to this server: <c>none</c>, <c>header</c>, or <c>oauth</c>.</summary>
     public string ServerAuth { get; set; } = "none";
 
     public string HeaderName { get; set; } = string.Empty;
