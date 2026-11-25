@@ -374,7 +374,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         limits.Skip(1).Select(LimitsSectionFields.Placeholder).Should().Equal("5,000,000", "49");
         LimitsSectionFields.Caption.Should().Be("These limits stop a bot before it uses too much for one piece of work.");
         LimitsSectionFields.FallbackCaption.Should().Be("Leave a limit empty to use the space's.");
-        LimitsSectionFields.StepsHint(options).Should().EndWith("This space sets no limit.");
+        LimitsSectionFields.StepsHint(options).Should().EndWith("No limit.");
         LimitsSectionFields.StepsHint(new BotRunLimitOptions(7, 5_000_000, 49)).Should().EndWith("This space allows up to 7.");
         LimitsSectionFields.StepsPlaceholder(new BotRunLimitOptions(7, 5_000_000, 49)).Should().Be("7");
         LimitsSectionFields.StepsPlaceholder(null).Should().BeEmpty();
@@ -613,7 +613,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Draft.Handle.Should().Be("new-bot");
         editor.Draft.ModelConnectionId.Should().Be(connectionId);
         editor.Draft.Model.Should().Be("sample-large");
-        editor.Summary(Limits).Should().Be("No limit");
+        editor.Summary(Limits).Should().Be("No limit · 5,000,000 tokens · 49 handoffs");
         editor.SaveWords.Should().Be("Not made until you save");
         editor.SaveLabel.Should().Be("Make bot");
         editor.CanSave.Should().BeTrue();

@@ -296,7 +296,8 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         await using var scope = Services.CreateAsyncScope();
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
         var ceilings = new RunCeilings(
-            DeploymentPolicy.StepsPerRun,
+            Setting(nameof(DeploymentPolicy.MaxStepsPerRun)) is "No limit" ? int.MaxValue :
+                int.Parse(Setting(nameof(DeploymentPolicy.MaxStepsPerRun)), CultureInfo.InvariantCulture),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
             new DelegationLimits(1, int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture), 1).MaxHandoffs);
 
