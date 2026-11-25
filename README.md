@@ -59,6 +59,8 @@ Replies stream in, and each tool call shows its arguments, output, and result as
 
 Search covers your conversations, and you can save one as Markdown or JSON. Attach files and pictures; Drover reads PDF and office documents as text for the model. Large pictures get a static preview of at most 480 pixels on the long edge, and Download still gives the original. You can paste a picture or drop files anywhere on a conversation; a refusal says why in one sentence. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels. Projects group conversations around shared files. If you set up a second domain for previews, HTML a bot writes opens there, away from your session cookies.
 
+If a conversation could not be read, the failure says so and offers Try again. Its message field stays visible but disabled, and assistive technology hears that it will be available once the conversation has loaded. The description leaves when a retry succeeds.
+
 ### Tools
 
 You can add any MCP server with no auth, a header (stored encrypted), or a sign-in. If a server changes a tool's definition, Drover marks that tool's grants for review.

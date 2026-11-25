@@ -218,6 +218,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     /// <summary>Said, politely, while the conversation is read.</summary>
     public static string LoadingHint => "Loading the conversation.";
 
+    /// <summary>Why the message field is disabled while the conversation could not be read.</summary>
+    public static string FieldUnavailableHint => "Available when the conversation has loaded.";
+
     /// <summary>A new side chat got its thread from its first message.</summary>
     public Func<ThreadSummary, Task>? OnThreadStarted { get; set; }
 
@@ -1397,6 +1400,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.Running = Working;
         Composer.Waiting = Waiting;
         Composer.Disabled = loading || LoadFailed;
+        Composer.FieldDescription = LoadFailed ? FieldUnavailableHint : string.Empty;
         Composer.TakesFiles = AcceptsFiles;
         Composer.Sending = sending;
 

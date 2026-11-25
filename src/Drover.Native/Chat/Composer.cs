@@ -326,6 +326,7 @@ public sealed class Composer : Grid
         placeholder.Text = shown.Placeholder;
         placeholder.Visibility = field.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetName(field, shown.FieldName);
+        AutomationProperties.SetHelpText(field, shown.FieldDescription);
         AutomationProperties.SetItemStatus(more, shown.OptionsOpen ? "Expanded" : "Collapsed");
 
         tray.BotName = shown.BotName;

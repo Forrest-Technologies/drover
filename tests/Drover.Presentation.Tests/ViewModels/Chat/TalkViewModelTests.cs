@@ -615,6 +615,25 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task The_disabled_message_field_says_it_will_be_available_when_the_conversation_has_loaded()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        MainPane.Composer.Disabled.Should().BeTrue();
+        MainPane.Composer.FieldDescription.Should().Be("Available when the conversation has loaded.");
+
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { Said("assistant", "Sample answer") });
+        await Do(MainPane.Reload);
+
+        await Until(() => MainPane.Messages.Should().ContainSingle());
+        await Until(() => MainPane.Composer.FieldDescription.Should().BeEmpty("the description leaves with the failure"));
+        MainPane.LoadFailed.Should().BeFalse();
+        MainPane.Composer.Disabled.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_second_try_while_the_first_is_loading_asks_the_server_once()
     {
         Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
