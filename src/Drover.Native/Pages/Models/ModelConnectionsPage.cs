@@ -59,7 +59,7 @@ public sealed class ModelConnectionsPage : Screen
 
         cancelAdd = PageParts.Action("Cancel", () => { model.Adding = false; return Task.CompletedTask; }, Refresh);
         addButton = PageParts.Action("Add and test", model.Add, Refresh, ButtonKind.Primary);
-        addSheet.Body = SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy,
+        addSheet.Body = Forms.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy,
             PageParts.Row(cancelAdd, addButton));
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -77,7 +77,7 @@ public sealed class ModelConnectionsPage : Screen
 
         cancelReplace = PageParts.Action("Cancel", () => { model.CancelReplacing(); return Task.CompletedTask; }, Refresh);
         saveKey = PageParts.Action("Save key", () => model.ReplaceKey(Replacing()), Refresh, ButtonKind.Primary);
-        replaceDialog.Body = SheetBody(newKeyField, replaceProblem, replaceBusy, PageParts.Row(cancelReplace, saveKey));
+        replaceDialog.Body = Forms.SheetBody(newKeyField, replaceProblem, replaceBusy, PageParts.Row(cancelReplace, saveKey));
         newKeyField.Loaded += (_, _) => { if (replaceDialog.Open) { newKeyField.TakeFocus(); } };
         replaceDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
@@ -218,17 +218,6 @@ public sealed class ModelConnectionsPage : Screen
     private string KeyHint() => model.Kind is "openai_compatible"
         ? "Leave this empty if the server needs no key."
         : "Made in your Venice account, under API keys.";
-
-    private static StackPanel SheetBody(params UIElement[] children)
-    {
-        var column = new StackPanel { Spacing = Tokens.Number("DvSpace4") };
-        foreach (var child in children)
-        {
-            column.Children.Add(child);
-        }
-
-        return column;
-    }
 
     private Drover.Contracts.Models.ModelConnectionSummary Replacing() =>
         model.Connections!.First(connection => connection.Id == model.Replacing);
