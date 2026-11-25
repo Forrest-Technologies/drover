@@ -121,7 +121,7 @@ Every card in a conversation is drawn in one frame, `CardFrame`: the cards of th
 | Frame | `Facet`, `Role = Frame`, the card surface, a 1 px edge. The theme decides the corners | `bg-2`, `line`. Edge `warn` while the card waits for this person, as the approval card does today; `line` in every other state |
 | Padding | 16 left, right and bottom, 12 top | `DvSpace4`, `DvSpace3` |
 | Space between parts | 12 | `DvSpace3` |
-| Header | `FlowPanel`: the title, then the state `Badge` when there is one. At 360 px the badge wraps under the title | Title `DvText15` (the base step), heading weight, `text`, accessible heading level 2. Badge as below |
+| Header | `FlowPanel`: the title, then the state `Badge` when there is one. At 360 px the badge wraps under the title | Title `DvText14` (the base step, 15 px in Front Office), heading weight, `text`, accessible heading level 2. Badge as below |
 | Text under the title | Wraps. At most 500 characters, so no "more" | `DvText13`, `text-2` |
 | Body | One of the bodies in section 3, or the slot's own | Inside a body, blocks follow `blocks` (#783) |
 | Action row | `FlowPanel`, gap 8, wraps. The primary first | `DvSpace2` |
@@ -270,16 +270,17 @@ At 360 px
 +--------------------------------------------+
 | How the shop did this week                 |
 |                                            |
-| 1,240           | USD 18,300               |
-| Orders          | Takings                  |
-| ----------------+------------------------- |
-| 37              | 4                        |
-| Returns         | Late parcels  Needs att. |
+| 1,240              | USD 18,300            |
+| Orders             | Takings               |
+| -------------------+---------------------- |
+| 37                 | 4                     |
+| Returns            | Late parcels          |
+|                    | Needs attention       |
 |                                            |
-| Payments  OK    Shipping  Needs attention  |
+| Payments OK   Shipping Needs attention     |
 |                                            |
-| Top product      Blue mug       shop.example (link) |
-| Slowest day      Tuesday                   |
+| Top product (shop.example)        Blue mug |
+| Slowest day                        Tuesday |
 +--------------------------------------------+
 ```
 
@@ -287,7 +288,7 @@ At 360 px
 
 - **Figures.** Two to a row at 360 px, up to four from 560 px. The value at `DvText20` in `text`, in the machine face when the theme sets numbers in it (`type.machineNumerals`), then the label in `DvText13`, `text-2`. A figure with a state adds its state word after the label. Figures are separated by 1 px `line`, not by boxes.
 - **States.** A `FlowPanel` of `{label}` then the state word, wrapping. Words and colors: `ok` is `OK` in `ok`; `attention` is `Needs attention` in `warn`; `failed` is `Failed` in `danger`; `unknown` is `Not known` in `text-2`.
-- **Rows.** Label in `text-2`, value in `text` at the end. A row with a link draws its label as a `Link` and adds the link's host in `text-3` after it, so the person sees where it goes before pressing. The link opens outside the app, as a reply's sources do. Only `https` addresses are accepted; anything else is refused by the server.
+- **Rows.** Label in `text-2`, value in `text` at the end. A row with a link draws its label as a `Link` and adds the link's host in brackets in `text-3` after it, so the person sees where it goes before pressing. The link opens outside the app, as a reply's sources do. Only `https` addresses are accepted; anything else is refused by the server.
 - No chart. Charts are #516.
 
 ### 3.7 What a client draws for a kind it does not know
@@ -371,7 +372,7 @@ A card is drawn from what the server stored, live and later alike. There is no c
 | `ask.person` | the call's arguments and its `tool.approval_requested` event (#544) | the call's status and result: waiting is Waiting, answered is Answered, skipped is Skipped; the run ended while waiting is Expired |
 | Slot cards | as each issue says | as each issue says |
 
-- Live, the card appears when `tool.completed` arrives for the call and is filled from the completed message. It is not drawn from `tool.requested`, so a card the server refuses never flashes.
+- Live, the card appears when `tool.completed` arrives for the call, filled from the call's result, the same source a finished tool card reads. It is not drawn from `tool.requested`, so a card the server refuses never flashes.
 - A reopened conversation shows the same cards in the same places, with the same answers, from `GET .../messages` and the run's stored events. A test replays a recorded event log and compares the two drawings (`AgentCardTests.A_reopened_conversation_draws_the_same_cards_and_answers`).
 - A card belongs to the message version it was sent in. When a person edits an earlier message or asks for another reply, the cards of the version not shown are not shown either.
 - An answer sent from another device arrives as a person message (`conversation.show`) or as the call's change (`ask.person`), and the open card changes to Answered on another device.
