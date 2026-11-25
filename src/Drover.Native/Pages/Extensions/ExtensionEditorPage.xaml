@@ -10,12 +10,9 @@
               xmlns:vm="using:Drover.Presentation.ViewModels">
 
   <layouts:WorkLayout>
-    <pages:FlexPanel Gap="{StaticResource DvSpace3}" Justify="SpaceBetween">
-      <TextBlock Style="{StaticResource DvTextH2}"
-                 AutomationProperties.HeadingLevel="Level1"
-                 Text="{x:Bind vm:ExtensionEditorViewModel.Title}" />
-      <dv:Link x:Name="Back" Text="{x:Bind vm:ExtensionEditorViewModel.BackLabel}" />
-    </pages:FlexPanel>
+    <dv:ScreenHeader x:Name="Header"
+                     Title="{x:Bind vm:ExtensionEditorViewModel.Title}"
+                     BackLabel="{x:Bind vm:ExtensionEditorViewModel.BackLabel}" />
 
     <ContentControl x:Name="Under" IsTabStop="False" HorizontalContentAlignment="Stretch" />
 

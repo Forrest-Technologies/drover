@@ -1,8 +1,8 @@
 namespace Drover.Native.Checks;
 
 /// <summary>
-/// What the harness tells a build made for the screen checks: the test server, the account on it, the words its
-/// bot answers with, and where to report. A desktop reads them from the environment; Android from the extras of the
+/// What the harness tells a build made for the screen checks: the test server, the account on it, the project and bot
+/// it opens, the words its bot answers with, and where to report. A desktop reads them from the environment; Android from the extras of the
 /// intent that started the app. When they are missing the app starts as any other build does.
 /// </summary>
 internal sealed record CheckSettings(
@@ -14,7 +14,8 @@ internal sealed record CheckSettings(
     string? ReportPath,
     string? RunId,
     string? ProofPicture = null,
-    Guid? ProofBot = null)
+    Guid? ProofBot = null,
+    Guid? ProjectId = null)
 {
     #region Private Fields
 
@@ -37,6 +38,8 @@ internal sealed record CheckSettings(
     public const string ProofPictureName = "DROVER_UI_CHECK_PROOF_PICTURE";
 
     public const string ProofBotName = "DROVER_UI_CHECK_PROOF_BOT";
+
+    public const string ProjectName = "DROVER_UI_CHECK_PROJECT";
 
     private static readonly Lazy<CheckSettings?> current = new(Read);
 
@@ -88,6 +91,7 @@ internal sealed record CheckSettings(
         }
 
         var bot = Guid.TryParse(Value(ProofBotName), out var proofBot) ? proofBot : (Guid?)null;
+        var project = Guid.TryParse(Value(ProjectName), out var checkProject) ? checkProject : (Guid?)null;
         return new(
             origin,
             email,
@@ -97,7 +101,8 @@ internal sealed record CheckSettings(
             Value(ReportName),
             Value(RunIdName),
             Value(ProofPictureName),
-            bot);
+            bot,
+            project);
     }
 
     private static string? Value(string name)
