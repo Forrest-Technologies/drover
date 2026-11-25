@@ -82,6 +82,13 @@ public class Dialog : Grid
 
     #endregion
 
+    #region Internal Methods
+
+    /// <summary>Closes the way Escape does, for a screen check that cannot inject a key.</summary>
+    internal void CloseFromKeyboard() => surface.CloseFromKeyboard();
+
+    #endregion
+
     #region Private Methods
 
     private void Show()

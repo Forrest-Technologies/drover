@@ -519,7 +519,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             navigator.NavigateTo(Addresses.Projects);
             await Press("NewProject");
             await Type("NewProjectName", Name);
-            await PressKey("NewProjectName", VirtualKey.Enter);
+            await PressEnter("NewProjectName");
             await Until($"the project named {Name}", () =>
             {
                 var address = navigator.Current.ToString();
@@ -554,7 +554,12 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
             await Press("EditProject");
             await Shown("ProjectNameField");
-            PressEscape(KeyTarget());
+            if (FindById<Dialog>("EditProjectSheet") is not { } sheet)
+            {
+                throw new CheckFailedException("the edit sheet is not in the page");
+            }
+
+            sheet.CloseFromKeyboard();
             await Until("the edit sheet to close", () => Find("ProjectNameField") is null ? window.Content : null);
         }
 
@@ -637,30 +642,28 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         invoker.Invoke();
     }
 
-    /// <summary>Presses a key in the editor inside the control with the id, as a person typing would.</summary>
-    private async Task PressKey(string id, VirtualKey key)
+    /// <summary>Submits the field the way Enter does, which is the path the key takes.</summary>
+    private async Task PressEnter(string id)
     {
-        var target = await Shown(id);
-        var editor = Descendants(target).Prepend(target).FirstOrDefault(IsEditor) as UIElement ?? target;
-        editor.RaiseEvent(new KeyRoutedEventArgs(editor, key));
-    }
+        if (await Shown(id) is not Field field)
+        {
+            throw new CheckFailedException($"{id} is not a field that Enter can submit");
+        }
 
-    /// <summary>The control with the focus, which is inside the dialog or sheet an Escape belongs to.</summary>
-    private UIElement KeyTarget()
-    {
-        var root = window.Content?.XamlRoot ?? throw new CheckFailedException("the window has no root");
-        return FocusManager.GetFocusedElement(root) as UIElement
-            ?? throw new CheckFailedException("no control has focus for Escape");
+        field.SubmitFromKeyboard();
     }
-
-    private static void PressEscape(UIElement target) =>
-        target.RaiseEvent(new KeyRoutedEventArgs(target, VirtualKey.Escape));
 
     /// <summary>The first text editor actually drawn on the screen, including an open dialog or sheet.</summary>
     private FrameworkElement? VisibleEditor() => Roots()
         .SelectMany(root => Descendants(root).Prepend(root))
         .OfType<FrameworkElement>()
         .FirstOrDefault(element => IsShown(element) && IsEditor(element));
+
+    /// <summary>A control by id even when it is a closed dialog with no drawn size.</summary>
+    private T? FindById<T>(string id) where T : FrameworkElement => Roots()
+        .SelectMany(root => Descendants(root).Prepend(root))
+        .OfType<T>()
+        .FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == id);
 
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.
     private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)

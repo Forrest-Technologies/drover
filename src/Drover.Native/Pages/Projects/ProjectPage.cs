@@ -178,6 +178,7 @@ public sealed class ProjectPage : Screen
             Body = editBody,
             Actions = PageParts.Row(cancelEditButton, saveButton),
         };
+        AutomationProperties.SetAutomationId(editSheet, "EditProjectSheet");
 
         discardDialog = new Dialog
         {

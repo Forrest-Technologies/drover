@@ -173,6 +173,9 @@ internal sealed class DialogSurface
         }
     }
 
+    /// <summary>Closes the way Escape does, for a screen check that cannot inject a key.</summary>
+    internal void CloseFromKeyboard() => Close(FocusState.Keyboard);
+
     public void Hide()
     {
         if (!popup.IsOpen)
