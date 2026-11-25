@@ -436,7 +436,7 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
             Role = MessageRole.Assistant,
             AuthorBotId = bot.Id,
             Parts = [new TextPart("The registered device may read this reply.")],
-            CreatedAt = Time.GetUtcNow(),
+            CreatedAt = DateTimeOffset.UnixEpoch.AddMilliseconds(123),
         };
         await using (var scope = Services.CreateAsyncScope())
         {
