@@ -130,7 +130,7 @@ internal sealed class ExtensionServerSteps : Grid
         }
 
         problem = new StatusNote { Kind = NoteKind.Danger };
-        connect = new Button { Kind = ButtonKind.Primary, HorizontalAlignment = HorizontalAlignment.Left };
+        connect = new Button { Kind = ButtonKind.Quiet, HorizontalAlignment = HorizontalAlignment.Left };
         connect.Click += (_, _) => Connect();
         column.Children.Add(problem);
         column.Children.Add(connect);

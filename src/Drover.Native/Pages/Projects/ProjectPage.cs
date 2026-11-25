@@ -310,7 +310,7 @@ public sealed class ProjectPage : Screen
         {
             Text = label,
             Address = address,
-            MinHeight = Tokens.Number("DvTargetTouch"),
+            MinHeight = Targets.Minimum,
         };
         AutomationProperties.SetName(link, label);
         return link;

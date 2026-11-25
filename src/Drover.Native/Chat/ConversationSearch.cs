@@ -211,7 +211,7 @@ public sealed class ConversationSearch : StackPanel
         link.Content = column;
         link.Address = hit.Href;
         link.Padding = Tokens.Space("DvSpace3", "DvSpace2");
-        link.MinHeight = Tokens.Number("DvTargetTouch");
+        link.MinHeight = Targets.Minimum;
         AutomationProperties.SetName(link, hit.AccessibleName);
         ArrowKeyZone.SetIsItem(link, true);
         link.Refresh();
