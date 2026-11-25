@@ -504,7 +504,7 @@ public sealed class ProjectPage : Screen
         name.TextTrimming = TextTrimming.CharacterEllipsis;
         name.VerticalAlignment = VerticalAlignment.Center;
         var size = Styles.Text(Words.Size(file.File.Size), "DvTextMono");
-        size.Foreground = Tokens.Brush(size, "DvText2");
+        size.WhenShownOrRethemed(() => size.Foreground = Tokens.Brush(size, "DvText2"));
         size.VerticalAlignment = VerticalAlignment.Center;
         var column = 0;
         Grid.SetColumn(icon, column++);
