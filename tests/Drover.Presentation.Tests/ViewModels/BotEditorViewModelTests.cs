@@ -613,7 +613,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Draft.Handle.Should().Be("new-bot");
         editor.Draft.ModelConnectionId.Should().Be(connectionId);
         editor.Draft.Model.Should().Be("sample-large");
-        editor.LimitsSummary.Should().Be("No limit");
+        editor.Summary(Limits).Should().Be("No limit");
         editor.SaveWords.Should().Be("Not made until you save");
         editor.SaveLabel.Should().Be("Make bot");
         editor.CanSave.Should().BeTrue();
