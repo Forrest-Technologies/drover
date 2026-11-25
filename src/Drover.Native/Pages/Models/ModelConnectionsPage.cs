@@ -126,7 +126,7 @@ public sealed class ModelConnectionsPage : Screen
                 VerticalAlignment = VerticalAlignment.Center,
             };
             AutomationProperties.SetAutomationId(add, "AddModelConnection");
-            add.Click += (_, _) => { model.StartAdding(); Refresh(); };
+            add.Click += (_, _) => OpenAddSheet();
             header.Actions.Add(add);
         }
 
@@ -176,8 +176,16 @@ public sealed class ModelConnectionsPage : Screen
             Cause = "Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.",
             ActionLabel = "Add a model connection",
         };
-        empty.Action += (_, _) => { model.StartAdding(); Refresh(); };
+        empty.Action += (_, _) => OpenAddSheet();
         return empty;
+    }
+
+    private void OpenAddSheet()
+    {
+        model.StartAdding();
+        UpdateAddForm();
+        addSheet.Open = true;
+        addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
     }
 
     private void UpdateAddForm()

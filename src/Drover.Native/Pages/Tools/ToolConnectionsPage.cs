@@ -204,7 +204,7 @@ public sealed class ToolConnectionsPage : Screen
                 VerticalAlignment = VerticalAlignment.Center,
             };
             AutomationProperties.SetAutomationId(add, "AddToolServer");
-            add.Click += (_, _) => { draft = new(); model.StartAdding(); Refresh(); };
+            add.Click += (_, _) => OpenAddSheet();
             header.Actions.Add(add);
         }
 
@@ -267,8 +267,17 @@ public sealed class ToolConnectionsPage : Screen
             Cause = "A tool server gives bots tools beyond the built-in ones. Add one by its address, then give its tools to a bot.",
             ActionLabel = "Add a tool server",
         };
-        empty.Action += (_, _) => { draft = new(); model.StartAdding(); Refresh(); };
+        empty.Action += (_, _) => OpenAddSheet();
         return empty;
+    }
+
+    private void OpenAddSheet()
+    {
+        draft = new();
+        model.StartAdding();
+        UpdateAddForm();
+        addSheet.Open = true;
+        addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
     }
 
     private void UpdateAddForm()
