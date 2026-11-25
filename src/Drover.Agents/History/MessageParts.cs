@@ -57,7 +57,7 @@ public static class MessageParts
         bool keepReplyId = false,
         string? model = null)
     {
-        List<MessagePart> parts = [.. message.Contents.SelectMany(content => ToParts(content, runId))];
+        var parts = Joined(message.Contents.SelectMany(content => ToParts(content, runId)));
 
         if (parts.Count == 0)
         {
@@ -120,6 +120,25 @@ public static class MessageParts
         ToolResultPart result => new FunctionResultContent(result.CallId, result.Result),
         _ => null,
     };
+
+    // A model streams its reasoning in small pieces, and a message can hold them one by one. Pieces next to each other
+    // are one thought, stored as one text, exactly as streamed; reasoning on either side of anything else stays apart.
+    private static List<MessagePart> Joined(IEnumerable<MessagePart> parts)
+    {
+        List<MessagePart> joined = [];
+        foreach (var part in parts)
+        {
+            if (part is ReasoningPart next && joined is [.., ReasoningPart last])
+            {
+                joined[^1] = new ReasoningPart($"{last.Text}{next.Text}");
+                continue;
+            }
+
+            joined.Add(part);
+        }
+
+        return joined;
+    }
 
     private static IEnumerable<MessagePart> ToParts(AIContent content, Guid runId) =>
         content is TextContent text

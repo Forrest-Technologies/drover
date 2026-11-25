@@ -176,10 +176,33 @@ public static class Conversations
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }
 
+    // Reasoning parts next to each other are pieces of one thought, which a reply saved before they were stored whole
+    // can still hold one by one, so they read as one text. Reasoning on either side of anything else is two thoughts.
     private static string? Reasoning(MessageView message)
     {
-        var reasoning = message.Parts.Where(part => part.Kind is ReasoningKind && !string.IsNullOrWhiteSpace(part.Text)).Select(part => part.Text);
-        return reasoning.Any() ? string.Join("\n\n", reasoning) : null;
+        List<string> thoughts = [];
+        var piecing = false;
+        foreach (var part in message.Parts)
+        {
+            if (part.Kind is not ReasoningKind)
+            {
+                piecing = false;
+                continue;
+            }
+
+            if (piecing)
+            {
+                thoughts[^1] = $"{thoughts[^1]}{part.Text}";
+            }
+            else
+            {
+                thoughts.Add(part.Text ?? string.Empty);
+                piecing = true;
+            }
+        }
+
+        List<string> shown = [.. thoughts.Where(thought => !string.IsNullOrWhiteSpace(thought))];
+        return shown.Count > 0 ? string.Join("\n\n", shown) : null;
     }
 
     // A source cited twice is shown once, and one that is not a web address is not shown at all.

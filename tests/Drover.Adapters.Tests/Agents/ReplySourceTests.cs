@@ -38,6 +38,38 @@ public sealed class ReplySourceTests
     }
 
     [Fact]
+    public void Reasoning_streamed_in_pieces_is_stored_as_one_text()
+    {
+        ChatResponseUpdate[] streamed =
+        [
+            Update(new TextReasoningContent("Let")),
+            Update(new TextReasoningContent(" me check whether the sample")),
+            Update(new TextReasoningContent(" page\n\nlists it.")),
+            Update(new TextContent("The sample answer.")),
+        ];
+
+        var stored = Store(streamed.ToChatResponse().Messages.Single());
+
+        stored.Parts.Should().Equal(
+            new ReasoningPart("Let me check whether the sample page\n\nlists it."),
+            new TextPart("The sample answer."));
+    }
+
+    [Fact]
+    public void Reasoning_on_either_side_of_a_tool_call_stays_two_texts()
+    {
+        var stored = Store(new ChatMessage(ChatRole.Assistant,
+        [
+            new TextReasoningContent("First"),
+            new TextReasoningContent(" thought."),
+            new FunctionCallContent("sample-call", "sample_tool"),
+            new TextReasoningContent("Second thought."),
+        ]));
+
+        stored.Parts.OfType<ReasoningPart>().Should().Equal(new ReasoningPart("First thought."), new ReasoningPart("Second thought."));
+    }
+
+    [Fact]
     public void A_reply_with_neither_reasoning_nor_sources_stores_only_its_words()
     {
         var stored = Store(new ChatMessage(ChatRole.Assistant, [new TextContent("Plain words.")]));
