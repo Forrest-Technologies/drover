@@ -1604,6 +1604,8 @@ async function checkConversationSearch(page, width) {
     await typeSearch(page, searchBox, 'lighthouse');
     await page.locator('[aria-label="2 messages found."]')
         .or(page.getByText('2 messages found.', { exact: true }))
+        // The count is both announced and drawn, so either or both can be present at once.
+        .first()
         .waitFor({ state: 'attached', timeout: 10000 });
 
     const firstHit = page.getByRole('link', { name: /The lighthouse keeper visits on Tuesdays\./ });
