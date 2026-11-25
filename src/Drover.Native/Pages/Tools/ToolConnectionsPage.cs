@@ -23,7 +23,7 @@ public sealed class ToolConnectionsPage : Screen
 
     private readonly SegmentedControl kind = new()
     {
-        Label = "How Drover proves who is calling",
+        Label = "How Drover signs in to this server",
         Options = [new("none", "Nothing"), new("header", "A header"), new("oauth", "A sign-in")],
     };
 

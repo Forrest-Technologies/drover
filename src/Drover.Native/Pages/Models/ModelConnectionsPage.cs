@@ -193,7 +193,7 @@ public sealed class ModelConnectionsPage : Screen
         var empty = new EmptyState
         {
             Title = "No model connection yet",
-            Cause = "Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.",
+            Cause = "A bot needs a model. Add a connection, then choose it in a bot's Model section.",
             ActionLabel = "Add a model connection",
         };
         empty.Action += (_, _) => OpenAddSheet();

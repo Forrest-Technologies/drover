@@ -8,12 +8,12 @@ Wording follows the [copy guide](copy-guide.md).
 
 ## 1. Connect a model (setup step 2, and "Add a connection" on Models)
 
-**The screen's job:** give this space a model to think with.
+**The screen's job:** connect the model this space's bots use.
 
 ```text
 +------------------------------------------+
 |  o-----(2)-----o     Connect a model     |
-|  Bots think with a model you bring. The  |
+|  Connect the model your bots use. The    |
 |  key is stored encrypted on this server  |
 |  and is never shown again.               |
 |                                          |

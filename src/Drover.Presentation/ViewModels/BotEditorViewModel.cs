@@ -180,7 +180,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public const string MadeButNotSet = "The bot was made, but its settings are not saved yet.";
 
-    public static string NoModelCause => "A bot needs a model to think with, and this space has none yet. Connect a model first.";
+    public static string NoModelCause => "A bot needs a model, and this space has none yet. Connect a model first.";
 
     public static string LoadFailedTitle => "Drover could not load this bot";
 

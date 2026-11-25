@@ -39,7 +39,7 @@ public sealed partial class BotListViewModel(
 
     public static string NoModelTitle => "No model is connected";
 
-    public static string NoModelCause => "A bot needs a model to think with, and this space has none yet.";
+    public static string NoModelCause => "A bot needs a model, and this space has none yet.";
 
     public static string NoModelAction => "Connect a model";
 

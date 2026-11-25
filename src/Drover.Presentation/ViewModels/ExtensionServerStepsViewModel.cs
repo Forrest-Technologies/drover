@@ -41,7 +41,7 @@ public sealed partial class ExtensionServerStepsViewModel(
 
     public string ConnectLabel => Busy ? "Connecting" : $"Connect {Connection.Name}";
 
-    public string GiveLabel => Busy ? "Giving the tools" : $"Give {Extension!.BotName} the ticked tools, asking first";
+    public string GiveLabel => Busy ? "Granting the tools" : $"Give {Extension!.BotName} the selected tools, set to Ask";
 
     public string HeaderValueLabel => $"Value of {Connection.HeaderName}";
 
