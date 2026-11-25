@@ -399,7 +399,7 @@ public sealed class SandboxScreen : StackPanel
         {
             foreach (var button in sendButtons.OfType<Button>().Append(zoomOut).Append(zoomIn).Append(fit).Append(wake).Append(type))
             {
-                button.MinWidth = Tokens.Number("DvTargetTouch");
+                button.MinWidth = Targets.Minimum;
             }
         }
     }

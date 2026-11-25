@@ -11,7 +11,7 @@ internal static class Links
         Address = address,
         Ink = "DvText",
         HoverInk = "DvText",
-        MinHeight = Tokens.Number("DvTargetTouch"),
+        MinHeight = Targets.Minimum,
         VerticalContentAlignment = VerticalAlignment.Center,
     };
 

@@ -29,7 +29,7 @@ internal sealed class TimelineNodeButton : Pressable
     public TimelineNodeButton(TimelineNode node, bool isOpen, string? edge)
         : base("DvFacetTemplate")
     {
-        MinHeight = Tokens.Number("DvTargetTouch");
+        MinHeight = Targets.Minimum;
         Padding = Tokens.Space("DvSpace3", "DvSpace2");
         HorizontalAlignment = HorizontalAlignment.Stretch;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;

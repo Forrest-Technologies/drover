@@ -25,7 +25,7 @@ internal sealed class ToolTick : ToggleButton
     {
         Template = Styles.Template("DvPlainTemplate");
         UseSystemFocusVisuals = false;
-        MinHeight = Tokens.Number("DvTargetTouch");
+        MinHeight = Targets.Minimum;
         HorizontalAlignment = HorizontalAlignment.Stretch;
         HorizontalContentAlignment = HorizontalAlignment.Left;
         VerticalContentAlignment = VerticalAlignment.Top;

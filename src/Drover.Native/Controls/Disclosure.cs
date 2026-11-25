@@ -48,7 +48,7 @@ public sealed class Disclosure : Grid
         content.Children.Add(mark);
 
         toggle.Content = content;
-        toggle.MinHeight = Tokens.Number("DvTargetTouch");
+        toggle.MinHeight = Targets.Minimum;
         toggle.HorizontalAlignment = HorizontalAlignment.Stretch;
         toggle.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         toggle.Click += (_, _) => Open = !Open;

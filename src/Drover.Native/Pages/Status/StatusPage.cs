@@ -42,11 +42,21 @@ public sealed class StatusPage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        body.Add(new ScreenHeader { Title = "Status" });
+        var header = new ScreenHeader { Title = "Status" };
         if (!opening && model.Report is not null)
         {
-            body.Add(PageParts.Action("Check again", model.Load, Refresh, !model.Loading));
+            var check = new IconButton
+            {
+                Icon = IconName.Regenerate,
+                Label = "Check again",
+                IsEnabled = !model.Loading,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            check.Click += async (_, _) => { await model.Load(); Refresh(); };
+            header.Actions.Add(check);
         }
+
+        body.Add(header);
         if (opening)
         {
             body.Add(PageParts.Waiting("Checking the server and the space's connections."));

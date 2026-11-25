@@ -33,7 +33,7 @@ public sealed class OpenableGroup : StackPanel
         line.Children.Add(name);
         line.Children.Add(fact);
         summary.Content = line;
-        summary.MinHeight = Tokens.Number("DvTargetTouch");
+        summary.MinHeight = Targets.Minimum;
         summary.Padding = new(0);
         summary.HorizontalAlignment = HorizontalAlignment.Stretch;
         summary.HorizontalContentAlignment = HorizontalAlignment.Stretch;
