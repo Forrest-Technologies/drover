@@ -113,6 +113,7 @@ On 2026-11-25 the owner asked to see a bot's work where it happened, between the
 - The work between two things a bot said in one run (its reasoning and the calls that fold) stands between those words: above the words it led to, or under the last words when the bot worked after them. Work before the turn's first words stands under the bot's head. Nothing is gathered at the top of the turn any more.
 - Closed, the work is one line: what was done, in order, a kind repeated counted once ("Searched the web 3 times, read a page"), then the number of steps, the time they took and how many failed, or `running` in the bot-activity color while a step runs. The chevron opens it to a row per step, and a row opens to the call, its arguments, output and result.
 - Work of one step is its row alone, with no line above it.
+- While a call runs, its work and its row open by themselves so the output can be watched as it arrives, and close when it ends. A person who opens or closes either keeps that choice. On trial: if the owner does not like it, it becomes a setting or goes.
 - While a step runs, the line of live work travels around the work's frame.
 
 The line's accessible name is `{bot}'s activity, {n} steps. Opens the Activity panel.`

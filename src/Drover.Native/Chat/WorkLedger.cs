@@ -3,8 +3,9 @@ namespace Drover.Native.Chat;
 /// <summary>
 /// The work a bot did between two things it said, as one quiet list (<see cref="TurnLedger"/>) in one frame. Closed,
 /// it is one line: what was done in order, then the number of steps, the time they took and any that failed. Opened,
-/// it shows a single line row for each step, and a row opens to the call itself. Work of one step is that row alone,
-/// with no line above it. The arrow keys, Home, and End move between rows. Only running work moves: while a step runs,
+/// it shows a single line row for each step, and a row opens to the call itself. While a call runs, the list and its
+/// row open by themselves so its output can be watched, and close when it ends, unless the person opened or closed
+/// them. Work of one step is that row alone, with no line above it. The arrow keys, Home, and End move between rows. Only running work moves: while a step runs,
 /// the line travels around the frame.
 /// </summary>
 public sealed class WorkLedger : Grid
@@ -34,6 +35,9 @@ public sealed class WorkLedger : Grid
     private IReadOnlyList<LedgerStep> steps = [];
 
     private bool open;
+
+    // What the person chose by opening or closing the list. Until they choose, it is open while a call runs.
+    private bool? chosen;
 
     #endregion
 
@@ -116,13 +120,14 @@ public sealed class WorkLedger : Grid
 
     private void Toggle()
     {
-        open = !open;
+        chosen = !open;
         Paint();
     }
 
     private void Paint()
     {
         var running = steps.Any(step => TurnLedger.StateOf(step) is LedgerState.Running);
+        open = chosen ?? steps.Any(step => step.Reasoning is null && TurnLedger.StateOf(step) is LedgerState.Running);
         frame.Cut = travel.Cut = Tokens.Number("DvCut");
         frame.Fill = Tokens.Brush(this, "DvBg1");
         frame.Edge = Tokens.Brush(this, running ? "DvText3" : "DvLine");

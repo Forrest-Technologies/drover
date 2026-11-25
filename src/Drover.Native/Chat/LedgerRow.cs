@@ -44,6 +44,9 @@ internal sealed class LedgerRow : StackPanel
 
     private bool open;
 
+    // What the person chose by opening or closing the row. Until they choose, a running call opens by itself.
+    private bool? chosen;
+
     #endregion
 
     #region Constructors
@@ -119,9 +122,20 @@ internal sealed class LedgerRow : StackPanel
 
     #region Public Methods
 
+    /// <summary>
+    /// Shows the step. A call opens by itself while it runs, so its output can be watched as it arrives, and closes
+    /// when it ends, unless the person opened or closed the row themselves.
+    /// </summary>
     public void Show(LedgerStep shown)
     {
         step = shown;
+        var wanted = chosen ?? (shown.Reasoning is null && TurnLedger.StateOf(shown) is LedgerState.Running);
+        if (wanted != open)
+        {
+            SetOpen(wanted);
+            return;
+        }
+
         Paint();
 
         if (open && !Equals(shown, drawn))
@@ -142,7 +156,13 @@ internal sealed class LedgerRow : StackPanel
 
     private void Toggle()
     {
-        open = !open;
+        chosen = !open;
+        SetOpen(!open);
+    }
+
+    private void SetOpen(bool value)
+    {
+        open = value;
         body.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
 
         if (open)
