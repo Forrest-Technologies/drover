@@ -1,7 +1,8 @@
 namespace Drover.Native.Controls;
 
-// Compiled into the app only for the screen checks. Gives the shared check the same close path a key press takes,
-// without injecting a key the platform does not let one part of the app send to another.
+// Compiled into the app only for the screen checks. The platform gives one part of the app no public way to send a
+// key to another, so the check takes the same keyboard close path a pressed Escape takes: FocusState.Keyboard, which
+// returns the focus to the control that opened the surface. Escape's own KeyDown handler calls this same Close.
 public partial class Dialog
 {
     internal void CloseFromKeyboardForCheck() => surface.CloseFromKeyboardForCheck();

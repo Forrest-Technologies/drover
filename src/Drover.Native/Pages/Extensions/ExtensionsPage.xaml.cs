@@ -30,8 +30,8 @@ public sealed partial class ExtensionsPage : Screen
     {
         InitializeComponent();
         AutomationProperties.SetName(list, "Extensions");
-        AddExtension.Items.Add(MenuEntry("Import an extension", () => { Model.StartImporting(); Refresh(); }));
-        AddExtension.Items.Add(MenuEntry("Make an extension", () => navigator.NavigateTo(Addresses.ExtensionEditor)));
+        AddExtension.Items.Add(PageParts.MenuEntry("Import an extension", () => { Model.StartImporting(); Refresh(); }));
+        AddExtension.Items.Add(PageParts.MenuEntry("Make an extension", () => navigator.NavigateTo(Addresses.ExtensionEditor)));
         importSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
             if (!importSheet.Open && Model.Importing)
@@ -109,13 +109,6 @@ public sealed partial class ExtensionsPage : Screen
             ExtensionsContent.List => ListOfRows(),
             _ => null,
         };
-    }
-
-    private static MenuItem MenuEntry(string label, Action choose)
-    {
-        var item = new MenuItem { Content = label, HorizontalContentAlignment = HorizontalAlignment.Left };
-        item.Selected += (_, _) => choose();
-        return item;
     }
 
     private static TextBlock Hint(string text, bool live)

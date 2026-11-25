@@ -532,8 +532,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     }
 
     /// <summary>
-    /// The add form opens as a sheet from the header action, takes the focus into its Name field, closes on Escape,
-    /// and puts the focus back on the action that opened it.
+    /// The add form opens as a sheet from the header action and takes the focus into its Name field. The check then
+    /// takes the keyboard close path Escape uses and requires the focus to go back to the action that opened it.
     /// </summary>
     private async Task ToolServerSheet()
     {

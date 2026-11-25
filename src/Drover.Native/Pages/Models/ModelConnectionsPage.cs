@@ -5,7 +5,11 @@ public sealed class ModelConnectionsPage : Screen
 {
     #region Private Fields
 
+    private static readonly ILogger logger = Log.For<ModelConnectionsPage>();
+
     private readonly WorkLayout layout = new();
+
+    private readonly StackPanel content = new() { Spacing = Tokens.Number("DvSpace3") };
 
     private readonly ModelConnectionsViewModel model = Make<ModelConnectionsViewModel>();
 
@@ -56,11 +60,15 @@ public sealed class ModelConnectionsPage : Screen
             model.ChooseProvider(provider.Value ?? model.Kind);
             UpdateAddForm();
         });
+        nameField.Submitted += (_, _) => Run(model.Add);
+        baseUrlField.Submitted += (_, _) => Run(model.Add);
+        keyField.Submitted += (_, _) => Run(model.Add);
+        newKeyField.Submitted += (_, _) => Run(ReplaceKey);
 
-        cancelAdd = PageParts.Action("Cancel", () => { model.Adding = false; return Task.CompletedTask; }, Refresh);
+        cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = Forms.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy,
-            PageParts.Row(cancelAdd, addButton));
+        addSheet.Body = PageParts.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy);
+        addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
@@ -68,16 +76,16 @@ public sealed class ModelConnectionsPage : Screen
             {
                 addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
             }
-            else if (model.Adding)
+            else
             {
-                model.Adding = false;
-                Refresh();
+                CloseAdd();
             }
         });
 
-        cancelReplace = PageParts.Action("Cancel", () => { model.CancelReplacing(); return Task.CompletedTask; }, Refresh);
-        saveKey = PageParts.Action("Save key", () => model.ReplaceKey(Replacing()), Refresh, kind: ButtonKind.Primary);
-        replaceDialog.Body = Forms.SheetBody(newKeyField, replaceProblem, replaceBusy, PageParts.Row(cancelReplace, saveKey));
+        cancelReplace = PageParts.Action("Cancel", CancelReplace, Refresh);
+        saveKey = PageParts.Action("Save key", ReplaceKey, Refresh, kind: ButtonKind.Primary);
+        replaceDialog.Body = PageParts.SheetBody(newKeyField, replaceProblem, replaceBusy);
+        replaceDialog.Actions = PageParts.Row(cancelReplace, saveKey);
         newKeyField.Loaded += (_, _) => { if (replaceDialog.Open) { newKeyField.TakeFocus(); } };
         replaceDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
@@ -85,12 +93,16 @@ public sealed class ModelConnectionsPage : Screen
             {
                 replaceDialog.DispatcherQueue.TryEnqueue(() => newKeyField.TakeFocus());
             }
-            else if (model.Replacing is not null)
+            else
             {
-                model.CancelReplacing();
+                CloseReplace();
             }
         });
 
+        layout.Body.Add(content);
+        layout.Body.Add(addSheet);
+        layout.Body.Add(replaceDialog);
+        Unloaded += (_, _) => CloseAll();
         Content = layout;
         Refresh();
     }
@@ -113,8 +125,7 @@ public sealed class ModelConnectionsPage : Screen
 
     private void Refresh()
     {
-        var body = layout.Body;
-        body.Clear();
+        content.Children.Clear();
 
         var header = new ScreenHeader { Title = "Model connections" };
         if (model.CanEdit && model.Connections is { Count: > 0 })
@@ -130,28 +141,37 @@ public sealed class ModelConnectionsPage : Screen
             header.Actions.Add(add);
         }
 
-        body.Add(header);
-        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
+        content.Children.Add(header);
+        content.Children.Add(new StatusNote
+        {
+            Text = model.Notice,
+            Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok,
+        });
 
         if (model.LoadProblem is { } problem)
         {
-            var failed = new EmptyState { Title = "Drover could not load the model connections", Cause = problem, ActionLabel = "Try again" };
+            var failed = new EmptyState
+            {
+                Title = "Drover could not load the model connections",
+                Cause = problem,
+                ActionLabel = "Try again",
+            };
             failed.Action += async (_, _) => { await model.Load(); Refresh(); };
-            body.Add(failed);
+            content.Children.Add(failed);
         }
         else if (model.Connections is null)
         {
-            body.Add(PageParts.Waiting("Loading the model connections."));
+            content.Children.Add(PageParts.Waiting("Loading the model connections."));
         }
         else if (model.Connections.Count == 0)
         {
-            body.Add(Empty());
+            content.Children.Add(Empty());
         }
         else
         {
             foreach (var connection in model.Connections)
             {
-                body.Add(Connection(connection));
+                content.Children.Add(Connection(connection));
             }
         }
 
@@ -159,15 +179,15 @@ public sealed class ModelConnectionsPage : Screen
         UpdateReplaceForm();
         addSheet.Open = model.Adding;
         replaceDialog.Open = model.Replacing is not null;
-        body.Add(addSheet);
-        body.Add(replaceDialog);
     }
 
     private UIElement Empty()
     {
         if (!model.CanEdit)
         {
-            return Styles.Text("This space has no model connections yet. An owner or admin of the space can add one.", "DvTextSecondary");
+            return Styles.Text(
+                "This space has no model connections yet. An owner or admin of the space can add one.",
+                "DvTextSecondary");
         }
 
         var empty = new EmptyState
@@ -188,47 +208,103 @@ public sealed class ModelConnectionsPage : Screen
         addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
     }
 
+    private Task CancelAdd()
+    {
+        CloseAdd();
+        return Task.CompletedTask;
+    }
+
+    private void CloseAdd()
+    {
+        if (model.Adding || model.ApiKey.Length > 0)
+        {
+            model.CancelAdding();
+        }
+
+        UpdateAddForm();
+    }
+
+    private Task CancelReplace()
+    {
+        CloseReplace();
+        return Task.CompletedTask;
+    }
+
+    private void CloseReplace()
+    {
+        if (model.Replacing is not null)
+        {
+            model.CancelReplacing();
+        }
+
+        UpdateReplaceForm();
+    }
+
+    private void CloseAll()
+    {
+        model.CancelAdding();
+        model.CancelReplacing();
+        UpdateAddForm();
+        UpdateReplaceForm();
+    }
+
     private void UpdateAddForm()
     {
+        var busy = model.AddingBusy;
         if (provider.Value != model.Kind)
         {
             provider.Value = model.Kind;
         }
 
+        provider.Disabled = busy;
         nameField.Value = model.Name;
+        nameField.Disabled = busy;
         baseUrlField.Value = model.BaseUrl;
+        baseUrlField.Disabled = busy;
         keyField.Value = model.ApiKey;
+        keyField.Disabled = busy;
         keyField.Hint = KeyHint();
         baseUrlField.Visibility = model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
         addProblem.Text = model.AddProblem;
-        addBusy.Text = model.AddingBusy ? "Adding the connection." : string.Empty;
-        addBusy.Visibility = model.AddingBusy ? Visibility.Visible : Visibility.Collapsed;
-        cancelAdd.IsEnabled = !model.AddingBusy;
-        addButton.IsEnabled = !model.AddingBusy;
+        addBusy.Text = busy ? "Adding the connection." : string.Empty;
+        addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        cancelAdd.IsEnabled = !busy;
+        addButton.IsEnabled = !busy;
     }
 
     private void UpdateReplaceForm()
     {
-        if (model.Replacing is not { } id)
-        {
-            newKeyField.Value = string.Empty;
-            return;
-        }
-
-        newKeyField.Value = model.NewKey;
-        replaceProblem.Text = model.Problems.GetValueOrDefault(id);
-        replaceBusy.Text = model.ChangePending ? "Saving the key." : string.Empty;
-        replaceBusy.Visibility = model.ChangePending ? Visibility.Visible : Visibility.Collapsed;
-        cancelReplace.IsEnabled = !model.ChangePending;
-        saveKey.IsEnabled = !model.ChangePending;
+        var busy = model.ChangePending;
+        newKeyField.Value = model.Replacing is null ? string.Empty : model.NewKey;
+        newKeyField.Disabled = busy;
+        replaceProblem.Text = model.KeyProblem;
+        replaceBusy.Text = busy ? "Saving the key." : string.Empty;
+        replaceBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        cancelReplace.IsEnabled = !busy;
+        saveKey.IsEnabled = !busy && model.Replacing is not null;
     }
 
     private string KeyHint() => model.Kind is "openai_compatible"
         ? "Leave this empty if the server needs no key."
         : "Made in your Venice account, under API keys.";
 
-    private Drover.Contracts.Models.ModelConnectionSummary Replacing() =>
-        model.Connections!.First(connection => connection.Id == model.Replacing);
+    private Drover.Contracts.Models.ModelConnectionSummary? Replacing() =>
+        model.Replacing is { } id ? model.Connections?.FirstOrDefault(connection => connection.Id == id) : null;
+
+    private Task ReplaceKey()
+    {
+        var connection = Replacing();
+        return connection is null ? Task.CompletedTask : model.ReplaceKey(connection);
+    }
+
+    private void OpenReplace(Drover.Contracts.Models.ModelConnectionSummary connection)
+    {
+        model.StartReplacing(connection);
+        replaceDialog.Title = $"Replace the key for {connection.Name}";
+        UpdateReplaceForm();
+        replaceDialog.Open = true;
+        replaceDialog.DispatcherQueue.TryEnqueue(() => newKeyField.TakeFocus());
+    }
 
     private ListCard Connection(Drover.Contracts.Models.ModelConnectionSummary connection)
     {
@@ -251,7 +327,9 @@ public sealed class ModelConnectionsPage : Screen
         {
             if (catalog.Count == 0)
             {
-                beneath.Children.Add(Styles.Text("This connection has no listed models. You can enter a model ID in the bot's Model section.", "DvTextSecondary"));
+                beneath.Children.Add(Styles.Text(
+                    "This connection has no listed models. You can enter a model ID in the bot's Model section.",
+                    "DvTextSecondary"));
             }
 
             foreach (var entry in catalog)
@@ -264,7 +342,7 @@ public sealed class ModelConnectionsPage : Screen
         return card;
     }
 
-    private Menu CardMenu(Drover.Contracts.Models.ModelConnectionSummary connection)
+    private Menu? CardMenu(Drover.Contracts.Models.ModelConnectionSummary connection)
     {
         var menu = new Menu
         {
@@ -273,27 +351,34 @@ public sealed class ModelConnectionsPage : Screen
             TriggerIcon = IconName.More,
             ShowTriggerLabel = false,
         };
+        var enabled = !model.ChangePending;
+        var shown = model.ShownCatalog == connection.Id;
 
-        if (model.ShownCatalog == connection.Id)
+        menu.Items.Add(PageParts.MenuEntry(shown ? "Hide models" : "View models",
+            () => shown ? HideCatalog() : Run(() => model.ShowCatalog(connection)), enabled));
+        if (shown && model.CanEdit)
         {
-            menu.Items.Add(MenuEntry("Hide models", () => { model.HideCatalog(); Refresh(); }));
-            menu.Items.Add(MenuEntry("Refresh models", () => Run(() => model.RefreshCatalog(connection))));
-        }
-        else
-        {
-            menu.Items.Add(MenuEntry("View models", () => Run(() => model.ShowCatalog(connection))));
+            menu.Items.Add(PageParts.MenuEntry("Refresh models", () => Run(() => model.RefreshCatalog(connection)), enabled));
         }
 
-        menu.Items.Add(MenuEntry("Test connection", () => Run(() => model.Test(connection))));
         if (model.CanEdit)
         {
-            menu.Items.Add(MenuEntry("Replace key", () => { model.StartReplacing(connection); Refresh(); }));
+            menu.Items.Add(PageParts.MenuEntry("Test connection", () => Run(() => model.Test(connection)), enabled));
+            menu.Items.Add(PageParts.MenuEntry("Replace key", () => OpenReplace(connection), enabled));
         }
 
-        return menu;
+        return menu.Items.Count == 0 ? null : menu;
     }
 
-    private UIElement CatalogRow(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry)
+    private void HideCatalog()
+    {
+        model.HideCatalog();
+        Refresh();
+    }
+
+    private UIElement CatalogRow(
+        Drover.Contracts.Models.ModelConnectionSummary connection,
+        Drover.Contracts.Models.ModelCatalogResponse entry)
     {
         var state = entry.State is "available" ? string.Empty : $" ({entry.State})";
         var words = ModelConnectionsViewModel.VisionWords(entry) is { } vision ? $" · {vision}" : string.Empty;
@@ -304,7 +389,12 @@ public sealed class ModelConnectionsPage : Screen
             return line;
         }
 
-        var reads = new Switch { Label = ModelConnectionsViewModel.VisionLabel(entry), Value = entry.Capabilities.Vision, IsEnabled = !model.ChangePending };
+        var reads = new Switch
+        {
+            Label = ModelConnectionsViewModel.VisionLabel(entry),
+            Value = entry.Capabilities.Vision,
+            IsEnabled = !model.ChangePending,
+        };
         reads.OnChanged(() => model.ChangePending, on => Run(() => model.SetVision(connection, entry, on)));
         return PageParts.Column(line, reads);
     }
@@ -322,17 +412,14 @@ public sealed class ModelConnectionsPage : Screen
         {
             await pending;
         }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "An action on the model connections page failed");
+        }
         finally
         {
             Refresh();
         }
-    }
-
-    private static MenuItem MenuEntry(string label, Action choose)
-    {
-        var item = new MenuItem { Content = label, HorizontalContentAlignment = HorizontalAlignment.Left };
-        item.Selected += (_, _) => choose();
-        return item;
     }
 
     #endregion

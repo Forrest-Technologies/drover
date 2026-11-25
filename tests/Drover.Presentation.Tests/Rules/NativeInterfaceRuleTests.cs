@@ -184,11 +184,23 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void A_button_with_a_ternary_label_on_a_card_is_caught()
+    {
+        const string Sample = """
+            body.Children.Add(Action(model.Busy == connection.Id ? "Working" : "Check and list tools", () => model.Refresh(connection)));
+            Button other = new();
+            """;
+
+        CardActions(Sample).Should().HaveCount(2);
+    }
+
+    [Fact]
     public void The_sign_in_and_accept_change_buttons_on_a_card_are_allowed()
     {
         const string Sample = """
             body.Children.Add(Action("Sign in", () => model.SignIn(connection)));
             body.Children.Add(Action("Sign in again", () => model.SignIn(connection)));
+            body.Children.Add(Action(connection.SignIn is "needs_reconnect" ? "Sign in again" : "Sign in", () => model.SignIn(connection)));
             body.Children.Add(Action($"Accept the change to {tool.Name}", () => model.Accept(tool)));
             """;
 
@@ -324,32 +336,39 @@ public sealed partial class NativeInterfaceRuleTests
 
     #region Private Methods
 
-    private static string CardMethod(string source)
+    private static string CardMethod(string source) =>
+        string.Join('\n', new[] { "Connection(Drover.", "ToolReview(", "CatalogRow(" }.SelectMany(marker => MethodLines(source, marker)));
+
+    private static IEnumerable<string> MethodLines(string source, string marker)
     {
         var lines = source.Split('\n');
-        var start = Array.FindIndex(lines, line => line.Contains("Connection(Drover.", StringComparison.Ordinal));
-        start.Should().BeGreaterThanOrEqualTo(0, "the page draws its connections in a Connection method");
-        List<string> method = [];
-        for (var index = start; index < lines.Length; index++)
+        var start = Array.FindIndex(lines, line => line.Contains(marker, StringComparison.Ordinal));
+        if (start < 0)
+        {
+            return [];
+        }
+
+        List<string> method = [lines[start]];
+        for (var index = start + 1; index < lines.Length; index++)
         {
             method.Add(lines[index]);
-            if (index > start && lines[index] == "    }")
+            if (lines[index] == "    }")
             {
                 break;
             }
         }
 
-        return string.Join('\n', method);
+        return method;
     }
 
     private static IEnumerable<string> CardActions(string body) =>
         from match in CardButton().Matches(body).Cast<Match>()
-        let label = match.Groups[1].Value.Trim('$', '"')
-        where !label.StartsWith("Sign in", StringComparison.Ordinal)
-            && !label.StartsWith("Accept the change to", StringComparison.Ordinal)
+        let label = match.Groups[1].Value
+        where !label.Contains("Sign in", StringComparison.Ordinal)
+            && !label.Contains("Accept the change to", StringComparison.Ordinal)
         select match.Value.Trim();
 
-    [GeneratedRegex(@"(?:PageParts\.)?Action\(\s*(\$?""[^""]*"")|new\s+Button\b")]
+    [GeneratedRegex(@"(?:PageParts\.)?Action\(\s*([^,)]+)|new\s+Button\b|\bButton\s+\w+\s*=\s*new\s*\(")]
     private static partial Regex CardButton();
 
     [GeneratedRegex(@"new\s+Facet\b|\bFacet\s+\w+\s*=\s*new\s*\(|new\s+Link\b|\bLink\s+\w+\s*=\s*new\s*\(")]

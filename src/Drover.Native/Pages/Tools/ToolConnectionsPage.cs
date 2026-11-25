@@ -5,7 +5,11 @@ public sealed class ToolConnectionsPage : Screen
 {
     #region Private Fields
 
+    private static readonly ILogger logger = Log.For<ToolConnectionsPage>();
+
     private readonly WorkLayout layout = new();
+
+    private readonly StackPanel content = new() { Spacing = Tokens.Number("DvSpace3") };
 
     private readonly ToolConnectionsViewModel model = Make<ToolConnectionsViewModel>();
 
@@ -15,13 +19,15 @@ public sealed class ToolConnectionsPage : Screen
 
     private readonly Dialog replaceDialog = new();
 
+    private readonly Dialog removeDialog = new();
+
     private readonly SegmentedControl kind = new()
     {
         Label = "How Drover proves who is calling",
         Options = [new("none", "Nothing"), new("header", "A header"), new("oauth", "A sign-in")],
     };
 
-    private readonly TextBlock kindName;
+    private readonly StackPanel kindPart;
 
     private readonly Field nameField;
 
@@ -75,6 +81,10 @@ public sealed class ToolConnectionsPage : Screen
 
     private readonly Button saveHeader;
 
+    private readonly Button keepServer;
+
+    private readonly Button removeServer;
+
     #endregion
 
     #region Constructors
@@ -88,29 +98,34 @@ public sealed class ToolConnectionsPage : Screen
         addressField.Placeholder = "https://";
         headerNameField = Field("Header name", value => draft.HeaderName = value);
         headerValueField = Field("Header value", value => draft.HeaderValue = value, "password", "Stored encrypted. It is not shown again.");
-        headerPart = Forms.Column(headerNameField, headerValueField);
+        headerPart = PageParts.Column(headerNameField, headerValueField);
 
         signInScope = Choice("Whose sign-in", value => draft.SignInScope = value,
             [new("per_user", "Each person signs in as themselves"), new("space", "One sign-in for the whole space")]);
         scopeNote = Styles.Text(string.Empty, "DvTextSecondary");
         ownClient = Toggle("Use a client I registered with the server", value => draft.OwnClient = value);
         clientIdField = Field("Client id", value => draft.ClientId = value);
-        clientSecretField = Field("Client secret", value => draft.ClientSecret = value, "password", "Leave empty for a public client. It is not shown again.");
-        issuerField = Field("Sign-in service address", value => draft.Issuer = value, "url", "The service that gave out the client id. The id is sent nowhere else.");
-        clientPart = Forms.Column(clientIdField, clientSecretField, issuerField);
+        clientSecretField = Field("Client secret", value => draft.ClientSecret = value, "password",
+            "Leave empty for a public client. It is not shown again.");
+        issuerField = Field("Sign-in service address", value => draft.Issuer = value, "url",
+            "The service that gave out the client id. The id is sent nowhere else.");
+        clientPart = PageParts.Column(clientIdField, clientSecretField, issuerField);
         noClientNote = Styles.Text("Without one, Drover introduces itself to the server when someone first signs in.", "DvTextSecondary");
-        oauthPart = Forms.Column(signInScope, scopeNote, ownClient, clientPart, noClientNote);
+        oauthPart = PageParts.Column(signInScope, scopeNote, ownClient, clientPart, noClientNote);
 
-        kindName = Styles.Text(kind.Label, "DvTextLabel");
+        var kindName = Styles.Text(kind.Label, "DvTextLabel");
         AutomationProperties.SetAccessibilityView(kindName, AccessibilityView.Raw);
+        kindPart = new StackPanel { Spacing = Tokens.Number("DvSpace2"), Children = { kindName, kind } };
         trust = Toggle("Trust what this server's tools return", value => draft.Trusted = value);
         protocol = Choice("Protocol", value => draft.ProtocolMode = value,
             [new("automatic", "Chosen by Drover"), new("stateless_only", "Without sessions only"), new("session_only", "With sessions only")]);
         var more = new Disclosure
         {
             Title = "More choices",
-            Body = Forms.Column(trust,
-                Styles.Text("Leave this off unless you run the server. A result from a server that is not trusted is recorded on the run as untrusted text. It does not change what any bot may do.", "DvTextSecondary"),
+            Body = PageParts.Column(trust,
+                Styles.Text(
+                    "Leave this off unless you run the server. A result from a server that is not trusted is recorded on the run as untrusted text. It does not change what any bot may do.",
+                    "DvTextSecondary"),
                 protocol),
         };
 
@@ -119,18 +134,15 @@ public sealed class ToolConnectionsPage : Screen
             draft.AuthKind = kind.Value ?? "none";
             UpdateAddForm();
         });
-
-        cancelAdd = PageParts.Action("Cancel", () => { model.Adding = false; draft = new(); return Task.CompletedTask; }, Refresh);
-        addButton = PageParts.Action("Add server", async () =>
+        foreach (var field in new[] { nameField, addressField, headerNameField, headerValueField, clientIdField, clientSecretField, issuerField })
         {
-            await model.Add(draft);
-            if (!model.Adding)
-            {
-                draft = new();
-            }
-        }, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = Forms.SheetBody(nameField, addressField, kindName, kind, headerPart, oauthPart, more, addProblem, addBusy,
-            PageParts.Row(cancelAdd, addButton));
+            field.Submitted += (_, _) => Run(AddServer);
+        }
+
+        cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
+        addButton = PageParts.Action("Add server", AddServer, Refresh, kind: ButtonKind.Primary);
+        addSheet.Body = PageParts.SheetBody(nameField, addressField, kindPart, headerPart, oauthPart, more, addProblem, addBusy);
+        addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
@@ -138,20 +150,21 @@ public sealed class ToolConnectionsPage : Screen
             {
                 addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
             }
-            else if (model.Adding)
+            else
             {
-                model.Adding = false;
-                draft = new();
+                CloseAdd();
             }
         });
 
         replaceNameField = PageParts.Field("Header name", string.Empty, value => model.HeaderName = value);
         replaceValueField = PageParts.Field("Header value", string.Empty, value => model.HeaderValue = value, "password",
             "Stored encrypted. It is not shown again.");
-        cancelReplace = PageParts.Action("Cancel", () => { model.CancelReplacingHeader(); return Task.CompletedTask; }, Refresh);
-        saveHeader = PageParts.Action("Save header", () => model.ReplaceHeader(Replacing()), Refresh, kind: ButtonKind.Primary);
-        replaceDialog.Body = Forms.SheetBody(replaceNameField, replaceValueField, replaceProblem, replaceBusy,
-            PageParts.Row(cancelReplace, saveHeader));
+        replaceNameField.Submitted += (_, _) => Run(SaveHeader);
+        replaceValueField.Submitted += (_, _) => Run(SaveHeader);
+        cancelReplace = PageParts.Action("Cancel", CancelReplace, Refresh);
+        saveHeader = PageParts.Action("Save header", SaveHeader, Refresh, kind: ButtonKind.Primary);
+        replaceDialog.Body = PageParts.SheetBody(replaceNameField, replaceValueField, replaceProblem, replaceBusy);
+        replaceDialog.Actions = PageParts.Row(cancelReplace, saveHeader);
         replaceNameField.Loaded += (_, _) => { if (replaceDialog.Open) { replaceNameField.TakeFocus(); } };
         replaceDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
@@ -159,12 +172,30 @@ public sealed class ToolConnectionsPage : Screen
             {
                 replaceDialog.DispatcherQueue.TryEnqueue(() => replaceNameField.TakeFocus());
             }
-            else if (model.ReplacingHeader is not null)
+            else
             {
-                model.CancelReplacingHeader();
+                CloseReplace();
             }
         });
 
+        keepServer = Action("Keep server", CancelRemove);
+        removeServer = Action("Remove server", model.Remove, ButtonKind.Danger);
+        removeDialog.Body = Styles.Text(
+            "Bots lose its tools at once, and its stored credential and sign-ins are deleted. Runs that already used it keep their history.");
+        removeDialog.Actions = PageParts.Row(keepServer, removeServer);
+        removeDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (!removeDialog.Open)
+            {
+                model.Removing = null;
+            }
+        });
+
+        layout.Body.Add(content);
+        layout.Body.Add(addSheet);
+        layout.Body.Add(replaceDialog);
+        layout.Body.Add(removeDialog);
+        Unloaded += (_, _) => CloseAll();
         Content = layout;
         Refresh();
     }
@@ -191,11 +222,10 @@ public sealed class ToolConnectionsPage : Screen
 
     private void Refresh()
     {
-        var body = layout.Body;
-        body.Clear();
+        content.Children.Clear();
 
         var header = new ScreenHeader { Title = "Tool connections" };
-        if (model.CanEdit && model.Connections is { Count: > 0 } && !model.Adding)
+        if (model.CanEdit && model.Connections is { Count: > 0 })
         {
             var add = new IconButton
             {
@@ -208,50 +238,46 @@ public sealed class ToolConnectionsPage : Screen
             header.Actions.Add(add);
         }
 
-        body.Add(header);
-        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
+        content.Children.Add(header);
+        content.Children.Add(new StatusNote
+        {
+            Text = model.Notice,
+            Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok,
+        });
 
         if (model.LoadProblem is { } problem)
         {
-            var failed = new EmptyState { Title = "Drover could not load the tool connections", Cause = problem, ActionLabel = "Try again" };
+            var failed = new EmptyState
+            {
+                Title = "Drover could not load the tool connections",
+                Cause = problem,
+                ActionLabel = "Try again",
+            };
             failed.Action += async (_, _) => { await model.Load(); Refresh(); };
-            body.Add(failed);
+            content.Children.Add(failed);
         }
         else if (model.Connections is null)
         {
-            body.Add(PageParts.Waiting("Loading the tool connections."));
+            content.Children.Add(PageParts.Waiting("Loading the tool connections."));
         }
         else if (model.Connections.Count == 0)
         {
-            body.Add(Empty());
+            content.Children.Add(Empty());
         }
         else
         {
             foreach (var connection in model.Connections)
             {
-                body.Add(Connection(connection));
+                content.Children.Add(Connection(connection));
             }
-        }
-
-        if (model.Removing is { } removing)
-        {
-            var dialog = new Dialog
-            {
-                Title = $"Remove {removing.Name}",
-                Body = Styles.Text("Bots lose its tools at once, and its stored credential and sign-ins are deleted. Runs that already used it keep their history."),
-                Actions = PageParts.Row(Action("Keep server", () => model.Removing = null), Action("Remove server", model.Remove, ButtonKind.Danger)),
-                Open = true,
-            };
-            dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => { if (!dialog.Open) { model.Removing = null; } });
-            body.Add(dialog);
         }
 
         UpdateAddForm();
         UpdateReplaceForm();
         addSheet.Open = model.Adding;
         replaceDialog.Open = model.ReplacingHeader is not null;
-        body.Add(addSheet);
-        body.Add(replaceDialog);
+        removeDialog.Open = model.Removing is not null;
+        removeServer.IsEnabled = model.Removing is not null && !model.ChangePending;
     }
 
     private UIElement Empty()
@@ -280,59 +306,139 @@ public sealed class ToolConnectionsPage : Screen
         addSheet.DispatcherQueue.TryEnqueue(() => nameField.TakeFocus());
     }
 
+    private Task CancelAdd()
+    {
+        CloseAdd();
+        return Task.CompletedTask;
+    }
+
+    private void CloseAdd()
+    {
+        if (model.Adding || draft.HeaderValue.Length > 0 || draft.ClientSecret.Length > 0)
+        {
+            model.Adding = false;
+        }
+
+        draft = new();
+        UpdateAddForm();
+    }
+
+    private Task CancelReplace()
+    {
+        CloseReplace();
+        return Task.CompletedTask;
+    }
+
+    private void CloseReplace()
+    {
+        if (model.ReplacingHeader is not null)
+        {
+            model.CancelReplacingHeader();
+        }
+
+        UpdateReplaceForm();
+    }
+
+    private Task CancelRemove()
+    {
+        model.Removing = null;
+        return Task.CompletedTask;
+    }
+
+    private void OpenRemove(Drover.Contracts.Tools.ToolConnectionSummary connection)
+    {
+        model.Removing = connection;
+        removeDialog.Title = $"Remove {connection.Name}";
+        removeDialog.Open = true;
+        removeServer.IsEnabled = !model.ChangePending;
+    }
+
+    private void CloseAll()
+    {
+        model.Adding = false;
+        model.CancelReplacingHeader();
+        model.Removing = null;
+        draft = new();
+        UpdateAddForm();
+        UpdateReplaceForm();
+    }
+
+    private Task AddServer() => model.Add(draft);
+
+    private Task SaveHeader()
+    {
+        var connection = Replacing();
+        return connection is null ? Task.CompletedTask : model.ReplaceHeader(connection);
+    }
+
     private void UpdateAddForm()
     {
+        var busy = model.AddingBusy;
         if (kind.Value != draft.AuthKind)
         {
             kind.Value = draft.AuthKind;
         }
 
+        kind.Disabled = busy;
         nameField.Value = draft.Name;
+        nameField.Disabled = busy;
         addressField.Value = draft.Url;
+        addressField.Disabled = busy;
         headerNameField.Value = draft.HeaderName;
+        headerNameField.Disabled = busy;
         headerValueField.Value = draft.HeaderValue;
+        headerValueField.Disabled = busy;
         headerPart.Visibility = draft.AuthKind is "header" ? Visibility.Visible : Visibility.Collapsed;
         oauthPart.Visibility = draft.AuthKind is "oauth" ? Visibility.Visible : Visibility.Collapsed;
         signInScope.Value = draft.SignInScope;
+        signInScope.Disabled = busy;
         scopeNote.Text = draft.SignInScope is "space"
             ? "Every bot run in the space acts as the one account an owner or admin signs in with."
             : "A bot run acts as the person it runs for, and can use this server once that person has signed in.";
         ownClient.Value = draft.OwnClient;
+        ownClient.IsEnabled = !busy;
         clientPart.Visibility = draft.OwnClient ? Visibility.Visible : Visibility.Collapsed;
         noClientNote.Visibility = draft.OwnClient ? Visibility.Collapsed : Visibility.Visible;
         clientIdField.Value = draft.ClientId;
+        clientIdField.Disabled = busy;
         clientSecretField.Value = draft.ClientSecret;
+        clientSecretField.Disabled = busy;
         issuerField.Value = draft.Issuer;
+        issuerField.Disabled = busy;
         trust.Value = draft.Trusted;
+        trust.IsEnabled = !busy;
         protocol.Value = draft.ProtocolMode;
+        protocol.Disabled = busy;
         addProblem.Text = model.AddProblem;
-        addBusy.Text = model.AddingBusy ? "Adding the server." : string.Empty;
-        addBusy.Visibility = model.AddingBusy ? Visibility.Visible : Visibility.Collapsed;
-        cancelAdd.IsEnabled = !model.AddingBusy;
-        addButton.IsEnabled = !model.AddingBusy;
+        addBusy.Text = busy ? "Adding the server." : string.Empty;
+        addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        cancelAdd.IsEnabled = !busy;
+        addButton.IsEnabled = !busy;
     }
 
     private void UpdateReplaceForm()
     {
-        if (model.ReplacingHeader is not { } connection)
+        var busy = model.ChangePending;
+        if (model.ReplacingHeader is { } connection)
         {
-            replaceNameField.Value = string.Empty;
-            replaceValueField.Value = string.Empty;
-            return;
+            replaceDialog.Title = $"Replace the header for {connection.Name}";
         }
 
-        replaceDialog.Title = $"Replace the header for {connection.Name}";
-        replaceNameField.Value = model.HeaderName;
-        replaceValueField.Value = model.HeaderValue;
-        replaceProblem.Text = model.Problems.GetValueOrDefault(connection.Id);
-        replaceBusy.Text = model.ChangePending ? "Saving the header." : string.Empty;
-        replaceBusy.Visibility = model.ChangePending ? Visibility.Visible : Visibility.Collapsed;
-        cancelReplace.IsEnabled = !model.ChangePending;
-        saveHeader.IsEnabled = !model.ChangePending;
+        replaceNameField.Value = model.ReplacingHeader is null ? string.Empty : model.HeaderName;
+        replaceNameField.Disabled = busy;
+        replaceValueField.Value = model.ReplacingHeader is null ? string.Empty : model.HeaderValue;
+        replaceValueField.Disabled = busy;
+        replaceProblem.Text = model.HeaderProblem;
+        replaceBusy.Text = busy ? "Saving the header." : string.Empty;
+        replaceBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        cancelReplace.IsEnabled = !busy;
+        saveHeader.IsEnabled = !busy && model.ReplacingHeader is not null;
     }
 
-    private Drover.Contracts.Tools.ToolConnectionSummary Replacing() =>
-        model.Connections!.First(connection => connection.Id == model.ReplacingHeader!.Id);
+    private Drover.Contracts.Tools.ToolConnectionSummary? Replacing() =>
+        model.ReplacingHeader is { } id
+            ? model.Connections?.FirstOrDefault(connection => connection.Id == id.Id)
+            : null;
 
     private ListCard Connection(Drover.Contracts.Tools.ToolConnectionSummary connection)
     {
@@ -346,7 +452,7 @@ public sealed class ToolConnectionsPage : Screen
             Trailing = CardMenu(connection),
         };
 
-        var beneath = Forms.Column();
+        var beneath = PageParts.Column();
         var shownError = connection.Status is "failed" ? connection.LastError : null;
         beneath.Children.Add(new StatusNote { Text = shownError, Kind = NoteKind.Danger });
         beneath.Children.Add(new StatusNote
@@ -369,11 +475,13 @@ public sealed class ToolConnectionsPage : Screen
 
         if (tools is { Count: > 0 })
         {
-            var entries = Forms.Column();
+            var entries = PageParts.Column();
             foreach (var tool in tools)
             {
-                var entry = Forms.Column(Styles.Text(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title, "DvTextH3"),
-                    Styles.Text(tool.Name, "DvTextMono"), Styles.Text(tool.Description, "DvTextSecondary"));
+                var entry = PageParts.Column(
+                    Styles.Text(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title, "DvTextH3"),
+                    Styles.Text(tool.Name, "DvTextMono"),
+                    Styles.Text(tool.Description, "DvTextSecondary"));
                 if (tool.State is "missing")
                 {
                     entry.Children.Add(Styles.Text("The server no longer lists this tool, so no bot can use it.", "DvTextSecondary"));
@@ -384,7 +492,8 @@ public sealed class ToolConnectionsPage : Screen
                     ToolReview(entry, tool);
                     if (model.CanEdit)
                     {
-                        entry.Children.Add(Action($"Accept the change to {(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title)}",
+                        entry.Children.Add(Action(
+                            $"Accept the change to {(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title)}",
                             () => model.Accept(tool)));
                     }
                 }
@@ -411,7 +520,9 @@ public sealed class ToolConnectionsPage : Screen
     private void ToolReview(StackPanel entry, Drover.Contracts.Tools.ConnectionToolSummary tool)
     {
         entry.Children.Add(new Badge { Text = "Changed, needs review", Kind = BadgeKind.Warn });
-        entry.Children.Add(Styles.Text("The server changed what this tool says it does. Bots that have it ask before each use until the change is accepted.", "DvTextSecondary"));
+        entry.Children.Add(Styles.Text(
+            "The server changed what this tool says it does. Bots that have it ask before each use until the change is accepted.",
+            "DvTextSecondary"));
         if (tool.Reviewed is { } reviewed)
         {
             entry.Children.Add(Styles.Text("Reviewed", "DvTextLabel"));
@@ -425,7 +536,7 @@ public sealed class ToolConnectionsPage : Screen
         }
     }
 
-    private Menu CardMenu(Drover.Contracts.Tools.ToolConnectionSummary connection)
+    private Menu? CardMenu(Drover.Contracts.Tools.ToolConnectionSummary connection)
     {
         var menu = new Menu
         {
@@ -434,28 +545,38 @@ public sealed class ToolConnectionsPage : Screen
             TriggerIcon = IconName.More,
             ShowTriggerLabel = false,
         };
+        var enabled = !model.ChangePending;
 
         if (model.CanEdit)
         {
-            menu.Items.Add(MenuEntry("Check and list tools", () => Run(() => model.Refresh(connection))));
+            menu.Items.Add(PageParts.MenuEntry("Check and list tools", () => Run(() => model.Refresh(connection)), enabled));
             if (connection.AuthKind is "header")
             {
-                menu.Items.Add(MenuEntry("Replace header", () => { model.StartReplacingHeader(connection); Refresh(); }));
+                menu.Items.Add(PageParts.MenuEntry("Replace header", () => OpenReplace(connection), enabled));
             }
         }
 
         var maySignIn = connection.SignInScope is "per_user" || model.CanEdit;
         if (connection.SignIn is "signed_in" && maySignIn)
         {
-            menu.Items.Add(MenuEntry($"Sign out of {connection.Name}", () => Run(() => model.SignOut(connection))));
+            menu.Items.Add(PageParts.MenuEntry($"Sign out of {connection.Name}", () => Run(() => model.SignOut(connection)), enabled));
         }
 
         if (model.CanEdit)
         {
-            menu.Items.Add(MenuEntry($"Remove {connection.Name}", () => { model.Removing = connection; Refresh(); }));
+            menu.Items.Add(PageParts.MenuEntry($"Remove {connection.Name}", () => OpenRemove(connection), enabled));
         }
 
-        return menu;
+        return menu.Items.Count == 0 ? null : menu;
+    }
+
+    private void OpenReplace(Drover.Contracts.Tools.ToolConnectionSummary connection)
+    {
+        model.StartReplacingHeader(connection);
+        replaceDialog.Title = $"Replace the header for {connection.Name}";
+        UpdateReplaceForm();
+        replaceDialog.Open = true;
+        replaceDialog.DispatcherQueue.TryEnqueue(() => replaceNameField.TakeFocus());
     }
 
     private void Run(Func<Task> work)
@@ -471,17 +592,18 @@ public sealed class ToolConnectionsPage : Screen
         {
             await pending;
         }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "An action on the tool connections page failed");
+        }
         finally
         {
             Refresh();
         }
     }
 
-    private Field Field(string label, Action<string> change, string type = "text", string? hint = null)
-    {
-        var field = PageParts.Field(label, string.Empty, change, type, hint, model.ChangePending);
-        return field;
-    }
+    private Field Field(string label, Action<string> change, string type = "text", string? hint = null) =>
+        PageParts.Field(label, string.Empty, change, type, hint, model.ChangePending);
 
     private Select Choice(string label, Action<string> change, IReadOnlyList<SelectOption> options)
     {
@@ -502,13 +624,6 @@ public sealed class ToolConnectionsPage : Screen
 
     private Button Action(string label, Func<Task> work, ButtonKind kind = ButtonKind.Quiet) =>
         PageParts.Action(label, work, Refresh, !model.ChangePending, kind);
-
-    private static MenuItem MenuEntry(string label, Action choose)
-    {
-        var item = new MenuItem { Content = label, HorizontalContentAlignment = HorizontalAlignment.Left };
-        item.Selected += (_, _) => choose();
-        return item;
-    }
 
     #endregion
 }
