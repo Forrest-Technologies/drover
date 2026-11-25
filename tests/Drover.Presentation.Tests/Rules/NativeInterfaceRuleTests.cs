@@ -15,6 +15,45 @@ public sealed partial class NativeInterfaceRuleTests
     // The card methods, including the helpers a card draws a tool or a catalog row with.
     private static readonly string[] cardMethodMarkers = ["Connection(Drover.", "ToolReview(", "CatalogRow("];
 
+    // Bars keep a finger's height because they are not controls; the two chat files move in #735.
+    private static readonly (string Path, string Reason)[] touchHeightExceptions =
+    [
+        ("Layouts/WorkLayout.cs", "the top bar and its home link are a bar, not a control"),
+        ("Layouts/NavLink.cs", "the links of the top bar are a bar, not controls"),
+        ("Session/AccountMenu.cs", "the account menu trigger belongs to the top bar"),
+        ("Chat/FileCard.cs", "conversation files move to Targets.Minimum in #735"),
+        ("Chat/NativeFilePreviewControl.cs", "conversation previews move to Targets.Minimum in #735"),
+    ];
+
+    // Only forms, editors and the screen's one decision may carry a primary button.
+    private static readonly (string Path, string Reason)[] primaryFiles =
+    [
+        ("Controls/Button.cs", "the control paints its own primary kind"),
+        ("Controls/EmptyState.cs", "the empty state action is the screen's one primary"),
+        ("Session/AboutDrover.cs", "session dialog"),
+        ("Session/AccountMenu.cs", "session dialog, install update"),
+        ("Session/PushControl.cs", "session dialog, turn on notifications"),
+        ("Pages/Dev/", "gallery samples are not screens"),
+        ("Device/ConnectPage.cs", "setup"),
+        ("Pages/SignInPage.xaml", "sign-in"),
+        ("Pages/Setup/", "setup"),
+        ("Pages/Projects/ProjectListPage.cs", "Projects create form"),
+        ("Pages/Projects/ProjectPage.cs", "Projects save bar"),
+        ("Pages/Models/ModelConnectionsPage.cs", "Models sheets"),
+        ("Pages/Tools/ToolConnectionsPage.cs", "Tools sheets and dialogs"),
+        ("Pages/Extensions/ImportExtensionForm.cs", "extension import form"),
+        ("Pages/Extensions/ExtensionEditorPage.xaml", "extension editor"),
+        ("Pages/Extensions/ExtensionServerSteps.cs", "extension connection steps"),
+        ("Pages/Bots/BotEditorPage.xaml.cs", "bot editor save bar"),
+        ("Pages/Bots/Parts/RuleForm.cs", "bot editor rule form"),
+        ("Pages/Bots/Parts/RoutinesSectionView.cs", "bot editor routine form"),
+        ("Pages/Bots/Parts/RoutineForm.cs", "bot editor routine form"),
+        ("Pages/Bots/Parts/SandboxSectionView.cs", "bot editor sandbox form, #682"),
+        ("Pages/Bots/BotSandboxPage.cs", "sandbox page run form"),
+        ("Bots/SandboxScreen.cs", "sandbox screen run form, #682"),
+        ("Chat/", "conversation pieces and composer, #682 and #735"),
+    ];
+
     // The only places a clock ticks or an animation repeats: the four live states and the motion they share.
     private static readonly string[] liveStateFiles =
     [
@@ -211,6 +250,74 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void Controls_take_their_height_from_the_target_size_not_the_touch_token()
+    {
+        var found = from file in Repository.NativeFiles(".cs", ".xaml")
+                    where !file.Path.StartsWith("Pages/Dev/", StringComparison.Ordinal)
+                        && AllowedReason(touchHeightExceptions, file.Path) is null
+                    from match in TouchHeight().Matches(file.Text).Cast<Match>()
+                    select $"{file.Path}: {match.Value.Trim()}";
+
+        found.Should().BeEmpty(
+            "a control takes its height from Targets.Minimum, which is 44 for a finger and 32 for a pointer");
+    }
+
+    [Fact]
+    public void A_control_sized_from_the_touch_token_is_caught()
+    {
+        const string Sample = """
+            toggle.MinHeight = Tokens.Number("DvTargetTouch");
+            var link = new Link { MinWidth = Tokens.Number("DvTargetTouch") };
+            """;
+
+        TouchHeight().Count(Sample).Should().Be(2);
+    }
+
+    [Fact]
+    public void Only_forms_and_editors_draw_a_primary_button()
+    {
+        var found = from file in Repository.NativeFiles(".cs", ".xaml")
+                    from button in PrimaryOn(file.Path, file.Text)
+                    select $"{file.Path}: {button}";
+
+        found.Should().BeEmpty("at rest a screen has at most one primary action, in a form or an editor");
+    }
+
+    [Fact]
+    public void A_primary_button_on_a_list_row_is_caught()
+    {
+        const string Sample = "var turnOn = new Button { Kind = ButtonKind.Primary };";
+
+        PrimaryOn("Pages/Extensions/ExtensionRow.cs", Sample).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void The_phone_dock_uses_each_screens_own_icon()
+    {
+        var source = Repository.NativeFiles(".cs").Single(file => file.Path == "Layouts/PhoneNav.cs").Text;
+        var icons = DockIcons(source);
+
+        icons.Should().BeEquivalentTo(new Dictionary<string, string>
+        {
+            ["Chats"] = "Conversation",
+            ["Projects"] = "Project",
+            ["Bots"] = "Crew",
+            ["Tools"] = "Tool",
+        });
+    }
+
+    [Fact]
+    public void A_borrowed_dock_icon_is_caught()
+    {
+        const string Sample = """
+            new("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
+            new("Tools", Addresses.Tools, icon: IconName.Settings),
+            """;
+
+        DockIcons(Sample)["Tools"].Should().Be("Tool", "the dock uses each screen's own icon");
+    }
+
+    [Fact]
     public void A_page_that_draws_its_own_frame_or_link_is_caught()
     {
         const string Sample = """
@@ -338,6 +445,29 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Private Methods
+
+    private static string? AllowedReason((string Path, string Reason)[] list, string path) =>
+        list.FirstOrDefault(item => item.Path.EndsWith('/')
+            ? path.StartsWith(item.Path, StringComparison.Ordinal)
+            : path == item.Path).Reason;
+
+    private static List<string> PrimaryOn(string path, string text) =>
+        AllowedReason(primaryFiles, path) is null
+            ? [.. PrimaryButton().Matches(text).Cast<Match>().Select(match => match.Value.Trim())]
+            : [];
+
+    private static Dictionary<string, string> DockIcons(string text) =>
+        DockIcon().Matches(text).Cast<Match>()
+            .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value);
+
+    [GeneratedRegex(@"\b(?:MinHeight|MinWidth)\s*=\s*Tokens\.Number\(\s*""DvTargetTouch""\s*\)")]
+    private static partial Regex TouchHeight();
+
+    [GeneratedRegex(@"ButtonKind\.Primary|Kind\s*=\s*""Primary""")]
+    private static partial Regex PrimaryButton();
+
+    [GeneratedRegex(@"new\(""(Chats|Projects|Bots|Tools)""[^)]*IconName\.(\w+)\)")]
+    private static partial Regex DockIcon();
 
     private static string CardMethod(string source) =>
         string.Join('\n', cardMethodMarkers.SelectMany(marker => MethodLines(source, marker)));
