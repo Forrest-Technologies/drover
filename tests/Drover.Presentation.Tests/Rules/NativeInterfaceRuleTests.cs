@@ -12,6 +12,9 @@ public sealed partial class NativeInterfaceRuleTests
     // The two files that may hold raw values: the tokens, and the styles that restate token products.
     private static readonly string[] valueFiles = ["Theme/Tokens.xaml", "Theme/Styles.xaml"];
 
+    // The card methods, including the helpers a card draws a tool or a catalog row with.
+    private static readonly string[] cardMethodMarkers = ["Connection(Drover.", "ToolReview(", "CatalogRow("];
+
     // The only places a clock ticks or an animation repeats: the four live states and the motion they share.
     private static readonly string[] liveStateFiles =
     [
@@ -145,12 +148,406 @@ public sealed partial class NativeInterfaceRuleTests
         named.Should().BeEmpty();
     }
 
+    [Fact]
+    public void Lists_of_things_to_open_use_the_list_card()
+    {
+        string[] listFiles =
+        [
+            "Pages/Projects/ProjectListPage.cs", "Pages/Bots/Parts/CrewRow.cs", "Pages/Extensions/ExtensionRow.cs",
+        ];
+        var found = from file in Repository.NativeFiles(".cs")
+                    where listFiles.Contains(file.Path)
+                    from match in OwnFrameOrLink().Matches(file.Text).Cast<Match>()
+                    select $"{file.Path}: {match.Value.Trim()}";
+
+        found.Should().BeEmpty("one card draws every list of things to open");
+    }
+
+    [Fact]
+    public void Connection_cards_put_their_actions_in_a_menu()
+    {
+        string[] files = ["Pages/Models/ModelConnectionsPage.cs", "Pages/Tools/ToolConnectionsPage.cs"];
+        var found = from path in files
+                    let source = Repository.NativeFiles(".cs").Single(file => file.Path == path).Text
+                    from button in CardActions(CardMethod(source))
+                    select $"{path}: {button}";
+
+        found.Should().BeEmpty("a card's actions belong in its More menu, apart from sign in and accept change");
+    }
+
+    [Fact]
+    public void A_worded_button_on_a_card_is_caught()
+    {
+        const string Sample = """
+            body.Children.Add(Action("View models", () => model.ShowCatalog(connection)));
+            body.Children.Add(new Button { Content = "Test connection" });
+            """;
+
+        CardActions(Sample).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void A_button_with_a_ternary_label_on_a_card_is_caught()
+    {
+        const string Sample = """
+            body.Children.Add(Action(model.Busy == connection.Id ? "Working" : "Check and list tools", () => model.Refresh(connection)));
+            Button other = new();
+            """;
+
+        CardActions(Sample).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void The_sign_in_and_accept_change_buttons_on_a_card_are_allowed()
+    {
+        const string Sample = """
+            body.Children.Add(Action("Sign in", () => model.SignIn(connection)));
+            body.Children.Add(Action("Sign in again", () => model.SignIn(connection)));
+            body.Children.Add(Action(connection.SignIn is "needs_reconnect" ? "Sign in again" : "Sign in", () => model.SignIn(connection)));
+            body.Children.Add(Action($"Accept the change to {tool.Name}", () => model.Accept(tool)));
+            """;
+
+        CardActions(Sample).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_page_that_draws_its_own_frame_or_link_is_caught()
+    {
+        const string Sample = """
+            var frame = new Facet();
+            Facet other = new();
+            var link = new Link { Text = "A project" };
+            Link another = new();
+            """;
+
+        OwnFrameOrLink().Count(Sample).Should().Be(4);
+    }
+
+    [Fact]
+    public void Every_work_screen_starts_with_one_screen_header()
+    {
+        var found = from file in Repository.NativeFiles(".xaml", ".cs")
+                    where file.Path.StartsWith("Pages/", StringComparison.Ordinal)
+                        && !file.Path.StartsWith("Pages/Dev/", StringComparison.Ordinal)
+                    group file by PageOf(file.Path) into page
+                    where page.Any(file => file.Text.Contains("WorkLayout", StringComparison.Ordinal))
+                    let count = page.Sum(file => HeadersIn(file))
+                    let first = page.Any(HeaderLeads)
+                    where count != 1 || !first
+                    select $"{page.Key}: {count} headers, first {first}";
+
+        found.Should().BeEmpty("one header leads every work screen");
+    }
+
+    [Fact]
+    public void No_back_control_is_an_underlined_link()
+    {
+        var words = ViewModelWords();
+        var found = from file in Repository.NativeFiles(".xaml", ".cs")
+                    where file.Path.StartsWith("Pages/", StringComparison.Ordinal)
+                    from link in BackLinks(file, words)
+                    select link;
+
+        found.Should().BeEmpty("a way back is an icon button in the screen header, not an underlined link");
+    }
+
+    [Fact]
+    public void A_screen_header_holds_only_icon_actions()
+    {
+        List<string> found = [];
+        foreach (var file in Repository.NativeFiles(".xaml", ".cs").Where(file => file.Path.StartsWith("Pages/", StringComparison.Ordinal)))
+        {
+            if (file.Path.EndsWith(".xaml", StringComparison.Ordinal))
+            {
+                CheckMarkupActions(file, found);
+            }
+            else
+            {
+                CheckCodeActions(file, found);
+            }
+        }
+
+        found.Should().BeEmpty("only an icon button or an icon menu belongs in a screen header");
+    }
+
+    [Fact]
+    public void A_literal_back_link_in_markup_is_caught()
+    {
+        const string Markup = "<Link Text=\"Back to projects\" />";
+        BackLinksInMarkup("Pages/Sample.xaml", Markup, ViewModelWords()).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void An_inline_menu_without_an_icon_trigger_is_caught()
+    {
+        List<string> found = [];
+        CheckCodeActions(("Pages/Sample.xaml.cs", "header.Actions.Add(new Menu { Label = \"More\" });"), found);
+        found.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void An_inline_icon_menu_in_a_header_is_allowed()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "header.Actions.Add(new Menu { TriggerIcon = IconName.More, ShowTriggerLabel = false });"),
+            found);
+        found.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_var_declared_menu_in_a_header_is_checked()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "var menu = new Menu { Label = \"More\" }; header.Actions.Add(menu);"),
+            found);
+        found.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_var_declared_icon_menu_in_a_header_is_allowed()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "var menu = new Menu { TriggerIcon = IconName.More, ShowTriggerLabel = false }; header.Actions.Add(menu);"),
+            found);
+        found.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void An_inserted_inline_menu_in_a_header_is_checked()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "header.Actions.Insert(0, new Menu { Label = \"More\" });"),
+            found);
+        found.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void An_inserted_icon_menu_in_a_header_is_allowed()
+    {
+        List<string> found = [];
+        CheckCodeActions(
+            ("Pages/Sample.xaml.cs", "header.Actions.Insert(0, new Menu { TriggerIcon = IconName.More, ShowTriggerLabel = false });"),
+            found);
+        found.Should().BeEmpty();
+    }
+
     #endregion
 
     #region Private Methods
 
+    private static string CardMethod(string source) =>
+        string.Join('\n', cardMethodMarkers.SelectMany(marker => MethodLines(source, marker)));
+
+    private static List<string> MethodLines(string source, string marker)
+    {
+        var lines = source.Split('\n');
+        var start = Array.FindIndex(lines, line => line.Contains(marker, StringComparison.Ordinal));
+        if (start < 0)
+        {
+            return [];
+        }
+
+        List<string> method = [lines[start]];
+        for (var index = start + 1; index < lines.Length; index++)
+        {
+            method.Add(lines[index]);
+            if (lines[index] == "    }")
+            {
+                break;
+            }
+        }
+
+        return method;
+    }
+
+    private static IEnumerable<string> CardActions(string body) =>
+        from match in CardButton().Matches(body).Cast<Match>()
+        let label = match.Groups[1].Value
+        where !label.Contains("Sign in", StringComparison.Ordinal)
+            && !label.Contains("Accept the change to", StringComparison.Ordinal)
+        select match.Value.Trim();
+
+    [GeneratedRegex(@"(?:PageParts\.)?Action\(\s*([^,)]+)|new\s+Button\b|\bButton\s+\w+\s*=\s*new\s*\(")]
+    private static partial Regex CardButton();
+
+    [GeneratedRegex(@"new\s+Facet\b|\bFacet\s+\w+\s*=\s*new\s*\(|new\s+Link\b|\bLink\s+\w+\s*=\s*new\s*\(")]
+    private static partial Regex OwnFrameOrLink();
+
+    private static string PageOf(string path) =>
+        path.EndsWith(".xaml.cs", StringComparison.Ordinal) ? path[..^3] : path;
+
+    private static int HeadersIn((string Path, string Text) file) =>
+        file.Path.EndsWith(".xaml", StringComparison.Ordinal)
+            ? XDocument.Parse(file.Text).Descendants().Count(element => element.Name.LocalName == "ScreenHeader")
+            : ScreenHeaderMade().Count(file.Text);
+
+    private static bool HeaderLeads((string Path, string Text) file)
+    {
+        if (file.Path.EndsWith(".xaml", StringComparison.Ordinal))
+        {
+            var layout = XDocument.Parse(file.Text).Descendants().FirstOrDefault(element => element.Name.LocalName == "WorkLayout");
+            return layout?.Elements().FirstOrDefault()?.Name.LocalName == "ScreenHeader";
+        }
+
+        return BodyAdded().Match(file.Text) is { Success: true } added
+            && added.Groups[1].Value.Contains("header", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<(string Type, string Member), string> ViewModelWords()
+    {
+        Dictionary<(string Type, string Member), string> words = [];
+        foreach (var path in Directory.EnumerateFiles(Path.Combine(Repository.Root, "src", "Drover.Presentation"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+        {
+            var source = File.ReadAllText(path);
+            var type = ClassName().Match(source).Groups[1].Value;
+            foreach (var word in WordValue().Matches(source).Cast<Match>())
+            {
+                words.TryAdd((type, word.Groups[1].Value), word.Groups[2].Value);
+            }
+        }
+
+        return words;
+    }
+
+    private static IEnumerable<string> BackLinks((string Path, string Text) file, Dictionary<(string Type, string Member), string> words) =>
+        file.Path.EndsWith(".xaml", StringComparison.Ordinal)
+            ? BackLinksInMarkup(file.Path, file.Text, words)
+            : BackLinksInCode(file.Path, file.Text, words);
+
+    private static IEnumerable<string> BackLinksInMarkup(string path, string text, Dictionary<(string Type, string Member), string> words) =>
+        from element in XDocument.Parse(text).Descendants()
+        where element.Name.LocalName == "Link"
+        let said = (string?)element.Attribute("Text") ?? string.Empty
+        where SaysBack(said, words)
+        select $"{path}: {said}";
+
+    private static IEnumerable<string> BackLinksInCode(string path, string text, Dictionary<(string Type, string Member), string> words) =>
+        from made in LinkMade().Matches(text).Cast<Match>()
+        let said = LinkText().Match(made.Groups[1].Value).Groups[1].Value.Trim()
+        where SaysBack(said, words)
+        select $"{path}: {said}";
+
+    private static bool SaysBack(string expression, Dictionary<(string Type, string Member), string> words)
+    {
+        if (StringLiteral().Match(expression) is { Success: true } literal)
+        {
+            return literal.Value.Trim('"').StartsWith("Back to", StringComparison.Ordinal);
+        }
+
+        var member = MemberRef().Match(expression);
+        if (member.Success && words.TryGetValue((member.Groups[1].Value, member.Groups[2].Value), out var said))
+        {
+            return said.StartsWith("Back to", StringComparison.Ordinal);
+        }
+
+        // An attribute in markup has no quotes: Text="Back to projects" arrives here as plain words.
+        return expression.StartsWith("Back to", StringComparison.Ordinal);
+    }
+
+    private static void CheckMarkupActions((string Path, string Text) file, List<string> found)
+    {
+        foreach (var header in XDocument.Parse(file.Text).Descendants().Where(element => element.Name.LocalName == "ScreenHeader"))
+        {
+            foreach (var action in header.Elements())
+            {
+                if (action.Name.LocalName is "IconButton")
+                {
+                    continue;
+                }
+
+                if (action.Name.LocalName is "Menu" && (string?)action.Attribute("TriggerIcon") is { Length: > 0 }
+                    && string.Equals((string?)action.Attribute("ShowTriggerLabel"), "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                found.Add($"{file.Path}: {action.Name.LocalName} in a screen header");
+            }
+        }
+    }
+
+    private static void CheckCodeActions((string Path, string Text) file, List<string> found)
+    {
+        foreach (var added in ActionAdded().Matches(file.Text).Cast<Match>())
+        {
+            var value = ActionIndex().Replace(added.Groups[1].Value.Trim(), string.Empty).Trim();
+            var declaration = ActionDeclared().Matches(file.Text).Cast<Match>()
+                .FirstOrDefault(decl => decl.Groups[2].Value == value);
+            var declared = VarActionDeclared().Matches(file.Text).Cast<Match>()
+                .FirstOrDefault(decl => decl.Groups[1].Value == value);
+            var type = declaration?.Groups[1].Value ?? declared?.Groups[2].Value
+                ?? (value.StartsWith("new IconButton", StringComparison.Ordinal) ? "IconButton"
+                    : value.StartsWith("new Menu", StringComparison.Ordinal) ? "Menu" : null);
+
+            if (type is not ("IconButton" or "Menu"))
+            {
+                found.Add($"{file.Path}: {value} in ScreenHeader.Actions");
+                continue;
+            }
+
+            if (type is "Menu")
+            {
+                var initializer = declared?.Groups[3].Value
+                    ?? (declaration is null
+                        ? InlineMenu().Match(value).Groups[1].Value
+                        : ActionMade().Matches(file.Text).Cast<Match>()
+                            .FirstOrDefault(made => made.Groups[1].Value == declaration.Groups[2].Value)?.Groups[2].Value ?? string.Empty);
+                if (!initializer.Contains("TriggerIcon", StringComparison.Ordinal)
+                    || !initializer.Contains("ShowTriggerLabel = false", StringComparison.Ordinal))
+                {
+                    found.Add($"{file.Path}: the menu in ScreenHeader.Actions needs an icon trigger and no words");
+                }
+            }
+        }
+    }
+
     // The text a person can see: what is between quotes. Comments and names are not interface text.
     private static string Literals(string source) => string.Join('\n', StringLiteral().Matches(source).Select(match => match.Value));
+
+    [GeneratedRegex(@"(?:new\s+ScreenHeader\b|\bScreenHeader\s+\w+\s*=\s*new\s*\()")]
+    private static partial Regex ScreenHeaderMade();
+
+    [GeneratedRegex(@"(?:\.Body|\bbody)\.(?:Add|Insert)\(([^)]*)\)")]
+    private static partial Regex BodyAdded();
+
+    [GeneratedRegex(@"(?:new\s+Link\s*\{|\bLink\s+\w+\s*=\s*new\s*\(\s*\)\s*\{)([^}]*)\}")]
+    private static partial Regex LinkMade();
+
+    [GeneratedRegex(@"Text\s*=\s*([^,}]+)")]
+    private static partial Regex LinkText();
+
+    [GeneratedRegex(@"\bclass\s+(\w+)")]
+    private static partial Regex ClassName();
+
+    [GeneratedRegex(@"(?:vm:)?([A-Za-z_]\w*)\.(\w+)\b")]
+    private static partial Regex MemberRef();
+
+    [GeneratedRegex(@"\b(?:const\s+)?string\s+(\w+)\s*(?:=>|=)\s*\$?""([^""]*)""")]
+    private static partial Regex WordValue();
+
+    [GeneratedRegex(@"\.Actions\.(?:Add|Insert)\(([^)]*)\)")]
+    private static partial Regex ActionAdded();
+
+    [GeneratedRegex(@"^\d+\s*,\s*")]
+    private static partial Regex ActionIndex();
+
+    [GeneratedRegex(@"\b(IconButton|Menu)\s+(\w+)\b")]
+    private static partial Regex ActionDeclared();
+
+    [GeneratedRegex(@"\bvar\s+(\w+)\s*=\s*new\s+(IconButton|Menu)\s*\{([^}]*)\}")]
+    private static partial Regex VarActionDeclared();
+
+    [GeneratedRegex(@"\b(\w+)\s*=\s*new\s*\(\s*\)\s*\{([^}]*)\}")]
+    private static partial Regex ActionMade();
+
+    [GeneratedRegex(@"new\s+Menu\s*\{([^}]*)\}")]
+    private static partial Regex InlineMenu();
 
     [GeneratedRegex(@"#[0-9A-Fa-f]{8}\b|#[0-9A-Fa-f]{6}\b|Color\.FromArgb\(\s*\d|new SKColor\(\s*\d")]
     private static partial Regex RawColor();

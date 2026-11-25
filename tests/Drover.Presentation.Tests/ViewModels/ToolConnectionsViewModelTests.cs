@@ -49,6 +49,54 @@ public sealed class ToolConnectionsViewModelTests : IDisposable
     public void Dispose() => server.Dispose();
 
     [Fact]
+    public async Task Replacing_a_header_opens_for_one_connection_and_cancel_clears_the_value()
+    {
+        var model = Model();
+        await model.Open();
+
+        model.StartReplacingHeader(Connection);
+        model.HeaderName = "X-Additional";
+        model.HeaderValue = "sample-header-value";
+
+        model.ReplacingHeader.Should().Be(Connection);
+        model.HeaderName.Should().Be("X-Additional");
+        model.CancelReplacingHeader();
+        model.ReplacingHeader.Should().BeNull();
+        model.HeaderValue.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_saved_header_closes_the_dialog_and_a_refused_one_keeps_it_open_with_the_reason()
+    {
+        server.Answer("PUT", $"{path}/{connectionId}/header", Connection);
+        var model = Model();
+        await model.Open();
+        model.StartReplacingHeader(Connection);
+        model.HeaderValue = " sample-header-value ";
+
+        await model.ReplaceHeader(Connection);
+
+        model.ReplacingHeader.Should().BeNull();
+        model.HeaderValue.Should().BeEmpty();
+        model.Notice.Should().Be("The header for Sample tools is replaced.");
+        JsonSerializer.Deserialize<ReplaceToolHeaderRequest>(
+            server.Sent("PUT", $"{path}/{connectionId}/header").Single(), JsonSerializerOptions.Web)
+            .Should().Be(new ReplaceToolHeaderRequest("Authorization", " sample-header-value "));
+
+        server.Refuse("PUT", $"{path}/{connectionId}/header", HttpStatusCode.BadRequest, "Sample header refused.");
+        model.StartReplacingHeader(Connection);
+        model.HeaderValue = "another-value";
+
+        await model.ReplaceHeader(Connection);
+
+        model.ReplacingHeader.Should().Be(Connection);
+        model.HeaderValue.Should().Be("another-value");
+        model.HeaderProblem.Should().Be("Sample header refused.");
+        model.Problems.Should().NotContainKey(connectionId, "a dialog refusal is not a card error");
+        model.ChangePending.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_member_can_read_the_catalog_but_is_not_offered_admin_controls()
     {
         server.Answer("GET", "/api/session", Samples.Session("member"));

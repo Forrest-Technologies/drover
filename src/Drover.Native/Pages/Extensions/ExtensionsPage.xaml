@@ -7,25 +7,12 @@
               xmlns:shell="using:Drover.Native.Shell"
               xmlns:vm="using:Drover.Presentation.ViewModels">
 
-  <layouts:WorkLayout>
-    <pages:FlexPanel Gap="{StaticResource DvSpace3}" Justify="SpaceBetween">
-      <TextBlock Style="{StaticResource DvTextH2}"
-                 AutomationProperties.HeadingLevel="Level1"
-                 Text="{x:Bind vm:ExtensionsViewModel.Title}" />
-      <pages:FlexPanel x:Name="Actions" Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace2}">
-        <dv:Link x:Name="MakeLink" Text="Make an extension" />
-        <dv:Button x:Name="StartImport" Kind="Primary" Command="{x:Bind Model.StartImportingCommand}">
-          <StackPanel Orientation="Horizontal" Spacing="{StaticResource DvSpace2}">
-            <dv:Icon NameOfIcon="Plus" Foreground="{ThemeResource DvOnAccentBrush}" VerticalAlignment="Center" />
-            <TextBlock Text="Import an extension" VerticalAlignment="Center" />
-          </StackPanel>
-        </dv:Button>
-      </pages:FlexPanel>
-    </pages:FlexPanel>
+  <layouts:WorkLayout x:Name="Layout">
+    <dv:ScreenHeader Title="{x:Bind vm:ExtensionsViewModel.Title}">
+      <dv:Menu x:Name="AddExtension" Label="Add an extension" TriggerIcon="Plus" ShowTriggerLabel="false" />
+    </dv:ScreenHeader>
 
     <dv:StatusNote Kind="{x:Bind Model.NoticeKind, Mode=OneWay}" Text="{x:Bind Model.Notice, Mode=OneWay}" />
-
-    <ContentControl x:Name="ImportHost" IsTabStop="False" HorizontalContentAlignment="Stretch" />
 
     <ContentControl x:Name="Under" IsTabStop="False" HorizontalContentAlignment="Stretch" />
   </layouts:WorkLayout>

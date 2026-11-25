@@ -35,6 +35,9 @@ internal sealed class CheckAccount
     /// <summary>The bot the app talks to, and the space it is in.</summary>
     public Guid BotId { get; private set; }
 
+    /// <summary>The project the screen checks open.</summary>
+    public Guid ProjectId { get; private set; }
+
     public Guid SpaceId { get; private set; }
 
     #endregion
@@ -42,8 +45,8 @@ internal sealed class CheckAccount
     #region Public Methods
 
     /// <summary>
-    /// Makes the account and its bot. A <paramref name="desktop"/> bot also has a sandbox with a screen, started, and a
-    /// model that reads pictures, for the Android proof.
+    /// Makes the account, its bot and a project. A <paramref name="desktop"/> bot also has a sandbox with a screen,
+    /// started, and a picture-reading connection, for the Android proof.
     /// </summary>
     public static async Task<CheckAccount> Create(
         CheckServer server,
@@ -64,8 +67,17 @@ internal sealed class CheckAccount
             cookies,
             $"{space}/bots",
             new CreateBotRequest("Check bot", "Answer briefly.", connection.Id, null));
+        var project = await Send<ProjectSummary>(
+            http,
+            cookies,
+            $"{space}/projects",
+            new CreateProjectRequest("Check project", "A project the screen checks open."));
+        // One connection so the tool screen shows its header action, which opens the add sheet in the screen checks.
+        await Send<Drover.Contracts.Tools.ToolConnectionSummary>(http, cookies, $"{space}/tool-connections",
+            new Drover.Contracts.Tools.CreateToolConnectionRequest("Check tools", "https://tools.example.test/mcp", "oauth"));
         account.SpaceId = session.Spaces[0].Id;
         account.BotId = bot.Id;
+        account.ProjectId = project.Id;
 
         if (desktop)
         {

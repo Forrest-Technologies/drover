@@ -77,6 +77,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("send a message", SendMessage);
                 await Step("stop while working", StopWhileWorking);
                 await Step("back", Back);
+                await Step("projects list", ProjectsList);
+                await Step("project back", ProjectBack);
+#if !__IOS__
+                await Step("tool server sheet", ToolServerSheet);
+#endif
                 await Step("switch the theme", SwitchTheme);
             }
 
@@ -479,6 +484,87 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             Find("CrewRow") is { } row && Find("ComposerField") is null ? row : null);
     }
 
+    /// <summary>
+    /// The projects screen draws each project as a card whose name opens it, at both widths the app must work at.
+    /// The check server makes one project and passes its address to the app.
+    /// </summary>
+    private async Task ProjectsList()
+    {
+        var project = settings.ProjectId
+            ?? throw new CheckFailedException("no project was named for the screen checks");
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Projects);
+            await Press("ProjectCard");
+            await Until("the project screen", () =>
+                navigator.Current == Addresses.Project(project) ? window.Content : null);
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// The header's back button on a project takes a person to the projects screen, at both widths the app must work
+    /// at. The screen checks make one project through the API and pass its address to the app.
+    /// </summary>
+    private async Task ProjectBack()
+    {
+        var project = settings.ProjectId
+            ?? throw new CheckFailedException("no project was named for the screen checks");
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Project(project));
+            await Shown("ScreenBack");
+            await Press("ScreenBack");
+            await Until("the projects screen", () =>
+                navigator.Current == Addresses.Projects && Find("ScreenBack") is null ? window.Content : null);
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// The add form opens as a sheet from the header action and takes the focus into its Name field. The check then
+    /// takes the keyboard close path Escape uses and requires the focus to go back to the action that opened it.
+    /// </summary>
+    private async Task ToolServerSheet()
+    {
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        navigator.NavigateTo(Addresses.Tools);
+        var add = await Shown("AddToolServer");
+        await Until("AddToolServer to take focus", () =>
+        {
+            add.Focus(FocusState.Keyboard);
+            return IsFocused(add) ? add : null;
+        });
+
+        await Press("AddToolServer");
+        var name = await Shown("ToolServerName");
+        await Until("the Name field to take focus", () => IsFocused(name) ? name : null);
+
+        var sheet = Roots()
+            .SelectMany(root => Descendants(root).Prepend(root))
+            .OfType<Sheet>()
+            .FirstOrDefault(element => element.Open)
+            ?? throw new CheckFailedException("the add sheet is not open");
+        sheet.CloseFromKeyboardForCheck();
+
+        await Until("the sheet to close", () => Find("ToolServerName") is null ? window.Content : null);
+        await Until("the focus to return to AddToolServer", () => IsFocused(add) ? add : null);
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
     #endregion
 
     #region Actions
@@ -551,6 +637,24 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         }
 
         invoker.Invoke();
+    }
+
+    private bool IsFocused(FrameworkElement element)
+    {
+        if (window.Content?.XamlRoot is not { } root)
+        {
+            return false;
+        }
+
+        for (var at = FocusManager.GetFocusedElement(root) as DependencyObject; at is not null; at = VisualTreeHelper.GetParent(at))
+        {
+            if (ReferenceEquals(at, element))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.

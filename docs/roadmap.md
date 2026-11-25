@@ -33,7 +33,7 @@ Checked against the code on the trunk, not against older documents.
 | Tools | MCP tool servers with no auth, a header or a sign-in. Built-in tools for time, web pages, web search, memory, images, delegation and the crew |
 | Sandboxes | Optional, turned on with one sandbox service key in `.env` and a restart; the status page names the setting when none is set. A sandbox runs commands, handles files, shows a screen a bot can use, and a person can watch and take over. A finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Uploads use a writable directory in the image; a failed write answers 503 with `storage_unavailable` |
 | Models | Two kinds of connection: one hosted provider with its own adapter, and any server that speaks the chat completions API. A stored catalog of each connection's models. Stored fallback lists. Usage and cost per run and per bot |
-| Clients | One client codebase. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
+| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Lists of projects and bots draw each item with a card that opens on tap, click, Enter or Space. Extensions use the same card frame, with their actions in words beneath it. Model and tool connections use the same card with their actions in a More menu; their add forms open in a sheet from the header, replacing a key or a header opens a dialog, and Extensions has one add menu for import and make. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
 | People | Password sign-in, a setup code for the first account, device sessions. Each person has their own space. Roles exist (owner, admin, member), and there is no way yet to invite a second person |
 | Security | Row-level security in PostgreSQL enforces isolation between spaces and people. Grants are checked at call time and narrow down the hierarchy. Secrets are encrypted with a key ring and never returned. A deployment policy sets every limit, and limits only narrow. Containers run read-only with capabilities dropped. Every pull request runs code scanning, secret scanning, dependency and license checks |
 | Documentation | `README.md`, `AGENTS.md`, `CODE_STYLE.md`, `DESIGN.md`, nineteen architecture files, eighteen decision records, and guides for self-hosting, desktop installers and the Android preview |
@@ -77,7 +77,7 @@ Milestone 06 lands work that is already written and reviewed. It follows 05.
 
 Milestones 09 to 12 fill the largest gaps: people, sandboxes, operations, and a calm conversation.
 
-Milestones 13 to 20 complete the product. Their issues are assigned and will be given the seven sections before each milestone starts.
+Milestones 13 to 20 complete the product. Their issues are assigned and carry the `roadmap` label with the seven sections.
 
 ## Milestones
 
@@ -437,69 +437,310 @@ Milestones 13 to 20 complete the product. Their issues are assigned and will be 
 - Every string the copy audit listed is replaced, and the copy rule test is green.
 - A long tool-heavy reply reads as one line and its text by default.
 
-## Later milestones
-
-These complete the product. Each has its issues assigned on GitHub. Those issues do not carry the `roadmap` label yet: before a milestone starts, each issue is checked against `main`, given the seven sections, and given its interface spec where it has an interface.
-
-
 ### 13 Conversation tools
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/13) · 35 issues
 
-Act on a message (copy, quote, edit, another model, reactions), find anything said in a conversation or across them, rename, archive and delete conversations, slash commands, and the remaining interface defects.
+**Goal.** Act on a message, find anything said in one or every conversation, and manage conversations, with the remaining interface defects fixed.
+
+**Issues.**
+
+- #361 feat: emoji reactions both ways, as bot events with safe approve, cancel and per-bot commands
+- #362 feat: message actions: copy, quote reply, edit earlier messages, another model, send again, side chat
+- #561 feat: jump to latest, and a sign that the reply continued below
+- #564 fix: links too small to tap, number fields that open a text keyboard, and reduced motion read only at startup
+- #565 fix: blank frames for unreadable pictures, Copied when nothing was copied, and tables flat to a screen reader
+- #566 feat: the app reopens where you left it, and Back and Forward work on desktop
+- #567 feat: read long conversations in pages, and open Conversations with one request instead of one per bot
+- #568 fix: the top bar runs out of room between 560 and 720 px and at large text
+- #571 fix: on Windows the time zone silently becomes UTC
+- #573 fix: stale answers and races in Models, Tools, Usage and sign-in
+- #574 fix: one failed secondary request hides a whole loaded bot
+- #578 fix: members are offered actions they cannot do, and empty states lead into the setup wizard
+- #579 fix: Models, Tools and Status lose keyboard focus on every action, and their forms ignore Enter and Escape
+- #580 fix: the bot removal dialog and the usage table clip at 360 px
+- #585 feat: rename, archive and delete a conversation
+- #587 feat: send a message after the current run, take back one that is waiting, and say why you denied a tool call
+- #593 feat: slash commands in the composer
+- #595 feat: code blocks with highlighting, wrap, collapse and save; tables that wrap and copy; math
+- #596 feat: enlarge and save a picture, and sources marked where a reply uses them
+- #698 feat: search layer 1.2, ConversationFindViewModel
+- #699 feat: search layer 1.3, highlights and the ring on MarkdownView, CodeBlock and ChatEntry
+- #700 feat: search layer 1.4, FindBar, shortcuts and landing on a match
+- #701 feat: search layer 1.5, browser shortcut capture
+- #702 docs: search layer 1.6, find fixture, bench page, measurements
+- #703 feat: search layer 2.1, search server filters, removed bots, delegation routes and scope
+- #704 feat: search layer 2.2, global search view model
+- #705 feat: search layer 2.3, grouped results, filters and opening a result with find filled in
+- #706 feat: search layer 3.1, the search_entries table, policies, GIN index, triggers and backfill
+- #707 feat: search layer 3.2, sys.search_entry_ids, manifest, audit row and plan-shape test
+- #708 feat: search layer 3.3, the search service on the function with read-back under row-level security
+- #709 feat: recent searches on the server, the table and endpoints
+- #710 feat: recent searches in the native client
+- #711 feat: project names and project files in search results, server
+- #712 feat: project names and project files in search results, native client
+- #713 docs: search layer 3.8, server bench, numbers and docs 02, 04 and 18
 
 ### 14 Make it yours
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/14) · 20 issues
 
-More themes and a theme editor, keyboard shortcuts with a list of them, a command palette, the device's text size, notification choices, a bot's look, and starting-point bots.
+**Goal.** Make the app yours with more themes, a theme editor, shortcuts, a command palette, notification choices and starting-point bots.
+
+**Issues.**
+
+- #26 ui: bot characters and the Drover mark
+- #404 feat: store a bot's chosen head, visor, top, mark, tilt and color
+- #405 feat: pick a bot's look part by part in the native client
+- #425 feat: Signal Room, Paper Ledger and Workbench themes
+- #426 feat: Blueprint, Quiet Hours and Foundry themes
+- #514 feat: the first bot greets a new owner and offers things to set up, at no model cost
+- #515 feat: starting-point bots to pick from when making a bot
+- #597 feat: the app follows the device's text size
+- #599 feat: choose which notifications you get, and quiet hours
+- #603 feat: keyboard shortcuts across the app, with a list of them
+- #604 feat: a command palette to jump to any bot, conversation, screen or action
+- #777 feat: a Focus view that shows only the conversation, beside today's Workspace view
+- #778 feat: a theme file format for people's own themes, and one checker the app and server share
+- #779 feat: keep a person's own themes on the server, validated, with limits
+- #780 feat: save a theme as a file and open one someone sent, checked before it is kept
+- #781 feat: make a theme from a preset, with live preview and accessibility checks as you go
+- #782 feat: themes a space offers its members, and a space default
+- #783 feat: code, output, cards and previews follow the theme through a blocks token group
+- #784 docs: theme file reference and schema for people who write themes by hand
+- #788 feat: professional presets: Slate, Linen and Graphite, restrained looks people can pick
 
 ### 15 Tools and reach
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 26 issues
 
-More built-in tools, pictures and files from tool servers, tool server resources and prompts, a catalog of ready tool servers, OpenAPI descriptions as tools, and Drover usable from other programs with access tokens.
+**Goal.** Give a bot more built-in tools, let a bot read files and cards from tool servers, and let a person use Drover from other programs with an access token.
 
 **Issues.**
 
+- #62 chore: MCP follow-ups from the second review of #57, and what #14 still needs
+- #455 fix: the image tool can never find an image model
+- #458 fix: a legacy tool session is cut off by a size limit meant for one answer, and five smaller tool defects
+- #459 fix: broken tool-call JSON ends a run, model lists go stale, and a lost refresh race forces a new tool sign-in
+- #14 Step 13. feat: MCP connections for all auth styles, both protocol generations, with approval
+- #489 feat: connect an OpenAPI description and its operations become tools
+- #490 feat: a bot proposes adding a tool server, on a card a person connects with one press
+- #488 feat: a catalog of ready tool servers to connect in one step, and a card a bot shows to ask for one
+- #491 feat: a bot sends email over SMTP, asking a person first when the recipient is outside its space
+- #509 feat: use Drover from other programs: personal access tokens, and Drover as a tool server
+- #511 feat: a bot with many tools is sent a short list and looks up the rest
+- #516 feat: a bot draws a chart from data
+- #539 fix: pictures, audio and files from a tool server are dropped, and so is text beside a structured answer
+- #510 feat: a tool's answer can be an interactive card in the conversation
+- #540 feat: read-only tools of a trusted tool server run as reads, and an admin can mark any server tool as a read
+- #541 feat: tool server resources and prompts, as things a bot can read and a person can pick
+- #542 feat: change a tool connection's address, name and client details
+- #544 feat: a bot asks the person a question, with choices or free text, and waits for the answer
+- #545 feat: a bot reads earlier messages of its conversation and searches it
+- #546 feat: a bot sends the person a notification
+- #548 feat: web tools: a request with any method, headers and a body, download a file, and read a PDF by address
+- #549 feat: a bot lists and re-reads the files of its conversation, and writes a file without a sandbox
+- #550 feat: a second web search provider, and search options (language, recency, site, next page)
+- #551 feat: small tools: time zone and date arithmetic, edit an image, describe an image by address
+- #552 feat: a bot stuck in a loop cannot flood a tool server
 - #880 feat: a bot's reply can show choices, a short form, a table or a checklist drawn with Drover's own controls
-- #544 feat: a bot asks the person a question, with choices or your own words, and waits for the answer
 
 ### 16 Sandbox experience
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/16) · 41 issues
 
-A sandbox a person can see, watch and take over with nothing to set up: a live screen and a terminal in the client, Docker sandboxes with no account anywhere, sandbox files, and secrets a bot can use without seeing them.
+**Goal.** See, watch and take over a sandbox with nothing to set up, work with its files, and give a bot a credential it can use without reading it.
 
 **Issues.**
 
+- #141 feat: a second hosted sandbox provider beside the one in use
 - #207 feat: a bot asks for a credential on a card, Drover keeps it, and the bot gets only a handle
-- #885 feat: a bot uses a credential by its handle in a command or a file in a running sandbox (part A)
-- #885 feat: a bot uses a credential by its handle in a browser field in a sandbox (part B)
+- #210 feat: taking over a bot's screen stops anything a bot left running in that sandbox
+- #393 feat: credential broker, an authenticated egress proxy for sandboxes
+- #394 feat: the credential broker swaps placeholders for real values on bound hosts only
+- #396 feat: redact sandbox secrets in every encoded and partial form
+- #395 feat: start sandboxes with secret placeholders, broker trust, and egress locked to the broker
+- #397 feat: manage sandbox secrets in the native client
+- #414 feat: browse, download, upload and manage a bot's sandbox files
+- #415 feat: recover files from a retiring sandbox
+- #416 feat: sandbox files view in the native client
+- #503 feat: a bot reads a page in its browser as text and numbered controls, and acts by number
+- #502 feat: saved sign-ins a bot can use in its sandbox browser without ever seeing them
+- #505 feat: a bot's work folder survives its sandbox being replaced
+- #508 feat: a bot that reaches a payment hands the screen to its person, who pays there
+- #636 fix: an allowed host the editor accepts can fail at the provider with no reason, and wildcards cannot be saved
+- #640 feat: sandbox status says when it pauses, who shares it, its network, and why it stopped or did not start
+- #641 chore: sandbox follow-ups: retry-aware status codes, a hosted request limit, binary file writes for bots
+- #642 feat: a bot can work in a child bot's sandbox, a screen hold ends after an hour, a removed bot's processes stop
+- #650 feat: an interactive terminal in a bot's sandbox: live output, live typing, a shell that keeps its place
+- #651 feat: a live view of a sandbox's screen with direct keyboard and pointer input
+- #504 feat: each bot gets its own screen in a shared sandbox
+- #652 feat: open what a bot is serving in its sandbox, at an address only people of the space can reach
+- #653 feat: save a sandbox as a snapshot, restore it, and start a bot's new sandbox from a saved one
+- #654 feat: choose a sandbox's size per bot, and a smaller Drover-owned desktop image
+- #655 feat: measure sandbox use: how long each ran, how large it was, and what that cost per bot and per space
+- #657 feat: bots get a working computer on a self-hosted server with no account anywhere: Docker sandboxes that need no setup
+- #658 feat: Docker sandboxes reach the internet with no setup, by named hosts or open without private ranges
+- #659 feat: bots on Docker sandboxes get a screen with no setup, from the Drover-owned desktop image
+- #660 feat: another hosted sandbox provider, turned on by pasting one key
+- #663 design: a bot's sandbox a person can see, watch and take over with nothing to set up
+- #664 feat: see a bot's sandbox state wherever the bot appears, and open it in one press
+- #665 feat: the sandbox page says what state the machine is in, why, and the one thing to do next
+- #506 feat: a sandbox that is nearly full says so, and offers to clean up
+- #666 feat: a real terminal in the native client: live output, stop, and a shell that keeps its place
+- #667 feat: a live screen in the native client: watch, take control in one press, type and point directly
+- #668 feat: the sandbox page shows when it pauses, what it may reach, who shares it, what it costs and what the bot ran
+- #669 feat: a Previews tab that opens what the bot is serving
+- #670 feat: give a bot a working sandbox with one action and one Save, and ask before a Save removes its files
+- #671 test: native screen checks for the sandbox page, the screen and the terminal
+- #885 feat: a bot uses a credential by its handle in a running sandbox, in a command, a file or a browser field, on every sandbox provider
 
 ### 17 Crew at work
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/17) · 38 issues
 
-Routines that say when they fail, work items and check-ins, skills, approvals that fit real work, who a bot works with, and the Crew and Activity screens.
+**Goal.** Show routines that say when they fail, keep work items and check-ins, fit approvals to real work, and put the crew and its activity on their own screens.
+
+**Issues.**
+
+- #80 feat: judged rule conditions, decided by a decision model with a confidence threshold
+- #152 feat: a bot's history shows what changed and who changed it, and an earlier version can be restored
+- #153 feat: skills, how-tos a person writes once and gives to any bot
+- #158 feat: a bot sets up a routine when asked in conversation, on a card a person approves
+- #159 feat: a routine can be started by a call from another system
+- #166 feat: a bot offers to save what it just worked out as a skill
+- #167 feat: the Crew screen, the bot hierarchy as a live tree
+- #168 feat: the Activity screen, every run in the space and everything waiting for you
+- #401 feat: Allow all, a time-bound approval of every ask for one bot and person
+- #402 feat: API for Allow all and what it approved
+- #403 feat: Allow all control, indicator and Ask again in the native client
+- #406 feat: work items a bot and a person keep, with bot tools
+- #407 feat: API for work in progress, including runs waiting on you
+- #408 feat: tabbed work in progress list in the native client
+- #409 feat: scheduled check-ins on unfinished work
+- #410 feat: set up check-ins and act on them in the native client
+- #417 feat: choose which people may see and talk to a bot
+- #418 feat: choose which bots a bot hands work to and takes work from
+- #419 feat: a Who it works with section in the bot editor
+- #441 fix: tool calls approved together can run out of order
+- #443 fix: a summary written while a message is edited can describe a version the person left
+- #445 fix: steps in a long conversation are slow: every model call re-reads all of it, with one query per tool result
+- #446 fix: an approval answered the instant it is asked is refused, and three smaller run engine defects
+- #449 fix: a routine fails unseen, piles up prompts behind a stuck run, or is saved with a time that never comes
+- #450 fix: routines stop unseen when clocks differ, dodge the shortest interval, and hide from a demoted admin
+- #453 fix: summaries are written and paid for where nothing reads them
+- #484 feat: Auto approval: a second model lets through what the person asked for and asks about the rest
+- #485 feat: an approval does not stop the rest of the work, and one from unattended work expires
+- #486 feat: paying and deleting for good always need a person, whatever has been allowed
+- #487 feat: a bot cannot send a stored secret out, and asks before sending a card number
+- #492 feat: a routine that watches something and only wakes the bot when it changes
+- #493 feat: a routine starts from a signed event from a code host or incident tool, set up from a preset
+- #495 feat: a bot looks over its connected tools while idle, read-only, and suggests work
+- #496 feat: a morning brief: one switch, and a bot tells you each morning what needs you
+- #499 feat: a bot splits a job into short-lived helpers that run at once and report back
+- #547 feat: a bot hands off work without waiting, checks on it later, and can stop it
+- #577 feat: pick a routine's time and time zone instead of typing them, and see everything scheduled in the space
+- #588 feat: move a bot to another place in the crew
 
 ### 18 Shared spaces and channels
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/18) · 29 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/18) · 28 issues
 
-Rooms with several bots and people, mentions and read state, shared conversations, limits an owner sets for a space, export and deletion of a person's data, passkeys, and bots reachable from a chat channel.
+**Goal.** Share conversations and set space limits, with rooms, chat channels, mentions, read state, pins and passkeys, and export and deletion of a person's data.
+
+**Issues.**
+
+- #363 feat: mention bots and people in group conversations, and route replies and reactions by mention
+- #364 feat: per-conversation notification controls: all, mentions only, off, snooze
+- #366 feat: pins and bookmarks per conversation
+- #475 feat: export everything a space or a person has
+- #519 feat: an owner or admin sets a space's limits, and the server applies them
+- #520 feat: delete an account, and delete a space
+- #521 feat: remove a sent file and get its room back
+- #522 feat: share a conversation with the space, and make it private again
+- #365 feat: typing and working indicators and read state in shared conversations
+- #525 feat: sign in with a passkey
+- #526 feat: sign in to a model provider with a personal plan instead of a key
+- #714 feat: rooms, the lead bot's members as data on the lead, validated
+- #715 feat: rooms, the cap on bot turns between two messages of a person
+- #716 feat: rooms, member contributions in the lead's conversation, reusing the delegation checks
+- #717 feat: rooms, a person may mention any member bot
+- #718 feat: rooms in the native client, members speak in turn and the stop is explained
+- #719 feat: rooms in the bot editor, a team section and the per-space turn cap
+- #722 feat: chat channel, the Domain interface and its conformance suite
+- #723 feat: chat channel, records, link codes and the fixed reply to unlinked senders
+- #724 feat: chat channel, a linked message lands in the person's main conversation
+- #726 feat: chat channel, the deployment policy rule and the hosted preset row
+- #725 feat: chat channel, the first adapter by polling with a free bot token
+- #727 feat: chat channel, the link flow and its screen in the native client
+- #729 feat: draw typed emoji in messages in every target
+- #730 feat: reaction picker with free emoji and normalization to meaning keys
+- #731 feat: push is held only while the conversation is on a visible screen, on any server
+- #732 feat: clients report which conversation is on a visible screen
+- #733 feat: pinned messages enter the bot's context as quoted reference data with a size cap
 
 ### 19 Voice and memory
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/19) · 19 issues
 
-Speak to a bot and hear replies, conversations shortened to fit the model, prompt caching, memory a person can search, and model fallback that switches during a run.
+**Goal.** Speak to a bot and hear replies, shorten a conversation to fit the model, cache prompts where a provider offers it, search what a bot remembers, and fall back to another model during a run.
+
+**Issues.**
+
+- #64 Apply a bot's memory settings in the runtime (compaction strategy and thresholds)
+- #161 feat: a bot finds what it needs from past conversations and older notes by meaning
+- #399 feat: a run moves to the next model when its model is unavailable
+- #400 feat: reorder fallback models and see model switches in the native client
+- #411 feat: speech interfaces and a compatible-endpoint speech adapter, hosted or self-hosted
+- #412 feat: transcribe and read-aloud endpoints with per-person speech model choice
+- #413 feat: voice in the composer, read aloud, and Voice settings in the native client
+- #154 feat: speak a message to a bot, and have a reply read aloud
+- #497 feat: one Files screen for everything your bots have made, with earlier versions kept
+- #498 feat: tell your bots about yourself once, bring notes in from elsewhere, and see what each run is given
+- #500 feat: call a bot: a live spoken conversation you can interrupt
+- #501 feat: a bot calls you when it matters
+- #532 feat: a long conversation is shortened to fit the model's context, and a message that cannot fit says so
+- #533 feat: prompt caching where a provider offers it, with cached tokens in usage and cost
+- #535 feat: a bot can be given a required answer shape and advanced sampling settings
+- #536 feat: reasoning a provider requires back is kept across the model calls of a run
+- #537 feat: a model connection notices when it stops working, waits when told to, and can cap its calls at once
+- #581 feat: a model picker with search, price, context size and what each model can read
+- #602 feat: search and export what a bot remembers
 
 ### 20 Every device
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/20) · 26 issues
 
-Offline reading and a send queue, a desktop tray and more than one window, sharing into the app, translation, links into the app, and release checks on every platform.
+**Goal.** Keep recent conversations readable offline with a send queue, run once in the desktop tray with more than one window, share into the app and open links in it, translate the interface, and check every platform before release.
+
+**Issues.**
+
+- #275 Run the Drover native client in the Uno Studio Android companion
+- #358 test: run the shared native screen checks on the browser client
+- #375 build: serve a preview over HTTPS so the browser build works from another device
+- #478 chore: remove dead settings and unreachable code
+- #480 test: run engine, wake-up, redaction, session, usage and preview cases that have no test
+- #481 test: client streaming has tests, and every server route has a client method
+- #494 feat: teach a bot a task by doing it once on its screen
+- #586 feat: see the rules of this server on Status, and change a tool connection's trust and protocol after adding it
+- #601 feat: usage shows what the space spent in any period, how close it is to its limit, and saves as a file
+- #606 feat: offline, the app says so, keeps recent conversations readable, and sends what you wrote once it is back
+- #607 feat: on desktop, Drover runs once, stays in the tray, can start at sign-in, and opens more than one window
+- #605 feat: links into the app: copy a link to a conversation, open Drover links in the installed app
+- #608 feat: share into Drover from the browser and desktop, and quick actions from the home screen
+- #609 feat: the interface can be translated, and dates and numbers follow the device's format
+- #610 feat: wide screens show a list beside its detail on Bots, Models and Tools
+- #615 build: a Linux download that runs on any distribution, and a published key to check it against
+- #616 build: the Android preview states the Android versions it supports, and CI starts it on the oldest one
+- #618 test: open the browser client that the Docker image serves in a real browser
+- #620 feat: background task failures are logged, and a person can send crash reports to their own server
+- #621 test: unit tests for the native client's own logic
+- #622 test: desktop notifications and the Android rules for outside input have tests
+- #623 test: a test class for each view model that has few or no tests
+- #624 test: screen checks open every screen, and cover the wide layout, light theme, a long reply and a dropped stream
+- #625 test: every screen the checks open is audited for accessible names, target size and fit at 360 px
+- #626 test: the browser client's self-update, two more browser engines, and native checks that gate a release
+- #661 feat: a bot works on a person's own computer through a small connector that asks the server for jobs
 
 ## Good first issues
 

@@ -33,6 +33,11 @@ jobs:
           global-json-file: global.json
       - name: Restore
         run: dotnet restore Drover.slnx
+      # Local builds run Debug, which adds hot reload outputs that a Release build never makes (#916).
+      - name: Debug build of the Web SDK test projects
+        run: |
+          dotnet build tests/Drover.Server.Tests --no-restore -c Debug -warnaserror
+          dotnet build tests/Drover.Native.UITests --no-restore -c Debug -warnaserror
       - name: Build, warnings are errors
         run: dotnet build Drover.slnx --no-restore -c Release -warnaserror
       - name: Format check

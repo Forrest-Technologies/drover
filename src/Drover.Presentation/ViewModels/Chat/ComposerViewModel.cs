@@ -30,9 +30,9 @@ public sealed partial class ComposerViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanSend))]
     private bool sending;
 
-    // Whether the conversation takes files now. Attach, a paste of files and a drop all follow it.
-    [ObservableProperty]
     private bool takesFiles;
+
+    private bool dropping;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSomething), nameof(CanSend), nameof(ShowsSend), nameof(HasTwoActions))]
@@ -106,6 +106,22 @@ public sealed partial class ComposerViewModel : ObservableObject
 
     /// <summary>The choice is offered only when there is one to make.</summary>
     public bool HasModelChoice => ModelOptions.Count > 1;
+
+    /// <summary>Whether the conversation takes files now. Attach, a paste of files and a drop all follow it.</summary>
+    public bool TakesFiles
+    {
+        get => takesFiles;
+        set
+        {
+            if (SetProperty(ref takesFiles, value) && !value)
+            {
+                ShowDropping(false);
+            }
+        }
+    }
+
+    /// <summary>True while files that this conversation would take are held over it.</summary>
+    public bool Dropping => dropping;
 
     /// <summary>Raised to put the cursor in the message field.</summary>
     public event Action? FocusRequested;
@@ -238,9 +254,18 @@ public sealed partial class ComposerViewModel : ObservableObject
     public Task TakePasted(Func<Task<HandedFiles>> read, ILogger logger) =>
         Take(read, FileWords.PasteFailed, "pasted", logger);
 
+    /// <summary>Shows or clears the drop line while files are held over the conversation.</summary>
+    public void ShowDropping(bool value) => SetProperty(ref dropping, value && TakesFiles, nameof(Dropping));
+
+    /// <summary>Clears the drop line when a drag ends without a drop, without attaching anything.</summary>
+    public void CancelDropping() => ShowDropping(false);
+
     /// <summary>Takes the files dropped on the conversation. What could not be read is said in one sentence.</summary>
-    public Task TakeDropped(Func<Task<HandedFiles>> read, ILogger logger) =>
-        Take(read, FileWords.DropFailed, "dropped", logger);
+    public Task TakeDropped(Func<Task<HandedFiles>> read, ILogger logger)
+    {
+        ShowDropping(false);
+        return Take(read, FileWords.DropFailed, "dropped", logger);
+    }
 
     public Task Remove(Guid id) => OnRemoveFile?.Invoke(id) ?? Task.CompletedTask;
 

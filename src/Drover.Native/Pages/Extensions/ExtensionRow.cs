@@ -1,8 +1,8 @@
 namespace Drover.Native.Pages;
 
 /// <summary>
-/// One installed extension on the extensions screen: its name, what it adds, whether its bot is on, and the way to
-/// set it up or turn it on, with its tool server's steps under it when it names one.
+/// One installed extension on the extensions screen: the card holds its name, what it adds and whether its bot is
+/// on. The way to set it up or turn it on stays in words beneath the card, as does its connection's steps.
 /// </summary>
 internal sealed class ExtensionRow : Grid
 {
@@ -10,11 +10,11 @@ internal sealed class ExtensionRow : Grid
 
     private readonly ExtensionsViewModel model;
 
-    private readonly Facet frame = new() { Role = FacetRole.Frame, Padding = new(Tokens.Number("DvSpace4")) };
+    private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
 
-    private readonly StackPanel column = new() { Spacing = Tokens.Number("DvSpace3") };
+    private readonly ListCard card = new();
 
-    private readonly FlexPanel head = new() { Gap = Tokens.Number("DvSpace3"), CenterItems = false };
+    private readonly StackPanel beneath = new() { Spacing = Tokens.Number("DvSpace3") };
 
     private readonly Button turnOn = new() { Kind = ButtonKind.Primary };
 
@@ -29,9 +29,7 @@ internal sealed class ExtensionRow : Grid
     public ExtensionRow(ExtensionsViewModel model)
     {
         this.model = model;
-        column.Children.Add(head);
-        frame.Children.Add(column);
-        Children.Add(frame);
+        Children.Add(card);
         turnOn.Click += (_, _) => _ = model.TurnOn(shown!);
     }
 
@@ -55,10 +53,19 @@ internal sealed class ExtensionRow : Grid
         }
 
         shown = extension;
-        head.Children.Clear();
-        head.Children.Add(Text(extension));
-        head.Children.Add(Actions(extension));
+        card.Title = extension.Name;
+        card.Facts = ExtensionWords.Adds(extension);
+        card.Status = extension.BotId is null
+            ? null
+            : new Badge { Text = ExtensionWords.Status(extension), Kind = ExtensionsViewModel.StatusKind(extension) };
+        beneath.Children.Clear();
+        if (extension.BotId is { } botId)
+        {
+            beneath.Children.Add(Actions(botId, extension));
+        }
+
         ShowServer(extension);
+        card.Beneath = beneath.Children.Count > 0 ? beneath : null;
         Refresh();
     }
 
@@ -78,36 +85,17 @@ internal sealed class ExtensionRow : Grid
 
     #region Private Methods
 
-    private StackPanel Text(ExtensionSummary extension)
-    {
-        var text = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
-        FlexPanel.SetBasis(text, Tokens.Number("DvColumnMin"));
-        FlexPanel.SetGrow(text, 1);
-        text.Children.Add(Parts.Heading(extension.Name, "DvTextH3", AutomationHeadingLevel.Level2));
-
-        if (!string.IsNullOrWhiteSpace(extension.Description))
-        {
-            text.Children.Add(Parts.Small(extension.Description));
-        }
-
-        text.Children.Add(Parts.Small(ExtensionWords.Adds(extension)));
-        return text;
-    }
-
-    private FlexPanel Actions(ExtensionSummary extension)
+    private FlexPanel Actions(Guid botId, ExtensionSummary extension)
     {
         var actions = new FlexPanel { Gap = Tokens.Number("DvSpace3"), RowGap = Tokens.Number("DvSpace2") };
         (turnOn.Parent as Panel)?.Children.Remove(turnOn);
+        actions.Children.Add(BotParts.Action(
+            ExtensionsViewModel.SetUpLabel(extension),
+            () => navigator.NavigateTo(Addresses.Bot(botId))));
 
-        if (extension.BotId is { } botId)
+        if (model.ShowsTurnOn(extension))
         {
-            actions.Children.Add(new Badge { Text = ExtensionWords.Status(extension), Kind = ExtensionsViewModel.StatusKind(extension) });
-            actions.Children.Add(Links.Plain(ExtensionsViewModel.SetUpLabel(extension), Addresses.Bot(botId)));
-
-            if (model.ShowsTurnOn(extension))
-            {
-                actions.Children.Add(turnOn);
-            }
+            actions.Children.Add(turnOn);
         }
 
         return actions;
@@ -124,9 +112,9 @@ internal sealed class ExtensionRow : Grid
         {
             steps = new();
             steps.Changed += changed => Changed?.Invoke(changed);
-            column.Children.Add(steps);
         }
 
+        beneath.Children.Add(steps);
         steps.Show(extension);
     }
 

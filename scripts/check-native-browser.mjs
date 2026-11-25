@@ -173,7 +173,7 @@ const screens = [
     ['connect-model', '/setup/model', 'Connect a model'],
     ['meet-bot-empty', '/setup/bot', 'Meet your first bot'],
     ['bots', '/bots', 'Bots'],
-    ['bot-editor', `/bots/${botId}`, 'Sample bot', 'Edit Sample bot'],
+    ['bot-editor', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
@@ -651,7 +651,8 @@ try {
                     await page.getByRole('heading', { name: 'No tool server yet', exact: true }).waitFor({ state: 'attached' });
                 }
                 if (name === 'tools' || name === 'tools-review') {
-                    await page.getByRole('heading', { name: 'Sample tools', exact: true }).waitFor({ state: 'attached' });
+                    await page.getByText('Sample tools', { exact: true }).waitFor({ state: 'attached' });
+                    await page.getByRole('button', { name: 'More for Sample tools', exact: true }).waitFor({ state: 'attached' });
                 }
                 if (name === 'tools-review') {
                     await page.getByRole('button', { name: 'Accept the change to Sample tool', exact: true }).waitFor({ state: 'attached' });
@@ -1103,7 +1104,8 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     const dragEvent = type => page.evaluate(type => {
         const { dataTransfer, point, target } = globalThis.droverCheckDrag;
         const at = type === 'dragleave' ? { clientX: 0, clientY: 0 } : point;
-        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
+        const destination = target.isConnected ? target : document.body;
+        destination.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true, ...at }));
     }, type);
     // A person's drag sends dragover again and again while it is held; so does this, until the drop line is shown.
     const dragUntilShown = async message => {
@@ -1112,6 +1114,13 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
         while (await dropLine.count() === 0) {
             assert.ok(Date.now() < deadline, message);
             await dragEvent('dragover');
+        }
+    };
+    const waitDropLineGone = async message => {
+        try {
+            await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+        } catch (cause) {
+            throw new Error(`${message} (still shown: ${await dropLine.count()}).`, { cause });
         }
     };
 
@@ -1157,12 +1166,13 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await pasteFailed.first().waitFor({ state: 'detached', timeout: 5000 });
     assert.equal(uploadedFiles.length, 2, 'Nothing of a paste that failed is uploaded.');
 
+    // The drop line goes away after a drop and after a drag leaves the conversation.
     // Files held over the message list: the drop line shows, and goes when the files leave the conversation.
     await holdOver([{ name: 'left.png', bytes: png }]);
     await dragUntilShown('Files held over the message list show the drop line.');
     await page.screenshot({ path: path.join(pictures, `drop-cue-${width}-${theme}.png`) });
     await dragEvent('dragleave');
-    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await waitDropLineGone('A drag leaving the conversation left the drop line on screen');
 
     // Words dragged over the conversation are refused at release: nothing is uploaded and no line is left behind.
     await holdOver([], 'Sample dragged words');
@@ -1175,10 +1185,89 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await holdOver([{ name: 'dropped.png', bytes: png }]);
     await dragUntilShown('Files held over the message list after a refused drag show the drop line.');
     await dragEvent('drop');
-    await dropLine.waitFor({ state: 'detached', timeout: 5000 });
+    await waitDropLineGone('A file dropped on the conversation left the drop line on screen');
     await uploadsAre(3, 'A file dropped on the message list uploads to the conversation; the dragged words did not.');
     assert.equal(uploadedFiles[2].name, 'dropped.png');
     assert.deepEqual([...uploadedFiles[2].bytes], png);
+
+    // A drag cancelled without a delivered dragleave or drop (such as Escape inside the viewport): normal pointer
+    // input clears the drop line and restores hit-testing on both the message list and the composer.
+    await holdOver([{ name: 'cancelled.png', bytes: png }]);
+    await dragUntilShown('Files held over the message list before a cancelled drag show the drop line.');
+    await page.evaluate(() => {
+        const { dataTransfer, point, target } = globalThis.droverCheckDrag;
+        const destination = target.isConnected ? target : document.body;
+        destination.dispatchEvent(new DragEvent('dragleave', { dataTransfer, bubbles: true, cancelable: true, ...point }));
+    });
+    const dragPoint = await page.evaluate(() => globalThis.droverCheckDrag.point);
+    await page.mouse.move(dragPoint.clientX, dragPoint.clientY);
+    await page.mouse.move(dragPoint.clientX + 8, dragPoint.clientY + 8);
+    await waitDropLineGone('A cancelled drag left the drop line on screen');
+    assert.equal(uploadedFiles.length, 3, 'A cancelled drag uploads nothing.');
+    await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+    // One real mouse click opening the preview is the smallest proof that message list hit-testing came back.
+    const previewRetry = page.getByRole('button', { name: 'Preview sample-retry.png', exact: true });
+    const closeRetry = page.getByRole('button', { name: 'Close preview of sample-retry.png', exact: true });
+    const previewBox = await previewRetry.boundingBox({ timeout: 5000 });
+    assert.ok(previewBox, 'Preview sample-retry.png has an accessible box in the message list.');
+    await page.mouse.click(previewBox.x + previewBox.width / 2, previewBox.y + previewBox.height / 2);
+    await closeRetry.waitFor({ state: 'attached', timeout: 5000 }).catch(cause => {
+        throw new Error('The message list did not open a file preview by mouse click after a cancelled drag.', { cause });
+    });
+    // Close by keyboard, as the other preview checks do, so a canvas click on the expanded card is not needed.
+    await closeRetry.press('Space');
+    await closeRetry.waitFor({ state: 'detached', timeout: 5000 });
+    await previewRetry.waitFor({ state: 'attached', timeout: 5000 });
+
+    const more = page.getByRole('button', { name: 'More options', exact: true });
+    const moreBox = await more.boundingBox({ timeout: 5000 });
+    assert.ok(moreBox, 'More options has an accessible box in the composer.');
+    await page.mouse.click(moreBox.x + moreBox.width / 2, moreBox.y + moreBox.height / 2);
+    const attach = page.getByRole('button', { name: 'Attach', exact: true });
+    await attach.waitFor({ state: 'attached', timeout: 5000 });
+    const closeBox = await more.boundingBox({ timeout: 5000 });
+    assert.ok(closeBox, 'More options still has an accessible box while options are open.');
+    await page.mouse.click(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2);
+    await attach.waitFor({ state: 'detached', timeout: 5000 });
+
+    const fieldBox = await field.boundingBox({ timeout: 5000 });
+    assert.ok(fieldBox, 'The message field has an accessible box in the composer.');
+    const fieldBefore = await field.inputValue();
+    await page.mouse.click(fieldBox.x + fieldBox.width / 2, fieldBox.y + fieldBox.height / 2);
+    // The click puts focus on the field a frame or more later. A person cannot type before that, so the check waits
+    // until focus has stayed on the field for 300 ms. Letters typed sooner land elsewhere and are lost.
+    await page.waitForFunction(() => {
+        const now = performance.now();
+        if (document.activeElement?.getAttribute('aria-label') !== 'Message to Sample bot') {
+            window.droverFieldFocusSince = undefined;
+            return false;
+        }
+
+        window.droverFieldFocusSince ??= now;
+        return now - window.droverFieldFocusSince >= 300;
+    }, null, { polling: 50, timeout: 5000 }).catch(async cause => {
+        const focused = await page.evaluate(() =>
+            document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName);
+        throw new Error(`A mouse click on the composer field did not keep focus on it after a cancelled drag (focus: ${JSON.stringify(focused)}).`, { cause });
+    });
+    await page.keyboard.type('after cancel');
+    await page.waitForFunction(
+        before => {
+            const value = document.querySelector('[aria-label="Message to Sample bot"]')?.value ?? '';
+            return value.includes('after cancel') && value.length === before.length + 'after cancel'.length;
+        },
+        fieldBefore,
+        { timeout: 5000 }).catch(async cause => {
+        throw new Error(`The composer field did not accept typed text after a cancelled drag (value: ${JSON.stringify(await field.inputValue())}).`, { cause });
+    });
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Delete');
+    await page.waitForFunction(
+        () => document.querySelector('[aria-label="Message to Sample bot"]')?.value === '',
+        null,
+        { timeout: 5000 });
 
     // More than a hundred files in one paste are one paste: the first hundred are taken and the person is told.
     await field.focus();
@@ -1529,11 +1618,12 @@ async function withDeadline(promise, milliseconds, what) {
     }
 }
 
-// The hybrid renderer exposes drawn words as text or as an element's accessible name, so either proves they are shown.
+// Drawn words belong to a semantic element: its accessible name, or its own content when it is standalone text.
+// The polite announcer repeats words in a separate div, so it is never a match.
 function shown(page, words) {
-    // The polite announcer retains the last message even after the rendered status disappears.
-    return page.locator(`[aria-label="${words}"]`).or(page.getByText(words, { exact: true }))
-        .and(page.locator(':not(#uno-live-region-polite, #uno-live-region-polite *)')).first();
+    const named = `[id^="uno-semantics-"][aria-label="${words}"]`;
+    const drawn = `[id^="uno-semantics-"][data-uno-standalone-text="true"]:text-is("${words}")`;
+    return page.locator(`${named}, ${drawn}`);
 }
 
 async function waitForShown(page, words) {

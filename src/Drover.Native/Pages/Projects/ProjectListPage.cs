@@ -9,7 +9,9 @@ public sealed class ProjectListPage : Screen
 
     private readonly ProjectListViewModel model = Make<ProjectListViewModel>();
 
-    private readonly TextBlock titleText = PageParts.Title(ProjectListViewModel.Heading);
+    private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+
+    private readonly ScreenHeader header = new() { Title = ProjectListViewModel.Heading };
 
     private readonly TextBlock memberNoteText = Styles.Text(ProjectListViewModel.MemberNote, "DvTextSecondary");
 
@@ -18,6 +20,9 @@ public sealed class ProjectListPage : Screen
     private readonly StackPanel statusPanel = new() { Spacing = Tokens.Number("DvSpace2") };
 
     private readonly StackPanel listPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly NamedGroup projects =
+        new(ProjectListViewModel.Heading, "DvSpace3") { Role = AutomationControlType.List };
 
     private readonly Field draftName;
 
@@ -63,7 +68,7 @@ public sealed class ProjectListPage : Screen
         createPanel.Children.Add(draftName);
         createPanel.Children.Add(createButton);
 
-        layout.Body.Add(titleText);
+        layout.Body.Add(header);
         layout.Body.Add(memberNoteText);
         layout.Body.Add(createPanel);
         layout.Body.Add(statusPanel);
@@ -146,10 +151,13 @@ public sealed class ProjectListPage : Screen
             return;
         }
 
+        projects.Children.Clear();
         foreach (var project in model.Projects ?? [])
         {
-            listPanel.Children.Add(ProjectLink(project));
+            projects.Children.Add(ProjectCard(project));
         }
+
+        listPanel.Children.Add(projects);
     }
 
     private EmptyState Empty()
@@ -175,16 +183,19 @@ public sealed class ProjectListPage : Screen
         return empty;
     }
 
-    private static Link ProjectLink(ProjectSummary project)
+    private ListCard ProjectCard(ProjectSummary project)
     {
-        var link = new Link
+        var icon = new Icon { NameOfIcon = IconName.Project, Size = 20, VerticalAlignment = VerticalAlignment.Center };
+        icon.WhenShownOrRethemed(() => icon.Foreground = Tokens.Brush(icon, "DvText2"));
+        var card = new ListCard
         {
-            Text = project.Name,
-            Address = Addresses.Project(project.Id),
-            MinHeight = Tokens.Number("DvTargetTouch"),
+            LinkAutomationId = "ProjectCard",
+            Leading = icon,
+            Title = project.Name,
+            Facts = ProjectListViewModel.Facts(project),
         };
-        AutomationProperties.SetName(link, project.Name);
-        return link;
+        card.Opened += () => navigator.NavigateTo(Addresses.Project(project.Id));
+        return card;
     }
 
     private EmptyState Failed(string title, string? cause, Func<Task> retry)
