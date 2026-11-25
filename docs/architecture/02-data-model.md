@@ -40,6 +40,7 @@ What is shared by the whole space, and has no audience column: bots, grants, con
 | `memberships` | Space-owned, readable by own user | `id`, `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
 | `user_sessions` | User-owned | `id`, `user_id`, `created_at`, `last_seen_at`, `failed_password_changes` | One signed-in browser. The session cookie names its row; removing the row ends the session on the server ([08-auth-and-secrets.md](08-auth-and-secrets.md)). |
 | `push_subscriptions` | User-owned | `user_id`, `endpoint`, `public_key`, `auth_secret` | A device belongs to a person, not to a space. Unique per person and endpoint, so one shared browser can be on for two people. |
+| `user_appearance` | User-owned | `user_id`, `theme_id`, `mode`, `accent`, `updated_at` | One account-wide theme choice. The user policy makes it follow the person across spaces without exposing it to another account. |
 | `bot_push_mutes` | Space-owned, audience | `bot_id`, `audience_user_id` = the person | One person's choice that a bot does not notify them. No row: it may. |
 
 ### Roles

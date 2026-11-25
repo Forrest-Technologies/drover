@@ -13,6 +13,8 @@ public sealed class AppearanceChoices : StackPanel
 
     private readonly Dictionary<string, AppearanceOption> options = [];
 
+    private readonly SpokenWords spoken = new();
+
     private IReadOnlyList<LookOption> looks = [];
 
     private IReadOnlyList<ThemeOption> modes = [];
@@ -20,6 +22,8 @@ public sealed class AppearanceChoices : StackPanel
     private IReadOnlyList<AccentOption> accents = [];
 
     private string? note;
+
+    private string? syncNote;
 
     private (string Key, FocusState State)? focusOwed;
 
@@ -67,7 +71,8 @@ public sealed class AppearanceChoices : StackPanel
     private void ModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
     {
         if (!looks.SequenceEqual(model.Looks) || !modes.SequenceEqual(model.Themes)
-            || !accents.SequenceEqual(model.AccentChoices) || note != model.WaitingNote)
+            || !accents.SequenceEqual(model.AccentChoices) || note != model.WaitingNote
+            || syncNote != model.SyncNote)
         {
             Draw();
         }
@@ -77,7 +82,8 @@ public sealed class AppearanceChoices : StackPanel
     private void Draw()
     {
         focusOwed = Focused() ?? focusOwed;
-        (looks, modes, accents, note) = (model.Looks, model.Themes, model.AccentChoices, model.WaitingNote);
+        (looks, modes, accents, note, syncNote) =
+            (model.Looks, model.Themes, model.AccentChoices, model.WaitingNote, model.SyncNote);
         options.Clear();
         Children.Clear();
 
@@ -101,6 +107,14 @@ public sealed class AppearanceChoices : StackPanel
         {
             Children.Add(Styles.Text(note, "DvTextSecondary"));
         }
+
+        if (syncNote is not null)
+        {
+            Children.Add(SyncFailure(syncNote));
+        }
+
+        Children.Add(spoken);
+        spoken.Say(syncNote);
 
         if (focusOwed is { } owed && !options.ContainsKey(owed.Key))
         {
@@ -141,6 +155,30 @@ public sealed class AppearanceChoices : StackPanel
         }
 
         return list;
+    }
+
+    private StackPanel SyncFailure(string sentence)
+    {
+        var words = new TextBlock
+        {
+            Text = sentence,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = Tokens.Number("DvText12"),
+            Foreground = Tokens.Brush(this, "DvText3"),
+        };
+        var retry = new Button
+        {
+            Content = "Try again",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            FontSize = Tokens.Number("DvText12"),
+            Padding = new(Tokens.Number("DvSpace2"), 0, Tokens.Number("DvSpace2"), 0),
+        };
+        retry.Click += (_, _) => model.RetrySync();
+
+        var line = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
+        line.Children.Add(words);
+        line.Children.Add(retry);
+        return line;
     }
 
     private AppearanceOption LookRow(LookOption look) => Option(

@@ -22,9 +22,30 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
     private readonly Navigator navigator;
 
+    private readonly DroverApi api;
+
+    private readonly SessionState session;
+
+    private readonly ILogger<AppearanceViewModel> logger;
+
+    private Guid? loadedForUser;
+
+    private long choiceVersion;
+
+    private bool loadPending;
+
+    private bool pendingSync;
+
+    private bool syncRunning;
+
+    private bool disposed;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(WaitingNote))]
     private bool shapesWait;
+
+    [ObservableProperty]
+    private string? syncNote;
 
     #endregion
 
@@ -32,12 +53,23 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
     // A traditional constructor, because the choices listen to the theme from the moment they exist.
 #pragma warning disable IDE0290
-    public AppearanceViewModel(ThemeModel theme, Navigator navigator)
+    public AppearanceViewModel(
+        ThemeModel theme,
+        Navigator navigator,
+        DroverApi api,
+        SessionState session,
+        ILogger<AppearanceViewModel> logger)
 #pragma warning restore IDE0290
     {
         this.theme = theme;
         this.navigator = navigator;
+        this.api = api;
+        this.session = session;
+        this.logger = logger;
         theme.PropertyChanged += ThemeChanged;
+        session.Changed += SessionChanged;
+        session.ReachChanged += ReachChanged;
+        SessionChanged();
     }
 
     #endregion
@@ -82,16 +114,37 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
     #region Public Methods
 
-    public void Dispose() => theme.PropertyChanged -= ThemeChanged;
+    public void Dispose()
+    {
+        disposed = true;
+        theme.PropertyChanged -= ThemeChanged;
+        session.Changed -= SessionChanged;
+        session.ReachChanged -= ReachChanged;
+    }
 
     [RelayCommand]
-    public void ChooseTheme(ThemeMode mode) => theme.Choose(mode);
+    public void ChooseTheme(ThemeMode mode)
+    {
+        theme.Choose(mode);
+        ChoiceChanged();
+    }
 
     [RelayCommand]
-    public void ChooseLook(string themeId) => theme.ChooseTheme(themeId);
+    public void ChooseLook(string themeId)
+    {
+        theme.ChooseTheme(themeId);
+        ChoiceChanged();
+    }
 
     [RelayCommand]
-    public void ChooseAccent(string accentId) => theme.ChooseAccent(accentId);
+    public void ChooseAccent(string accentId)
+    {
+        theme.ChooseAccent(accentId);
+        ChoiceChanged();
+    }
+
+    [RelayCommand]
+    public void RetrySync() => StartSync();
 
     [RelayCommand]
     public void Close() => theme.AppearanceOpen = false;
@@ -126,6 +179,152 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(Looks));
         OnPropertyChanged(nameof(AccentChoices));
     }
+
+    private void ChoiceChanged()
+    {
+        choiceVersion++;
+        if (session.Current is null)
+        {
+            pendingSync = false;
+            SyncNote = null;
+            return;
+        }
+
+        pendingSync = true;
+        StartSync();
+    }
+
+    private void SessionChanged()
+    {
+        var userId = session.Current?.UserId;
+        if (userId is null)
+        {
+            loadedForUser = null;
+            loadPending = false;
+            pendingSync = false;
+            SyncNote = null;
+            return;
+        }
+
+        if (loadedForUser == userId)
+        {
+            return;
+        }
+
+        loadedForUser = userId;
+        loadPending = true;
+        _ = LoadFromServer(userId.Value, choiceVersion);
+    }
+
+    private void ReachChanged()
+    {
+        if (session.Unreachable || session.Current is null)
+        {
+            return;
+        }
+
+        if (loadPending)
+        {
+            _ = LoadFromServer(session.Current.UserId, choiceVersion);
+        }
+
+        if (pendingSync)
+        {
+            StartSync();
+        }
+    }
+
+    private async Task LoadFromServer(Guid userId, long version)
+    {
+        if (session.Unreachable)
+        {
+            loadPending = true;
+            return;
+        }
+
+        try
+        {
+            var setting = await api.GetAppearance();
+            if (!disposed && session.Current?.UserId == userId && choiceVersion == version && setting is not null)
+            {
+                theme.ApplyFromServer(setting);
+            }
+
+            if (session.Current?.UserId == userId)
+            {
+                loadPending = false;
+            }
+        }
+        catch (Exception exception)
+        {
+            loadPending = true;
+            logger.LogWarning(
+                exception,
+                "The appearance choice could not be loaded for user {UserId}",
+                userId);
+        }
+    }
+
+    private void StartSync()
+    {
+        if (syncRunning || !pendingSync || session.Current is null || session.Unreachable)
+        {
+            return;
+        }
+
+        syncRunning = true;
+        _ = FlushPending();
+    }
+
+    private async Task FlushPending()
+    {
+        try
+        {
+            while (!disposed && pendingSync && session.Current is not null && !session.Unreachable)
+            {
+                pendingSync = false;
+                var userId = session.Current.UserId;
+                var choice = theme.Choice;
+
+                try
+                {
+                    await api.SetAppearance(ToSetting(choice));
+                    if (session.Current?.UserId != userId)
+                    {
+                        pendingSync = false;
+                        SyncNote = null;
+                        return;
+                    }
+
+                    SyncNote = null;
+                }
+                catch (Exception exception)
+                {
+                    if (session.Current?.UserId != userId)
+                    {
+                        pendingSync = false;
+                        SyncNote = null;
+                        return;
+                    }
+
+                    pendingSync = true;
+                    SyncNote = "Saved on this device. Drover could not save it to your account.";
+                    logger.LogWarning(
+                        exception,
+                        "The appearance choice could not be saved for user {UserId}",
+                        userId);
+                    return;
+                }
+            }
+        }
+        finally
+        {
+            syncRunning = false;
+        }
+    }
+
+    private static AppearanceSetting ToSetting(ThemeChoice choice) =>
+        new(choice.ThemeId, choice.Mode.ToString().ToLowerInvariant(), choice.Accent);
 
     #endregion
 }
