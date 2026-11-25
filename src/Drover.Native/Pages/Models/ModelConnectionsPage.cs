@@ -354,8 +354,17 @@ public sealed class ModelConnectionsPage : Screen
         var enabled = !model.ChangePending;
         var shown = model.ShownCatalog == connection.Id;
 
-        menu.Items.Add(PageParts.MenuEntry(shown ? "Hide models" : "View models",
-            () => shown ? HideCatalog() : Run(() => model.ShowCatalog(connection)), enabled));
+        menu.Items.Add(PageParts.MenuEntry(shown ? "Hide models" : "View models", () =>
+        {
+            if (shown)
+            {
+                HideCatalog();
+            }
+            else
+            {
+                Run(() => model.ShowCatalog(connection));
+            }
+        }, enabled));
         if (shown && model.CanEdit)
         {
             menu.Items.Add(PageParts.MenuEntry("Refresh models", () => Run(() => model.RefreshCatalog(connection)), enabled));

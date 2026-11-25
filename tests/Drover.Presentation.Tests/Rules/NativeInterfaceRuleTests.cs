@@ -12,6 +12,9 @@ public sealed partial class NativeInterfaceRuleTests
     // The two files that may hold raw values: the tokens, and the styles that restate token products.
     private static readonly string[] valueFiles = ["Theme/Tokens.xaml", "Theme/Styles.xaml"];
 
+    // The card methods, including the helpers a card draws a tool or a catalog row with.
+    private static readonly string[] cardMethodMarkers = ["Connection(Drover.", "ToolReview(", "CatalogRow("];
+
     // The only places a clock ticks or an animation repeats: the four live states and the motion they share.
     private static readonly string[] liveStateFiles =
     [
@@ -337,9 +340,9 @@ public sealed partial class NativeInterfaceRuleTests
     #region Private Methods
 
     private static string CardMethod(string source) =>
-        string.Join('\n', new[] { "Connection(Drover.", "ToolReview(", "CatalogRow(" }.SelectMany(marker => MethodLines(source, marker)));
+        string.Join('\n', cardMethodMarkers.SelectMany(marker => MethodLines(source, marker)));
 
-    private static IEnumerable<string> MethodLines(string source, string marker)
+    private static List<string> MethodLines(string source, string marker)
     {
         var lines = source.Split('\n');
         var start = Array.FindIndex(lines, line => line.Contains(marker, StringComparison.Ordinal));
