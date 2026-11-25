@@ -29,6 +29,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #region Constructors
 
     public TalkViewModelTests()
+        : base(new StreamPresence())
     {
         Server.Answer("GET", $"{Space}/model-connections", new[] { Connection });
         Server.Answer("GET", $"{Space}/bots", new[] { Marshal });
@@ -257,6 +258,222 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #endregion
 
+    #region Changes Made Elsewhere
+
+    [Fact]
+    public async Task A_notification_reply_reaches_the_open_conversation_and_its_run_is_followed()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Do(() =>
+        {
+            MainPane.Composer.Text = "A half written sample";
+            return Task.CompletedTask;
+        });
+        var shown = MainPane;
+        var events = ChangeElsewhere(
+            Said("user", "Sample question"),
+            Said("assistant", "Sample answer"),
+            Said("user", "Sample reply from the notification"));
+
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() =>
+        {
+            MainPane.Messages.Select(message => message.Text).Should().Contain("Sample reply from the notification");
+            RunWatched().Should().BeTrue();
+            MainPane.Working.Should().BeTrue();
+        });
+        MainPane.Should().BeSameAs(shown);
+        MainPane.Composer.Text.Should().Be("A half written sample");
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+    }
+
+    [Fact]
+    public async Task A_reconnected_signal_stream_brings_the_open_conversation_up_to_date()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        var events = ChangeElsewhere(
+            Said("user", "Sample question"),
+            Said("assistant", "Sample answer"),
+            Said("user", "Sample reply while disconnected"));
+
+        await signals.Send(new UserSignal(UserSignalKinds.Reconnected, null, null));
+
+        await Until(() =>
+        {
+            MainPane.Messages.Select(message => message.Text).Should().Contain("Sample reply while disconnected");
+            RunWatched().Should().BeTrue();
+        });
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+    }
+
+    [Fact]
+    public async Task Showing_the_app_again_brings_the_open_conversation_up_to_date()
+    {
+        Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Presence!.Hide();
+        var events = ChangeElsewhere(
+            Said("user", "Sample question"),
+            Said("assistant", "Sample answer"),
+            Said("user", "Sample reply while away"));
+        Server.Stream($"{Space}/stream");
+
+        Presence.Show();
+
+        await Until(() =>
+        {
+            MainPane.Messages.Select(message => message.Text).Should().Contain("Sample reply while away");
+            RunWatched().Should().BeTrue();
+        });
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+    }
+
+    [Fact]
+    public async Task A_second_remote_change_during_the_first_read_is_read_after_it()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MessageResponse[] first =
+        [
+            Said("user", "Sample question"),
+            Said("assistant", "Sample answer"),
+            Said("user", "First remote reply"),
+        ];
+        MessageResponse[] second =
+        [
+            .. first,
+            Said("user", "Second remote reply"),
+        ];
+        Server.AnswerInTurn("GET", $"{Space}/threads/{threadId}/messages", first, second);
+        var reading = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        Main(Thread(null) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(1) });
+
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2));
+        Main(Thread(null) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(2) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        reading.SetResult();
+
+        await Until(() => MainPane.Messages.Select(message => message.Text).Should().Contain("Second remote reply"));
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task A_seen_signal_updates_the_crew_without_reading_the_open_conversation_again()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        var reads = Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Count();
+
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadSeen, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}").Should().NotBeEmpty());
+
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(reads);
+    }
+
+    [Fact]
+    public async Task A_remote_read_cannot_overwrite_a_message_sent_while_it_waits()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        var remote = Said("user", "Remote reply");
+        MessageResponse[] remoteMessages =
+            [Said("user", "Sample question"), Said("assistant", "Sample answer"), remote];
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", remoteMessages);
+        var reading = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        Main(Thread(null) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(1) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2));
+        var sent = Said("user", "Local reply");
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages", new SendMessageResponse(sent, Run("queued")),
+            HttpStatusCode.Accepted);
+        var events = Server.Stream($"{Space}/runs/{runId}/events");
+        var sending = Ui.Run(() =>
+        {
+            MainPane.Composer.Text = "Local reply";
+            return MainPane.Composer.Send();
+        });
+
+        reading.SetResult();
+        await sending;
+
+        await Until(() => MainPane.Messages.Select(message => message.Text)
+            .Should().Contain(["Remote reply", "Local reply"]));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+    }
+
+    [Fact]
+    public async Task A_remote_read_cannot_restore_the_reply_replaced_by_a_version_switch()
+    {
+        var question = Said("user", "Sample question");
+        var second = Said("assistant", "Second sample answer") with { Id = replyId };
+        var first = Said("assistant", "First sample answer");
+        MessageResponse[] secondShown = [question, second with { Versions = [first.Id, replyId] }];
+        MessageResponse[] firstShown = [question, first with { Versions = [first.Id, replyId] }];
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", secondShown);
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{first.Id}/show", HttpStatusCode.NoContent);
+        var signals = Server.Stream($"{Space}/stream");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Server.AnswerInTurn(
+            "GET",
+            $"{Space}/threads/{threadId}/messages",
+            secondShown,
+            firstShown);
+        var reading = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        Main(Thread(null) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(1) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2));
+        var switching = Ui.Run(() => MainPane.List.ShowVersion(first.Id));
+
+        reading.SetResult();
+        await switching;
+
+        await Until(() => MainPane.Messages.Select(message => message.Text)
+            .Should().Equal("Sample question", "First sample answer"));
+    }
+
+    [Fact]
+    public async Task A_remote_version_switch_drops_the_previous_completed_reply()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        var events = RunStarts();
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+
+        var question = Said("user", "Another sample question");
+        var previous = Said("assistant", "Previous answer") with { Id = replyId, RunId = runId };
+        var replacement = Said("assistant", "Replacement answer");
+        MessageResponse[] before = [question, previous, Said("user", "Stored follow-up")];
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", before);
+        Main(Thread(null));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await events.Send(Event(2, RunEventTypes.MessageCompleted, new MessageCompleted(previous)));
+        await events.Send(Event(3, RunEventTypes.RunCompleted, new RunStatusChanged("completed", null, null, 1, null)));
+        await events.End();
+        await Until(() => MainPane.Messages.Select(message => message.Text).Should()
+            .Equal("Another sample question", "Previous answer", "Stored follow-up"));
+
+        MessageResponse[] after = [question, replacement with { Versions = [replyId, replacement.Id] }];
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", after);
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() => MainPane.Messages.Select(message => message.Text).Should()
+            .Equal("Another sample question", "Replacement answer"));
+    }
+
+    #endregion
+
     #region Opening
 
     [Fact]
@@ -395,6 +612,25 @@ public sealed class TalkViewModelTests : WorkspaceTest
         failed.Composer.Disabled.Should().BeFalse();
         MainPane.Should().BeSameAs(failed, "the conversation stays, it is read again");
         Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task The_disabled_message_field_says_it_will_be_available_when_the_conversation_has_loaded()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", HttpStatusCode.InternalServerError);
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.LoadFailed.Should().BeTrue());
+        MainPane.Composer.Disabled.Should().BeTrue();
+        MainPane.Composer.FieldDescription.Should().Be("Available when the conversation has loaded.");
+
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { Said("assistant", "Sample answer") });
+        await Do(MainPane.Reload);
+
+        await Until(() => MainPane.Messages.Should().ContainSingle());
+        await Until(() => MainPane.Composer.FieldDescription.Should().BeEmpty("the description leaves with the failure"));
+        MainPane.LoadFailed.Should().BeFalse();
+        MainPane.Composer.Disabled.Should().BeFalse();
     }
 
     [Fact]
@@ -1319,7 +1555,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         MainPane.Messages[^1].Should().Match<ChatMessage>(message => message.FromPerson && message.Text == "Another sample question");
         (MainPane.Composer.ShowsStop, MainPane.Composer.ShowsSend).Should().Be((true, false));
         MainPane.Composer.Text.Should().BeEmpty();
-        MainPane.Composer.IsWorking.Should().BeTrue("the line travels the composer's top edge");
+        MainPane.Composer.IsWorking.Should().BeTrue("the line travels around the composer");
         shown.Should().Be(1, "the person sees what they wrote, wherever they had scrolled to");
         await Until(() => ChatRows.CrewRowName(Marshal, Talk.WorkingBots, Talk.ForYou).Should().Be("Marshal, thinking"));
         Talk.MainBusy.Should().BeTrue("the head in the header is lit");
@@ -1406,6 +1642,62 @@ public sealed class TalkViewModelTests : WorkspaceTest
         (MainPane.Composer.ShowsStop, MainPane.Composer.ShowsSend).Should().Be((false, true));
         MainPane.Notice.Should().BeNull("a failed run is not a notice: the conversation ends with its failure line");
         MainPane.List.Failure!.Reported.Should().Be("invalid_key: Sample report of the failure.", "the server's report is shown only when asked for");
+        MainPane.List.FailureLimitsHref.Should().BeNull("only a limit stop offers a link to Limits");
+    }
+
+    [Fact]
+    public async Task A_run_stopped_at_a_limit_names_the_limit_with_numbers_and_links_a_bot_editor_to_limits()
+    {
+        var steps = new RunFailure(
+            failedRunId,
+            FailureCauses.BudgetReached,
+            "step_limit: This work stopped after 50 model calls.",
+            new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+        Main(Thread(null) with { Attention = new(false, true, false, steps) });
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.List.FailureSentence.Should().Be("Marshal stopped after 50 of 50 model calls."));
+        MainPane.List.Spoken.Should().Be("Marshal stopped after 50 of 50 model calls.");
+        MainPane.List.FailureLimitsLabel.Should().Be("Open limits");
+        MainPane.List.FailureLimitsHref.Should().Be(Addresses.BotLimits(botId));
+
+        var tokens = new RunFailure(
+            Guid.Parse("0196f1a0-0000-7000-8000-00000000000b"),
+            FailureCauses.BudgetReached,
+            "token_limit: This work stopped after it used 5,012,340 tokens.",
+            new RunFailureLimit(FailureLimits.Tokens, 5_012_340, 5_000_000));
+        var older = new RunFailure(
+            Guid.Parse("0196f1a0-0000-7000-8000-00000000000c"),
+            FailureCauses.BudgetReached,
+            "step_limit: Older run without structured limit data.");
+
+        var list = new MessageListViewModel { BotName = "Marshal", LimitsHref = Addresses.BotLimits(botId), Failure = tokens };
+        list.Update();
+        list.FailureSentence.Should().Be("Marshal stopped after 5,012,340 of 5,000,000 tokens.");
+        list.FailureLimitsHref.Should().Be(Addresses.BotLimits(botId));
+
+        list.Failure = older;
+        list.Update();
+        list.FailureSentence.Should().Be("Marshal stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.");
+        list.FailureLimitsHref.Should().Be(Addresses.BotLimits(botId));
+    }
+
+    [Fact]
+    public async Task A_member_who_cannot_edit_the_bot_sees_the_limit_sentence_without_open_limits()
+    {
+        Server.Answer("GET", "/api/session", Person with { Spaces = [Person.Spaces[0] with { Role = "member" }] });
+        var steps = new RunFailure(
+            failedRunId,
+            FailureCauses.BudgetReached,
+            "step_limit: This work stopped after 50 model calls.",
+            new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+        Main(Thread(null) with { Attention = new(false, true, false, steps) });
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.List.FailureSentence.Should().Be("Marshal stopped after 50 of 50 model calls."));
+        MainPane.List.FailureLimitsHref.Should().BeNull("a member cannot edit the bot's limits");
+        MainPane.List.FailureLimitsLabel.Should().BeNull();
     }
 
     [Fact]
@@ -2319,6 +2611,20 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Server.Answer("POST", $"{Space}/threads/{threadId}/messages", new SendMessageResponse(Said("user", text), Run("queued")), HttpStatusCode.Accepted);
         return Server.Stream($"{Space}/runs/{runId}/events");
     }
+
+    private LiveEvents ChangeElsewhere(params MessageResponse[] messages)
+    {
+        var changed = Thread(runId) with { LastActivityAt = DateTimeOffset.UnixEpoch.AddMinutes(1) };
+        Main(changed);
+        ThreadSummary[] threads = [changed];
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", threads);
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", messages);
+        return Server.Stream($"{Space}/runs/{runId}/events");
+    }
+
+    private bool RunWatched() =>
+        Server.Addresses.Any(address =>
+            address.StartsWith($"GET {Space}/runs/{runId}/events", StringComparison.Ordinal));
 
     private void AttachmentsAllowed() =>
         Server.Answer("GET", $"{Space}/threads/{threadId}/attachment-rules", new AttachmentRules(1024, 10, true, true));

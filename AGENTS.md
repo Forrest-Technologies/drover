@@ -139,6 +139,7 @@ hadolint Dockerfile
 - No invented content: no made-up numbers, names, activity, or filler copy, in screens or in the gallery. Real data, an honest empty state, or a value visibly marked as a sample.
 - Name the screen's job in one sentence before laying it out, and put that sentence in the pull request.
 - A pull request that changes the interface includes screenshots: dark, light, and 360 px wide, and each state it adds (empty, loading, error).
+- The README shows the important screens (the conversation with a bot at work, the bot tree, the bot editor, tool grants) at desktop and phone width, dark and light, kept in `docs/images/readme/`. Capture them with the live mode of `scripts/check-native-browser.mjs` (`DROVER_LIVE_ORIGIN`, `DROVER_LIVE_SCENES`; 1280 and 360 px) against a running server with a test account whose data is labeled as a sample. The CI `browser-screens` artifact is a smoke test of fixtures, not a showcase. A pull request that changes how one of those screens looks replaces its images, so the README never shows an old look.
 - Use the tokens in `Tokens.xaml`, which restates `tokens.css`. No raw colors, sizes, or durations in controls.
 - Dark is primary; light must work. Every text and status color keeps 4.5:1 contrast.
 - Motion shows state: thinking, streaming, tool running, delegation. Nothing loops when nothing is happening. Honor reduced motion with a static equivalent.

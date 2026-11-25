@@ -80,6 +80,8 @@ public interface IPushRegistration
 /// <summary>Opens settings that a native shell can show for notification delivery.</summary>
 public interface IDeviceNotificationSettings
 {
+    bool ShowMessageTextOnLockScreen { get; set; }
+
     void OpenNotificationSettings();
 
     Task OpenBatterySettings();

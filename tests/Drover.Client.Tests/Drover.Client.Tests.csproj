@@ -19,6 +19,8 @@
     <Compile Include="../../src/Shared/Transport/NativeSessionTokens.cs" Link="Transport/NativeSessionTokens.cs" />
     <Compile Include="../../src/Shared/Transport/ServerAddress.cs" Link="Transport/ServerAddress.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSecrets.cs" Link="Desktop/DesktopSecrets.cs" />
+    <Compile Include="../../src/Shared/Android/AndroidNotificationContent.cs"
+             Link="Android/AndroidNotificationContent.cs" />
     <Compile Include="../../src/Shared/Android/AndroidPushSubscription.cs" Link="Android/AndroidPushSubscription.cs" />
     <Compile Include="../../src/Shared/Android/OwnerBoundWrite.cs" Link="Android/OwnerBoundWrite.cs" />
     <Compile Include="../../src/Shared/Android/PushWakeFlow.cs" Link="Android/PushWakeFlow.cs" />

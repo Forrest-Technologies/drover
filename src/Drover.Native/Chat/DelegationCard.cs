@@ -181,6 +181,12 @@ public sealed class DelegationCard : Grid
         if (model.IsRefused)
         {
             body.Children.Add(Line(model.RefusedLine));
+
+            if (model.LimitsHref is { } limitsAddress && model.LimitsLinkText is { } limitsText)
+            {
+                body.Children.Add(new Link { Text = limitsText, Address = limitsAddress, MinHeight = Targets.Minimum });
+            }
+
             return;
         }
 

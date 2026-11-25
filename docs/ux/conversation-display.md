@@ -40,7 +40,7 @@ While a run works
 - The line is one `PlainButton` when it has detail to open, and plain text when it has none. Pressing it opens the usage detail for the newest reply in a popover anchored to the line: the same content the reply's `Show what this reply used` popover has today, with the title `Usage for this reply`.
 - Parts are joined by a middle dot with a space each side. A part that is not known is left out. Nothing is shown as zero or as a dash.
 - At 360 px the line shows the first two parts that fit and ends there. It never wraps to a second line. The full line is in its accessible name and its popover.
-- The line never animates. The travel line on the composer's top edge already reports a running tool.
+- The line never animates. The line traveling around the composer already reports a running tool.
 
 ### Built so far
 
@@ -105,6 +105,16 @@ Each reply gains one action, `Usage for this reply`: an item in the reply's menu
 | `Nothing` | No line and no cards. A step that waits for the person is still drawn in full, and a failure line still shows |
 
 A card that needs an answer (an approval, a takeover request, a question from the bot) is never hidden by this setting.
+
+### Built so far
+
+On 2026-11-25 the owner asked to see a bot's work where it happened, between the things it said, as one short line that opens to the detail. Built, with no setting yet (the Settings group is not built):
+
+- The work between two things a bot said in one run (its reasoning and the calls that fold) stands between those words: above the words it led to, or under the last words when the bot worked after them. Work before the turn's first words stands under the bot's head. Nothing is gathered at the top of the turn any more.
+- Closed, the work is one line: what was done, in order, a kind repeated counted once ("Searched the web 3 times, read a page"), then the number of steps, the time they took and how many failed, or `running` in the bot-activity color while a step runs. The chevron opens it to a row per step, and a row opens to the call, its arguments, output and result.
+- Work of one step is its row alone, with no line above it.
+- While a call runs, its work and its row open by themselves so the output can be watched as it arrives, and close when it ends. A person who opens or closes either keeps that choice. On trial: if the owner does not like it, it becomes a setting or goes.
+- While a step runs, the line of live work travels around the work's frame.
 
 The line's accessible name is `{bot}'s activity, {n} steps. Opens the Activity panel.`
 

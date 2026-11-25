@@ -14,13 +14,6 @@ public sealed class Facet : Grid
 
     private const int EveryCell = 64;
 
-    // A quarter turn of a rounded corner is drawn in this many straight pieces, of the half turn's 180 degrees.
-    private const int RoundedSteps = 8;
-
-    private const double QuarterTurn = 90;
-
-    private const double HalfTurn = 180;
-
     private readonly Polygon surface = new() { IsHitTestVisible = true };
 
     private readonly Polygon ring = new() { IsHitTestVisible = false, Visibility = Visibility.Collapsed };
@@ -136,65 +129,20 @@ public sealed class Facet : Grid
         ring.Points = Outline(corners, focus / 2);
 
         DrawTicks(corners, focus);
-        var cut = double.IsNaN(Cut) ? CutOf(Role) : Cut;
-        (DrawnCorners, DrawnSize) = (corners, corners is CornerLanguage.Square or CornerLanguage.Rounded ? RadiusOf(Role) : cut);
+        var cut = double.IsNaN(Cut) ? FrameOutline.CutOf(Role) : Cut;
+        (DrawnCorners, DrawnSize) = (corners, corners is CornerLanguage.Square or CornerLanguage.Rounded ? FrameOutline.RadiusOf(Role) : cut);
     }
 
-    // The corner outline: cut corners, rounded corners, or none, moved in by half the line so the whole line is
-    // inside the frame.
-    private PointCollection Outline(CornerLanguage corners, double inset) => corners switch
-    {
-        CornerLanguage.Faceted => CutCorners(inset, double.IsNaN(Cut) ? CutOf(Role) : Cut),
-        CornerLanguage.Square or CornerLanguage.Rounded => Rounded(inset, RadiusOf(Role)),
-        _ => Rounded(inset, 0),
-    };
-
-    private PointCollection CutCorners(double inset, double cut)
-    {
-        var (width, height) = (ActualWidth, ActualHeight);
-
-        return
-        [
-            new(cut, inset),
-            new(width - inset, inset),
-            new(width - inset, height - cut),
-            new(width - cut, height - inset),
-            new(inset, height - inset),
-            new(inset, cut),
-        ];
-    }
-
-    // A rounded rectangle as short straight pieces, so it is one polygon like the others.
-    private PointCollection Rounded(double inset, double radius)
-    {
-        var (width, height) = (ActualWidth, ActualHeight);
-        var round = Math.Max(0, Math.Min(radius - inset, Math.Min(width, height) / 2));
-        PointCollection points = [];
-
-        foreach (var (x, y, from) in new[]
-        {
-            (width - inset - round, inset + round, -90.0),
-            (width - inset - round, height - inset - round, 0.0),
-            (inset + round, height - inset - round, 90.0),
-            (inset + round, inset + round, 180.0),
-        })
-        {
-            for (var step = 0; step <= RoundedSteps; step++)
-            {
-                var angle = (from + (QuarterTurn * step / RoundedSteps)) * Math.PI / HalfTurn;
-                points.Add(new(x + (round * Math.Cos(angle)), y + (round * Math.Sin(angle))));
-            }
-        }
-
-        return points;
-    }
+    // The corner outline, moved in by half the line so the whole line is inside the frame.
+    private PointCollection Outline(CornerLanguage corners, double inset) =>
+        [.. FrameOutline.Of(corners, ActualWidth, ActualHeight, inset, double.IsNaN(Cut) ? FrameOutline.CutOf(Role) : Cut, FrameOutline.RadiusOf(Role))];
 
     // A tick is an L of the theme's tick length at the top left and the bottom right. With registration marks the
     // L stands out past the corner instead of on it.
     private void DrawTicks(CornerLanguage corners, double thickness)
     {
         var shown = corners is CornerLanguage.Ticked;
-        var length = CutOf(Role);
+        var length = FrameOutline.CutOf(Role);
         var outside = ThemeTokens.Current.Shape.Registration
             ? Tokens.Number("DvSpace1") + (thickness / 2)
             : thickness / 2;
@@ -215,11 +163,6 @@ public sealed class Facet : Grid
             new(width - length + outside, height + outside),
         ];
     }
-
-    private static double CutOf(FacetRole role) => Tokens.Number(role is FacetRole.Control ? "DvCutS" : "DvCut");
-
-    private static double RadiusOf(FacetRole role) =>
-        Tokens.Number(role is FacetRole.Control ? "DvRadiusControl" : "DvRadiusCard");
 
     #endregion
 }

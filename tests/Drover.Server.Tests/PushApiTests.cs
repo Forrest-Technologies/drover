@@ -263,7 +263,13 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         var members = await asMember.Get($"/api/push/wake?kind=run.failed&thread={thread.Id}");
         var unknownKind = await asAlice.Get($"/api/push/wake?kind=anything&thread={thread.Id}");
 
-        text.Should().Be(new PushWakeText("Atlas could not finish. Open the conversation to see why.", bot.Id, thread.Id, true, alice.SpaceId));
+        text.Should().Be(new PushWakeText(
+            "Atlas could not finish. Open the conversation to see why.",
+            bot.Id,
+            thread.Id,
+            true,
+            alice.SpaceId,
+            BotName: "Atlas"));
         members.StatusCode.Should().Be(HttpStatusCode.NotFound, "alice's main thread is hers alone");
         unknownKind.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -411,6 +417,56 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         var text = await GetFor<PushWakeText>(asAlice, $"/api/push/wake?kind=run.finished&thread={thread.Id}");
 
         text.BotId.Should().Be(bot.Id);
+    }
+
+    [Fact]
+    public async Task Rich_wake_text_is_returned_only_to_the_registered_device()
+    {
+        var alice = await SeedPerson("alice");
+        var asAlice = await SignIn(alice);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var device = Device("https://push.example/rich-wake");
+        var reply = new Message
+        {
+            SpaceId = alice.SpaceId,
+            AudienceUserId = alice.UserId,
+            ThreadId = thread.Id,
+            Position = 1,
+            Role = MessageRole.Assistant,
+            AuthorBotId = bot.Id,
+            Parts = [new TextPart("The registered device may read this reply.")],
+            CreatedAt = DateTimeOffset.UnixEpoch.AddMilliseconds(123),
+        };
+        await using (var scope = Services.CreateAsyncScope())
+        {
+            var services = scope.ServiceProvider;
+            services.GetRequiredService<TenantContext>().Set(alice.SpaceId, alice.UserId);
+            await using var work = await services.GetRequiredService<TenantScope>().Begin(Token);
+            services.GetRequiredService<DroverDbContext>().Messages.Add(reply);
+            await work.Commit(Token);
+        }
+
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+        var path = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
+        var registered = await asAlice.Get(path, PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var headerless = await asAlice.Get(path);
+
+        registered.StatusCode.Should().Be(HttpStatusCode.OK);
+        headerless.StatusCode.Should().Be(HttpStatusCode.OK, "the desktop's existing wake read still works");
+        registered.Headers.CacheControl!.NoStore.Should().BeTrue();
+        headerless.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var registeredText = (await registered.Content.ReadFromJsonAsync<PushWakeText>(Token))!;
+        var headerlessText = (await headerless.Content.ReadFromJsonAsync<PushWakeText>(Token))!;
+
+        registeredText.ReplyText.Should().Be("The registered device may read this reply.");
+        registeredText.ReplyMessageId.Should().Be(reply.Id);
+        registeredText.ReplyCreatedAt.Should().Be(reply.CreatedAt);
+        headerlessText.Body.Should().Contain("Atlas");
+        headerlessText.ReplyText.Should().BeNull();
+        headerlessText.ConversationTitle.Should().BeNull();
+        headerlessText.ReplyMessageId.Should().BeNull();
+        headerlessText.ReplyCreatedAt.Should().BeNull();
     }
 
     #endregion

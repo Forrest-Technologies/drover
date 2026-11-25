@@ -25,6 +25,12 @@ public sealed class PushService(
 
     public const int MaxEndpointLength = 2048;
 
+    /// <summary>Maximum visible text elements in a notification reply preview, including its ellipsis.</summary>
+    public const int MaxReplyTextElements = 240;
+
+    /// <summary>Maximum UTF-16 code units in a notification reply preview, including its ellipsis.</summary>
+    public const int MaxReplyTextCodeUnits = 480;
+
     /// <summary>The prime of the P-256 field, and the constant b of its curve y² = x³ − 3x + b.</summary>
     private static readonly BigInteger curvePrime = BigInteger.Parse("0FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", NumberStyles.HexNumber);
 
@@ -205,12 +211,22 @@ public sealed class PushService(
         foreach (var space in await ListSpaces(userId, cancellationToken))
         {
             var found = await scopes.For(space.SpaceId, userId).Transact(
-                services => FindThreadAndBot(services, threadId, cancellationToken),
+                services => FindWake(services, kind, threadId, cancellationToken),
                 cancellationToken);
 
-            if (found is var (thread, bot))
+            if (found is var (thread, bot, reply))
             {
-                return new PushWakeText(PushWords.Sentence(kind, bot.Name)!, bot.Id, thread.Id, thread.IsMain, space.SpaceId);
+                return new PushWakeText(
+                    PushWords.Sentence(kind, bot.Name)!,
+                    bot.Id,
+                    thread.Id,
+                    thread.IsMain,
+                    space.SpaceId,
+                    bot.Name,
+                    ReplyText(reply),
+                    thread.Title,
+                    reply?.Id,
+                    reply?.CreatedAt);
             }
         }
 
@@ -230,11 +246,56 @@ public sealed class PushService(
         return memberships;
     }
 
-    private static async Task<(ChatThread Thread, Bot Bot)?> FindThreadAndBot(IServiceProvider services, Guid threadId, CancellationToken cancellationToken)
+    private static async Task<(ChatThread Thread, Bot Bot, Message? Reply)?> FindWake(
+        IServiceProvider services,
+        string kind,
+        Guid threadId,
+        CancellationToken cancellationToken)
     {
         var thread = await services.GetRequiredService<ThreadRepository>().FindThread(threadId, cancellationToken);
-        var bot = thread is null ? null : await services.GetRequiredService<BotRepository>().FindBot(thread.BotId, cancellationToken);
-        return thread is not null && bot is not null ? (thread, bot) : null;
+        var bot = thread is null
+            ? null
+            : await services.GetRequiredService<BotRepository>().FindBot(thread.BotId, cancellationToken);
+        var reply = thread is not null && kind == PushKinds.RunFinished
+            ? await services.GetRequiredService<MessageRepository>().FindLatestReply(thread.Id, cancellationToken)
+            : null;
+        return thread is not null && bot is not null ? (thread, bot, reply) : null;
+    }
+
+    private static string? ReplyText(Message? reply)
+    {
+        var text = reply is null
+            ? null
+            : string.Join(Environment.NewLine, reply.Parts.OfType<TextPart>().Select(part => part.Text)).Trim();
+        return PreviewReplyText(text);
+    }
+
+    internal static string? PreviewReplyText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var clean = text.Trim();
+        var bounded = clean.Length <= MaxReplyTextCodeUnits
+            ? clean
+            : WithEllipsis(clean, MaxReplyTextCodeUnits);
+        var elements = new StringInfo(bounded);
+        return elements.LengthInTextElements <= MaxReplyTextElements
+            ? bounded
+            : $"{elements.SubstringByTextElements(0, MaxReplyTextElements - 1)}…";
+    }
+
+    private static string WithEllipsis(string text, int maxCodeUnits)
+    {
+        var length = maxCodeUnits - 1;
+        if (char.IsHighSurrogate(text[length - 1]))
+        {
+            length--;
+        }
+
+        return $"{text[..length]}…";
     }
 
     /// <summary>

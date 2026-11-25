@@ -424,6 +424,13 @@ public sealed partial class BotEditorPage : Screen
                 part.Show();
             }
         }
+
+        if (Model.TakeOpenedSection() is { } opened && sections.TryGetValue(opened, out var target))
+        {
+            DispatcherQueue.TryEnqueue(
+                Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                () => target.Frame.StartBringIntoView(new() { AnimationDesired = false, VerticalAlignmentRatio = 0 }));
+        }
     }
 
     private void ShowSaving()

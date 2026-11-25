@@ -124,7 +124,7 @@ public sealed class ToolCallCardViewModel : ObservableObject
         _ => null,
     };
 
-    /// <summary>True while the tool runs: the one time the line travels the card's top edge.</summary>
+    /// <summary>True while the tool runs: the one time the line travels around the card.</summary>
     public bool Running => Card.IsLive;
 
     public BadgeKind StateKind => Card.Phase switch

@@ -4,19 +4,29 @@ public sealed class AndroidPushRegistration(
     ServerAddress server,
     ISecureStorage storage,
     IServiceScopeFactory scopes,
-    ILogger<AndroidPushRegistration> logger) : IPushRegistration, IDeviceNotificationSettings, IDisposable
+    ILogger<AndroidPushRegistration> logger) : IPushRegistration, IDeviceNotificationSettings
 {
     #region Private Fields
 
     private const string PermissionAsked = "drover.push.permission-asked";
 
-    private readonly SemaphoreSlim gate = new(1);
+    // A receiver can start before the activity creates its own services.
+    private static readonly SemaphoreSlim gate = new(1);
+
+    // Notification publication shares only the local ownership changes, never a server request.
+    private static readonly SemaphoreSlim noticeGate = new(1);
 
     private TaskCompletionSource<PushDeviceRequest?>? pending;
 
     #endregion
 
     #region Interface Implementations
+
+    public bool ShowMessageTextOnLockScreen
+    {
+        get => AndroidNotifications.ShowMessageTextOnLockScreen;
+        set => AndroidNotifications.SetShowMessageTextOnLockScreen(value);
+    }
 
     public Task<DevicePushCheck> Check(CancellationToken cancellationToken = default) => AsDeviceCall(ReadCheck);
 
@@ -25,8 +35,6 @@ public sealed class AndroidPushRegistration(
 
     public Task<string?> Unsubscribe(CancellationToken cancellationToken = default) =>
         AsDeviceCall(() => UnsubscribeOnDevice(cancellationToken));
-
-    public void Dispose() => gate.Dispose();
 
     #endregion
 
@@ -88,6 +96,15 @@ public sealed class AndroidPushRegistration(
 
     internal async Task<bool> BelongsTo(Guid user, string token) =>
         await Read(server.Current) is { } saved && saved.UserId == user && saved.Token == token;
+
+    internal Task WhileRegistered(Guid user, string token, Action action) =>
+        HoldNotices(async () =>
+        {
+            if (await BelongsTo(user, token))
+            {
+                action();
+            }
+        });
 
     #endregion
 
@@ -187,8 +204,7 @@ public sealed class AndroidPushRegistration(
                 return null;
             }
 
-            storage.Remove(Key(origin));
-            AndroidNotifications.Clear();
+            await ClearRegistration(origin);
             UnifiedPushTransport.Send(saved, UnifiedPushTransport.Unregister);
             pending?.TrySetResult(null);
             pending = null;
@@ -211,7 +227,11 @@ public sealed class AndroidPushRegistration(
         try
         {
             var saved = AndroidPushSubscription.Create(distributor, user);
-            await storage.SetAsync(Key(origin), saved.Store());
+            await HoldNotices(async () =>
+            {
+                await storage.SetAsync(Key(origin), saved.Store());
+                AndroidNotifications.Clear();
+            });
             var source = new TaskCompletionSource<PushDeviceRequest?>(TaskCreationOptions.RunContinuationsAsynchronously);
             pending = source;
             UnifiedPushTransport.Send(saved, UnifiedPushTransport.Register, publicKey);
@@ -239,12 +259,32 @@ public sealed class AndroidPushRegistration(
                 break;
             case UnifiedPushTransport.Unregistered:
             case UnifiedPushTransport.RegistrationFailed:
-                storage.Remove(Key(origin));
-                AndroidNotifications.Clear();
+                await ClearRegistration(origin);
                 pending?.TrySetResult(null);
                 pending = null;
                 await TellServerToStop(origin, saved, cancellationToken);
                 break;
+        }
+    }
+
+    private Task ClearRegistration(Uri origin) =>
+        HoldNotices(() =>
+        {
+            storage.Remove(Key(origin));
+            AndroidNotifications.Clear();
+            return Task.CompletedTask;
+        });
+
+    private static async Task HoldNotices(Func<Task> change)
+    {
+        await noticeGate.WaitAsync();
+        try
+        {
+            await change();
+        }
+        finally
+        {
+            noticeGate.Release();
         }
     }
 

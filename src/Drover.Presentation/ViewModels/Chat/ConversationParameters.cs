@@ -36,6 +36,12 @@ public sealed record ConversationParameters(BotSummary Bot)
     /// <summary>The request whose screen the person took over and has open beside the conversation, if any.</summary>
     public Guid? HeldCallId { get; init; }
 
+    /// <summary>
+    /// Increases each time the server reports that this thread changed. The open conversation uses it to reconcile
+    /// changes made from a notification or another device without treating its own local updates as remote changes.
+    /// </summary>
+    public long ThreadRevision { get; init; }
+
     /// <summary>Whether this person can open the bot's screen, for a request to take it over.</summary>
     public ScreenAccess ScreenAccess { get; init; }
 

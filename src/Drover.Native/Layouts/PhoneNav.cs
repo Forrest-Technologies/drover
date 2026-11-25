@@ -18,7 +18,7 @@ public sealed class PhoneNav : Grid
         new("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
         new("Projects", Addresses.Projects, icon: IconName.Project),
         new("Bots", Addresses.Bots, icon: IconName.Crew),
-        new("Tools", Addresses.Tools, icon: IconName.Settings),
+        new("Tools", Addresses.Tools, icon: IconName.Tool),
     ];
 
     #endregion

@@ -111,11 +111,24 @@ public sealed class DevicePush : StackPanel
                 Children.Add(CheckAgain());
                 break;
             case PushState.On:
+                Children.Add(LockScreenPreview(settings));
                 Children.Add(Quiet("Send a test notification", () => _ = model.SendTestCommand.ExecuteAsync(null), enabled: !model.Working));
                 Children.Add(new StatusNote { Kind = NoteKind.Ok, Text = model.TestNotice });
                 Children.Add(LateNotice(settings));
                 break;
         }
+    }
+
+    private static Switch LockScreenPreview(IDeviceNotificationSettings settings)
+    {
+        var preview = new Switch
+        {
+            Label = "Show message text on the lock screen",
+            Value = settings.ShowMessageTextOnLockScreen,
+        };
+        preview.Checked += (_, _) => settings.ShowMessageTextOnLockScreen = true;
+        preview.Unchecked += (_, _) => settings.ShowMessageTextOnLockScreen = false;
+        return preview;
     }
 
     private Disclosure LateNotice(IDeviceNotificationSettings settings)

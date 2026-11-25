@@ -1,6 +1,6 @@
 namespace Drover.Native.Pages;
 
-/// <summary>The links of the extensions screens: the main text color, underlined, as tall as a finger.</summary>
+/// <summary>The links of the extensions screens: the main text color, underlined, as tall as a control.</summary>
 internal static class Links
 {
     #region Public Methods
@@ -11,7 +11,7 @@ internal static class Links
         Address = address,
         Ink = "DvText",
         HoverInk = "DvText",
-        MinHeight = Tokens.Number("DvTargetTouch"),
+        MinHeight = Targets.Minimum,
         VerticalContentAlignment = VerticalAlignment.Center,
     };
 

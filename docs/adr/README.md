@@ -34,4 +34,5 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0018](0018-chat-channel-trust-boundaries.md) | Trust boundaries for chat channels | Accepted |
 | [0019](0019-rooms-are-the-leads-conversation.md) | A room is the lead's conversation | Accepted |
 | [0020](0020-a-family-of-themes.md) | The look is a family of themes, with Night Yard as the default | Proposed in its pull request; superseded in part by 0021 |
-| [0021](0021-front-office-black-and-accents.md) | Front Office is the default, every theme has a black mode, and a person chooses their accent | Proposed in its pull request |
+| [0021](0021-front-office-black-and-accents.md) | Front Office is the default, every theme has a black mode, and a person chooses their accent | Proposed in its pull request; superseded in part by 0022 |
+| [0022](0022-live-line-goes-around-the-frame-in-the-accent.md) | The line of live work goes around its frame, in the person's accent | Proposed in its pull request |
