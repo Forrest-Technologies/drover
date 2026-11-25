@@ -13,7 +13,7 @@ public sealed record ExtensionPackage(int Version, string Id, string Name)
 
     public const int CurrentVersion = 1;
 
-    /// <summary>What the extension is for, in its author's words. Shown as plain text.</summary>
+    /// <summary>The extension's description, in its author's words. Shown as plain text.</summary>
     public string Description { get; init; } = string.Empty;
 
     public IReadOnlyList<ExtensionContent> Contents { get; init; } = [];

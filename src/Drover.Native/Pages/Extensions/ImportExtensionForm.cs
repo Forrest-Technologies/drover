@@ -298,7 +298,7 @@ internal sealed class ImportExtensionForm : Grid
         var facts = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
         facts.Children.Add(Parts.Fact("Called", Parts.Body(connection.Name)));
         facts.Children.Add(Parts.Fact("Full address", Parts.Machine(connection.Url, "DvText12", "DvText3")));
-        facts.Children.Add(Parts.Fact("How Drover proves who is calling", Parts.Body(ExtensionWords.Auth(connection.Auth, connection.HeaderName))));
+        facts.Children.Add(Parts.Fact("How Drover signs in to this server", Parts.Body(ExtensionWords.Auth(connection.Auth, connection.HeaderName))));
 
         if (connection.SuggestedTools.Count > 0)
         {

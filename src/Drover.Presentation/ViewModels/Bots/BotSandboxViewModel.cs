@@ -63,7 +63,7 @@ public sealed partial class BotSandboxViewModel(
 
     public static string NotPermittedCause => "Owners and admins of this space use its bots' sandboxes. You can still talk to the bot.";
 
-    public static string MissingTitle => "This bot is not here";
+    public static string MissingTitle => "Bot not found";
 
     public static string MissingCause => "It was removed, or it belongs to another space.";
 
@@ -187,7 +187,7 @@ public sealed partial class BotSandboxViewModel(
     /// <summary>The bot's settings can give the sandbox a screen, so the note about a missing one links to them.</summary>
     public bool NoScreenLinksToSettings => NoScreenNote is not null && Status is { DesktopOffered: true };
 
-    public static string SettingsLinkLabel => "Open its settings";
+    public static string SettingsLinkLabel => "Open bot settings";
 
     public IReadOnlyList<TabItem> Views =>
         Status?.Desktop is true ? [new(ScreenView, "Screen"), new(TerminalView, "Terminal")] : [new(TerminalView, "Terminal")];

@@ -68,7 +68,7 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly Grid mainHeaderRow = new() { ColumnSpacing = Tokens.Number("DvSpace2") };
 
-    private readonly IconLink back = new() { Icon = IconName.ArrowLeft, Label = "Back to the crew", Address = Addresses.Home };
+    private readonly IconLink back = new() { Icon = IconName.ArrowLeft, Label = "Back to conversations", Address = Addresses.Home };
 
     private readonly Avatar head = new() { Size = 48, VerticalAlignment = VerticalAlignment.Center };
 

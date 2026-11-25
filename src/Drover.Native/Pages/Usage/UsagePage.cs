@@ -71,7 +71,7 @@ public sealed class UsagePage : Screen
         body.Clear();
         if (!model.IsAdmin)
         {
-            body.Add(Styles.Text("Only the runs that acted for you. An owner or admin sees the whole space.", "DvTextSecondary"));
+            body.Add(Styles.Text("Only your own runs are shown. An owner or admin sees the whole space.", "DvTextSecondary"));
         }
 
         if (model.LoadProblem is { } problem)

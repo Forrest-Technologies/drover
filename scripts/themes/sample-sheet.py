@@ -170,7 +170,7 @@ def editor(theme):
                        for name, summary in [("Model", "Sample model"), ("Tools", "4 tools, 1 asks first"),
                                               ("Rules", "No rules"), ("Memory", "On")])
     return (f'<section class="editor"><h3>Marshal</h3>{field("Name", "Marshal")}'
-            f'{field("What this bot is for", "Watches the builds and reports what broke.", True)}'
+            f'{field("Purpose", "Watches the builds and reports what broke.", True)}'
             f'{field("Instructions", "Read the newest build log first. Ask before changing anything.", True)}{sections}</section>')
 
 
