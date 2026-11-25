@@ -77,7 +77,7 @@ internal sealed class TimelineNodeButton : Pressable
     #region Private Methods
 
     // A step being thought through carries a band of light on its top edge that breathes, like the bot's visor.
-    // A running tool carries the traveling line. With reduced motion both hold still. A mark that is still the
+    // A running tool carries the line traveling around its frame. With reduced motion both hold still. A mark that is still the
     // right one is left running.
     private void ShowLiveMark(TimelineEvent happening)
     {
@@ -101,7 +101,7 @@ internal sealed class TimelineNodeButton : Pressable
         var lift = new Thickness(-Tokens.Number("DvSpace3"), -Tokens.Number("DvSpace2"), -Tokens.Number("DvSpace3"), 0);
         if (wanted is nameof(TravelLine))
         {
-            layers.Children.Add(new TravelLine { IsRunning = true, Margin = lift });
+            layers.Children.Add(new TravelLine { IsRunning = true, Role = FacetRole.Control, Margin = TravelLine.Over(Padding) });
         }
         else if (wanted is nameof(LiveLight))
         {

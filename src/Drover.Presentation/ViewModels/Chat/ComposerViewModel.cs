@@ -96,7 +96,7 @@ public sealed partial class ComposerViewModel : ObservableObject
     /// <summary>True while Stop and Send stand side by side, which a narrow window lays out on two rows.</summary>
     public bool HasTwoActions => Running && HasSomething;
 
-    /// <summary>True while the bot works and does not wait for a person: the line travels the top edge then.</summary>
+    /// <summary>True while the bot works and does not wait for a person: the line travels around the composer then.</summary>
     public bool IsWorking => Running && !Waiting;
 
     /// <summary>The value of the option that answers with the bot's own model.</summary>

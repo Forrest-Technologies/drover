@@ -84,6 +84,8 @@ public sealed class ChatEntry : ContentControl
     // The turn's work as one list, on the turn's first message.
     private readonly WorkLedger ledger = new();
 
+    private readonly WorkLedger ledgerAfter = new();
+
     private readonly ReplySources sources = new();
 
     private readonly StackPanel tools = new() { Spacing = Tokens.Number("DvSpace2") };
@@ -299,7 +301,7 @@ public sealed class ChatEntry : ContentControl
 
     private FrameworkElement Lay(ChatEntryShape wanted, bool bubbles)
     {
-        Detach(words, reasoning, ledger, sources, tools, files, footer, versions, editor);
+        Detach(words, reasoning, ledger, ledgerAfter, sources, tools, files, footer, versions, editor);
         Detach(bubble, reply, sentBy, pending, plate, head, name, writing, run);
         fromRow = null;
         words.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -308,23 +310,24 @@ public sealed class ChatEntry : ContentControl
         {
             ChatEntryShape.Person => Column(HorizontalAlignment.Right, bubble, editor, sentBy, files, pending, versions),
             ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, sources, files, versions),
-            ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, words, sources, tools, files),
+            ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, ledger, words, ledgerAfter, sources, tools, files),
             ChatEntryShape.Continued => Continued(bubbles),
             _ => bubbles ? SpokenInBubbles() : Spoken(),
         };
     }
 
-    // Words further on in a turn hang under its head, in line with its words: the words, what they cite, the calls that
-    // stay cards, and the footer where the reply ends.
+    // Words further on in a turn hang under its head, in line with its words: the work done since the words before,
+    // the words, the work after them at the turn's end, what they cite, the calls that stay cards, and the footer where
+    // the reply ends.
     private StackPanel Continued(bool bubbles)
     {
         footer.Hold(versions);
         if (!bubbles)
         {
-            return Column(HorizontalAlignment.Stretch, words, sources, tools, files, footer);
+            return Column(HorizontalAlignment.Stretch, ledger, words, ledgerAfter, sources, tools, files, footer);
         }
 
-        var column = Column(HorizontalAlignment.Stretch, InBubble(), sources, tools, files, footer);
+        var column = Column(HorizontalAlignment.Stretch, ledger, InBubble(), ledgerAfter, sources, tools, files, footer);
         reply.HorizontalAlignment = HorizontalAlignment.Left;
         return column;
     }
@@ -364,8 +367,8 @@ public sealed class ChatEntry : ContentControl
     }
 
     // A bot's words where both sides speak in bubbles: its head, small, before its name over the turn's first bubble,
-    // then what it reasoned or its work as one list, the words in their bubble, and under it at the full width the
-    // sources, the calls that stay cards, the files, and the footer.
+    // then what it reasoned or the work before its words, the words in their bubble, the work after them, and under it
+    // at the full width the sources, the calls that stay cards, the files, and the footer.
     private StackPanel SpokenInBubbles()
     {
         head.Size = (int)Tokens.Number("DvAvatar24");
@@ -373,7 +376,7 @@ public sealed class ChatEntry : ContentControl
         footer.Hold(versions);
         var from = From(withHead: true);
         var side = HorizontalAlignment.Stretch;
-        var body = Column(side, from, reasoning, ledger, InBubble(), sources, tools, files, footer);
+        var body = Column(side, from, reasoning, ledger, InBubble(), ledgerAfter, sources, tools, files, footer);
         reply.HorizontalAlignment = HorizontalAlignment.Left;
         return body;
     }
@@ -388,7 +391,7 @@ public sealed class ChatEntry : ContentControl
 
         // A reply's versions and the way to another reply stand on its footer's one line, after copy.
         footer.Hold(versions);
-        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, words, sources, tools, files, footer);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, words, ledgerAfter, sources, tools, files, footer);
         body.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
 
         var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
@@ -502,15 +505,11 @@ public sealed class ChatEntry : ContentControl
         }
 
         words.Visibility = reply.Visibility = Shown(message.Text.Length > 0);
-        // In a turn, the reasoning and the calls that fold are rows of the turn's ledger, on its first message.
-        var inTurn = message.Ledger is not null || message.ContinuesTurn;
+        // In a turn, the reasoning and the calls that fold are rows of the work between the bot's words.
+        var inTurn = message.Ledger is not null || message.LedgerAfter is not null || message.ContinuesTurn;
         reasoning.Visibility = Shown(message.Reasoning is not null && !inTurn);
-        ledger.Visibility = Shown(message.Ledger is not null);
-        if (message.Ledger is { } work)
-        {
-            ledger.Parameters = parameters;
-            ledger.Show(work);
-        }
+        ShowWork(ledger, message.Ledger, parameters);
+        ShowWork(ledgerAfter, message.LedgerAfter, parameters);
 
         if (message.Reasoning is { } reasoned && !inTurn)
         {
@@ -725,6 +724,16 @@ public sealed class ChatEntry : ContentControl
     }
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
+
+    private static void ShowWork(WorkLedger ledger, IReadOnlyList<LedgerStep>? work, ChatEntryParameters parameters)
+    {
+        ledger.Visibility = Shown(work is not null);
+        if (work is not null)
+        {
+            ledger.Parameters = parameters;
+            ledger.Show(work);
+        }
+    }
 
     private void Paint()
     {

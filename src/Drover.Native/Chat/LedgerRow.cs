@@ -3,7 +3,7 @@ namespace Drover.Native.Chat;
 /// <summary>
 /// One step of a turn's ledger on one line: an icon for the kind of work, its label, the command or path, how long
 /// it took, and its state as a small icon (a check when done, a cross when failed, a still mark when stopped), or the
-/// word "Running" while it runs, with the line traveling the row's top edge. A failed step says why on a second line.
+/// word "Running" while it runs, while the line travels around the ledger's frame. A failed step says why on a second line.
 /// The row is a button: its name says all of it and whether it is open, and opening it shows the call in place, its
 /// command or arguments and then what it printed and returned, drawn by what they hold. A group opens to its calls;
 /// reasoning opens to its words.
@@ -33,8 +33,6 @@ internal sealed class LedgerRow : StackPanel
     private readonly TextBlock running = Styles.Text(LedgerRunning, "DvTextCaption");
 
     private readonly Icon mark = new() { VerticalAlignment = VerticalAlignment.Center };
-
-    private readonly TravelLine travel = new();
 
     private readonly StackPanel body = new() { Spacing = Tokens.Number("DvSpace3") };
 
@@ -94,7 +92,6 @@ internal sealed class LedgerRow : StackPanel
 
         divider.Height = Tokens.Number("DvBorder");
         top.Children.Add(toggle);
-        top.Children.Add(travel);
         body.Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), Tokens.Number("DvSpace3"));
         body.Visibility = Visibility.Collapsed;
         Children.Add(divider);
@@ -191,7 +188,6 @@ internal sealed class LedgerRow : StackPanel
             LedgerState.Stopped => (IconName.Dot, Tokens.Brush(this, "DvText3")),
             _ => (IconName.Check, Tokens.Brush(this, "DvText3")),
         };
-        travel.IsRunning = now is LedgerState.Running;
 
         mark.NameOfIcon = open ? IconName.ChevronDown : IconName.ChevronRight;
         mark.Foreground = Tokens.Brush(this, "DvText3");

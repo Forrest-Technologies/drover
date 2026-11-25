@@ -45,7 +45,7 @@ public static class ChatPieceSamples
     [
         new(
             "Tool call",
-            "Closed, a card reads what the bot did, its arguments on one line, and its state in words. A line travels its top edge only while the tool runs, then lies still in the result's color. A call that waits is a question with two answers.",
+            "Closed, a card reads what the bot did, its arguments on one line, and its state in words. A line travels around it only while the tool runs, then its top edge lies still in the result's color. A call that waits is a question with two answers.",
             ToolCalls),
         new(
             "Work passing between bots",

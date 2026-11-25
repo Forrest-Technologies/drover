@@ -28,7 +28,7 @@ One file, `src/Drover.Native/Theme/tokens.css`, as CSS custom properties: the sp
 | `--dv-text-2` | `#AEB7C7` | Secondary text |
 | `--dv-text-3` | `#8791A5` | Captions, timestamps |
 | `--dv-ember` | `#FFB454` | Human intent: primary buttons, focus ring, the send action |
-| `--dv-ion` | `#67E8F9` | Bot activity: thinking, streaming, running tool |
+| `--dv-ion` | `#67E8F9` | Bot activity: thinking, streaming |
 | `--dv-violet` | `#B4A0FF` | Delegation between bots |
 | `--dv-ok` | `#4ADE80` | Success |
 | `--dv-warn` | `#FACC15` | Needs attention, approval waiting |
@@ -100,7 +100,7 @@ Both fonts are bundled (SIL OFL 1.1). Nothing loads from a third-party host, whi
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--dv-bloom-ion` | An 8 px soft light in `ion` | Around a thinking bot and a running tool's line |
+| `--dv-bloom-ion` | An 8 px soft light in `ion` | Around a thinking bot; its size also sets the light around the line of live work, drawn in that line's color |
 | `--dv-bloom-violet` | The same in `violet` | Around a handoff pulse |
 
 Bloom is used only inside the four state classes below. It is never used for depth, hover, or emphasis.
@@ -259,7 +259,7 @@ A new theme is a new file in that folder that passes the checks. A theme that sh
    | --- | --- |
    | Bot thinking | A slow breath of light across the bot's visor. No bouncing dots. |
    | Text streaming | Text appears as it arrives. The last few characters fade in over 120 ms so chunks do not flicker. No typewriter effect that delays text already received. |
-   | Tool running | A thin ion line travels along the top edge of the tool card. It stops and turns green or red when the tool finishes. |
+   | Tool running | A thin line in `ember`, the theme's own color, travels around the whole outline of the tool card, in the card's corner language; the same line goes around the composer while a bot works and around the work ledger while a step runs ([ADR 0022](../adr/0022-live-line-goes-around-the-frame-in-the-accent.md)). It stops and turns green or red when the tool finishes. |
    | Delegation | A violet pulse travels the connector from parent to child in the tree and in the activity rail, once, when the handoff happens, and back when the result returns. |
 
 2. **Nothing loops unless something is in progress.** When the work stops, the motion stops.
