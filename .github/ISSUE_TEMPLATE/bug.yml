@@ -2,6 +2,10 @@ name: Bug
 description: Something does not work as the documentation or the interface says it should.
 type: Bug
 body:
+  - type: markdown
+    attributes:
+      value: |
+        For implementation, branch from `develop` and target `develop` in the pull request. `develop` is preview; `main` is production. Ordinary contributors need passing checks and approval on both branches from Steven (`steven-forresttechnologies`) or Brian (`VelocityLabs`). Preserve explicit dependency branches until their prerequisites merge.
   - type: textarea
     id: what
     attributes:
