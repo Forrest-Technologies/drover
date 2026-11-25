@@ -2,8 +2,8 @@ namespace Drover.Presentation.Tests.Wording;
 
 /// <summary>
 /// The words #891 retired from the work screens, held so they do not come back into the native client's source.
-/// The three Tools strings are also changed by #864 and #890, which rewrite ToolConnectionsPage. That one file
-/// is left to those issues; every other retired string must be gone from the native and presentation projects.
+/// The Tools strings are also changed by #864 and #890, which rewrite ToolConnectionsPage. Only those strings
+/// are exempt in that one file; every other retired string must be gone from the native and presentation projects.
 /// </summary>
 public sealed class CopyAuditTests
 {
@@ -24,11 +24,25 @@ public sealed class CopyAuditTests
         ("What the extension is for", "Description"),
         ("Changes here become the form when you go back to it.", "Changes here also change the form."),
         ("How Drover proves who is calling", "How Drover signs in to this server"),
-        ("Nothing / A header / A sign-in", "None / Header / Sign-in"),
         ("The words are the same. What the tool accepts as input changed.",
             "The description is the same. The tool's input changed."),
         ("Only the runs that acted for you. An owner or admin sees the whole space.",
             "Only your own runs are shown. An owner or admin sees the whole space."),
+    ];
+
+    // The table's sign-in row holds three separate option labels, each matched as a whole literal or attribute.
+    private static readonly string[] retiredOptions = ["Nothing", "A header", "A sign-in"];
+
+    private static readonly string[] newOptions = ["None", "Header", "Sign-in"];
+
+    // Only these words in ToolConnectionsPage are left to the issues that rewrite that file.
+    private static readonly string[] otherIssues =
+    [
+        "How Drover proves who is calling",
+        "Nothing",
+        "A header",
+        "A sign-in",
+        "The words are the same. What the tool accepts as input changed.",
     ];
 
     #endregion
@@ -41,12 +55,18 @@ public sealed class CopyAuditTests
         var sources = Repository.NativeFiles(".cs", ".xaml")
             .Concat(Repository.PresentationFiles(".cs", ".xaml"));
         var found = from file in sources
-                    where !file.Path.EndsWith("ToolConnectionsPage.cs", StringComparison.Ordinal)
                     from pair in copy
+                    where !IsLeftToAnotherIssue(pair.Retired, file.Path)
                     where file.Text.Contains(pair.Retired, StringComparison.Ordinal)
                     select $"{file.Path}: {pair.Retired}";
+        var optionsFound = from file in sources
+                           from option in retiredOptions
+                           where !IsLeftToAnotherIssue(option, file.Path)
+                           where file.Text.Contains($"\"{option}\"", StringComparison.Ordinal)
+                           select $"{file.Path}: {option}";
 
-        found.Should().BeEmpty("the retired words are replaced in every screen this issue decided");
+        found.Concat(optionsFound)
+            .Should().BeEmpty("the retired words are replaced in every screen this issue decided");
     }
 
     [Fact]
@@ -56,12 +76,24 @@ public sealed class CopyAuditTests
             .Concat(Repository.PresentationFiles(".cs", ".xaml"))
             .Select(file => file.Text));
 
-        // The three option labels are separate values in AuthKinds, not the table's slash-separated shorthand.
-        foreach (var (_, replacement) in copy.Where(pair => pair.New != "None / Header / Sign-in"))
+        foreach (var (_, replacement) in copy)
         {
             source.Should().Contain(replacement, "the new words are in the client");
         }
+
+        foreach (var option in newOptions)
+        {
+            source.Should().Contain($"\"{option}\"", "the new sign-in options are in the client");
+        }
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static bool IsLeftToAnotherIssue(string retired, string path) =>
+        otherIssues.Contains(retired, StringComparer.Ordinal)
+        && path.EndsWith("ToolConnectionsPage.cs", StringComparison.Ordinal);
 
     #endregion
 }
