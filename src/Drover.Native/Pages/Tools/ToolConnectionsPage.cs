@@ -83,6 +83,7 @@ public sealed class ToolConnectionsPage : Screen
     {
         nameField = Field("Name", value => draft.Name = value, hint: "What you call it, such as Calendar.");
         nameField.MaxLength = FieldLimits.ToolServerName;
+        AutomationProperties.SetAutomationId(nameField, "ToolServerName");
         addressField = Field("Address", value => draft.Url = value, "url", "The address of the server's MCP endpoint.");
         addressField.Placeholder = "https://";
         headerNameField = Field("Header name", value => draft.HeaderName = value);
