@@ -31,8 +31,12 @@ public static class GovernedAgentBuilder
         // Rules about replies go between the tool loop and the model, so every model call's answer passes them. A
         // tool's picture and the bot's notes are added below them, after the framework has handed the call's messages
         // to history, so neither is ever stored.
-        return new ReplyRules(new TransientImages(WithContext(chatClient, run), run), run.Governor)
-            .AsAIAgent(options, loggerFactory)
+        var governedClient = new ReplyRules(new TransientImages(WithContext(chatClient, run), run), run.Governor)
+            .AsBuilder()
+            .UseFunctionInvocation(loggerFactory, invocation => invocation.MaximumIterationsPerRequest = int.MaxValue)
+            .Build();
+
+        return governedClient.AsAIAgent(options, loggerFactory)
             .AsBuilder()
             .Use(gate.Invoke)
             .UseOpenTelemetry(AgentRuntime.TelemetrySource, telemetry => telemetry.EnableSensitiveData = false)
