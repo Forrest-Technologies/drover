@@ -24,8 +24,7 @@ public sealed class UsagePage : Screen
     public UsagePage()
     {
         Content = layout;
-        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
-        header.Children.Add(PageParts.Title("Usage"));
+        layout.Body.Add(new ScreenHeader { Title = "Usage" });
         period.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
         {
             if (period.Value is { } chosen && chosen != model.Period)
@@ -33,8 +32,7 @@ public sealed class UsagePage : Screen
                 model.ChoosePeriod(chosen);
             }
         });
-        header.Children.Add(period);
-        layout.Body.Add(header);
+        layout.Body.Add(period);
         layout.Body.Add(content);
         Refresh();
     }

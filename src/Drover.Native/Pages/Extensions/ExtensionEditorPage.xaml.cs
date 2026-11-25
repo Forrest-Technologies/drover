@@ -11,10 +11,7 @@ public sealed partial class ExtensionEditorPage : Screen
     public ExtensionEditorPage()
     {
         InitializeComponent();
-        Back.Address = Addresses.Extensions;
-        Back.Ink = Back.HoverInk = "DvText";
-        Back.MinHeight = Tokens.Number("DvTargetTouch");
-        Back.VerticalContentAlignment = VerticalAlignment.Center;
+        Header.BackAddress = Addresses.Extensions;
         Editor.Padding = new(Tokens.Number("DvSpace4"));
         Copy.Click += async (_, _) => await Model.Copy(WriteToClipboard);
         Download.Click += async (_, _) => await Model.Download(PlatformFiles.SaveText);

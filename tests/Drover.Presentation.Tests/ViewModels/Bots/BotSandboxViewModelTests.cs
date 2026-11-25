@@ -113,7 +113,7 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
         Page.Shows.Should().Be(BotSandboxContent.Sandbox);
         Page.Heading.Should().Be("Sample bot's sandbox");
         Page.PageTitle.Should().Be("Sample bot's sandbox · Drover");
-        Page.BackLabel.Should().Be("Sample bot");
+        Page.BackLabel.Should().Be("Back to Sample bot");
         Page.StateWords.Should().Be("Running");
         Page.StateBadge.Should().Be(BadgeKind.Ok);
         Page.LastUsed.Should().Be("Used 3 minutes ago");

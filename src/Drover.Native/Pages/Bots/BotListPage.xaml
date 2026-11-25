@@ -4,17 +4,17 @@
               xmlns:dv="using:Drover.Native.Controls"
               xmlns:layouts="using:Drover.Native.Layouts"
               xmlns:pages="using:Drover.Native.Pages"
-              xmlns:shell="using:Drover.Native.Shell">
+              xmlns:shell="using:Drover.Native.Shell"
+              xmlns:vm="using:Drover.Presentation.ViewModels">
 
   <layouts:WorkLayout>
-    <Grid ColumnSpacing="{StaticResource DvSpace3}">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="Auto" />
-      </Grid.ColumnDefinitions>
-      <TextBlock x:Name="Heading" Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" VerticalAlignment="Center" />
-      <dv:Button x:Name="NewBot" Grid.Column="1" Kind="Primary" VerticalAlignment="Center" Click="MakeBot" />
-    </Grid>
+    <dv:ScreenHeader Title="{x:Bind vm:BotListViewModel.Heading}">
+      <dv:IconButton x:Name="NewBot"
+                     Icon="Plus"
+                     Label="{x:Bind vm:BotListViewModel.NewBotLabel}"
+                     AutomationProperties.AutomationId="NewBot"
+                     Click="MakeBot" />
+    </dv:ScreenHeader>
 
     <!-- The empty, failed, and missing-model states are made when the list is in them: each needs its words to exist. -->
     <ContentControl x:Name="Stage" HorizontalContentAlignment="Stretch" IsTabStop="False" />

@@ -39,16 +39,13 @@ public sealed class ModelConnectionsPage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
-        header.Children.Add(PageParts.Title("Model connections"));
+        body.Add(new ScreenHeader { Title = "Model connections" });
         if (model.CanEdit && !model.Adding && model.Connections is { Count: > 0 })
         {
             var add = Action("Add a model connection", () => { model.StartAdding(); return Task.CompletedTask; }, ButtonKind.Primary);
             add.Content = PageParts.WithIcon(IconName.Plus, "Add a model connection");
-            header.Children.Add(add);
+            body.Add(add);
         }
-
-        body.Add(header);
         body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
 
         if (model.Adding)

@@ -172,7 +172,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
         _ => $"{Saved.Name} · Drover",
     };
 
-    public static string Back => "Bots";
+    public static string Back => "Back to bots";
 
     public const string NewBotName = "New bot";
 
