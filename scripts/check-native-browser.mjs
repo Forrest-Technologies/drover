@@ -1871,16 +1871,19 @@ async function checkProjectDraftsAndKeyboard(page) {
 }
 
 async function checkProjectMoveFlow(page) {
+    await focusSettled(page);
     await page.getByRole('button', { name: 'New conversation', exact: true }).dispatchEvent('click');
-    await page.getByText('Move a conversation here', { exact: true }).dispatchEvent('click');
+    await page.getByRole('menuitem', { name: 'Move a conversation here', exact: true }).dispatchEvent('click');
     const move = page.getByRole('button', { name: 'Move Quarterly planning to this project', exact: true });
     await move.waitFor({ state: 'attached', timeout: 5000 });
     await move.dispatchEvent('click');
+    await page.getByRole('button', { name: 'Done', exact: true }).dispatchEvent('click');
     const conversation = page.getByRole('link', { name: 'Quarterly planning', exact: true });
     await conversation.waitFor({ state: 'attached', timeout: 5000 });
 
+    await focusSettled(page);
     await page.getByRole('button', { name: 'More', exact: true }).first().dispatchEvent('click');
-    await page.getByText('Move out of this project', { exact: true }).dispatchEvent('click');
+    await page.getByRole('menuitem', { name: 'Move out of this project', exact: true }).dispatchEvent('click');
     await conversation.waitFor({ state: 'detached', timeout: 5000 });
 }
 
