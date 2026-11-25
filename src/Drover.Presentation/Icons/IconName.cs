@@ -39,6 +39,7 @@ public enum IconName
     Send,
     Settings,
     Share,
+    SideChats,
     Speaker,
     Stop,
     Thought,

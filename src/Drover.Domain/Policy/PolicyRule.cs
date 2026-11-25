@@ -21,6 +21,9 @@ public sealed record PolicyRule(
     /// </summary>
     public bool IsAllowedWhenHosted { get; init; }
 
+    /// <summary>A numeric limit or floor: how much of something is allowed, as opposed to whether it is.</summary>
+    public bool IsLimit { get; init; }
+
     #endregion
 
     #region Public Methods
@@ -70,7 +73,7 @@ public sealed record PolicyRule(
         int strictest,
         Enforcement enforcement,
         bool isLocked = true) =>
-        new(name, policy => read(policy), policy => read(policy) - strictest, enforcement, isLocked, policy => read(policy) > 0);
+        new(name, policy => read(policy), policy => read(policy) - strictest, enforcement, isLocked, policy => read(policy) > 0) { IsLimit = true };
 
     /// <summary>
     /// A numeric floor. A lower value is looser; <paramref name="strictest"/> is the value the hosted preset sets, so it
@@ -82,7 +85,7 @@ public sealed record PolicyRule(
         int strictest,
         Enforcement enforcement,
         bool isLocked = true) =>
-        new(name, policy => read(policy), policy => strictest - read(policy), enforcement, isLocked, policy => read(policy) > 0);
+        new(name, policy => read(policy), policy => strictest - read(policy), enforcement, isLocked, policy => read(policy) > 0) { IsLimit = true };
 
     /// <summary>
     /// False for a choice whose value is not one of the declared members, which configuration binding accepts for

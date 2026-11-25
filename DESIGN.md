@@ -139,7 +139,7 @@ These are the habits that make an interface look generated. Each one is checked 
 
 **Things that stay when they are not needed**
 
-- A control shows when a person needs it. A reply's actions (copy, another reply, its versions, what happened) show on the newest reply, and on an older one when it has the focus or is tapped. Ways into a conversation's panels are in one menu. Hover reveals nothing, so a finger and a keyboard reach everything a pointer does.
+- A control shows when a person needs it. A reply's actions (copy, another reply, its versions, what happened) show on the newest reply, and on an older one when it has the focus or is tapped. Ways into a conversation's panels are in one menu, and the side chats, where a person goes most, also have an icon button beside it. Hover reveals nothing, so a finger and a keyboard reach everything a pointer does.
 - What a reply used is said once, in the status line under the composer, with the model that wrote it. It is not repeated under every reply.
 - The status line says something or is not there. No placeholder, no zero.
 
