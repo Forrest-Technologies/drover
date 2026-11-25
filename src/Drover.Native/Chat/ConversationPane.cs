@@ -38,6 +38,8 @@ public sealed class ConversationPane : Grid
 
     private bool drawQueued;
 
+    private bool dropping;
+
     #endregion
 
     #region Constructors
@@ -62,10 +64,25 @@ public sealed class ConversationPane : Grid
         Children.Add(center);
         Children.Add(composer);
         Children.Add(readBox);
+        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         AllowDrop = true;
         DragOver += Carried;
-        DragLeave += (_, _) => composer.ShowDropping(false);
+        DragLeave += (_, _) => SetDropping(false);
         Drop += async (_, dropped) => await Dropped(dropped);
+        PointerEntered += (_, _) => ResetDropping();
+        PointerMoved += (_, _) => ResetDropping();
+        PointerPressed += (_, _) => ResetDropping();
+        PointerReleased += (_, _) => ResetDropping();
+        PointerWheelChanged += (_, _) => ResetDropping();
+        PreviewKeyDown += (_, key) =>
+        {
+            if (!IsModifier(key.Key))
+            {
+                ResetDropping();
+            }
+        };
+        GotFocus += (_, _) => ResetDropping();
+        Unloaded += (_, _) => ResetDropping();
 
         // The button stays pressable while the conversation is read again: Reload does nothing until the read ends,
         // so a second press neither asks again nor takes the focus off the way forward.
@@ -85,11 +102,23 @@ public sealed class ConversationPane : Grid
         get => model;
         set
         {
-            model?.PropertyChanged -= Changed;
+            if (model is not null)
+            {
+                model.PropertyChanged -= Changed;
+                model.Composer.PropertyChanged -= ComposerChanged;
+            }
+
             model = value;
-            model?.PropertyChanged += Changed;
+
+            if (model is not null)
+            {
+                model.PropertyChanged += Changed;
+                model.Composer.PropertyChanged += ComposerChanged;
+            }
+
             list.Model = value?.List;
             composer.Model = value?.Composer;
+            SyncDropping();
             status.Model = value?.List.Status;
             Show();
         }
@@ -176,6 +205,11 @@ public sealed class ConversationPane : Grid
             }
         }
 
+        if (model is not { AcceptsFiles: true })
+        {
+            SetDropping(false);
+        }
+
         Paint();
     }
 
@@ -203,14 +237,14 @@ public sealed class ConversationPane : Grid
         held.AcceptedOperation = takes
             ? Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy
             : Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
-        composer.ShowDropping(takes);
+        SetDropping(takes);
     }
 
     // The same check as while the files were held: a drop can come without a hover that was accepted, or the
     // conversation can stop taking files between hover and release. Such a drop attaches nothing.
     private async Task Dropped(DragEventArgs dropped)
     {
-        composer.ShowDropping(false);
+        SetDropping(false);
 
         if (!Takes(dropped.DataView))
         {
@@ -220,6 +254,57 @@ public sealed class ConversationPane : Grid
 
         await composer.TakeDropped(dropped.DataView);
     }
+
+    // While files are held over the conversation, hit-testing stays on this pane rather than its scrolling children.
+    // Otherwise a layout or scroll pass between drag-over and drop can place a different child under the pointer, and
+    // the platform finishes the drag without raising Drop or DragLeave on this pane, leaving the drop line on screen.
+    private void SetDropping(bool value)
+    {
+        composer.ShowDropping(value);
+        SyncDropping();
+    }
+
+    // A drag cancelled with Escape or outside the viewport can end without a DragLeave or Drop from the platform.
+    // Any non-drag interaction with the pane clears the dropping state and restores hit-testing on its children.
+    private void ResetDropping()
+    {
+        if (dropping || (model?.Composer.Dropping ?? false))
+        {
+            model?.Composer.CancelDropping();
+            SetDropping(false);
+        }
+    }
+
+    private void ComposerChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
+    {
+        if (string.IsNullOrEmpty(change.PropertyName) || change.PropertyName == nameof(ComposerViewModel.Dropping))
+        {
+            SyncDropping();
+        }
+    }
+
+    private void SyncDropping()
+    {
+        var active = model?.Composer.Dropping ?? false;
+
+        if (dropping == active)
+        {
+            return;
+        }
+
+        dropping = active;
+        var interactive = !active;
+        list.IsHitTestVisible = interactive;
+        center.IsHitTestVisible = interactive;
+        composer.IsHitTestVisible = interactive;
+        readBox.IsHitTestVisible = interactive;
+    }
+
+    private static bool IsModifier(VirtualKey key) => key is
+        VirtualKey.Shift or VirtualKey.LeftShift or VirtualKey.RightShift
+        or VirtualKey.Control or VirtualKey.LeftControl or VirtualKey.RightControl
+        or VirtualKey.Menu or VirtualKey.LeftMenu or VirtualKey.RightMenu
+        or VirtualKey.LeftWindows or VirtualKey.RightWindows;
 
     // A drop is taken only when it carries files and the conversation takes files now. A picture dragged with no file
     // behind it is not one.
