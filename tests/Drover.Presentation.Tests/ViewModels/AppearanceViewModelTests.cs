@@ -1,7 +1,7 @@
 namespace Drover.Presentation.Tests.ViewModels;
 
 /// <summary>Cross-device appearance loading, local application, and retry behavior.</summary>
-public sealed class AppearanceViewModelTests : ViewModelTest
+public sealed class AppearanceViewModelTests : ViewModelTest, IDisposable
 {
     #region Private Fields
 
@@ -33,7 +33,7 @@ public sealed class AppearanceViewModelTests : ViewModelTest
 
     #region Public Methods
 
-    public new void Dispose()
+    void IDisposable.Dispose()
     {
         model.Dispose();
         base.Dispose();
