@@ -909,12 +909,12 @@ try {
             await page.goto(`${origin}/talk/${botId}`);
             const externalSource = page.getByRole('link', { name: /Sample external source,/ });
             await externalSource.waitFor({ state: 'attached', timeout: 60000 });
-            // A rejected new tab must still follow the person's link, without relaxing browser settings.
-            await page.evaluate(() => { Windows.System.Launcher.open = () => 'False'; });
+            // A popup blocker can return a fake successful window instead of null. Links must not depend on that result.
+            await page.evaluate(() => { window.open = () => ({ closed: false }); });
             await externalSource.dispatchEvent('click');
             await page.waitForURL(`${origin}/sample-external`, { timeout: 10000 });
             assert.equal(await page.title(), 'Sample external destination');
-            progress(`blocked external link ${width} ${theme}`);
+            progress(`direct external link ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }

@@ -308,7 +308,7 @@ Native only, because the web does these in CSS:
 | --- | --- |
 | `Facet` | The frame, and the only place corners are drawn: `Role` (a control or a larger frame), `Fill`, `Edge`, `Ring`, and `Cut` where a faceted frame needs a size of its own. The theme's corner language decides what it draws: cut corners, rounded corners, or ticks. A panel; what is put in it sits on the surface |
 | `Yard` | The texture behind the working area: dots, lines, a grid, or nothing, as the theme says |
-| `Link` | An anchor: `Text`, `Address`. An in-app address goes through the navigator. External links and markdown links share `OpenOutside`: when the browser refuses a new tab, the current tab follows the address instead |
+| `Link` | An anchor: `Text`, `Address`. An in-app address goes through the navigator. External links and markdown links share `OpenOutside`: the browser navigates the current tab directly, since popup blockers can report a successful new window without opening one. Native devices use the platform launcher |
 | `PlainButton` | The base of every pressable control on a plain surface. Colors are token names |
 | `FlowPanel` | A row that wraps: `Gap`, and `FlowPanel.FullRow` on a child |
 | `TravelLine` | Live state: a tool is running |
