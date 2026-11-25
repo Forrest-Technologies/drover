@@ -652,13 +652,13 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 - #363 feat: mention bots and people in group conversations, and route replies and reactions by mention
 - #364 feat: per-conversation notification controls: all, mentions only, off, snooze
-- #365 feat: typing and working indicators and read state in shared conversations
 - #366 feat: pins and bookmarks per conversation
 - #475 feat: export everything a space or a person has
 - #519 feat: an owner or admin sets a space's limits, and the server applies them
 - #520 feat: delete an account, and delete a space
 - #521 feat: remove a sent file and get its room back
 - #522 feat: share a conversation with the space, and make it private again
+- #365 feat: typing and working indicators and read state in shared conversations
 - #525 feat: sign in with a passkey
 - #526 feat: sign in to a model provider with a personal plan instead of a key
 - #714 feat: rooms, the lead bot's members as data on the lead, validated
