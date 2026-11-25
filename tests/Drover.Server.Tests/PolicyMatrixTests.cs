@@ -296,12 +296,12 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         await using var scope = Services.CreateAsyncScope();
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
         var ceilings = new RunCeilings(
-            int.Parse(Setting(nameof(DeploymentPolicy.MaxStepsPerRun)), CultureInfo.InvariantCulture),
+            DeploymentPolicy.StepsPerRun,
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture) - 1);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
-        policies.Runs(new SpaceSettings { MaxStepsPerRun = ceilings.MaxSteps + 1, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
+        policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
         var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
         space.Should().Be(new RunCeilings(10, 1000, 3));
         space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");

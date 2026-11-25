@@ -128,11 +128,11 @@ A **step** is one model call. The engine hands the runtime a model client of its
 
 | Limit | Deployment rule | Space | Bot | When it is reached |
 | --- | --- | --- | --- | --- |
-| Model calls | `MaxStepsPerRun` (50) | `max_steps_per_run` | `max_steps` | Checked before every model call, a tool's own included (the screen reader). The run fails with `step_limit`. |
+| Model calls | `MaxStepsPerRun` (no limit by default) | `max_steps_per_run` | `max_steps` | No ceiling unless the operator sets one. A space and bot may lower a configured ceiling. When reached, the run fails with `step_limit`. |
 | Tokens | `MaxTokensPerRun` (5,000,000; hosted 2,000,000) | `max_tokens_per_run` | `max_tokens` | Input and output tokens of every model call the run has recorded, earlier executions included, checked before every model call. The run fails with `token_limit`. The call that takes the run past the limit finishes and is recorded, so a run can end above it by one call. |
 | Handoffs | `MaxRunsPerDelegationTree` less the root | (through the tree's limit) | `max_delegations` | Counted from the run's child runs when it calls `delegate`. The call is refused with `budget_exceeded`, detail `handoffs`; the run goes on with what it has. `0` keeps a bot from handing work over at all. |
 
-A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit` or `token_limit` shows in its thread as `budget_reached`, and its error names the limit, the value, and where to change it.
+A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit` or `token_limit` shows in its thread as `budget_reached`, and its error names the limit, the value, and where to change it. Model calls have no deployment ceiling by default. An operator may set `MaxStepsPerRun`; spaces and bots can then only lower it. Tokens remain capped for every run.
 
 Read-only tools requested together run in parallel. Everything else runs in order: a call that is not read-only waits for the calls that are not read-only listed before it in the same model response.
 

@@ -859,7 +859,9 @@ public sealed class BotService(
     private static string? FindRunLimitProblem(RunLimits limits, RunCeilings space) =>
         limits switch
         {
-            { MaxSteps: { } steps } when steps < 1 || steps > space.MaxSteps =>
+            { MaxSteps: { } steps } when steps < 1 =>
+                "The limit on model calls is a whole number above zero.",
+            { MaxSteps: { } steps } when steps > space.MaxSteps =>
                 $"The limit on model calls is a whole number from 1 to {space.MaxSteps}, the most this space allows.",
             { MaxTokens: { } tokens } when tokens < 1 || tokens > space.MaxTokens =>
                 $"The limit on tokens is a whole number from 1 to {space.MaxTokens:N0}, the most this space allows.",

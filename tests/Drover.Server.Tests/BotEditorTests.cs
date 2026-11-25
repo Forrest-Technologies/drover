@@ -473,8 +473,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "misspelled sandbox", nothing with { SandboxPolicy = "public" }, "A sandbox is" },
             { "host with a scheme", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", ["https://example.com"], null) }, "is not a host name" },
             { "shared with a stranger", nothing with { SandboxPolicy = "named", SandboxSharedWith = [Guid.CreateVersion7()] }, "only with bots of this space" },
-            { "no model calls at all", nothing with { RunLimits = new RunLimitsBody(0, null, null) }, "The limit on model calls is a whole number from 1 to 50, the most this space allows" },
-            { "more model calls than the space allows", nothing with { RunLimits = new RunLimitsBody(DeploymentPolicy.StepsPerRun + 1, null, null) }, "The limit on model calls is a whole number from 1 to 50" },
+            { "no model calls at all", nothing with { RunLimits = new RunLimitsBody(0, null, null) }, "The limit on model calls is a whole number above zero" },
             { "more tokens than the space allows", nothing with { RunLimits = new RunLimitsBody(null, DeploymentPolicy.SelfHostedMaxTokensPerRun + 1, null) }, "The limit on tokens is a whole number from 1 to 5,000,000" },
             { "fewer handoffs than none", nothing with { RunLimits = new RunLimitsBody(null, null, -1) }, "The limit on handoffs is a whole number from 0 to 49" },
             { "more handoffs than a tree holds runs", nothing with { RunLimits = new RunLimitsBody(null, null, DeploymentPolicy.RunsPerDelegationTree) }, "The limit on handoffs is a whole number from 0 to 49" },
@@ -500,7 +499,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
 
         var options = await GetFor<BotRunLimitOptions>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/limits/options");
 
-        options.Should().Be(new BotRunLimitOptions(DeploymentPolicy.StepsPerRun, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.RunsPerDelegationTree - 1));
+        options.Should().Be(new BotRunLimitOptions(null, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.RunsPerDelegationTree - 1));
     }
 
     [Fact]

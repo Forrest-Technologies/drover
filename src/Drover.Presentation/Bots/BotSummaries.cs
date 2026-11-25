@@ -118,6 +118,11 @@ public static class BotSummaries
             .Where(limit => limit.Most is not null)
             .Select(limit => $"{Count(limit.Most)} {(limit.Most is 1 ? limit.One : limit.Many)}")
             .ToList();
+        var hasStepLimit = !string.IsNullOrWhiteSpace(draft.MaxSteps) || space?.MaxSteps is not null;
+        if (!hasStepLimit)
+        {
+            said.Insert(0, "No limit");
+        }
         return said.Count == 0 ? "The space's limits" : string.Join(" · ", said);
     }
 

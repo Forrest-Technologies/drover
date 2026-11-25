@@ -56,7 +56,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
         Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(true));
         Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: true, MaxIdleMinutes: 60, Desktop: true));
-        Server.Answer("GET", $"{bot}/limits/options", new BotRunLimitOptions(MaxSteps: 50, MaxTokens: 5_000_000, MaxDelegations: 49));
+        Server.Answer("GET", $"{bot}/limits/options", new BotRunLimitOptions(MaxSteps: null, MaxTokens: 5_000_000, MaxDelegations: 49));
     }
 
     #endregion
@@ -151,7 +151,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
             "Routines, No routines",
             "Sandbox, No sandbox",
             "Team, The space's caps",
-            "Limits, 50 model calls · 5,000,000 tokens · 49 handoffs");
+            "Limits, No limit · 5,000,000 tokens · 49 handoffs");
         editor.ShowsSaveBar.Should().BeFalse("there is nothing to save yet");
         editor.SaveWords.Should().Be("Nothing to save");
     }
@@ -357,9 +357,12 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         string[] labels = [LimitsSectionFields.StepsLabel, LimitsSectionFields.TokensLabel, LimitsSectionFields.DelegationsLabel];
         labels.Should().Equal("Model calls", "Tokens", "Handoffs");
         int?[] limits = [options?.MaxSteps, options?.MaxTokens, options?.MaxDelegations];
-        limits.Select(LimitsSectionFields.Placeholder).Should().Equal("50", "5,000,000", "49");
+        LimitsSectionFields.StepsPlaceholder(options?.MaxSteps).Should().Be("No limit");
+        limits.Skip(1).Select(LimitsSectionFields.Placeholder).Should().Equal("5,000,000", "49");
         LimitsSectionFields.Note.Should().Contain("before it spends your model credit").And.Contain("Leave a limit empty to use the space's.");
-        LimitsSectionFields.StepsHint(options).Should().EndWith("This space allows up to 50.");
+        LimitsSectionFields.StepsHint(options).Should().EndWith("No limit.");
+        LimitsSectionFields.StepsHint(new BotRunLimitOptions(7, 5_000_000, 49)).Should().EndWith("This space allows up to 7.");
+        LimitsSectionFields.StepsPlaceholder(7).Should().Be("7");
         LimitsSectionFields.TokensHint(options).Should().EndWith("This space allows up to 5,000,000.");
         LimitsSectionFields.DelegationsHint(options).Should().Contain("0 keeps all work with this bot. This space allows up to 49.");
 
@@ -374,7 +377,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     [Fact]
     public async Task A_limit_that_is_not_a_whole_number_is_said_before_anything_is_sent_and_the_servers_refusal_is_shown()
     {
-        Server.Refuse("PUT", $"{bot}/definition", HttpStatusCode.BadRequest, "The limit on model calls is a whole number from 1 to 50, the most this space allows.");
+        Server.Refuse("PUT", $"{bot}/definition", HttpStatusCode.BadRequest, "The limit on model calls is a whole number above zero.");
         var editor = await OpenEditor();
         editor.Toggle(Limits, true);
 
@@ -388,7 +391,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Edit(draft => draft.MaxSteps = "500");
         await editor.Save();
 
-        editor.SaveProblem.Should().Contain("from 1 to 50, the most this space allows");
+        editor.SaveProblem.Should().Contain("whole number above zero");
     }
 
     #endregion

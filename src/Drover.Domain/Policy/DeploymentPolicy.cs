@@ -156,7 +156,7 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxDelegationTreeCostCents = 1_000;
 
-    public const int StepsPerRun = 50;
+    public const int StepsPerRun = int.MaxValue;
 
     public const int SelfHostedMaxTokensPerRun = 5_000_000;
 
@@ -295,8 +295,8 @@ public sealed record DeploymentPolicy
     public int MaxDelegationTreeCostCents { get; init; } = SelfHostedMaxDelegationTreeCostCents;
 
     /// <summary>
-    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. A space may only lower it, and
-    /// a bot may lower it again. A model that keeps calling tools without finishing is stopped here.
+    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. The default has no limit; an
+    /// operator may set a ceiling, which a space may lower and a bot may lower again.
     /// </summary>
     public int MaxStepsPerRun { get; init; } = StepsPerRun;
 
@@ -590,7 +590,7 @@ public sealed record DeploymentPolicy
         PolicyRule.Limit(
             nameof(MaxStepsPerRun),
             policy => policy.MaxStepsPerRun,
-            StepsPerRun,
+            int.MaxValue,
             Enforcement.Now("RunSession, before every model call of a run")),
         PolicyRule.Limit(
             nameof(MaxTokensPerRun),
