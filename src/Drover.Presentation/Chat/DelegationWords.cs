@@ -25,6 +25,9 @@ public enum DelegationRefusal
     NotAllowed,
 }
 
+/// <summary>How many handoffs a bot had made against its cap when a delegation was refused for handoffs.</summary>
+public sealed record DelegationLimit(long Used, long Cap);
+
 /// <summary>
 /// Work one bot handed to a bot beneath it, as the parent's conversation shows it. <see cref="Depth"/> is how many
 /// delegations this one sits inside: 0 for one made by the bot being talked to.
@@ -51,6 +54,12 @@ public sealed record DelegationItem(
     /// <see cref="DelegationWords.DeepestShown"/>, where the card links to the child's side instead.
     /// </summary>
     public IReadOnlyList<ChatMessage> Work { get; init; } = [];
+
+    /// <summary>The handoff count and cap when the server refused for the bot's handoff limit.</summary>
+    public DelegationLimit? RefusalLimit { get; init; }
+
+    /// <summary>The bot's Limits settings, for a person who can edit it when a handoff limit refused this call.</summary>
+    public string? LimitsHref { get; init; }
 
     #endregion
 }
@@ -101,11 +110,13 @@ public static partial class DelegationWords
     };
 
     /// <summary>Why the work was not handed over, as a sentence.</summary>
-    public static string Refused(DelegationRefusal refusal, string childName) => refusal switch
+    public static string Refused(DelegationRefusal refusal, string childName, DelegationLimit? limit = null) => refusal switch
     {
         DelegationRefusal.Loop => $"{childName} is already part of this work further up, so handing it over would go round in a circle.",
         DelegationRefusal.TooDeep => "This work has been handed down as many levels as this space allows.",
         DelegationRefusal.TooManyRuns => "This work has started as many runs as this space allows.",
+        DelegationRefusal.TooManyHandoffs when limit is not null =>
+            $"Handoff limit reached: {limit.Used.ToString("N0", CultureInfo.InvariantCulture)} of {limit.Cap.ToString("N0", CultureInfo.InvariantCulture)}.",
         DelegationRefusal.TooManyHandoffs => "This bot has handed work over as many times as its limits allow for one piece of work.",
         DelegationRefusal.OverBudget => "This work has reached the spending limit this space sets for one piece of work.",
         DelegationRefusal.TargetPaused => $"{childName} is paused.",
@@ -122,6 +133,19 @@ public static partial class DelegationWords
     public static DelegationRefusal? RefusalIn(string? result) =>
         result is not null && Reason().Match(result) is { Success: true } reason
             ? RefusalOf(reason.Groups[1].Value, Detail().Match(result) is { Success: true } detail ? detail.Groups[1].Value : null)
+            : null;
+
+    /// <summary>
+    /// The handoff count and cap carried in a refused <c>delegate</c> call's result, or null when the result does not
+    /// carry both numbers.
+    /// </summary>
+    public static DelegationLimit? RefusalLimitIn(string? result) =>
+        result is not null
+        && UsedCount().Match(result) is { Success: true } used
+        && CapCount().Match(result) is { Success: true } cap
+        && long.TryParse(used.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var usedValue)
+        && long.TryParse(cap.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var capValue)
+            ? new DelegationLimit(usedValue, capValue)
             : null;
 
     #endregion
@@ -148,6 +172,12 @@ public static partial class DelegationWords
 
     [GeneratedRegex(@"\\?""detail\\?""\s*:\s*\\?""([a-z_]+)")]
     private static partial Regex Detail();
+
+    [GeneratedRegex(@"\\?""used\\?""\s*:\s*(\d+)")]
+    private static partial Regex UsedCount();
+
+    [GeneratedRegex(@"\\?""cap\\?""\s*:\s*(\d+)")]
+    private static partial Regex CapCount();
 
     private static string FirstLine(string text) =>
         text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? string.Empty;

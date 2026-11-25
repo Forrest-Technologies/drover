@@ -157,6 +157,13 @@ public sealed class Field : StackPanel
 
     #endregion
 
+    #region Internal Methods
+
+    /// <summary>Submits the value the way Enter does, for a screen check that cannot inject a key.</summary>
+    internal void SubmitFromKeyboard() => Submit();
+
+    #endregion
+
     #region Private Methods
 
     private void BuildInput()

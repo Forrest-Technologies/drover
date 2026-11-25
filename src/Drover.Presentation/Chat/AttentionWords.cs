@@ -28,6 +28,12 @@ public enum FailureCause
 /// </summary>
 public static class AttentionWords
 {
+    #region Properties
+
+    public const string OpenLimitsLabel = "Open limits";
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>The one thing to show: waiting for the person first, then a failure, then something unseen.</summary>
@@ -95,17 +101,36 @@ public static class AttentionWords
         crew.Values.Count(attention => attention is Attention.WaitingForYou);
 
     /// <summary>What failed and what to do about it, in a sentence.</summary>
-    public static string Failure(FailureCause cause, string botName) => cause switch
+    public static string Failure(FailureCause cause, string botName, RunFailureLimit? limit = null) => cause switch
     {
         FailureCause.ModelUnreachable => $"{botName} could not reach its model. Check the model connection, then try again.",
         FailureCause.ModelRefused => $"{botName}'s model refused the request. Try again, or change what was asked.",
         FailureCause.ModelBusy => $"{botName}'s model is busy right now. Try again shortly.",
         FailureCause.ModelOutOfCredit => $"{botName}'s model account is out of credit. Add credit with the model's provider, then try again.",
-        FailureCause.BudgetReached => $"{botName} stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.",
+        FailureCause.BudgetReached => BudgetFailure(botName, limit),
         FailureCause.ServerRestarted => $"The server restarted while {botName} was working, and the outcome is not known. Check what was done before trying again.",
         FailureCause.StoppedByRule => $"{botName} stopped because one of its rules ended this work. An owner can change the rule in the bot's settings.",
         _ => $"{botName} stopped because something went wrong on the server. Try again.",
     };
+
+    /// <summary>What failed and what to do about it, in a sentence, naming the limit when the server reported one.</summary>
+    public static string Failure(RunFailure failure, string botName) =>
+        Failure(CauseOf(failure.Cause), botName, failure.Limit);
+
+    #endregion
+
+    #region Private Methods
+
+    private static string BudgetFailure(string botName, RunFailureLimit? limit) => limit?.Kind switch
+    {
+        FailureLimits.ModelCalls =>
+            $"{botName} stopped after {Count(limit.Used)} of {Count(limit.Cap)} {(limit.Cap == 1 ? "model call" : "model calls")}.",
+        FailureLimits.Tokens =>
+            $"{botName} stopped after {Count(limit.Used)} of {Count(limit.Cap)} {(limit.Cap == 1 ? "token" : "tokens")}.",
+        _ => $"{botName} stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.",
+    };
+
+    private static string Count(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
 
     #endregion
 }
