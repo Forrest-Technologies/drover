@@ -442,6 +442,36 @@ public sealed class TalkViewModelTests : WorkspaceTest
             .Should().Equal("Sample question", "First sample answer"));
     }
 
+    [Fact]
+    public async Task A_remote_version_switch_drops_the_previous_completed_reply()
+    {
+        var signals = Server.Stream($"{Space}/stream");
+        var events = RunStarts();
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        await Send(() => MainPane, "Another sample question");
+
+        var question = Said("user", "Another sample question");
+        var previous = Said("assistant", "Previous answer") with { Id = replyId, RunId = runId };
+        var replacement = Said("assistant", "Replacement answer");
+        MessageResponse[] before = [question, previous, Said("user", "Stored follow-up")];
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", before);
+        Main(Thread(null));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await events.Send(Event(2, RunEventTypes.MessageCompleted, new MessageCompleted(previous)));
+        await events.Send(Event(3, RunEventTypes.RunCompleted, new RunStatusChanged("completed", null, null, 1, null)));
+        await events.End();
+        await Until(() => MainPane.Messages.Select(message => message.Text).Should()
+            .Equal("Another sample question", "Previous answer", "Stored follow-up"));
+
+        MessageResponse[] after = [question, replacement with { Versions = [replyId, replacement.Id] }];
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", after);
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, threadId, null));
+
+        await Until(() => MainPane.Messages.Select(message => message.Text).Should()
+            .Equal("Another sample question", "Replacement answer"));
+    }
+
     #endregion
 
     #region Opening

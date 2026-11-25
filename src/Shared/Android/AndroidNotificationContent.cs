@@ -32,7 +32,8 @@ internal sealed record AndroidNotificationContent(
             return this;
         }
 
-        AndroidNoticeMessage[] history = [.. Messages.Append(message).OrderBy(item => item.SentAt).TakeLast(HistoryLimit)];
+        var ordered = Messages.Append(message).OrderBy(item => item.SentAt);
+        AndroidNoticeMessage[] history = [.. ordered.TakeLast(HistoryLimit)];
         return this with { Messages = history };
     }
 

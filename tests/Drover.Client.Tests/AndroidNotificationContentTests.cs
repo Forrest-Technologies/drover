@@ -19,7 +19,8 @@ public sealed class AndroidNotificationContentTests
     [Fact]
     public void SameConversation_UpdatesOneNotification_NewestLast()
     {
-        var target = new ConversationTarget(Guid.NewGuid(), Guid.NewGuid(), true, Guid.NewGuid(), "device", Guid.NewGuid());
+        var target = new ConversationTarget(
+            Guid.NewGuid(), Guid.NewGuid(), true, Guid.NewGuid(), "device", Guid.NewGuid());
         var newer = new AndroidNoticeMessage("Second answer", 30, FromOwner: false, Guid.NewGuid());
         var initial = new AndroidNotificationContent("Clara", "Planning", []).Add(newer);
         var updated = initial.Add(new("First answer", 10, FromOwner: false, Guid.NewGuid()))

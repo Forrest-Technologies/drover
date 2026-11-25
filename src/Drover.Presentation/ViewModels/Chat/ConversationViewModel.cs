@@ -425,9 +425,10 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
                 var latest = await api.GetThread(SpaceId, thread!.Id, left);
                 var said = api.ListMessages(SpaceId, latest.Id, left);
-                var tools = LoadToolHistory(latest.Id, latest.ActiveRunId, left);
-                await Task.WhenAll(said, tools);
-                (stored, history, thread, seenThreadRevision) = (await said, await tools, latest, revision);
+                var historyRead = LoadToolHistory(latest.Id, latest.ActiveRunId, left);
+                await Task.WhenAll(said, historyRead);
+                (stored, history, thread, seenThreadRevision) = (await said, await historyRead, latest, revision);
+                ClearSupersededRun();
 
                 if (latest.ActiveRunId is { } runId && run?.RunId != runId)
                 {
@@ -435,7 +436,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
                 }
 
                 await ReportBusy();
-                ShowNewest();
+                Changed();
                 await MarkSeen();
             }
             catch (OperationCanceledException) when (left.IsCancellationRequested)
@@ -456,6 +457,16 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             {
                 timelineGate.Release();
             }
+        }
+    }
+
+    private void ClearSupersededRun()
+    {
+        if (run is { IsActive: false } previous
+            && previous.Messages.Any(message => !stored.Any(item => item.Id == message.Id)))
+        {
+            StopWatching();
+            (run, notice) = (null, null);
         }
     }
 
