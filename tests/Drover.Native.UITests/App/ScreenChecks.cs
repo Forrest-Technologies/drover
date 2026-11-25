@@ -550,12 +550,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var name = await Shown("ToolServerName");
         await Until("the Name field to take focus", () => IsFocused(name) ? name : null);
 
-        var panel = Roots()
-            .SelectMany(root => Descendants(root).Prepend(root))
-            .OfType<Border>()
-            .FirstOrDefault(element => IsShown(element) && AutomationProperties.GetName(element) == "Add a tool server")
-            ?? throw new CheckFailedException("the add sheet has no named panel");
-        PressEscape(panel);
+        PressEscape();
 
         await Until("the sheet to close", () => Find("ToolServerName") is null ? window.Content : null);
         await Until("the focus to return to AddToolServer", () => IsFocused(add) ? add : null);
@@ -657,22 +652,24 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         return false;
     }
 
-    // The platform's key event has no public constructor, so the check raises the same routed event a key press would.
-    private static void PressEscape(FrameworkElement panel)
+    // The platform has no public way to press a key, so the check hands Escape to the sheet's own handler.
+    private void PressEscape()
     {
         var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
         var constructor = typeof(Microsoft.UI.Xaml.Input.KeyRoutedEventArgs).GetConstructors(flags)
             .FirstOrDefault(candidate => candidate.GetParameters().Length == 5)
             ?? throw new CheckFailedException("the platform has no key event constructor");
-        var args = constructor.Invoke([panel, VirtualKey.Escape, Windows.System.VirtualKeyModifiers.None, null, null]);
-        var routed = typeof(UIElement)
-            .GetField("KeyDownEvent", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
-            ?.GetValue(null)
-            ?? throw new CheckFailedException("the platform has no KeyDown event");
-        var raise = typeof(UIElement).GetMethods(flags)
-            .FirstOrDefault(method => method.Name == "RaiseEvent" && method.GetParameters().Length == 2)
-            ?? throw new CheckFailedException("the platform cannot raise a key event");
-        raise.Invoke(panel, [args, routed]);
+        var sheet = Roots()
+            .SelectMany(root => Descendants(root).Prepend(root))
+            .OfType<Sheet>()
+            .FirstOrDefault(element => element.Open)
+            ?? throw new CheckFailedException("the add sheet is not open");
+        var args = constructor.Invoke([sheet, VirtualKey.Escape, Windows.System.VirtualKeyModifiers.None, null, null]);
+        var surface = typeof(Dialog).GetField("surface", flags)?.GetValue(sheet)
+            ?? throw new CheckFailedException("the sheet has no surface");
+        var close = surface.GetType().GetMethod("CloseOnEscape", flags)
+            ?? throw new CheckFailedException("the sheet does not handle Escape");
+        close.Invoke(surface, [args]);
     }
 
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.
