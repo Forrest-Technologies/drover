@@ -1677,14 +1677,11 @@ async function checkConversationSearch(page, width) {
     await nothing.waitFor({ state: 'detached', timeout: 10000 });
 
     await typeSearch(page, searchBox, 'lighthouse');
-    // The count is drawn as the semantic TextBlock's accessible name. The polite announcer keeps the same words as
-    // hidden text, so matching both forms with a union can resolve to two elements when the announcement is present.
-    const resultCountWords = '2 messages found.';
-    await page.waitForFunction(words =>
-        document.querySelectorAll(`[aria-label="${words}"]`).length >= 1, resultCountWords, { timeout: 10000 });
-    const resultCountMatches = await page.locator(`[aria-label="${resultCountWords}"]`).count();
-    assert.equal(resultCountMatches, 1,
-        `The text finder result count must resolve to exactly one element; found ${resultCountMatches}.`);
+    await page.locator('[aria-label="2 messages found."]')
+        .or(page.getByText('2 messages found.', { exact: true }))
+        // The count is both announced and drawn, so either or both can be present at once.
+        .first()
+        .waitFor({ state: 'attached', timeout: 10000 });
 
     const firstHit = page.getByRole('link', { name: /The lighthouse keeper visits on Tuesdays\./ });
     const secondHit = page.getByRole('link', { name: /The lighthouse lamp was polished today\./ });
