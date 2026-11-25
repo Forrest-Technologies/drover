@@ -97,7 +97,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         ProjectViewModel.MemberNote.Should().Contain("Owners and admins");
         await screen.Save("Renamed", "Version two.");
         await screen.Upload(new SampleFile("note.txt", 4, [1, 2, 3, 4]));
-        await screen.RemoveFile(fileId);
+        await screen.RemoveFile(Note);
         screen.PrepareRemove();
         await screen.Remove();
         await screen.Start(botId);
@@ -135,6 +135,135 @@ public sealed class ProjectViewModelTests : ViewModelTest
         screen.DraftInstructions.Should().Be("Version two.");
         screen.Problem.Should().BeNull();
         Server.Sent("PUT", projectPath).Single().Should().Contain("Renamed").And.Contain("Version two").And.NotContain("  Renamed");
+    }
+
+    [Fact]
+    public async Task Editing_starts_from_the_stored_name_and_instructions()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+
+        screen.StartEditing();
+
+        screen.Editing.Should().BeTrue();
+        screen.DraftName.Should().Be("Weekly");
+        screen.DraftInstructions.Should().Be("Ship the note.");
+        screen.HasChanges.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancelling_an_unchanged_edit_closes_at_once()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        screen.StartEditing();
+
+        screen.CancelEditing();
+
+        screen.Editing.Should().BeFalse();
+        screen.ConfirmingDiscard.Should().BeFalse();
+        screen.DraftName.Should().Be("Weekly");
+    }
+
+    [Fact]
+    public async Task Cancelling_a_changed_edit_asks_before_discarding()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        screen.StartEditing();
+        screen.UpdateDraftName("Renamed");
+        screen.UpdateDraftInstructions("New words.");
+        ProjectViewModel.DiscardQuestion("Weekly").Should().Be("Your changes to Weekly are not saved.");
+
+        screen.CancelEditing();
+
+        screen.ConfirmingDiscard.Should().BeTrue();
+        screen.Editing.Should().BeTrue();
+
+        screen.KeepEditing();
+        screen.ConfirmingDiscard.Should().BeFalse();
+        screen.Editing.Should().BeTrue();
+
+        screen.CancelEditing();
+        screen.Discard();
+
+        screen.ConfirmingDiscard.Should().BeFalse();
+        screen.Editing.Should().BeFalse();
+        screen.DraftName.Should().Be("Weekly");
+        screen.DraftInstructions.Should().Be("Ship the note.");
+    }
+
+    [Fact]
+    public async Task A_saved_edit_closes_the_sheet_and_a_refused_one_keeps_it_open_with_the_reason()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        screen.StartEditing();
+        screen.UpdateDraftName("Renamed");
+        screen.UpdateDraftInstructions("New words.");
+        var saved = Weekly with { Name = "Renamed", Instructions = "New words." };
+        Server.Answer("PUT", projectPath, saved);
+        Server.Answer("GET", projectPath, saved);
+
+        await screen.Save();
+
+        screen.Editing.Should().BeFalse();
+        screen.Problem.Should().BeNull();
+
+        screen.StartEditing();
+        screen.UpdateDraftName("Refused");
+        Server.Refuse("PUT", projectPath, HttpStatusCode.Forbidden, "Only an owner or admin can change a project.");
+
+        await screen.Save();
+
+        screen.Editing.Should().BeTrue();
+        screen.Problem.Should().Be("Only an owner or admin can change a project.");
+    }
+
+    [Fact]
+    public async Task Removing_a_file_asks_first_and_keeping_it_sends_nothing()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer(files: [Note]);
+        await screen.Open(projectId);
+
+        screen.AskRemoveFile(Note);
+        screen.RemovingFile.Should().Be(Note);
+        screen.KeepFile();
+
+        screen.RemovingFile.Should().BeNull();
+        Server.Sent("DELETE", $"{filePath}/{fileId}").Should().BeEmpty();
+
+        screen.AskRemoveFile(Note);
+        Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
+        Server.Answer("GET", filePath, Array.Empty<ProjectFileResponse>());
+        await screen.RemoveFile(Note);
+
+        Server.Sent("DELETE", $"{filePath}/{fileId}").Should().ContainSingle();
+        screen.Files.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_move_dialog_lists_only_conversations_that_can_move_in()
+    {
+        var inside = Thread(threadId, botId, "Weekly notes", projectId);
+        var outside = Thread(outsideId, botId, "Side notes", null);
+        var screen = Make<ProjectViewModel>();
+        Answer(threads: [inside], own: [outside]);
+        await screen.Open(projectId);
+
+        screen.StartMoving();
+
+        screen.MovingConversations.Should().BeTrue();
+        screen.Movable.Select(thread => thread.Id).Should().Equal(outsideId);
+        screen.Movable.Should().NotContain(thread => thread.Id == inside.Id);
+
+        screen.StopMoving();
+        screen.MovingConversations.Should().BeFalse();
     }
 
     [Fact]
@@ -180,7 +309,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         screen.DraftInstructions.Should().Be("Edited instructions");
 
         Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
-        await screen.RemoveFile(fileId);
+        await screen.RemoveFile(Note);
         screen.DraftName.Should().Be("Edited name");
         screen.DraftInstructions.Should().Be("Edited instructions");
 
@@ -212,7 +341,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         var screen = Make<ProjectViewModel>();
         Answer();
         await screen.Open(projectId);
-        ProjectViewModel.RemoveQuestion.Should().Be("Remove this project? Conversations stay. They leave the project.");
+        ProjectViewModel.RemoveQuestion.Should().Be("Its conversations are kept and leave the project.");
         ProjectViewModel.RemoveProject.Should().Be("Remove project");
         ProjectViewModel.KeepProject.Should().Be("Keep project");
 
@@ -295,7 +424,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         await screen.ChooseFiles(() =>
             Task.FromException<IReadOnlyList<IPickedFile>>(new IOException(RawFailure)));
 
-        screen.Problem.Should().Be("Could not choose a file. Try again.");
+        screen.Problem.Should().Be("Drover could not open the file picker. Try again.");
         screen.Working.Should().BeNull();
         Server.Sent("POST", filePath).Should().BeEmpty();
         log.Entries.Should().ContainSingle();
@@ -427,7 +556,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
         Server.Answer("GET", filePath, Array.Empty<ProjectFileResponse>());
 
-        await screen.RemoveFile(fileId);
+        await screen.RemoveFile(Note);
 
         Server.Sent("DELETE", $"{filePath}/{fileId}").Should().ContainSingle();
         screen.Files.Should().BeEmpty();
@@ -442,7 +571,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         Server.Answer("POST", $"{space}/bots/{botId}/threads", Thread(threadId, botId, null, projectId));
 
         screen.ActiveBots.Select(bot => bot.Id).Should().Equal(botId);
-        ProjectViewModel.NoBot.Should().Be("This space has no bot to talk to yet.");
+        ProjectViewModel.NoBot.Should().Be("This space has no active bots yet.");
         await screen.Start(botId);
 
         Navigator.Current.Should().Be(Addresses.Conversation(threadId));
@@ -526,8 +655,8 @@ public sealed class ProjectViewModelTests : ViewModelTest
         await missing.Open(projectId);
 
         missing.State.Should().Be(ProjectScreenState.Missing);
-        ProjectViewModel.MissingTitle.Should().Be("This project is not here");
-        ProjectViewModel.MissingCause.Should().Be("It may have been removed, or it is not in this space.");
+        ProjectViewModel.MissingTitle.Should().Be("Project not found");
+        ProjectViewModel.MissingCause.Should().Be("It was removed, or it is in another space.");
 
         Server.Answer("GET", projectPath, Weekly);
         var held = Server.Hold("GET", projectPath);

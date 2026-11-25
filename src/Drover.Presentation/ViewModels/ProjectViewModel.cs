@@ -21,52 +21,65 @@ public sealed partial class ProjectViewModel(
 
     public const string TryAgain = "Try again";
 
-    public const string MissingTitle = "This project is not here";
+    public const string MissingTitle = "Project not found";
 
-    public const string MissingCause = "It may have been removed, or it is not in this space.";
+    public const string MissingCause = "It was removed, or it is in another space.";
 
     public const string MissingAction = "Back to projects";
 
     public const string MemberNote =
         "Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.";
 
-    public const string NeedsName = "A project needs a name.";
+    public const string NeedsName = "Enter a name for the project.";
 
-    public const string RemoveQuestion = "Remove this project? Conversations stay. They leave the project.";
+    public const string RemoveQuestion = "Its conversations are kept and leave the project.";
+
+    public const string InstructionsHint =
+        "Every conversation in this project reads these. They do not change a bot's tools or permissions.";
+
+    public const string NoInstructions = "No instructions yet.";
+
+    public const string MoveHere = "Move a conversation here";
+
+    public const string Done = "Done";
+
+    public const string KeepEditingLabel = "Keep editing";
+
+    public const string DiscardLabel = "Discard";
+
+    public const string KeepFileLabel = "Keep file";
+
+    public const string RemoveFileAction = "Remove file";
+
+    public const string RemoveFileQuestion = "Bots in this project's conversations can no longer read it.";
+
+    public const string MoveOutLabel = "Move out of this project";
 
     public const string KeepProject = "Keep project";
 
     public const string RemoveProject = "Remove project";
 
-    public const string NoFiles = "No shared files yet.";
+    public const string NoFiles = "No files yet.";
 
-    public const string NoConversations = "No conversation in this project yet.";
+    public const string NoConversations = "No conversations in this project yet.";
 
-    public const string NoBot = "This space has no bot to talk to yet.";
+    public const string NoBot = "This space has no active bots yet.";
 
-    public const string NoMovable = "No other conversation of yours can move in.";
+    public const string NoMovable = "You have no other conversations to move here.";
 
-    public const string AddFile = "Add a file";
+    public const string AddFile = "Add files";
 
     public const string Saving = "Saving the project.";
 
     public const string Removing = "Removing the project.";
 
-    public const string Uploading = "Uploading the file.";
-
     public const string ChoosingFiles = "Choosing files.";
 
-    public const string ChooseFailed = "Could not choose a file. Try again.";
+    public const string ChooseFailed = "Drover could not open the file picker. Try again.";
 
     public const string OwnConversationsOnly = "Only your own conversations can move out of this project.";
 
-    public const string RemovingFile = "Removing the file.";
-
-    public const string Downloading = "Saving the file.";
-
-    public const string MovingIn = "Moving the conversation in.";
-
-    public const string MovingOut = "Moving the conversation out.";
+    public const string Moving = "Moving the conversation.";
 
     public const string Starting = "Starting the conversation.";
 
@@ -83,7 +96,7 @@ public sealed partial class ProjectViewModel(
     private bool instructionsEdited;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(State), nameof(Name), nameof(Instructions))]
+    [NotifyPropertyChangedFor(nameof(State), nameof(Name), nameof(Instructions), nameof(HasChanges))]
     private ProjectSummary? project;
 
     [ObservableProperty]
@@ -101,10 +114,24 @@ public sealed partial class ProjectViewModel(
     private string? working;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasChanges))]
     private string draftName = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasChanges))]
     private string draftInstructions = string.Empty;
+
+    [ObservableProperty]
+    private bool editing;
+
+    [ObservableProperty]
+    private bool confirmingDiscard;
+
+    [ObservableProperty]
+    private bool movingConversations;
+
+    [ObservableProperty]
+    private ProjectFileResponse? removingFile;
 
     [ObservableProperty]
     private bool confirmingRemove;
@@ -136,6 +163,10 @@ public sealed partial class ProjectViewModel(
     public string Name => Project?.Name ?? string.Empty;
 
     public string Instructions => Project?.Instructions ?? string.Empty;
+
+    /// <summary>True when the open sheet holds words the person has not saved yet.</summary>
+    public bool HasChanges => !string.Equals(DraftName, Name, StringComparison.Ordinal)
+        || !string.Equals(DraftInstructions, Instructions, StringComparison.Ordinal);
 
     /// <summary>Bots a person can start a conversation with. A paused bot is left out; the server would refuse it.</summary>
     public IReadOnlyList<BotSummary> ActiveBots => [.. Bots.Where(bot => bot.Status is "active")];
@@ -178,6 +209,10 @@ public sealed partial class ProjectViewModel(
             DraftInstructions = string.Empty;
             Project = null;
             ConfirmingRemove = false;
+            ConfirmingDiscard = false;
+            MovingConversations = false;
+            RemovingFile = null;
+            Editing = false;
             Problem = null;
         }
 
@@ -304,6 +339,50 @@ public sealed partial class ProjectViewModel(
         instructionsEdited = true;
     }
 
+    /// <summary>Opens the sheet with the stored name and instructions, ready to change.</summary>
+    public void StartEditing()
+    {
+        DraftName = Name;
+        DraftInstructions = Instructions;
+        nameEdited = false;
+        instructionsEdited = false;
+        Problem = null;
+        Editing = true;
+    }
+
+    /// <summary>Closes the sheet when nothing changed, or asks first when something did.</summary>
+    public void CancelEditing()
+    {
+        if (HasChanges)
+        {
+            ConfirmingDiscard = true;
+            return;
+        }
+
+        Editing = false;
+    }
+
+    /// <summary>Puts the stored words back and closes both the question and the sheet.</summary>
+    public void Discard()
+    {
+        DraftName = Name;
+        DraftInstructions = Instructions;
+        nameEdited = false;
+        instructionsEdited = false;
+        ConfirmingDiscard = false;
+        Editing = false;
+    }
+
+    public void KeepEditing() => ConfirmingDiscard = false;
+
+    public void StartMoving() => MovingConversations = true;
+
+    public void StopMoving() => MovingConversations = false;
+
+    public void AskRemoveFile(ProjectFileResponse file) => RemovingFile = file;
+
+    public void KeepFile() => RemovingFile = null;
+
     public Task Save() => Save(DraftName, DraftInstructions);
 
     /// <summary>Saves the name and instructions the person currently has in the fields.</summary>
@@ -330,6 +409,7 @@ public sealed partial class ProjectViewModel(
                 await api.UpdateProject(SpaceId, ProjectId, new(name.Trim(), instructions ?? string.Empty));
                 nameEdited = DraftName != submittedDraftName;
                 instructionsEdited = DraftInstructions != submittedDraftInstructions;
+                Editing = false;
             });
     }
 
@@ -426,7 +506,7 @@ public sealed partial class ProjectViewModel(
             return false;
         }
 
-        Working = Uploading;
+        Working = $"Uploading {file.Name}.";
         Problem = null;
         var uploaded = false;
 
@@ -486,7 +566,8 @@ public sealed partial class ProjectViewModel(
         return uploaded;
     }
 
-    public Task RemoveFile(Guid fileId)
+    /// <summary>Removes the file the person confirmed in the dialog. Conversations keep the rest.</summary>
+    public Task RemoveFile(ProjectFileResponse file)
     {
         if (!CanManage)
         {
@@ -494,7 +575,7 @@ public sealed partial class ProjectViewModel(
             return Task.CompletedTask;
         }
 
-        return Run(RemovingFile, () => api.RemoveProjectFile(SpaceId, ProjectId, fileId));
+        return Run($"Removing {file.File.Name}.", () => api.RemoveProjectFile(SpaceId, ProjectId, file.File.Id));
     }
 
     /// <summary>Saves a shared project file through platform file delivery on desktop and Android.</summary>
@@ -505,7 +586,7 @@ public sealed partial class ProjectViewModel(
             return;
         }
 
-        Working = Downloading;
+        Working = $"Downloading {file.File.Name}.";
         Problem = null;
 
         try
@@ -565,7 +646,7 @@ public sealed partial class ProjectViewModel(
         }
     }
 
-    public Task MoveIn(Guid threadId) => Move(threadId, ProjectId, MovingIn);
+    public Task MoveIn(Guid threadId) => Move(threadId, ProjectId, Moving);
 
     public bool CanMoveOut(Guid threadId) => ownedProjectThreads.Contains(threadId);
 
@@ -577,7 +658,7 @@ public sealed partial class ProjectViewModel(
             return Task.CompletedTask;
         }
 
-        return Move(threadId, null, MovingOut);
+        return Move(threadId, null, Moving);
     }
 
     public string DownloadAddress(Guid fileId) => api.ProjectFileAddress(SpaceId, ProjectId, fileId, download: true);
@@ -596,15 +677,15 @@ public sealed partial class ProjectViewModel(
 
     public static string FileLabel(ProjectFileResponse file) => $"{file.File.Name}, {Words.Size(file.File.Size)}";
 
-    public static string StartLabel(BotSummary bot) => $"Start with {bot.Name}";
-
     public static string DownloadLabel(ProjectFileResponse file) => $"Download {file.File.Name}";
 
     public static string RemoveFileLabel(ProjectFileResponse file) => $"Remove {file.File.Name}";
 
-    public static string MoveInLabel(string threadLabel) => $"Move {threadLabel} into this project";
+    public static string MoveToProjectLabel(string threadLabel) => $"Move {threadLabel} to this project";
 
-    public static string MoveOutLabel(string threadLabel) => $"Move {threadLabel} out of this project";
+    public static string DiscardQuestion(string name) => $"Your changes to {name} are not saved.";
+
+    public static string RemoveTitle(string name) => $"Remove {name}?";
 
     #endregion
 

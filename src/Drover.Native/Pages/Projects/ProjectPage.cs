@@ -1,8 +1,8 @@
 namespace Drover.Native.Pages;
 
 /// <summary>
-/// One project. An owner or admin edits its name, instructions, and files. Anyone in the space reads them,
-/// starts a conversation with a bot, and moves a conversation they own.
+/// One project, read first: what it holds, its conversations and its files. An owner or admin opens the sheet to
+/// change its name and instructions, and asks before anything is removed.
 /// </summary>
 public sealed class ProjectPage : Screen
 {
@@ -14,11 +14,9 @@ public sealed class ProjectPage : Screen
 
     private readonly StackPanel statePanel = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private readonly StackPanel editorPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+    private readonly StatusNote statusNote = new();
 
-    private readonly StackPanel statusPanel = new() { Spacing = Tokens.Number("DvSpace2") };
-
-    private readonly StackPanel detailsPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+    private readonly StackPanel bodyPanel = new() { Spacing = Tokens.Number("DvSpace5") };
 
     private readonly ScreenHeader header = new()
     {
@@ -27,13 +25,63 @@ public sealed class ProjectPage : Screen
         BackAddress = Addresses.Projects,
     };
 
-    private readonly TextBlock memberNoteText = Styles.Text(ProjectViewModel.MemberNote, "DvTextSecondary");
+    private readonly IconButton editButton = new() { Icon = IconName.Edit, Label = "Edit project" };
 
-    private readonly Field nameField;
+    private readonly Menu moreMenu = new()
+    {
+        Label = "More",
+        TriggerIcon = IconName.More,
+        ShowTriggerLabel = false,
+    };
 
-    private readonly TextArea instructionsField;
+    private readonly Field projectNameField = new() { Label = "Name" };
 
-    private readonly Button saveButton;
+    private readonly TextArea instructionsField = new()
+    {
+        Label = "Instructions",
+        Rows = 8,
+        Hint = ProjectViewModel.InstructionsHint,
+    };
+
+    private readonly StatusNote editNote = new();
+
+    private readonly Button cancelEditButton = new() { Content = "Cancel" };
+
+    private readonly Button saveButton = new() { Content = "Save changes", Kind = ButtonKind.Primary };
+
+    private readonly Button keepEditingButton = new() { Content = ProjectViewModel.KeepEditingLabel };
+
+    private readonly Button discardButton = new() { Content = ProjectViewModel.DiscardLabel, Kind = ButtonKind.Danger };
+
+    private readonly Button doneButton = new() { Content = ProjectViewModel.Done };
+
+    private readonly Button keepProjectButton = new() { Content = ProjectViewModel.KeepProject };
+
+    private readonly Button removeProjectButton = new()
+    {
+        Content = ProjectViewModel.RemoveProject,
+        Kind = ButtonKind.Danger,
+    };
+
+    private readonly Button keepFileButton = new() { Content = ProjectViewModel.KeepFileLabel };
+
+    private readonly Button removeFileButton = new()
+    {
+        Content = ProjectViewModel.RemoveFileAction,
+        Kind = ButtonKind.Danger,
+    };
+
+    private readonly StackPanel movableRows = new() { Spacing = Tokens.Number("DvSpace2") };
+
+    private readonly Sheet editSheet;
+
+    private readonly Dialog discardDialog;
+
+    private readonly Dialog moveDialog;
+
+    private readonly Dialog removeDialog;
+
+    private readonly Dialog removeFileDialog;
 
     private bool showing;
 
@@ -43,51 +91,150 @@ public sealed class ProjectPage : Screen
 
     public ProjectPage()
     {
-        nameField = PageParts.Field(
-            "Name",
-            string.Empty,
-            value =>
-            {
-                if (!showing)
-                {
-                    model.UpdateDraftName(value);
-                }
-            });
-        AutomationProperties.SetName(nameField, "Name");
-
-        instructionsField = new TextArea
+        AutomationProperties.SetAutomationId(editButton, "EditProject");
+        editButton.Click += (_, _) =>
         {
-            Label = "Instructions",
-            Hint = "These belong to the project. They do not add a tool or change what a bot is allowed to do.",
+            model.StartEditing();
+            Refresh();
         };
-        AutomationProperties.SetName(instructionsField, "Instructions");
-        instructionsField.RegisterPropertyChangedCallback(
-            TextArea.ValueProperty,
-            (_, _) =>
+        moreMenu.Items.Add(Item(ProjectViewModel.RemoveProject, () =>
+        {
+            model.PrepareRemove();
+            Refresh();
+        }));
+        header.Actions.Add(editButton);
+        header.Actions.Add(moreMenu);
+
+        AutomationProperties.SetAutomationId(projectNameField, "ProjectNameField");
+        projectNameField.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) =>
+        {
+            if (!showing)
             {
-                if (!showing)
+                model.UpdateDraftName(projectNameField.Value);
+            }
+        });
+        projectNameField.Submitted += async (_, _) => await SaveFromSheet();
+
+        AutomationProperties.SetAutomationId(instructionsField, "ProjectInstructionsField");
+        instructionsField.RegisterPropertyChangedCallback(TextArea.ValueProperty, (_, _) =>
+        {
+            if (!showing)
+            {
+                model.UpdateDraftInstructions(instructionsField.Value);
+            }
+        });
+
+        cancelEditButton.Click += (_, _) =>
+        {
+            model.CancelEditing();
+            Refresh();
+        };
+        saveButton.Click += async (_, _) => await SaveFromSheet();
+        keepEditingButton.Click += (_, _) =>
+        {
+            model.KeepEditing();
+            Refresh();
+        };
+        discardButton.Click += (_, _) =>
+        {
+            model.Discard();
+            Refresh();
+        };
+        doneButton.Click += (_, _) =>
+        {
+            model.StopMoving();
+            Refresh();
+        };
+        keepProjectButton.Click += (_, _) =>
+        {
+            model.CancelRemove();
+            Refresh();
+        };
+        removeProjectButton.Click += async (_, _) => await Run(model.Remove);
+        keepFileButton.Click += (_, _) =>
+        {
+            model.KeepFile();
+            Refresh();
+        };
+        removeFileButton.Click += async (_, _) =>
+        {
+            if (model.RemovingFile is { } file)
+            {
+                var pending = model.RemoveFile(file);
+                model.KeepFile();
+                Refresh();
+                await pending;
+                Refresh();
+            }
+        };
+
+        var editBody = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
+        editBody.Children.Add(projectNameField);
+        editBody.Children.Add(instructionsField);
+        editBody.Children.Add(editNote);
+        editSheet = new Sheet
+        {
+            Title = "Edit project",
+            Body = editBody,
+            Actions = PageParts.Row(cancelEditButton, saveButton),
+        };
+
+        discardDialog = new Dialog
+        {
+            Title = "Discard changes?",
+            Actions = PageParts.Row(keepEditingButton, discardButton),
+        };
+        moveDialog = new Dialog
+        {
+            Title = ProjectViewModel.MoveHere,
+            Body = movableRows,
+            Actions = doneButton,
+        };
+        removeDialog = new Dialog
+        {
+            Body = Styles.Text(ProjectViewModel.RemoveQuestion, "DvTextParagraph"),
+            Actions = PageParts.Row(keepProjectButton, removeProjectButton),
+        };
+        removeFileDialog = new Dialog
+        {
+            Body = Styles.Text(ProjectViewModel.RemoveFileQuestion, "DvTextParagraph"),
+            Actions = PageParts.Row(keepFileButton, removeFileButton),
+        };
+
+        Watch(editSheet,
+            () =>
+            {
+                if (model.Editing)
                 {
-                    model.UpdateDraftInstructions(instructionsField.Value);
+                    model.CancelEditing();
                 }
-            });
-
-        saveButton = PageParts.Action(
-            "Save project",
-            () => model.Save(),
-            Refresh,
-            enabled: false,
-            ButtonKind.Primary);
-
-        editorPanel.Children.Add(memberNoteText);
-        editorPanel.Children.Add(nameField);
-        editorPanel.Children.Add(instructionsField);
-        editorPanel.Children.Add(saveButton);
+            },
+            () => Pieces.FocusWhenShown(projectNameField, () => projectNameField.TakeFocus()));
+        Watch(discardDialog,
+            () =>
+            {
+                if (model.ConfirmingDiscard)
+                {
+                    model.KeepEditing();
+                }
+            },
+            () => Pieces.FocusWhenShown(keepEditingButton, () => keepEditingButton.TakeFocus()));
+        Watch(moveDialog, model.StopMoving,
+            () => Pieces.FocusWhenShown(doneButton, () => doneButton.TakeFocus()));
+        Watch(removeDialog, model.CancelRemove,
+            () => Pieces.FocusWhenShown(keepProjectButton, () => keepProjectButton.TakeFocus()));
+        Watch(removeFileDialog, model.KeepFile,
+            () => Pieces.FocusWhenShown(keepFileButton, () => keepFileButton.TakeFocus()));
 
         layout.Body.Add(header);
+        layout.Body.Add(statusNote);
         layout.Body.Add(statePanel);
-        layout.Body.Add(editorPanel);
-        layout.Body.Add(statusPanel);
-        layout.Body.Add(detailsPanel);
+        layout.Body.Add(bodyPanel);
+        layout.Body.Add(editSheet);
+        layout.Body.Add(discardDialog);
+        layout.Body.Add(moveDialog);
+        layout.Body.Add(removeDialog);
+        layout.Body.Add(removeFileDialog);
 
         Unloaded += (_, _) => model.Cancel();
         Content = layout;
@@ -121,10 +268,14 @@ public sealed class ProjectPage : Screen
     {
         var ready = model.State is ProjectScreenState.Ready;
         header.Title = ready ? model.Name : "Project";
+        editButton.Visibility = ready && model.CanManage ? Visibility.Visible : Visibility.Collapsed;
+        moreMenu.Visibility = ready && model.CanManage ? Visibility.Visible : Visibility.Collapsed;
         statePanel.Visibility = ready ? Visibility.Collapsed : Visibility.Visible;
-        editorPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
-        statusPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
-        detailsPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+        statusNote.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+        bodyPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+
+        statusNote.Text = model.Working ?? model.Problem;
+        statusNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
 
         statePanel.Children.Clear();
         if (!ready)
@@ -142,167 +293,278 @@ public sealed class ProjectPage : Screen
                 statePanel.Children.Add(Failed(ProjectViewModel.LoadFailedTitle, model.LoadProblem, model.Load));
             }
 
-            statusPanel.Children.Clear();
-            detailsPanel.Children.Clear();
+            ShowDialogs();
             return;
         }
 
         showing = true;
         try
         {
-            memberNoteText.Visibility = model.CanManage ? Visibility.Collapsed : Visibility.Visible;
-
-            if (nameField.Value != model.DraftName)
+            if (projectNameField.Value != model.DraftName)
             {
-                nameField.Value = model.DraftName;
+                projectNameField.Value = model.DraftName;
             }
-
-            nameField.Disabled = !model.CanManage;
 
             if (instructionsField.Value != model.DraftInstructions)
             {
                 instructionsField.Value = model.DraftInstructions;
             }
-
-            instructionsField.Disabled = !model.CanManage;
-            saveButton.IsEnabled = model.CanManage && model.Working is null;
         }
         finally
         {
             showing = false;
         }
 
-        statusPanel.Children.Clear();
-        if (model.Problem is { } problem)
-        {
-            statusPanel.Children.Add(Styles.Text(problem, "DvTextSecondary"));
-        }
+        saveButton.IsEnabled = model.CanManage && model.Working is null;
+        editNote.Text = model.Problem;
+        editNote.Kind = NoteKind.Danger;
+        discardDialog.Body = Styles.Text(ProjectViewModel.DiscardQuestion(model.Name), "DvTextParagraph");
+        removeDialog.Title = ProjectViewModel.RemoveTitle(model.Name);
+        removeFileDialog.Title = model.RemovingFile is { } file
+            ? ProjectViewModel.RemoveTitle(file.File.Name)
+            : string.Empty;
 
-        if (model.Working is { } working)
-        {
-            statusPanel.Children.Add(PageParts.Waiting(working));
-        }
+        ShowMovable();
+        ShowDialogs();
 
-        var details = detailsPanel.Children;
-        details.Clear();
-        ShowFiles(details);
-        ShowConversations(details);
-        ShowStart(details);
-        ShowMoveIn(details);
-        ShowRemove(details);
+        bodyPanel.Children.Clear();
+        ShowInstructions();
+        ShowConversations();
+        ShowFiles();
     }
 
-    private void ShowFiles(UIElementCollection body)
+    private void ShowDialogs()
     {
-        body.Add(PageParts.CardTitle("Files"));
-        if (model.Files.Count == 0)
-        {
-            body.Add(Styles.Text(ProjectViewModel.NoFiles, "DvTextSecondary"));
-        }
-
-        foreach (var file in model.Files)
-        {
-            var row = PageParts.Row(Styles.Text(ProjectViewModel.FileLabel(file)));
-            if (model.Delivers || OperatingSystem.IsBrowser())
-            {
-                Func<Task> downloadAction = model.Delivers
-                    ? () => model.Download(file)
-                    : () => OpenDownload(model.DownloadAddress(file.File.Id));
-                row.Children.Add(PageParts.Action(
-                    ProjectViewModel.DownloadLabel(file),
-                    downloadAction,
-                    Refresh,
-                    model.Working is null));
-            }
-
-            if (model.CanManage)
-            {
-                row.Children.Add(PageParts.Action(
-                    ProjectViewModel.RemoveFileLabel(file),
-                    () => model.RemoveFile(file.File.Id),
-                    Refresh,
-                    model.Working is null,
-                    ButtonKind.Danger));
-            }
-
-            body.Add(row);
-        }
-
-        body.Add(PageParts.Action(ProjectViewModel.AddFile, AddFile, Refresh, model.CanManage && model.Working is null));
+        Open(editSheet, model.Editing);
+        Open(discardDialog, model.ConfirmingDiscard);
+        Open(moveDialog, model.MovingConversations);
+        Open(removeDialog, model.ConfirmingRemove);
+        Open(removeFileDialog, model.RemovingFile is not null);
     }
 
-    private void ShowConversations(UIElementCollection body)
+    private void ShowInstructions()
     {
-        body.Add(PageParts.CardTitle("Conversations"));
+        bodyPanel.Children.Add(PageParts.CardTitle("Instructions"));
+        var instructions = model.Instructions;
+        bodyPanel.Children.Add(string.IsNullOrWhiteSpace(instructions)
+            ? Styles.Text(ProjectViewModel.NoInstructions, "DvTextSecondary")
+            : Selectable(instructions));
+    }
+
+    private void ShowConversations()
+    {
+        var add = new Menu { Label = "New conversation", TriggerIcon = IconName.Plus, ShowTriggerLabel = false };
+        foreach (var bot in model.ActiveBots)
+        {
+            add.Items.Add(TaskItem(bot.Name, () => model.Start(bot.Id)));
+        }
+
+        add.Items.Add(Item(ProjectViewModel.MoveHere, () =>
+        {
+            model.StartMoving();
+            Refresh();
+        }));
+        bodyPanel.Children.Add(Heading("Conversations", add));
+
+        if (model.ActiveBots.Count == 0)
+        {
+            bodyPanel.Children.Add(Styles.Text(ProjectViewModel.NoBot, "DvTextSecondary"));
+        }
+
         if (model.Threads.Count == 0)
         {
-            body.Add(Styles.Text(ProjectViewModel.NoConversations, "DvTextSecondary"));
+            bodyPanel.Children.Add(Styles.Text(ProjectViewModel.NoConversations, "DvTextSecondary"));
+            return;
         }
 
         foreach (var thread in model.Threads)
         {
             var label = model.ThreadLabel(thread);
             var link = ThreadLink(label, Addresses.Conversation(thread.Id));
-            body.Add(model.CanMoveOut(thread.Id)
-                ? PageParts.Row(link, MoveOut(label, thread.Id))
+            bodyPanel.Children.Add(model.CanMoveOut(thread.Id)
+                ? PageParts.Row(link, More(thread.Id))
                 : PageParts.Row(link));
         }
     }
 
-    private void ShowStart(UIElementCollection body)
+    private void ShowFiles()
     {
-        body.Add(PageParts.CardTitle("Start a conversation"));
-        if (model.ActiveBots.Count == 0)
+        IconButton? add = null;
+        if (model.CanManage)
         {
-            body.Add(Styles.Text(ProjectViewModel.NoBot, "DvTextSecondary"));
+            add = new IconButton { Icon = IconName.Attach, Label = ProjectViewModel.AddFile };
+            add.Click += async (_, _) => await Run(AddFile);
+        }
+
+        bodyPanel.Children.Add(Heading("Files", add));
+        if (model.Files.Count == 0)
+        {
+            bodyPanel.Children.Add(Styles.Text(ProjectViewModel.NoFiles, "DvTextSecondary"));
             return;
         }
 
-        foreach (var bot in model.ActiveBots)
+        foreach (var file in model.Files)
         {
-            var label = ProjectViewModel.StartLabel(bot);
-            body.Add(PageParts.Action(label, () => model.Start(bot.Id), Refresh, model.Working is null));
+            bodyPanel.Children.Add(FileRow(file));
         }
     }
 
-    private void ShowMoveIn(UIElementCollection body)
+    private void ShowMovable()
     {
-        body.Add(PageParts.CardTitle("Move a conversation in"));
+        movableRows.Children.Clear();
         if (model.Movable.Count == 0)
         {
-            body.Add(Styles.Text(ProjectViewModel.NoMovable, "DvTextSecondary"));
+            movableRows.Children.Add(Styles.Text(ProjectViewModel.NoMovable, "DvTextSecondary"));
             return;
         }
 
         foreach (var thread in model.Movable)
         {
-            var label = ProjectViewModel.MoveInLabel(model.ThreadLabel(thread));
-            body.Add(PageParts.Action(label, () => model.MoveIn(thread.Id), Refresh, model.Working is null));
+            var label = model.ThreadLabel(thread);
+            var row = PageParts.Row(Styles.Text(label));
+            row.Children.Add(TaskItem(ProjectViewModel.MoveToProjectLabel(label), () => model.MoveIn(thread.Id)));
+            movableRows.Children.Add(row);
         }
     }
 
-    private void ShowRemove(UIElementCollection body)
+    private UIElement FileRow(ProjectFileResponse file)
     {
-        body.Add(PageParts.CardTitle("Remove"));
-        if (model.ConfirmingRemove)
+        var row = new Grid
         {
-            body.Add(Styles.Text(ProjectViewModel.RemoveQuestion, "DvText"));
-            body.Add(PageParts.Row(
-                PageParts.Action(ProjectViewModel.RemoveProject, model.Remove, Refresh, model.CanManage && model.Working is null, ButtonKind.Danger),
-                PageParts.Action(ProjectViewModel.KeepProject, Keep, Refresh, model.Working is null)));
-            return;
+            ColumnSpacing = Tokens.Number("DvSpace2"),
+            MinHeight = Tokens.Number("DvTargetTouch"),
+        };
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        if (model.CanManage)
+        {
+            row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         }
 
-        body.Add(PageParts.Action(
-            ProjectViewModel.RemoveProject,
-            AskRemove,
-            Refresh,
-            model.CanManage && model.Working is null,
-            ButtonKind.Danger));
+        var icon = new Icon { NameOfIcon = IconName.File, VerticalAlignment = VerticalAlignment.Center };
+        var name = Styles.Text(file.File.Name);
+        name.TextWrapping = TextWrapping.NoWrap;
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        name.VerticalAlignment = VerticalAlignment.Center;
+        var size = Styles.Text(Words.Size(file.File.Size), "DvTextMono");
+        size.Foreground = Tokens.Brush(size, "DvText2");
+        size.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(name, 1);
+        Grid.SetColumn(size, 2);
+        row.Children.Add(icon);
+        row.Children.Add(name);
+        row.Children.Add(size);
+
+        var download = new IconButton { Icon = IconName.Download, Label = ProjectViewModel.DownloadLabel(file) };
+        download.Click += async (_, _) =>
+        {
+            var work = model.Delivers
+                ? () => model.Download(file)
+                : () => OpenDownload(model.DownloadAddress(file.File.Id));
+            await Run(work);
+        };
+        Grid.SetColumn(download, 3);
+        row.Children.Add(download);
+
+        if (model.CanManage)
+        {
+            var remove = new IconButton { Icon = IconName.Remove, Label = ProjectViewModel.RemoveFileLabel(file) };
+            remove.Click += (_, _) =>
+            {
+                model.AskRemoveFile(file);
+                Refresh();
+            };
+            Grid.SetColumn(remove, 4);
+            row.Children.Add(remove);
+        }
+
+        return row;
     }
 
-    private Button MoveOut(string label, Guid threadId) =>
-        PageParts.Action(ProjectViewModel.MoveOutLabel(label), () => model.MoveOut(threadId), Refresh, model.Working is null);
+    private Menu More(Guid threadId)
+    {
+        var menu = new Menu { Label = "More", TriggerIcon = IconName.More, ShowTriggerLabel = false };
+        menu.Items.Add(TaskItem(ProjectViewModel.MoveOutLabel, () => model.MoveOut(threadId)));
+        return menu;
+    }
+
+    private MenuItem Item(string label, Action choose)
+    {
+        var item = new MenuItem { Content = label };
+        item.Selected += (_, _) =>
+        {
+            choose();
+            Refresh();
+        };
+        return item;
+    }
+
+    private MenuItem TaskItem(string label, Func<Task> work)
+    {
+        var item = new MenuItem { Content = label };
+        item.Selected += async (_, _) => await Run(work);
+        return item;
+    }
+
+    private Task SaveFromSheet() => Run(model.Save);
+
+    private async Task Run(Func<Task> work)
+    {
+        var pending = work();
+        Refresh();
+        await pending;
+        Refresh();
+    }
+
+    private void Watch(Dialog dialog, Action closed, Action? opened)
+    {
+        dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (dialog.Open)
+            {
+                opened?.Invoke();
+                return;
+            }
+
+            closed();
+            Refresh();
+        });
+    }
+
+    private static void Open(Dialog dialog, bool open)
+    {
+        if (dialog.Open != open)
+        {
+            dialog.Open = open;
+        }
+    }
+
+    private static Grid Heading(string title, UIElement? action)
+    {
+        var heading = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
+        heading.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var name = PageParts.CardTitle(title);
+        Grid.SetColumn(name, 0);
+        heading.Children.Add(name);
+        if (action is not null)
+        {
+            Grid.SetColumn(action, 1);
+            heading.Children.Add(action);
+        }
+
+        return heading;
+    }
+
+    private static TextBlock Selectable(string text)
+    {
+        var block = Styles.Text(text, "DvTextParagraph");
+        block.IsTextSelectionEnabled = true;
+        return block;
+    }
 
     private static Link ThreadLink(string label, string address)
     {
@@ -343,18 +605,6 @@ public sealed class ProjectPage : Screen
     }
 
     private Task AddFile() => model.ChooseFiles(PickedFiles.ChooseAll);
-
-    private Task AskRemove()
-    {
-        model.PrepareRemove();
-        return Task.CompletedTask;
-    }
-
-    private Task Keep()
-    {
-        model.CancelRemove();
-        return Task.CompletedTask;
-    }
 
     private static Task OpenDownload(string address)
     {

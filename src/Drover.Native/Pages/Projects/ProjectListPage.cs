@@ -1,6 +1,6 @@
 namespace Drover.Native.Pages;
 
-/// <summary>The projects of the space: open one, or make one when the signed-in role allows it.</summary>
+/// <summary>The projects of the space: open one, or make one from a dialog when the role allows it.</summary>
 public sealed class ProjectListPage : Screen
 {
     #region Private Fields
@@ -11,17 +11,25 @@ public sealed class ProjectListPage : Screen
 
     private readonly ScreenHeader header = new() { Title = ProjectListViewModel.Heading };
 
+    private readonly IconButton newProjectButton = new()
+    {
+        Icon = IconName.Plus,
+        Label = ProjectListViewModel.EmptyAction,
+    };
+
     private readonly TextBlock memberNoteText = Styles.Text(ProjectListViewModel.MemberNote, "DvTextSecondary");
-
-    private readonly StackPanel createPanel = new() { Spacing = Tokens.Number("DvSpace3") };
-
-    private readonly StackPanel statusPanel = new() { Spacing = Tokens.Number("DvSpace2") };
 
     private readonly StackPanel listPanel = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private readonly Field draftName;
+    private readonly Field newProjectName = new() { Label = "Name" };
 
-    private readonly Button createButton;
+    private readonly StatusNote newProjectNote = new();
+
+    private readonly Button cancelCreateButton = new() { Content = "Cancel" };
+
+    private readonly Button createButton = new() { Content = "Create project", Kind = ButtonKind.Primary };
+
+    private readonly Dialog newProject;
 
     private bool showing;
 
@@ -31,43 +39,59 @@ public sealed class ProjectListPage : Screen
 
     public ProjectListPage()
     {
-        draftName = PageParts.Field(
-            "Project name",
-            string.Empty,
-            value =>
-            {
-                if (!showing)
-                {
-                    model.UpdateDraftName(value);
-                }
-            },
-            hint: "Name the project, then make it.");
-        AutomationProperties.SetName(draftName, "Project name");
-        createButton = PageParts.Action(
-            ProjectListViewModel.EmptyAction,
-            () => model.Create(),
-            Refresh,
-            enabled: false,
-            ButtonKind.Primary);
-        draftName.Submitted += async (_, _) =>
+        AutomationProperties.SetAutomationId(newProjectButton, "NewProject");
+        newProjectButton.Click += (_, _) =>
         {
-            if (model.CanManage && model.Working is null)
+            model.StartCreating();
+            Refresh();
+        };
+        header.Actions.Add(newProjectButton);
+
+        AutomationProperties.SetAutomationId(newProjectName, "NewProjectName");
+        newProjectName.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) =>
+        {
+            if (!showing)
             {
-                var pending = model.Create();
-                Refresh();
-                await pending;
-                Refresh();
+                model.UpdateDraftName(newProjectName.Value);
             }
+        });
+        newProjectName.Submitted += async (_, _) =>
+        {
+            if (!model.CanManage || model.Working is not null)
+            {
+                return;
+            }
+
+            var pending = model.Create();
+            Refresh();
+            await pending;
+            Refresh();
         };
 
-        createPanel.Children.Add(draftName);
-        createPanel.Children.Add(createButton);
+        cancelCreateButton.Click += (_, _) => model.CancelCreating();
+        createButton.Click += async (_, _) =>
+        {
+            var pending = model.Create();
+            Refresh();
+            await pending;
+            Refresh();
+        };
+
+        var body = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
+        body.Children.Add(newProjectName);
+        body.Children.Add(newProjectNote);
+        newProject = new Dialog
+        {
+            Title = "New project",
+            Body = body,
+            Actions = PageParts.Row(cancelCreateButton, createButton),
+        };
+        newProject.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => ProjectDialogChanged());
 
         layout.Body.Add(header);
         layout.Body.Add(memberNoteText);
-        layout.Body.Add(createPanel);
-        layout.Body.Add(statusPanel);
         layout.Body.Add(listPanel);
+        layout.Body.Add(newProject);
 
         Unloaded += (_, _) => model.Cancel();
         Content = layout;
@@ -90,41 +114,45 @@ public sealed class ProjectListPage : Screen
         Refresh();
     }
 
+    private void ProjectDialogChanged()
+    {
+        if (newProject.Open)
+        {
+            Pieces.FocusWhenShown(newProjectName, () => newProjectName.TakeFocus());
+            return;
+        }
+
+        if (model.Creating)
+        {
+            model.CancelCreating();
+            Refresh();
+        }
+    }
+
     private void Refresh()
     {
         var ready = model.State is ProjectListState.Empty or ProjectListState.Listed;
         memberNoteText.Visibility = ready && !model.CanManage ? Visibility.Visible : Visibility.Collapsed;
-        createPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+        newProjectButton.Visibility = model.ShowsNewProject ? Visibility.Visible : Visibility.Collapsed;
 
         showing = true;
         try
         {
-            if (draftName.Value != model.DraftName)
+            if (newProjectName.Value != model.DraftName)
             {
-                draftName.Value = model.DraftName;
+                newProjectName.Value = model.DraftName;
             }
-
-            draftName.Disabled = !model.CanManage;
-            createButton.IsEnabled = model.CanManage && model.Working is null;
-            createButton.Visibility = (model.State is ProjectListState.Listed || !model.CanManage)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
         }
         finally
         {
             showing = false;
         }
 
-        statusPanel.Children.Clear();
-        if (ready && model.Problem is { } problem)
-        {
-            statusPanel.Children.Add(Styles.Text(problem, "DvTextSecondary"));
-        }
-
-        if (ready && model.Working is { } working)
-        {
-            statusPanel.Children.Add(PageParts.Waiting(working));
-        }
+        cancelCreateButton.IsEnabled = model.Working is null;
+        createButton.IsEnabled = model.Working is null;
+        newProjectNote.Text = model.Working ?? model.Problem;
+        newProjectNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
+        Open(newProject, model.Creating);
 
         listPanel.Children.Clear();
 
@@ -163,11 +191,9 @@ public sealed class ProjectListPage : Screen
         };
         if (model.CanManage)
         {
-            empty.Action += async (_, _) =>
+            empty.Action += (_, _) =>
             {
-                var pending = model.Create();
-                Refresh();
-                await pending;
+                model.StartCreating();
                 Refresh();
             };
         }
@@ -203,6 +229,14 @@ public sealed class ProjectListPage : Screen
             Refresh();
         };
         return failed;
+    }
+
+    private static void Open(Dialog dialog, bool open)
+    {
+        if (dialog.Open != open)
+        {
+            dialog.Open = open;
+        }
     }
 
     #endregion

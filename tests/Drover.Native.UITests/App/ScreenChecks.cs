@@ -78,6 +78,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("stop while working", StopWhileWorking);
                 await Step("back", Back);
                 await Step("project back", ProjectBack);
+                await Step("project create", ProjectCreate);
+                await Step("project edit", ProjectEdit);
                 await Step("switch the theme", SwitchTheme);
             }
 
@@ -503,6 +505,64 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await AtWidth(PhoneWidth);
     }
 
+    /// <summary>
+    /// A new project is made from the header's plus button, at both widths the app must work at. The name is typed
+    /// into the dialog's field and Enter makes the project and opens its page.
+    /// </summary>
+    private async Task ProjectCreate()
+    {
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        const string Name = "Project from the dialog";
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Projects);
+            await Press("NewProject");
+            await Type("NewProjectName", Name);
+            await PressKey("NewProjectName", VirtualKey.Enter);
+            await Until($"the project named {Name}", () =>
+            {
+                var address = navigator.Current.ToString();
+                return WindowSays(Name) && address.StartsWith($"{Addresses.Projects}/", StringComparison.Ordinal)
+                    ? window.Content
+                    : null;
+            });
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// A project reads before it edits: no text field is on the page until the header's Edit button opens the sheet,
+    /// and Escape closes it again, at both widths the app must work at.
+    /// </summary>
+    private async Task ProjectEdit()
+    {
+        var project = settings.ProjectId ?? throw new CheckFailedException("no project was named for the screen checks");
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Project(project));
+            await Shown("ScreenBack");
+            if (VisibleEditor() is { } shown)
+            {
+                throw new CheckFailedException($"the project showed a text field before Edit: {shown.GetType().Name}");
+            }
+
+            await Press("EditProject");
+            await Shown("ProjectNameField");
+            PressEscape(KeyTarget());
+            await Until("the edit sheet to close", () => Find("ProjectNameField") is null ? window.Content : null);
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
     #endregion
 
     #region Actions
@@ -576,6 +636,31 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         invoker.Invoke();
     }
+
+    /// <summary>Presses a key in the editor inside the control with the id, as a person typing would.</summary>
+    private async Task PressKey(string id, VirtualKey key)
+    {
+        var target = await Shown(id);
+        var editor = Descendants(target).Prepend(target).FirstOrDefault(IsEditor) as UIElement ?? target;
+        editor.RaiseEvent(new KeyRoutedEventArgs(editor, key));
+    }
+
+    /// <summary>The control with the focus, which is inside the dialog or sheet an Escape belongs to.</summary>
+    private UIElement KeyTarget()
+    {
+        var root = window.Content?.XamlRoot ?? throw new CheckFailedException("the window has no root");
+        return FocusManager.GetFocusedElement(root) as UIElement
+            ?? throw new CheckFailedException("no control has focus for Escape");
+    }
+
+    private static void PressEscape(UIElement target) =>
+        target.RaiseEvent(new KeyRoutedEventArgs(target, VirtualKey.Escape));
+
+    /// <summary>The first text editor actually drawn on the screen, including an open dialog or sheet.</summary>
+    private FrameworkElement? VisibleEditor() => Roots()
+        .SelectMany(root => Descendants(root).Prepend(root))
+        .OfType<FrameworkElement>()
+        .FirstOrDefault(element => IsShown(element) && IsEditor(element));
 
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.
     private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)

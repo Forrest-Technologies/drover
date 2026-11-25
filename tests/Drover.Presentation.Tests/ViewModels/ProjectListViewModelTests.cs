@@ -85,7 +85,7 @@ public sealed class ProjectListViewModelTests : ViewModelTest
         await list.Open();
 
         list.State.Should().Be(ProjectListState.Empty);
-        ProjectListViewModel.MemberEmptyCause.Should().Be("An owner or admin of the space can make one.");
+        ProjectListViewModel.MemberEmptyCause.Should().Be("An owner or admin of the space can create one.");
         ProjectListViewModel.MemberEmptyAction.Should().Be("Back to conversations");
     }
 
@@ -188,11 +188,13 @@ public sealed class ProjectListViewModelTests : ViewModelTest
         Server.Refuse("POST", $"{space}/projects", HttpStatusCode.BadRequest, "Give the project a name.");
         var list = Make<ProjectListViewModel>();
         await list.Open();
+        list.StartCreating();
 
         list.UpdateDraftName("Q1 launch");
         await list.Load();
         await list.Create();
 
+        list.Creating.Should().BeTrue();
         list.DraftName.Should().Be("Q1 launch");
         list.Problem.Should().Be("Give the project a name.");
 
@@ -200,7 +202,85 @@ public sealed class ProjectListViewModelTests : ViewModelTest
         await list.Create();
 
         list.DraftName.Should().BeEmpty();
+        list.Creating.Should().BeFalse();
         Navigator.Current.Should().Be(Addresses.Project(projectId));
+    }
+
+    [Fact]
+    public async Task New_project_opens_a_dialog_and_cancel_clears_the_name()
+    {
+        Answer(role: "owner", projects: [Weekly]);
+        var list = Make<ProjectListViewModel>();
+        await list.Open();
+
+        list.StartCreating();
+        list.UpdateDraftName("Q1 launch");
+        list.Problem = "Give the project a name.";
+
+        list.Creating.Should().BeTrue();
+        list.ShowsNewProject.Should().BeTrue();
+
+        list.CancelCreating();
+
+        list.Creating.Should().BeFalse();
+        list.DraftName.Should().BeEmpty();
+        list.Problem.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Creating_from_the_dialog_closes_it_and_opens_the_new_project()
+    {
+        Answer(role: "owner", projects: [Weekly]);
+        Server.Answer("POST", $"{space}/projects", Weekly);
+        var list = Make<ProjectListViewModel>();
+        await list.Open();
+        list.StartCreating();
+        list.UpdateDraftName("  Weekly  ");
+
+        await list.Create();
+
+        list.Creating.Should().BeFalse();
+        Navigator.Current.Should().Be(Addresses.Project(projectId));
+        Server.Sent("POST", $"{space}/projects").Single().Should().Contain("Weekly").And.NotContain("  Weekly");
+    }
+
+    [Fact]
+    public async Task A_refused_create_keeps_the_dialog_open_with_the_reason()
+    {
+        Answer(role: "owner", projects: [Weekly]);
+        Server.Refuse(
+            "POST", $"{space}/projects", HttpStatusCode.Forbidden, "Only an owner or admin can create a project.");
+        var list = Make<ProjectListViewModel>();
+        await list.Open();
+        list.StartCreating();
+        list.UpdateDraftName("Weekly");
+
+        await list.Create();
+
+        list.Creating.Should().BeTrue();
+        list.Problem.Should().Be("Only an owner or admin can create a project.");
+        Navigator.Current.Should().Be(Addresses.Home);
+    }
+
+    [Fact]
+    public async Task A_member_is_not_offered_a_new_project()
+    {
+        var list = Make<ProjectListViewModel>();
+        Answer(role: "member");
+        var opening = list.Open();
+        list.ShowsNewProject.Should().BeFalse();
+        await opening;
+        list.ShowsNewProject.Should().BeFalse();
+
+        Answer(role: "member", projects: [Weekly]);
+        await list.Open();
+        list.ShowsNewProject.Should().BeFalse();
+
+        Server.Refuse("GET", $"{space}/projects", HttpStatusCode.Forbidden, "Only a member of the space can read its projects.");
+        await list.Open();
+
+        list.State.Should().Be(ProjectListState.Failed);
+        list.ShowsNewProject.Should().BeFalse();
     }
 
     #endregion
