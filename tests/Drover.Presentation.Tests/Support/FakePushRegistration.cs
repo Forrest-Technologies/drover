@@ -118,6 +118,8 @@ public sealed class FakeSettingsPushRegistration : FakePushRegistration, IDevice
 {
     #region Properties
 
+    public bool ShowMessageTextOnLockScreen { get; set; }
+
     public int NotificationSettingsOpened { get; private set; }
 
     public int BatterySettingsOpened { get; private set; }

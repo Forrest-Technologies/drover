@@ -4,19 +4,26 @@ public sealed class AndroidPushRegistration(
     ServerAddress server,
     ISecureStorage storage,
     IServiceScopeFactory scopes,
-    ILogger<AndroidPushRegistration> logger) : IPushRegistration, IDeviceNotificationSettings, IDisposable
+    ILogger<AndroidPushRegistration> logger) : IPushRegistration, IDeviceNotificationSettings
 {
     #region Private Fields
 
     private const string PermissionAsked = "drover.push.permission-asked";
 
-    private readonly SemaphoreSlim gate = new(1);
+    // A receiver can start before the activity creates its own services.
+    private static readonly SemaphoreSlim gate = new(1);
 
     private TaskCompletionSource<PushDeviceRequest?>? pending;
 
     #endregion
 
     #region Interface Implementations
+
+    public bool ShowMessageTextOnLockScreen
+    {
+        get => AndroidNotifications.ShowMessageTextOnLockScreen;
+        set => AndroidNotifications.SetShowMessageTextOnLockScreen(value);
+    }
 
     public Task<DevicePushCheck> Check(CancellationToken cancellationToken = default) => AsDeviceCall(ReadCheck);
 
@@ -25,8 +32,6 @@ public sealed class AndroidPushRegistration(
 
     public Task<string?> Unsubscribe(CancellationToken cancellationToken = default) =>
         AsDeviceCall(() => UnsubscribeOnDevice(cancellationToken));
-
-    public void Dispose() => gate.Dispose();
 
     #endregion
 
@@ -88,6 +93,22 @@ public sealed class AndroidPushRegistration(
 
     internal async Task<bool> BelongsTo(Guid user, string token) =>
         await Read(server.Current) is { } saved && saved.UserId == user && saved.Token == token;
+
+    internal async Task WhileRegistered(Guid user, string token, Action action)
+    {
+        await gate.WaitAsync();
+        try
+        {
+            if (await BelongsTo(user, token))
+            {
+                action();
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
     #endregion
 
