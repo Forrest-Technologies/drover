@@ -51,6 +51,21 @@ public sealed class Link : PlainButton
 
     #endregion
 
+    #region Public Methods
+
+    internal static async Task OpenOutside(Uri address)
+    {
+        var opened = await Launcher.LaunchUriAsync(address);
+#if __WASM__
+        if (!opened && OperatingSystem.IsBrowser())
+        {
+            Browser.OpenOutside(address.AbsoluteUri);
+        }
+#endif
+    }
+
+    #endregion
+
     #region Private Methods
 
     protected override AutomationPeer OnCreateAutomationPeer() => new RoleButtonPeer(this, AutomationControlType.Hyperlink);
@@ -64,7 +79,7 @@ public sealed class Link : PlainButton
 
         if (Uri.TryCreate(address, UriKind.Absolute, out var outside) && outside.Scheme is "http" or "https" or "mailto")
         {
-            _ = Launcher.LaunchUriAsync(outside);
+            _ = OpenOutside(outside);
             return;
         }
 
