@@ -859,12 +859,14 @@ public sealed class BotService(
     private static string? FindRunLimitProblem(RunLimits limits, RunCeilings space) =>
         limits switch
         {
-            { MaxSteps: { } steps } when steps < 1 || steps > space.MaxSteps =>
-                $"The limit on model calls is a whole number from 1 to {space.MaxSteps}, the most this space allows.",
+            { MaxSteps: { } steps } when steps < 1 || steps > space.MaxSteps => space.MaxSteps is int.MaxValue
+                ? "The limit on model calls is a whole number of 1 or more."
+                : $"The limit on model calls is a whole number from 1 to {space.MaxSteps}, the most this space allows.",
             { MaxTokens: { } tokens } when tokens < 1 || tokens > space.MaxTokens =>
                 $"The limit on tokens is a whole number from 1 to {space.MaxTokens:N0}, the most this space allows.",
-            { MaxDelegations: { } delegations } when delegations < 0 || delegations > space.MaxDelegations =>
-                $"The limit on handoffs is a whole number from 0 to {space.MaxDelegations}, the most this space allows.",
+            { MaxDelegations: { } delegations } when delegations < 0 || delegations > space.MaxDelegations => space.MaxDelegations is int.MaxValue
+                ? "The limit on handoffs is a whole number of 0 or more."
+                : $"The limit on handoffs is a whole number from 0 to {space.MaxDelegations}, the most this space allows.",
             _ => null,
         };
 

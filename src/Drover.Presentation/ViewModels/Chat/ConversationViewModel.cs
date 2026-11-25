@@ -209,7 +209,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     /// <summary>What is said in place of a side chat that is not there, with the way on.</summary>
     public EmptyNotice MissingNotice =>
-        new("This side chat is not here", "It was removed, or it belongs to someone else.", $"Back to {Bot.Name}", Addresses.Talk(Bot.Id));
+        new("Side chat not found", "It was removed, or it belongs to someone else.", $"Back to {Bot.Name}", Addresses.Talk(Bot.Id));
 
     /// <summary>What stands in for a conversation that could not be read, with the way to try again.</summary>
     public EmptyNotice LoadFailedNotice =>

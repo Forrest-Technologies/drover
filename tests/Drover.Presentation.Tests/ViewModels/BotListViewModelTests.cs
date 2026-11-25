@@ -142,7 +142,7 @@ public sealed class BotListViewModelTests : ViewModelTest
         await list.Open();
 
         list.State.Should().Be(BotListState.NoBotForMember);
-        BotListViewModel.NoBotForMember.Should().Be("This space has no bots yet. An owner or admin of the space can make one.");
+        BotListViewModel.NoBotForMember.Should().Be("This space has no bots yet. An owner or admin of the space can create one.");
     }
 
     [Fact]

@@ -560,17 +560,20 @@ public sealed class MarkdownView : StackPanel
         return run;
     }
 
-    // A link opens outside the app, as a link in a message opens in a new tab on the web. Only absolute http,
+    // A link opens outside the app, sharing the source links' fallback when a new browser tab is blocked. Only absolute http,
     // https, and mailto addresses become links at all; the parser leaves the rest as text.
     private Microsoft.UI.Xaml.Documents.Hyperlink Hyperlink(LinkNode link, InlineStyle style)
     {
         var hyperlink = new Microsoft.UI.Xaml.Documents.Hyperlink
         {
-            NavigateUri = new Uri(link.Address),
             Foreground = Tokens.Brush(this, "DvEmber"),
         };
         AddInlines(hyperlink.Inlines, link.Children, style);
-        hyperlink.Click += (_, _) => LinkPressed?.Invoke();
+        hyperlink.Click += (_, _) =>
+        {
+            LinkPressed?.Invoke();
+            _ = Link.OpenOutside(new Uri(link.Address));
+        };
         return hyperlink;
     }
 

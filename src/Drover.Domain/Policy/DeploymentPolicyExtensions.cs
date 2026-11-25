@@ -74,10 +74,14 @@ public static class DeploymentPolicyExtensions
         };
 
     public static DeploymentPolicy WithBoundedDelegation(this DeploymentPolicy policy) =>
-        policy with { MaxDelegationTreeCostCents = DeploymentPolicy.HostedMaxDelegationTreeCostCents };
+        policy with
+        {
+            MaxRunsPerDelegationTree = DeploymentPolicy.HostedMaxRunsPerDelegationTree,
+            MaxDelegationTreeCostCents = DeploymentPolicy.HostedMaxDelegationTreeCostCents,
+        };
 
     public static DeploymentPolicy WithBoundedRuns(this DeploymentPolicy policy) =>
-        policy with { MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun };
+        policy with { MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun, MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun };
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };

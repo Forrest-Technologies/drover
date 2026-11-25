@@ -502,7 +502,9 @@ try {
                         return;
                     }
 
-                    body = current === 'conversation-search' ? searchMessages : messages;
+                    body = current === 'conversation-links'
+                        ? [{ ...messages[0], parts: [{ kind: 'text', text: 'Sample reply with a source.' }, { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` }] }]
+                        : current === 'conversation-search' ? searchMessages : messages;
                 }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
@@ -900,6 +902,19 @@ try {
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
+            current = 'conversation-links';
+            await page.route(`${origin}/sample-external`, route => route.fulfill({
+                contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',
+            }));
+            await page.goto(`${origin}/talk/${botId}`);
+            const externalSource = page.getByRole('link', { name: /Sample external source,/ });
+            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
+            // A rejected new tab must still follow the person's link, without relaxing browser settings.
+            await page.evaluate(() => { Windows.System.Launcher.open = () => 'False'; });
+            await externalSource.dispatchEvent('click');
+            await page.waitForURL(`${origin}/sample-external`, { timeout: 10000 });
+            assert.equal(await page.title(), 'Sample external destination');
+            progress(`blocked external link ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
