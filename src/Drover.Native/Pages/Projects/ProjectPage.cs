@@ -105,7 +105,11 @@ public sealed class ProjectPage : Screen
             model.StartEditing();
             Refresh();
         };
-        moreMenu.Items.Add(Item(ProjectViewModel.RemoveProject, model.PrepareRemove));
+        moreMenu.Items.Add(PageParts.MenuEntry(ProjectViewModel.RemoveProject, () =>
+        {
+            model.PrepareRemove();
+            Refresh();
+        }));
         header.Actions.Add(editButton);
         header.Actions.Add(moreMenu);
 
@@ -174,14 +178,10 @@ public sealed class ProjectPage : Screen
             }
         };
 
-        var editBody = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
-        editBody.Children.Add(projectNameField);
-        editBody.Children.Add(instructionsField);
-        editBody.Children.Add(editNote);
         editSheet = new Sheet
         {
             Title = "Edit project",
-            Body = editBody,
+            Body = PageParts.SheetBody(projectNameField, instructionsField, editNote),
             Actions = PageParts.Row(cancelEditButton, saveButton),
             InitialFocus = projectNameField,
             Closing = AskBeforeDiscard,
@@ -404,7 +404,11 @@ public sealed class ProjectPage : Screen
             add.Items.Add(TaskItem(bot.Name, () => model.Start(bot.Id)));
         }
 
-        add.Items.Add(Item(ProjectViewModel.MoveHere, model.StartMoving));
+        add.Items.Add(PageParts.MenuEntry(ProjectViewModel.MoveHere, () =>
+        {
+            model.StartMoving();
+            Refresh();
+        }));
         bodyPanel.Children.Add(Heading("Conversations", add));
 
         if (model.ActiveBots.Count == 0)
@@ -565,17 +569,6 @@ public sealed class ProjectPage : Screen
         var menu = new Menu { Label = "More", TriggerIcon = IconName.More, ShowTriggerLabel = false };
         menu.Items.Add(TaskItem(ProjectViewModel.MoveOutLabel, () => model.MoveOut(threadId)));
         return menu;
-    }
-
-    private MenuItem Item(string label, Action choose)
-    {
-        var item = new MenuItem { Content = label };
-        item.Selected += (_, _) =>
-        {
-            choose();
-            Refresh();
-        };
-        return item;
     }
 
     private MenuItem TaskItem(string label, Func<Task> work)

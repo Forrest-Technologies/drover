@@ -122,6 +122,69 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Replacing_a_key_closes_on_success_and_keeps_the_reason_on_refusal()
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        server.Answer("PUT", $"{space}/model-connections/{connectionId}/key", Connection with { HasKey = true });
+        var model = Models();
+        await model.Open();
+        model.StartReplacing(Connection);
+        model.NewKey = " sample-new-key ";
+
+        await model.ReplaceKey(Connection);
+
+        model.Replacing.Should().BeNull();
+        model.NewKey.Should().BeEmpty();
+
+        server.Refuse("PUT", $"{space}/model-connections/{connectionId}/key", HttpStatusCode.BadRequest, "Sample key refused.");
+        model.StartReplacing(Connection);
+        model.NewKey = "another-key";
+
+        await model.ReplaceKey(Connection);
+
+        model.Replacing.Should().Be(connectionId);
+        model.NewKey.Should().Be("another-key");
+        model.KeyProblem.Should().Be("Sample key refused.");
+        model.Problems.Should().NotContainKey(connectionId, "a dialog refusal is not a card error");
+        model.ChangePending.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancelling_an_add_or_a_key_replacement_clears_every_typed_secret()
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var model = Models();
+        await model.Open();
+
+        model.StartAdding();
+        model.ApiKey = "sample-add-key";
+        model.CancelAdding();
+        model.Adding.Should().BeFalse();
+        model.ApiKey.Should().BeEmpty();
+
+        model.StartReplacing(Connection);
+        model.NewKey = "sample-replacement-key";
+        model.CancelReplacing();
+        model.Replacing.Should().BeNull();
+        model.NewKey.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_member_is_offered_no_owner_actions_on_a_model_connection()
+    {
+        server.Answer("GET", "/api/session", Samples.Session("member"));
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var asMember = new ModelConnectionsViewModel(
+            server.CreateApi(),
+            new(server.CreateApi(), new ShareInbox()),
+            NullLogger<ModelConnectionsViewModel>.Instance);
+        await asMember.Open();
+
+        asMember.CanEdit.Should().BeFalse("a member sees cards without owner actions and no add action");
+        asMember.Connections.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task A_freshly_tested_connections_catalog_opens_with_its_models_without_a_refresh()
     {
         Drover.Contracts.Models.ModelCatalogResponse[] catalog =

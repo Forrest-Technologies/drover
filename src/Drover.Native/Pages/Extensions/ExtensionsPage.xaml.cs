@@ -10,7 +10,11 @@ public sealed partial class ExtensionsPage : Screen
 
     private readonly Dictionary<Guid, ExtensionRow> rows = [];
 
+    private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+
     private readonly StackPanel list = new() { Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly Sheet importSheet = new() { Title = "Import an extension" };
 
     private ImportExtensionForm? form;
 
@@ -26,10 +30,16 @@ public sealed partial class ExtensionsPage : Screen
     {
         InitializeComponent();
         AutomationProperties.SetName(list, "Extensions");
-        MakeLink.Address = Addresses.ExtensionEditor;
-        MakeLink.Ink = MakeLink.HoverInk = "DvText";
-        MakeLink.MinHeight = Tokens.Number("DvTargetTouch");
-        MakeLink.VerticalContentAlignment = VerticalAlignment.Center;
+        AddExtension.Items.Add(PageParts.MenuEntry("Import an extension", () => { Model.StartImporting(); Refresh(); }));
+        AddExtension.Items.Add(PageParts.MenuEntry("Make an extension", () => navigator.NavigateTo(Addresses.ExtensionEditor)));
+        importSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (!importSheet.Open && Model.Importing)
+            {
+                Model.StopImporting();
+            }
+        });
+        Layout.Body.Add(importSheet);
         Model.PropertyChanged += (_, _) => Refresh();
         Refresh();
     }
@@ -50,8 +60,7 @@ public sealed partial class ExtensionsPage : Screen
 
     private void Refresh()
     {
-        Actions.Visibility = Model.ShowsActions ? Visibility.Visible : Visibility.Collapsed;
-        StartImport.Visibility = Model.ShowsImportButton ? Visibility.Visible : Visibility.Collapsed;
+        AddExtension.Visibility = Model.ShowsActions ? Visibility.Visible : Visibility.Collapsed;
         ShowImport();
         ShowUnder();
 
@@ -67,16 +76,15 @@ public sealed partial class ExtensionsPage : Screen
         if (Model.Importing && form is null)
         {
             form = new(Model);
-            ImportHost.Content = form;
+            importSheet.Body = form;
         }
         else if (!Model.Importing && form is not null)
         {
             form = null;
-            ImportHost.Content = null;
+            importSheet.Body = null;
         }
 
-        // Nothing is left standing where the import was, so the column's spacing does not leave a gap for it.
-        ImportHost.Visibility = form is null ? Visibility.Collapsed : Visibility.Visible;
+        importSheet.Open = Model.Importing;
     }
 
     private void ShowUnder()

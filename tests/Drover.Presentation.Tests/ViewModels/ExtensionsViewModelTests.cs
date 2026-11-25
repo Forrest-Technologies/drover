@@ -251,7 +251,7 @@ public sealed class ExtensionsViewModelTests : IDisposable
         screen.StartImporting();
 
         screen.Importing.Should().BeTrue();
-        screen.Shows.Should().Be(ExtensionsContent.Nothing, "the import is the whole screen while the list is empty");
+        screen.Shows.Should().Be(ExtensionsContent.Empty, "the empty state stays behind the import sheet");
         screen.ImportTitle.Should().Be("Import an extension");
         screen.Form.CanRead.Should().BeFalse("there is nothing to read yet");
         screen.Form.Text = SampleFile;

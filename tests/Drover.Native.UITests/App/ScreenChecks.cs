@@ -79,6 +79,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("back", Back);
                 await Step("projects list", ProjectsList);
                 await Step("project back", ProjectBack);
+#if !__IOS__
+                await Step("tool server sheet", ToolServerSheet);
+#endif
                 await Step("project create", ProjectCreate);
                 await Step("project edit", ProjectEdit);
                 await Step("switch the theme", SwitchTheme);
@@ -531,6 +534,36 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     }
 
     /// <summary>
+    /// The add form opens as a sheet from the header action and takes the focus into its Name field. The check then
+    /// takes the keyboard close path Escape uses and requires the focus to go back to the action that opened it.
+    /// </summary>
+    private async Task ToolServerSheet()
+    {
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        navigator.NavigateTo(Addresses.Tools);
+        var add = await Shown("AddToolServer");
+        await Until("AddToolServer to take focus", () =>
+        {
+            add.Focus(FocusState.Keyboard);
+            return IsFocused(add) ? add : null;
+        });
+
+        await Press("AddToolServer");
+        var name = await Shown("ToolServerName");
+        await Until("the Name field to take focus", () => IsFocused(name) ? name : null);
+
+        var sheet = Roots()
+            .SelectMany(root => Descendants(root).Prepend(root))
+            .OfType<Sheet>()
+            .FirstOrDefault(element => element.Open)
+            ?? throw new CheckFailedException("the add sheet is not open");
+        sheet.CloseFromKeyboardForCheck();
+
+        await Until("the sheet to close", () => Find("ToolServerName") is null ? window.Content : null);
+        await Until("the focus to return to AddToolServer", () => IsFocused(add) ? add : null);
+    }
+
+    /// <summary>
     /// A new project is made from the header's plus button, at both widths the app must work at. The name is typed
     /// into the dialog's field and Enter makes the project and opens its page.
     /// </summary>
@@ -572,7 +605,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             await AtWidth(width);
             navigator.NavigateTo(Addresses.Project(project));
             await Shown("ScreenBack");
-            await Shown("EditProject");
+            var edit = await Shown("EditProject");
             if (VisibleEditor() is { } shown)
             {
                 throw new CheckFailedException($"the project showed a text field before Edit: {shown.GetType().Name}");
@@ -580,13 +613,15 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
             await Press("EditProject");
             await Shown("ProjectNameField");
-            if (FindById<Dialog>("EditProjectSheet") is not { } sheet)
-            {
-                throw new CheckFailedException("the edit sheet is not in the page");
-            }
+            var sheet = Roots()
+                .SelectMany(root => Descendants(root).Prepend(root))
+                .OfType<Sheet>()
+                .FirstOrDefault(element => element.Open)
+                ?? throw new CheckFailedException("the edit sheet is not open");
+            sheet.CloseFromKeyboardForCheck();
 
-            sheet.CloseFromKeyboard();
             await Until("the edit sheet to close", () => Find("ProjectNameField") is null ? window.Content : null);
+            await Until("the focus to return to EditProject", () => IsFocused(edit) ? edit : null);
         }
 
         navigator.NavigateTo(Addresses.Home);
@@ -685,12 +720,23 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         .OfType<FrameworkElement>()
         .FirstOrDefault(element => IsShown(element) && IsEditor(element));
 
-    /// <summary>A control by id even when it is a closed dialog with no drawn size.</summary>
-    private T? FindById<T>(string id) where T : FrameworkElement => Roots()
-        .SelectMany(root => Descendants(root).Prepend(root))
-        .OfType<T>()
-        .FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == id);
+    private bool IsFocused(FrameworkElement element)
+    {
+        if (window.Content?.XamlRoot is not { } root)
+        {
+            return false;
+        }
 
+        for (var at = FocusManager.GetFocusedElement(root) as DependencyObject; at is not null; at = VisualTreeHelper.GetParent(at))
+        {
+            if (ReferenceEquals(at, element))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.
     private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)
         where T : class

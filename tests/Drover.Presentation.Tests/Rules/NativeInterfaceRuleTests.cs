@@ -12,6 +12,9 @@ public sealed partial class NativeInterfaceRuleTests
     // The two files that may hold raw values: the tokens, and the styles that restate token products.
     private static readonly string[] valueFiles = ["Theme/Tokens.xaml", "Theme/Styles.xaml"];
 
+    // The card methods, including the helpers a card draws a tool or a catalog row with.
+    private static readonly string[] cardMethodMarkers = ["Connection(Drover.", "ToolReview(", "CatalogRow("];
+
     // The only places a clock ticks or an animation repeats: the four live states and the motion they share.
     private static readonly string[] liveStateFiles =
     [
@@ -161,6 +164,53 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void Connection_cards_put_their_actions_in_a_menu()
+    {
+        string[] files = ["Pages/Models/ModelConnectionsPage.cs", "Pages/Tools/ToolConnectionsPage.cs"];
+        var found = from path in files
+                    let source = Repository.NativeFiles(".cs").Single(file => file.Path == path).Text
+                    from button in CardActions(CardMethod(source))
+                    select $"{path}: {button}";
+
+        found.Should().BeEmpty("a card's actions belong in its More menu, apart from sign in and accept change");
+    }
+
+    [Fact]
+    public void A_worded_button_on_a_card_is_caught()
+    {
+        const string Sample = """
+            body.Children.Add(Action("View models", () => model.ShowCatalog(connection)));
+            body.Children.Add(new Button { Content = "Test connection" });
+            """;
+
+        CardActions(Sample).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void A_button_with_a_ternary_label_on_a_card_is_caught()
+    {
+        const string Sample = """
+            body.Children.Add(Action(model.Busy == connection.Id ? "Working" : "Check and list tools", () => model.Refresh(connection)));
+            Button other = new();
+            """;
+
+        CardActions(Sample).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void The_sign_in_and_accept_change_buttons_on_a_card_are_allowed()
+    {
+        const string Sample = """
+            body.Children.Add(Action("Sign in", () => model.SignIn(connection)));
+            body.Children.Add(Action("Sign in again", () => model.SignIn(connection)));
+            body.Children.Add(Action(connection.SignIn is "needs_reconnect" ? "Sign in again" : "Sign in", () => model.SignIn(connection)));
+            body.Children.Add(Action($"Accept the change to {tool.Name}", () => model.Accept(tool)));
+            """;
+
+        CardActions(Sample).Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_page_that_draws_its_own_frame_or_link_is_caught()
     {
         const string Sample = """
@@ -288,6 +338,41 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Private Methods
+
+    private static string CardMethod(string source) =>
+        string.Join('\n', cardMethodMarkers.SelectMany(marker => MethodLines(source, marker)));
+
+    private static List<string> MethodLines(string source, string marker)
+    {
+        var lines = source.Split('\n');
+        var start = Array.FindIndex(lines, line => line.Contains(marker, StringComparison.Ordinal));
+        if (start < 0)
+        {
+            return [];
+        }
+
+        List<string> method = [lines[start]];
+        for (var index = start + 1; index < lines.Length; index++)
+        {
+            method.Add(lines[index]);
+            if (lines[index] == "    }")
+            {
+                break;
+            }
+        }
+
+        return method;
+    }
+
+    private static IEnumerable<string> CardActions(string body) =>
+        from match in CardButton().Matches(body).Cast<Match>()
+        let label = match.Groups[1].Value
+        where !label.Contains("Sign in", StringComparison.Ordinal)
+            && !label.Contains("Accept the change to", StringComparison.Ordinal)
+        select match.Value.Trim();
+
+    [GeneratedRegex(@"(?:PageParts\.)?Action\(\s*([^,)]+)|new\s+Button\b|\bButton\s+\w+\s*=\s*new\s*\(")]
+    private static partial Regex CardButton();
 
     [GeneratedRegex(@"new\s+Facet\b|\bFacet\s+\w+\s*=\s*new\s*\(|new\s+Link\b|\bLink\s+\w+\s*=\s*new\s*\(")]
     private static partial Regex OwnFrameOrLink();

@@ -5,7 +5,7 @@ namespace Drover.Native.Controls;
 /// reached, Tab stays inside it, and Escape closes it. Closing puts the focus back where it was.
 /// </summary>
 [Microsoft.UI.Xaml.Markup.ContentProperty(Name = nameof(Body))]
-public class Dialog : Grid
+public partial class Dialog : Grid
 {
     #region Private Fields
 
@@ -89,13 +89,6 @@ public class Dialog : Grid
         get => GetValue(ActionsProperty);
         set => SetValue(ActionsProperty, value);
     }
-
-    #endregion
-
-    #region Internal Methods
-
-    /// <summary>Closes the way Escape does, for a screen check that cannot inject a key.</summary>
-    internal void CloseFromKeyboard() => surface.CloseFromKeyboard();
 
     #endregion
 

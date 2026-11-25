@@ -652,7 +652,8 @@ try {
                     await page.getByRole('heading', { name: 'No tool server yet', exact: true }).waitFor({ state: 'attached' });
                 }
                 if (name === 'tools' || name === 'tools-review') {
-                    await page.getByRole('heading', { name: 'Sample tools', exact: true }).waitFor({ state: 'attached' });
+                    await page.getByText('Sample tools', { exact: true }).waitFor({ state: 'attached' });
+                    await page.getByRole('button', { name: 'More for Sample tools', exact: true }).waitFor({ state: 'attached' });
                 }
                 if (name === 'tools-review') {
                     await page.getByRole('button', { name: 'Accept the change to Sample tool', exact: true }).waitFor({ state: 'attached' });

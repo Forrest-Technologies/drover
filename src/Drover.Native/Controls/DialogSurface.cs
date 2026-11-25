@@ -5,7 +5,7 @@ namespace Drover.Native.Controls;
 /// holds a panel with a title, a Close button, a body, and actions, keeps Tab inside the panel, closes on Escape,
 /// and puts the focus back where it was when it closes. While it is open, a device's Back closes it first.
 /// </summary>
-internal sealed class DialogSurface
+internal sealed partial class DialogSurface
 {
     #region Private Fields
 
@@ -197,13 +197,6 @@ internal sealed class DialogSurface
         opener?.Focus(ClosedWith);
         opener = null;
     }
-
-    #endregion
-
-    #region Internal Methods
-
-    /// <summary>Closes the way Escape does, for a screen check that cannot inject a key.</summary>
-    internal void CloseFromKeyboard() => Close(FocusState.Keyboard);
 
     #endregion
 

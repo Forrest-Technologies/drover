@@ -53,6 +53,26 @@ internal static class PageParts
         return card;
     }
 
+    /// <summary>The column inside a sheet, spaced from the sheet's own token.</summary>
+    public static StackPanel SheetBody(params UIElement[] children)
+    {
+        var column = new StackPanel { Spacing = Tokens.Number("DvSpace4") };
+        foreach (var child in children)
+        {
+            column.Children.Add(child);
+        }
+
+        return column;
+    }
+
+    /// <summary>One action of an icon menu, with the name a person reads and the state it can be taken in.</summary>
+    public static MenuItem MenuEntry(string label, Action choose, bool enabled = true)
+    {
+        var item = new MenuItem { Content = label, HorizontalContentAlignment = HorizontalAlignment.Left, IsEnabled = enabled };
+        item.Selected += (_, _) => choose();
+        return item;
+    }
+
     public static Button Action(string label, Func<Task> work, Action refresh, bool enabled = true, ButtonKind kind = ButtonKind.Quiet)
     {
         var button = new Button { Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap }, IsEnabled = enabled, Kind = kind, HorizontalAlignment = HorizontalAlignment.Left };
