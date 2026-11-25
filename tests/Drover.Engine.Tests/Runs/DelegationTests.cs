@@ -255,7 +255,12 @@ public sealed class DelegationTests(PostgresServer postgres)
         root.Status.Should().Be(RunStatus.Completed, "a refused handoff is a result the bot reads, not the end of its run");
         (await world.ReadTree(rootId)).Should().HaveCount(2);
         world.Script.Requests[3].Last(seen => seen.Role == "tool").Summary
-            .Should().StartWith("d2 = ").And.Contain(RunReasons.BudgetExceeded).And.Contain("its limit is 1").And.Contain("\"detail\":\"handoffs\"");
+            .Should().StartWith("d2 = ")
+            .And.Contain(RunReasons.BudgetExceeded)
+            .And.Contain("its limit is 1")
+            .And.Contain("\"detail\":\"handoffs\"")
+            .And.Contain("\"used\":1")
+            .And.Contain("\"cap\":1");
     }
 
     [Fact]

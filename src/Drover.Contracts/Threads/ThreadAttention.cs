@@ -11,9 +11,27 @@ public sealed record ThreadAttention(bool WaitingForYou, bool Failed, bool HasNe
 
 /// <summary>
 /// A run that failed. <see cref="Cause"/> is one of <see cref="FailureCauses"/>. <see cref="Reported"/> is the error
-/// the run's log holds, as safe to show as the log is; a screen shows it only when asked.
+/// the run's log holds, as safe to show as the log is; a screen shows it only when asked. <see cref="Limit"/> is set
+/// when the run stopped at a Drover limit, with which limit it hit, what it used, and the cap; older runs have none.
 /// </summary>
-public sealed record RunFailure(Guid RunId, string Cause, string Reported);
+public sealed record RunFailure(Guid RunId, string Cause, string Reported, RunFailureLimit? Limit = null);
+
+/// <summary>
+/// The Drover limit a run stopped at: <see cref="Kind"/> is one of <see cref="FailureLimits"/>, <see cref="Used"/> is
+/// how much the run used when it stopped, and <see cref="Cap"/> is the limit in force.
+/// </summary>
+public sealed record RunFailureLimit(string Kind, long Used, long Cap);
+
+public static class FailureLimits
+{
+    #region Limits
+
+    public const string ModelCalls = "model_calls";
+
+    public const string Tokens = "tokens";
+
+    #endregion
+}
 
 public static class FailureCauses
 {

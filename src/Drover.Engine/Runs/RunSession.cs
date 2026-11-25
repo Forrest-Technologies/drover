@@ -1,9 +1,19 @@
 namespace Drover.Engine.Runs;
 
 /// <summary>The run stopped itself at a limit. <see cref="Reason"/> is the status reason the run ends with.</summary>
-public sealed class RunLimitException(string reason, string message) : Exception(message)
+public sealed class RunLimitException(string reason, string message, string kind, long used, long cap) : Exception(message)
 {
+    #region Properties
+
     public string Reason => reason;
+
+    public string Kind => kind;
+
+    public long Used => used;
+
+    public long Cap => cap;
+
+    #endregion
 }
 
 /// <summary>A catalog tool as one run sees it: the row, the effective grant at the start, and the name the model uses.</summary>
@@ -237,18 +247,25 @@ public sealed class RunSession(
     {
         await AnnounceStoredMessage();
 
-        if (limits.MaxSteps != int.MaxValue && step + Volatile.Read(ref toolModelCalls) >= limits.MaxSteps)
+        var callsMade = step + Volatile.Read(ref toolModelCalls);
+        if (limits.MaxSteps != int.MaxValue && callsMade >= limits.MaxSteps)
         {
             throw new RunLimitException(
                 RunReasons.StepLimit,
-                $"This work stopped after {limits.MaxSteps} model calls, the most it may make. The limit is in the bot's settings, under Limits.");
+                $"This work stopped after {limits.MaxSteps} model calls, the most it may make. The limit is in the bot's settings, under Limits.",
+                FailureLimits.ModelCalls,
+                callsMade,
+                limits.MaxSteps);
         }
 
         if (TokensUsed >= limits.MaxTokens)
         {
             throw new RunLimitException(
                 RunReasons.TokenLimit,
-                $"This work stopped after it used {TokensUsed:N0} tokens. It may use {limits.MaxTokens:N0}. The limit is in the bot's settings, under Limits.");
+                $"This work stopped after it used {TokensUsed:N0} tokens. It may use {limits.MaxTokens:N0}. The limit is in the bot's settings, under Limits.",
+                FailureLimits.Tokens,
+                TokensUsed,
+                limits.MaxTokens);
         }
 
         var started = new StepChanged(++step, Guid.CreateVersion7());

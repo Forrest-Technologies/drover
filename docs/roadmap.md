@@ -27,13 +27,13 @@ Checked against the code on the trunk, not against older documents.
 | Area | On the trunk |
 | --- | --- |
 | Server | One .NET server with PostgreSQL. A run is a durable job with a stored event log. Clients resume a stream where it stopped. One `docker compose up` deploys it, with an optional HTTPS proxy |
-| Bots | A hierarchy of bots, each with a character, instructions, a model and tool grants. Delegation to the bots beneath, with depth, run and cost limits. Tokens cap each run; operators, spaces, and bots may set a model-call limit. Rules at four points of a run. A rule that was removed can be put back with Undo. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused. Routines on a schedule. Memory notes per person. Projects with shared files. Extensions as one file |
+| Bots | A hierarchy of bots, each with a character, instructions, a model and tool grants. Delegation to the bots beneath, with depth, run and cost limits. Tokens cap each run; operators, spaces, and bots may set a model-call limit. A stopped run or refused handoff names the limit with used against cap and links editors straight to the bot's Limits settings. Rules at four points of a run. A rule that was removed can be put back with Undo. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused. Routines on a schedule. Memory notes per person. Projects with shared files. Extensions as one file |
 | Conversations | Streaming replies with tool activity, edit and regenerate, side chats, a running summary, search across conversations, export as Markdown or JSON, attachments, document reading, safe previews. One bot turn now reads as one unit with a compact ledger of its work, with one row for each piece of work that opens to the call. A theme sets colors, type, density, shape and motion, including the corners, the yard, the live states and the characters. Every theme is checked at build time for contrast, hues, bounds, touch targets and ink. Large pictures get a static preview of at most 480 pixels on the long edge and the original can still be downloaded. Pictures can be pasted and files dropped anywhere on a conversation, with one sentence when one cannot be taken. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels |
 | Code and output | Code, JSON, tables, differences, logs and bytes in a conversation are drawn from what they hold. Lines can wrap, and a block can open full screen. Past 400 lines or 64 KiB only the start is drawn until a person asks for the rest; a table past 400 rows gets a button for the rest |
 | Tools | MCP tool servers with no auth, a header or a sign-in. Built-in tools for time, web pages, web search, memory, images, delegation and the crew |
 | Sandboxes | Optional, turned on with one sandbox service key in `.env` and a restart; the status page names the setting when none is set. A sandbox runs commands, handles files, shows a screen a bot can use, and a person can watch and take over. A finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Uploads use a writable directory in the image; a failed write answers 503 with `storage_unavailable` |
 | Models | Two kinds of connection: one hosted provider with its own adapter, and any server that speaks the chat completions API. A stored catalog of each connection's models. Stored fallback lists. Usage and cost per run and per bot |
-| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Pressable controls take their smallest height from the device's pointer: 44 px for a finger, 32 px for a mouse. A screen shows at most one primary action at rest. Lists of projects and bots draw each item with a card that opens on tap, click, Enter or Space. Extensions use the same card frame, with their actions in words beneath it. Model and tool connections use the same card with their actions in a More menu; their add forms open in a sheet from the header, replacing a key or a header opens a dialog, and Extensions has one add menu for import and make. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
+| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Pressable controls take their smallest height from the device's pointer: 44 px for a finger, 32 px for a mouse. A screen shows at most one primary action at rest. Lists of projects and bots draw each item with a card that opens on tap, click, Enter or Space. Extensions use the same card frame, with their actions in words beneath it. Model and tool connections use the same card with their actions in a More menu; their add forms open in a sheet from the header, replacing a key or a header opens a dialog, and Extensions has one add menu for import and make. Projects read first and open a sheet to change their name and instructions; a new project is made from a dialog. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
 | People | Password sign-in, a setup code for the first account, device sessions. Each person has their own space. Roles exist (owner, admin, member), and there is no way yet to invite a second person |
 | Security | Row-level security in PostgreSQL enforces isolation between spaces and people. Grants are checked at call time and narrow down the hierarchy. Secrets are encrypted with a key ring and never returned. A deployment policy sets every limit, and limits only narrow. Containers run read-only with capabilities dropped. Every pull request runs code scanning, secret scanning, dependency and license checks |
 | Documentation | `README.md`, `AGENTS.md`, `CODE_STYLE.md`, `DESIGN.md`, nineteen architecture files, eighteen decision records, and guides for self-hosting, desktop installers and the Android preview |
@@ -166,6 +166,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #575 fix: a bot rule is removed on one press with no way back
 - #576 fix: Use another server forgets the server on one tap
 - #752 Native client: hide the composer on a delegation conversation
+- #875 fix: a disabled conversation field has no accessible description
 
 **Interface specs.** [recovery-states.md](ux/recovery-states.md)
 
@@ -174,6 +175,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - With the server stopped, every screen opens to a failed state with a working Try again.
 - A reply lost mid-stream stays on screen and is recovered with one press.
 - A draft, an unsaved bot and a half-written rule each survive leaving and coming back.
+- A conversation that could not be read tells assistive technology when its disabled message field will be available, and stops saying so after a successful retry.
 - Every state in `recovery-states.md` exists with its exact words.
 
 ### 04 Runs you can trust
@@ -441,9 +443,9 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 ### 13 Conversation tools
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/13) · 35 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/13) · 41 issues
 
-**Goal.** Act on a message, find anything said in one or every conversation, and manage conversations, with the remaining interface defects fixed.
+**Goal.** Act on a message, find anything said in one or every conversation, and manage conversations, with the remaining interface defects fixed. Code, output and everything else the app shows look and act the same wherever they appear.
 
 **Issues.**
 
@@ -482,6 +484,14 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #711 feat: project names and project files in search results, server
 - #712 feat: project names and project files in search results, native client
 - #713 docs: search layer 3.8, server bench, numbers and docs 02, 04 and 18
+- #931 feat: pure helpers for pretty display: terminal text, whole commands, a JSON outline, line differences, middle cuts and link hosts
+- #932 feat: one block for machine text everywhere: Activity, the sandbox page, text files, failure reports and Try it
+- #933 feat: folding JSON in every block that holds it
+- #934 feat: before and after as one difference, and what a tool accepts, in Tool connections and conversation cards
+- #935 feat: long values cut the same way everywhere, Show all and Show less for long text, and text a bot or machine wrote can be selected
+- #936 feat: the machine face used by one rule, a field for identifiers, and a link that shows its real host
+
+**Interface specs.** [pretty-display.md](ux/pretty-display.md): build #595's first layer, then #931, #932, #933 and #934, then #935 and #936.
 
 ### 14 Make it yours
 
@@ -514,9 +524,9 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 ### 15 Tools and reach
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 26 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/15) · 34 issues
 
-**Goal.** Give a bot more built-in tools, let a bot read files and cards from tool servers, and let a person use Drover from other programs with an access token.
+**Goal.** Give a bot more built-in tools, let a bot answer with cards a person can press, read files and cards from tool servers, and let a person use Drover from other programs with an access token.
 
 **Issues.**
 
@@ -546,6 +556,16 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #551 feat: small tools: time zone and date arithmetic, edit an image, describe an image by address
 - #552 feat: a bot stuck in a loop cannot flood a tool server
 - #880 feat: a bot's reply can show choices, a short form, a table or a checklist drawn with Drover's own controls
+- #924 feat: card contracts: one CardSpec for every kind of card a bot sends, its limits, its words and its plain-text fallback
+- #925 feat: answering a card: the person's message carries an answer part, the server writes its words, a second answer is refused
+- #926 feat: cards in the conversation's view models: drawn from stored parts, with every state and its exact words
+- #927 feat: the card frame, the choice list, quick replies and the picker in the native client
+- #928 feat: the short form a bot sends, drawn in the card frame
+- #929 feat: the checklist, the table and the board a bot sends, and a card kind this app does not know
+- #930 refactor: approval, takeover, file and delegation cards share the one card frame
+- #905 feat: cards a bot can send: choices to pick from and a board of figures (the proposal; built by the issues above)
+
+**Interface specs.** [agent-cards.md](ux/agent-cards.md): build #924, #880 and #925, then #926, #927, #928 and #929, then #544 and #930. The credential, tool server and routine cards (#207, #488, #490, #510, and #158 in milestone 17) are drawn in the same frame.
 
 ### 16 Sandbox experience
 

@@ -95,7 +95,41 @@ public sealed class DelegationCardTests
 
         card.IsRefused.Should().BeTrue();
         card.RefusedLine.Should().Be("Helper is paused.");
+        card.LimitsHref.Should().BeNull();
         card.PartTitles.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_handoff_limit_refusal_names_the_limit_with_numbers_and_links_editors_to_limits()
+    {
+        var call = Delegate("completed", isError: true) with
+        {
+            Preview = """{"error":"This bot has handed work over as often as it may in one run: its limit is 49. Finish with what has come back.","reason":"budget_exceeded","detail":"handoffs","used":49,"cap":49}""",
+        };
+        var forEditor = new Handover("Lead", names.Names, names.WorkAddress, BotId: lead, LimitsAddress: Addresses.BotLimits);
+        var forMember = new Handover("Lead", names.Names, names.WorkAddress, BotId: lead, LimitsAddress: null);
+
+        var editorCard = Shown(Shown(call, forEditor).Delegation!);
+        var memberCard = Shown(Shown(call, forMember).Delegation!);
+
+        editorCard.IsRefused.Should().BeTrue();
+        editorCard.RefusedLine.Should().Be("Handoff limit reached: 49 of 49.");
+        editorCard.LimitsLinkText.Should().Be("Open limits");
+        editorCard.LimitsHref.Should().Be(Addresses.BotLimits(lead));
+
+        memberCard.RefusedLine.Should().Be("Handoff limit reached: 49 of 49.");
+        memberCard.LimitsHref.Should().BeNull();
+        memberCard.LimitsLinkText.Should().BeNull();
+
+        var olderCall = Delegate("completed", isError: true) with
+        {
+            Preview = """{"error":"This bot has handed work over as often as it may in one run.","reason":"budget_exceeded","detail":"handoffs"}""",
+        };
+        Shown(Shown(olderCall, forEditor).Delegation!).RefusedLine
+            .Should().Be("This bot has handed work over as many times as its limits allow for one piece of work.");
+        DelegationWords.RefusalLimitIn("""
+            "{\"error\":\"x\",\"reason\":\"budget_exceeded\",\"detail\":\"handoffs\",\"used\":12,\"cap\":12}"
+            """).Should().Be(new DelegationLimit(12, 12));
     }
 
     [Theory]
@@ -242,9 +276,9 @@ public sealed class DelegationCardTests
     private static ToolCallView Delegate(string state, bool isError = false) =>
         new(Guid.NewGuid(), "delegate", "Hand work to a bot", $$"""{"bot_id":"{{helper}}","task":"Find sources.\nThree of them."}""", "write", state, isError);
 
-    private static ToolCard Shown(ToolCallView call) =>
+    private static ToolCard Shown(ToolCallView call, Handover? handover = null) =>
         new[] { new MessageView(Guid.NewGuid(), "assistant", [new PartView("tool_call", ToolCallId: call.ToolCallId, ToolName: "delegate")], false, null) }
-            .ToChatMessages(ImmutableDictionary<Guid, ToolCallView>.Empty.Add(call.ToolCallId, call), handover: names)
+            .ToChatMessages(ImmutableDictionary<Guid, ToolCallView>.Empty.Add(call.ToolCallId, call), handover: handover ?? names)
             .Single().Tools.Single();
 
     private static DelegationCardViewModel Shown(DelegationItem item, bool hasWork = false)

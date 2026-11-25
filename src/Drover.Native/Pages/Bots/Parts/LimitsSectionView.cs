@@ -25,8 +25,9 @@ public sealed class LimitsSectionView : EditorPart
         pair.Children.Add(steps);
         pair.Children.Add(tokens);
         pair.Children.Add(delegations);
-        Parts.Add(new StatusNote { Text = LimitsSectionFields.Note });
+        Parts.Add(Styles.Text(LimitsSectionFields.Caption, "DvTextCaption"));
         Parts.Add(pair);
+        Parts.Add(Styles.Text(LimitsSectionFields.FallbackCaption, "DvTextCaption"));
     }
 
     #endregion
