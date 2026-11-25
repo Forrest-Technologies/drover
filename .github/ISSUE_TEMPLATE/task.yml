@@ -6,6 +6,10 @@ body:
   - type: markdown
     attributes:
       value: |
+        For implementation, branch from `develop` and target `develop` in the pull request. `develop` is preview; `main` is production. Ordinary contributors need passing checks and approval on both branches from Steven (`steven-forresttechnologies`) or Brian (`VelocityLabs`). Preserve explicit dependency branches until their prerequisites merge.
+  - type: markdown
+    attributes:
+      value: |
         Treat this issue as the prompt. Someone with no other context should be able to finish it from what is written here plus the linked documents.
   - type: textarea
     id: context

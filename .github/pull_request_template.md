@@ -1,5 +1,7 @@
 Closes #
 
+<!-- Target develop for ordinary work. main is production and receives reviewed promotion PRs from develop. Preserve an explicit dependency base until its prerequisite merges. -->
+
 ## What and why
 
 <!-- One thing. If it needs "and", it is probably two pull requests. -->

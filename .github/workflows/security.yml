@@ -4,7 +4,7 @@ name: security
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
   schedule:
     - cron: "23 4 * * 1"
 
@@ -96,7 +96,9 @@ jobs:
         run: |
           "$RUNNER_TEMP/actionlint" -color
       - name: Release workflow safety checks
-        run: python3 scripts/check-release-workflow.py
+        run: |
+          python3 scripts/check-release-workflow.py
+          python3 scripts/test-android-release-metadata.py
 
   dockerfile:
     name: Dockerfile (hadolint)
