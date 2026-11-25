@@ -38,7 +38,7 @@ public sealed partial class ExtensionsViewModel(
     private bool noticeIsProblem;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Shows), nameof(ShowsImportButton))]
+    [NotifyPropertyChangedFor(nameof(ShowsImportButton))]
     private bool importing;
 
     [ObservableProperty]
@@ -92,7 +92,6 @@ public sealed partial class ExtensionsViewModel(
     public ExtensionsContent Shows =>
         LoadProblem is not null ? ExtensionsContent.LoadFailed
         : Extensions is null ? ExtensionsContent.Loading
-        : Extensions.Count == 0 && Importing ? ExtensionsContent.Nothing
         : Extensions.Count == 0 && CanEdit ? ExtensionsContent.Empty
         : Extensions.Count == 0 ? ExtensionsContent.EmptyForMember
         : ExtensionsContent.List;

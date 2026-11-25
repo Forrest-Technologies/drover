@@ -71,6 +71,9 @@ public sealed partial class ModelConnectionsViewModel(
     [ObservableProperty]
     private bool addingBusy;
 
+    [ObservableProperty]
+    private string? keyProblem;
+
     #endregion
 
     #region Properties
@@ -146,14 +149,31 @@ public sealed partial class ModelConnectionsViewModel(
         Name = string.Empty;
     }
 
+    public void CancelAdding()
+    {
+        Adding = false;
+        AddProblem = null;
+        ApiKey = string.Empty;
+        BaseUrl = string.Empty;
+        Name = string.Empty;
+    }
+
     public void StartReplacing(ModelConnectionSummary connection)
     {
+        problems.Remove(connection.Id);
+        KeyProblem = null;
         Replacing = connection.Id;
         NewKey = string.Empty;
     }
 
     public void CancelReplacing()
     {
+        if (Replacing is { } id)
+        {
+            problems.Remove(id);
+        }
+
+        KeyProblem = null;
         Replacing = null;
         NewKey = string.Empty;
     }
@@ -235,14 +255,22 @@ public sealed partial class ModelConnectionsViewModel(
             Say(!result.Succeeded, result.Message);
         });
 
-    public Task ReplaceKey(ModelConnectionSummary connection) =>
-        Change(connection, async () =>
+    public async Task ReplaceKey(ModelConnectionSummary connection)
+    {
+        KeyProblem = null;
+        await Change(connection, async () =>
         {
             Replace(await api.ReplaceModelKey(SpaceId, connection.Id, new(NewKey.Trim())));
             NewKey = string.Empty;
             Replacing = null;
             Say(false, $"The key for {connection.Name} is replaced. Test the connection to check it.");
         });
+
+        if (problems.Remove(connection.Id, out var reason))
+        {
+            KeyProblem = reason;
+        }
+    }
 
     private async Task Change(ModelConnectionSummary connection, Func<Task> action)
     {

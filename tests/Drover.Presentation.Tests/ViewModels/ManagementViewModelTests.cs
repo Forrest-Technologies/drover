@@ -144,8 +144,29 @@ public sealed class ManagementViewModelTests : IDisposable
 
         model.Replacing.Should().Be(connectionId);
         model.NewKey.Should().Be("another-key");
-        model.Problems[connectionId].Should().Be("Sample key refused.");
+        model.KeyProblem.Should().Be("Sample key refused.");
+        model.Problems.Should().NotContainKey(connectionId, "a dialog refusal is not a card error");
         model.ChangePending.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancelling_an_add_or_a_key_replacement_clears_every_typed_secret()
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var model = Models();
+        await model.Open();
+
+        model.StartAdding();
+        model.ApiKey = "sample-add-key";
+        model.CancelAdding();
+        model.Adding.Should().BeFalse();
+        model.ApiKey.Should().BeEmpty();
+
+        model.StartReplacing(Connection);
+        model.NewKey = "sample-replacement-key";
+        model.CancelReplacing();
+        model.Replacing.Should().BeNull();
+        model.NewKey.Should().BeEmpty();
     }
 
     [Fact]

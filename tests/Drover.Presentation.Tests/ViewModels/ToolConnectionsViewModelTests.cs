@@ -91,7 +91,8 @@ public sealed class ToolConnectionsViewModelTests : IDisposable
 
         model.ReplacingHeader.Should().Be(Connection);
         model.HeaderValue.Should().Be("another-value");
-        model.Problems[connectionId].Should().Be("Sample header refused.");
+        model.HeaderProblem.Should().Be("Sample header refused.");
+        model.Problems.Should().NotContainKey(connectionId, "a dialog refusal is not a card error");
         model.ChangePending.Should().BeFalse();
     }
 

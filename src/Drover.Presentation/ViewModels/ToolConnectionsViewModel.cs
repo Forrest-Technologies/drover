@@ -52,6 +52,9 @@ public sealed partial class ToolConnectionsViewModel(
     [ObservableProperty]
     private string headerValue = string.Empty;
 
+    [ObservableProperty]
+    private string? headerProblem;
+
     #endregion
 
     #region Properties
@@ -224,6 +227,8 @@ public sealed partial class ToolConnectionsViewModel(
 
     public void StartReplacingHeader(ToolConnectionSummary connection)
     {
+        problems.Remove(connection.Id);
+        HeaderProblem = null;
         ReplacingHeader = connection;
         HeaderName = "Authorization";
         HeaderValue = string.Empty;
@@ -231,12 +236,20 @@ public sealed partial class ToolConnectionsViewModel(
 
     public void CancelReplacingHeader()
     {
+        if (ReplacingHeader is { } connection)
+        {
+            problems.Remove(connection.Id);
+        }
+
+        HeaderProblem = null;
         ReplacingHeader = null;
+        HeaderName = "Authorization";
         HeaderValue = string.Empty;
     }
 
     public async Task ReplaceHeader(ToolConnectionSummary connection)
     {
+        HeaderProblem = null;
         var request = new ReplaceToolHeaderRequest(HeaderName.Trim(), HeaderValue);
         await Change(connection, async () =>
         {
@@ -245,6 +258,11 @@ public sealed partial class ToolConnectionsViewModel(
             HeaderValue = string.Empty;
             Say(connection, null, $"The header for {connection.Name} is replaced.");
         });
+
+        if (problems.Remove(connection.Id, out var reason))
+        {
+            HeaderProblem = reason;
+        }
     }
 
     public Task Accept(ConnectionToolSummary tool)
