@@ -115,7 +115,7 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         await using var provider = Build(DeploymentPolicy.Hosted);
         await using var scope = provider.CreateAsyncScope();
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
-        var ceilings = new RunCeilings(DeploymentPolicy.StepsPerRun, DeploymentPolicy.HostedMaxTokensPerRun, DeploymentPolicy.RunsPerDelegationTree - 1);
+        var ceilings = new RunCeilings(DeploymentPolicy.HostedMaxStepsPerRun, DeploymentPolicy.HostedMaxTokensPerRun, DeploymentPolicy.RunsPerDelegationTree - 1);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
         policies.Runs(new SpaceSettings { MaxStepsPerRun = 5000, MaxTokensPerRun = int.MaxValue }).Should().Be(ceilings);

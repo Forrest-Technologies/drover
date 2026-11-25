@@ -301,7 +301,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
             int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture) - 1);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
-        policies.Runs(new SpaceSettings { MaxStepsPerRun = ceilings.MaxSteps + 1, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
+        policies.Runs(new SpaceSettings { MaxStepsPerRun = Above(ceilings.MaxSteps), MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
         var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
         space.Should().Be(new RunCeilings(10, 1000, 3));
         space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");
@@ -340,6 +340,9 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     #endregion
 
     #region Private Methods
+
+    // One more than a ceiling, or the ceiling itself where it is no limit at all and nothing is above it.
+    private static int Above(int most) => most is int.MaxValue ? most : most + 1;
 
     private string Setting(string rule) => PolicyMatrix.Setting(rule, preset);
 

@@ -362,6 +362,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         LimitsSectionFields.StepsHint(options).Should().EndWith("This space allows up to 50.");
         LimitsSectionFields.TokensHint(options).Should().EndWith("This space allows up to 5,000,000.");
         LimitsSectionFields.DelegationsHint(options).Should().Contain("0 keeps all work with this bot. This space allows up to 49.");
+        LimitsSectionFields.Placeholder(BotRunLimitOptions.NoLimit).Should().Be("No limit");
+        LimitsSectionFields.StepsHint(new BotRunLimitOptions(BotRunLimitOptions.NoLimit, 1, 0)).Should().EndWith("This space sets no limit.");
 
         editor.Edit(draft => draft.MaxSteps = "12");
         editor.Edit(draft => draft.MaxDelegations = "0");
