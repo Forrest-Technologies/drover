@@ -285,6 +285,7 @@ Every component of the retired web client has a control of the same name in `src
 | `Field` | `Label`, `Value` (two-way), `Type`, `Placeholder`, `Hint`, `Error`, `Disabled`, `MaxLength` (the web's `maxlength`), `Autofill` (the web's `autocomplete`), the `Submitted` event |
 | `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`. Drawn from `IconShapes` |
 | `IconButton` | `Icon`, `Label` (required: it throws without one) |
+| `ListCard` | The one frame for a list of things to open. `Title` is the link named by the item; `Facts`, `Leading`, `Status` and `Trailing` fill its four columns; `Beneath` holds a block below the frame. The `Opened` event makes the whole card a tap target and gives its name a keyboard path; with no handler the name is plain text |
 | `ScreenHeader` | The one header at the top of a work screen. `Title` is the level one heading; `BackLabel` and `BackAddress` add the arrow button (`ScreenBack`) when both are set; `Actions` holds icon buttons and icon menus |
 | `MarkdownView` | `Text`, `Streaming`. Draws the nodes of `MarkdownDocument` as native text |
 | `Menu`, `MenuItem` | `Label`, `AccessibleLabel` (the web's `AriaLabel`), `TriggerIcon`, `ShowTriggerLabel`, `Items`; an item's `Selected` event |
