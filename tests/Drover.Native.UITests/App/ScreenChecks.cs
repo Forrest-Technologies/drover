@@ -646,7 +646,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             return false;
         }
 
-        for (DependencyObject? at = FocusManager.GetFocusedElement(root) as DependencyObject; at is not null; at = VisualTreeHelper.GetParent(at))
+        for (var at = FocusManager.GetFocusedElement(root) as DependencyObject; at is not null; at = VisualTreeHelper.GetParent(at))
         {
             if (ReferenceEquals(at, element))
             {
