@@ -54,7 +54,7 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
         new(
             Lower(space.MaxStepsPerRun, Deployment.MaxStepsPerRun),
             Lower(space.MaxTokensPerRun, Deployment.MaxTokensPerRun),
-            Delegation(space).MaxRuns - 1);
+            Delegation(space).MaxHandoffs);
 
     /// <summary>The space's limits on one run, read from its settings. Runs in the tenant scope the caller opened.</summary>
     public async Task<RunCeilings> GetRuns(Guid spaceId, CancellationToken cancellationToken) =>

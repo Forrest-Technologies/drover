@@ -68,7 +68,7 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly Grid mainHeaderRow = new() { ColumnSpacing = Tokens.Number("DvSpace2") };
 
-    private readonly IconLink back = new() { Icon = IconName.ArrowLeft, Label = "Back to the crew", Address = Addresses.Home };
+    private readonly IconLink back = new() { Icon = IconName.ArrowLeft, Label = "Back to conversations", Address = Addresses.Home };
 
     private readonly Avatar head = new() { Size = 48, VerticalAlignment = VerticalAlignment.Center };
 
@@ -77,6 +77,9 @@ internal sealed class TalkWorkspace : Grid
     private readonly Badge paused = new() { Text = "Paused", Kind = BadgeKind.Warn };
 
     private readonly ContentPresenter more = new() { VerticalAlignment = VerticalAlignment.Center };
+
+    // The side chats, one press away beside the menu, which also holds them.
+    private readonly IconButton sideChats = new() { Icon = IconName.SideChats, Label = "Side chats", VerticalAlignment = VerticalAlignment.Center };
 
     private readonly ContentPresenter mainBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
@@ -253,17 +256,20 @@ internal sealed class TalkWorkspace : Grid
         title.VerticalAlignment = VerticalAlignment.Center;
         paused.VerticalAlignment = VerticalAlignment.Center;
 
-        // The name gets the remaining width and can trim before it pushes the menu out of the header. The menu is the
-        // one way to what opens beside the conversation, on every width.
+        // The name gets the remaining width and can trim before it pushes the menu out of the header. The menu holds
+        // every way to what opens beside the conversation, on every width; the side chats also have a button of their
+        // own beside it, since a person goes there often.
         var auto = GridLength.Auto;
-        GridLength[] widths = [auto, auto, new(1, GridUnitType.Star), auto, auto];
+        GridLength[] widths = [auto, auto, new(1, GridUnitType.Star), auto, auto, auto];
         foreach (var width in widths)
         {
             mainHeaderRow.ColumnDefinitions.Add(new() { Width = width });
         }
 
         AutomationProperties.SetAutomationId(back, "TalkBack");
-        FrameworkElement[] parts = [back, head, title, paused, more];
+        AutomationProperties.SetAutomationId(sideChats, "TalkSideChats");
+        sideChats.Click += (_, _) => OpenSideChats();
+        FrameworkElement[] parts = [back, head, title, paused, sideChats, more];
         foreach (var part in parts)
         {
             SetColumn(part, mainHeaderRow.Children.Count);
@@ -452,6 +458,7 @@ internal sealed class TalkWorkspace : Grid
         title.Text = shown.Name;
         AutomationProperties.SetHeadingLevel(title, model.At is "main" ? AutomationHeadingLevel.Level1 : AutomationHeadingLevel.Level2);
         paused.Visibility = Shown(ChatRows.IsPaused(shown));
+        sideChats.Label = model.SideChatsLabel;
         DrawMenu(shown);
     }
 
@@ -497,6 +504,14 @@ internal sealed class TalkWorkspace : Grid
         ];
         menu.Bot = shown;
         MarkOpenWay();
+    }
+
+    private void OpenSideChats()
+    {
+        if (model.Shown is { } shown)
+        {
+            model.OpenSide(Addresses.SideChats(shown.Id));
+        }
     }
 
     private MenuItem Item(string label, string address)

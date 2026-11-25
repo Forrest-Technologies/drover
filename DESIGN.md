@@ -35,7 +35,7 @@ Not: playful, loud, decorative, stiff, or "AI-themed".
 **Light means live.** Color and motion mark what is working right now. Everything at rest is neutral.
 
 - Warm (`ember`) is a person's intent: the primary action, the focus ring, send, and the tint of their own messages. It is the one color a person may turn: to an accent the theme offers, never to one near the other two.
-- Cool (`ion`) is a bot working: thinking, streaming, a tool running.
+- Cool (`ion`) is a bot working: thinking and streaming. The line that travels around a working frame is the one exception: it takes the theme's own color, `ember`, so it matches the accent a person chose.
 - Violet is work passing between bots.
 - A live thing blooms: a soft light in its own accent color, around the thing that is working and nothing else.
 - If nothing is happening, nothing glows and nothing moves.
@@ -106,7 +106,7 @@ Four things move, because four things are states worth seeing:
 | --- | --- |
 | A bot is thinking | A slow breath of light across its visor |
 | Text is streaming | New characters fade in over 120 ms |
-| A tool is running | A thin line travels the top edge of its card, then stops and turns green or red. While a bot works, the same line travels the top edge of the composer |
+| A tool is running | A thin line in the theme's own color travels around the outline of its card, following the card's corners, then stops and the card's edge turns green or red. While a bot works, the same line travels around the composer ([ADR 0022](docs/adr/0022-live-line-goes-around-the-frame-in-the-accent.md)) |
 | Work passes between bots | One pulse along the connector, out and back |
 
 Durations 120, 220, and 420 ms, one easing curve. Motion stops when the work stops. With reduced motion set, each state has a static equivalent and nothing animates.
@@ -139,7 +139,7 @@ These are the habits that make an interface look generated. Each one is checked 
 
 **Things that stay when they are not needed**
 
-- A control shows when a person needs it. A reply's actions (copy, another reply, its versions, what happened) show on the newest reply, and on an older one when it has the focus or is tapped. Ways into a conversation's panels are in one menu. Hover reveals nothing, so a finger and a keyboard reach everything a pointer does.
+- A control shows when a person needs it. A reply's actions (copy, another reply, its versions, what happened) show on the newest reply, and on an older one when it has the focus or is tapped. Ways into a conversation's panels are in one menu, and the side chats, where a person goes most, also have an icon button beside it. Hover reveals nothing, so a finger and a keyboard reach everything a pointer does.
 - What a reply used is said once, in the status line under the composer, with the model that wrote it. It is not repeated under every reply.
 - The status line says something or is not there. No placeholder, no zero.
 

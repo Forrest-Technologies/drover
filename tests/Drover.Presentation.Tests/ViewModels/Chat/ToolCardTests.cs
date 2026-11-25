@@ -263,7 +263,7 @@ public sealed class ToolCardTests
 
         card.Deciding.Should().BeFalse();
         card.IsAsk.Should().BeFalse();
-        card.Running.Should().BeTrue("a line travels the card's top edge while the tool runs");
+        card.Running.Should().BeTrue("a line travels around the card while the tool runs");
     }
 
     #endregion

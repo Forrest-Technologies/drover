@@ -11,5 +11,11 @@ public sealed record DelegationLimits(int MaxDepth, int MaxRuns, int MaxCostCent
     /// <summary>The cost budget in the price list's currency.</summary>
     public decimal MaxCost => MaxCostCents / 100m;
 
+    /// <summary>
+    /// How often one run may hand work over: as often as its tree holds runs beside its root, or without limit where
+    /// the tree has none.
+    /// </summary>
+    public int MaxHandoffs => MaxRuns is int.MaxValue ? MaxRuns : MaxRuns - 1;
+
     #endregion
 }

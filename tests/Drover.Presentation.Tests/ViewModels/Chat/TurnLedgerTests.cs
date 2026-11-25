@@ -64,7 +64,43 @@ public sealed class TurnLedgerTests
         var turns = messages.InTurns();
 
         turns[1].ContinuesTurn.Should().BeFalse();
-        turns[1].Ledger.Should().ContainSingle();
+        turns[1].Ledger.Should().BeNull("the call came after the words");
+        turns[1].LedgerAfter.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Work_between_two_things_the_bot_said_stands_between_them()
+    {
+        IReadOnlyList<ChatMessage> messages =
+        [
+            Person("1", "Find the deals"),
+            Bot("2", run, "Checking the forums.") with { Tools = [Call("web.search", "forum deals")] },
+            Bot("3", run) with { Reasoning = "Thin results.", Tools = [Call("web.search", "refurb")] },
+            Bot("4", run, "Now the refurb stores.") with { Reasoning = "Try refurb.", Tools = [Call("web.fetch", "store page")] },
+        ];
+
+        var turns = messages.InTurns();
+
+        turns[1].Ledger.Should().BeNull("nothing came before the first words");
+        turns[1].LedgerAfter.Should().BeNull("the work after it stands above the next words");
+        turns[3].Ledger!.Select(TurnLedger.Label).Should().Equal("Did a thing", "Reasoned", "Did a thing", "Reasoned");
+        turns[3].LedgerAfter!.Select(step => step.Calls[0].Summary).Should().Equal("store page");
+    }
+
+    [Fact]
+    public void Work_before_the_first_words_stands_under_the_turns_head()
+    {
+        IReadOnlyList<ChatMessage> messages =
+        [
+            Bot("1", run) with { Tools = [Call("web.search", "a")] },
+            Bot("2", run, "Found it."),
+        ];
+
+        var turns = messages.InTurns();
+
+        turns[0].Ledger.Should().ContainSingle("the turn opens with who is speaking, then what they did");
+        turns[1].Ledger.Should().BeNull();
+        ChatRows.Shape(turns[0], compact: false).Should().Be(ChatEntryShape.Bot);
     }
 
     [Fact]
@@ -176,6 +212,32 @@ public sealed class TurnLedgerTests
     [InlineData(125_000L, "2 min 5 s")]
     public void A_time_is_short_on_the_row(long ms, string shown) =>
         TurnLedger.Duration(new LedgerStep([Call("sandbox.run", "a") with { DurationMs = ms }], null, false)).Should().Be(shown);
+
+    [Fact]
+    public void Closed_work_reads_as_one_line_of_what_was_done_and_its_facts()
+    {
+        IReadOnlyList<LedgerStep> steps =
+        [
+            new([Call("web.search", "a") with { DurationMs = 2_000 }], null, false),
+            new([Call("web.search", "b") with { DurationMs = 3_000 }], null, false),
+            new([Call("sandbox.run", "ls") with { Phase = ToolPhase.Failed, DurationMs = 1_000 }], null, false),
+        ];
+
+        TurnLedger.Gist(steps).Should().Be("Did a thing 2 times, ran a command");
+        TurnLedger.Facts(steps).Should().Be("3 steps · 6.0 s · 1 failed");
+    }
+
+    [Fact]
+    public void Work_still_running_says_so_instead_of_its_time()
+    {
+        IReadOnlyList<LedgerStep> steps =
+        [
+            new([Call("sandbox.run", "a") with { DurationMs = 2_000 }], null, false),
+            new([Call("sandbox.run", "b") with { Phase = ToolPhase.Running }], null, false),
+        ];
+
+        TurnLedger.Facts(steps).Should().Be("2 steps · running");
+    }
 
     [Fact]
     public void Reasoning_is_a_quiet_row_that_says_it_is_thinking_while_it_arrives()

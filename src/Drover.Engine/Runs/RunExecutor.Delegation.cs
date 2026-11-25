@@ -114,9 +114,15 @@ public sealed partial class RunExecutor
         }
 
         // The tree's own budget is asked first, so a tree that is full says so; this is the bot's own count within it.
-        if (await runs.CountChildren(parent.RunId, cancellationToken) + 1 > parent.Limits.MaxDelegations)
+        var handoffs = await runs.CountChildren(parent.RunId, cancellationToken);
+        if (handoffs + 1 > parent.Limits.MaxDelegations)
         {
-            return OverBudget(request, "handoffs", $"This bot has handed work over as often as it may in one run: its limit is {parent.Limits.MaxDelegations}. Finish with what has come back.");
+            return OverBudget(
+                request,
+                "handoffs",
+                $"This bot has handed work over as often as it may in one run: its limit is {parent.Limits.MaxDelegations}. Finish with what has come back.",
+                handoffs,
+                parent.Limits.MaxDelegations);
         }
 
         var cost = await runs.SumTreeCost(parent.RootRunId, cancellationToken);
@@ -276,14 +282,26 @@ public sealed partial class RunExecutor
     }
 
     // The detail says which state or limit a refusal is about, so a screen can say it in its own words: paused or
-    // removed for a target, depth, runs, or cost for a budget.
-    private static ChildRun Refused(DelegationRequest request, string reason, string message, string? detail = null)
+    // removed for a target, depth, runs, handoffs, or cost for a budget.
+    private static ChildRun Refused(
+        DelegationRequest request,
+        string reason,
+        string message,
+        string? detail = null,
+        long? used = null,
+        long? cap = null)
     {
         var result = new JsonObject { ["error"] = message, ["reason"] = reason };
 
         if (detail is not null)
         {
             result["detail"] = detail;
+        }
+
+        if (used is { } amount && cap is { } limit)
+        {
+            result["used"] = amount;
+            result["cap"] = limit;
         }
 
         return new(Guid.Empty, request.AgentName)
@@ -293,8 +311,8 @@ public sealed partial class RunExecutor
         };
     }
 
-    private static ChildRun OverBudget(DelegationRequest request, string limit, string message) =>
-        Refused(request, RunReasons.BudgetExceeded, message, limit);
+    private static ChildRun OverBudget(DelegationRequest request, string limit, string message, long? used = null, long? cap = null) =>
+        Refused(request, RunReasons.BudgetExceeded, message, limit, used, cap);
 
     #endregion
 

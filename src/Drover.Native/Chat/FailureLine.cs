@@ -14,6 +14,13 @@ public sealed class FailureLine : Grid
 
     private readonly Button retry = new() { Kind = ButtonKind.Primary, Content = "Try again", HorizontalAlignment = HorizontalAlignment.Left };
 
+    private readonly Link openLimits = new()
+    {
+        Text = AttentionWords.OpenLimitsLabel,
+        MinHeight = Targets.Minimum,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
     private readonly Disclosure report = new() { Title = "What the server reported" };
 
     private readonly Border reportBox = new();
@@ -46,9 +53,13 @@ public sealed class FailureLine : Grid
             }
         };
 
+        var actions = new FlowPanel { Gap = Tokens.Number("DvSpace3") };
+        actions.Children.Add(retry);
+        actions.Children.Add(openLimits);
+
         var column = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
         column.Children.Add(title);
-        column.Children.Add(retry);
+        column.Children.Add(actions);
         column.Children.Add(report);
         frame.Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace3"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace4"));
         frame.Children.Add(column);
@@ -67,6 +78,10 @@ public sealed class FailureLine : Grid
     public static readonly DependencyProperty BotNameProperty = Dp.Register<FailureLine, string>(nameof(BotName), string.Empty, line => line.Show());
 
     public static readonly DependencyProperty ReportedProperty = Dp.Register<FailureLine, string?>(nameof(Reported), null, line => line.Show());
+
+    public static readonly DependencyProperty LimitProperty = Dp.Register<FailureLine, RunFailureLimit?>(nameof(Limit), null, line => line.Show());
+
+    public static readonly DependencyProperty LimitsHrefProperty = Dp.Register<FailureLine, string?>(nameof(LimitsHref), null, line => line.Show());
 
     public static readonly DependencyProperty RetryingProperty = Dp.Register<FailureLine, bool>(nameof(Retrying), false, line => line.Show());
 
@@ -87,6 +102,20 @@ public sealed class FailureLine : Grid
     {
         get => (string?)GetValue(ReportedProperty);
         set => SetValue(ReportedProperty, value);
+    }
+
+    /// <summary>The Drover limit the run stopped at, when the server reported one.</summary>
+    public RunFailureLimit? Limit
+    {
+        get => (RunFailureLimit?)GetValue(LimitProperty);
+        set => SetValue(LimitProperty, value);
+    }
+
+    /// <summary>The bot's Limits settings, for a person who can edit the bot when a limit stopped the run.</summary>
+    public string? LimitsHref
+    {
+        get => (string?)GetValue(LimitsHrefProperty);
+        set => SetValue(LimitsHrefProperty, value);
     }
 
     public bool Retrying
@@ -111,9 +140,12 @@ public sealed class FailureLine : Grid
 
     private void Show()
     {
-        title.Text = AttentionWords.Failure(Cause, BotName);
+        title.Text = AttentionWords.Failure(Cause, BotName, Limit);
         AutomationProperties.SetName(this, title.Text);
         AutomationProperties.SetItemStatus(retry, Retrying ? "Busy" : string.Empty);
+        var limitsHref = Cause is FailureCause.BudgetReached && !string.IsNullOrWhiteSpace(LimitsHref) ? LimitsHref : null;
+        openLimits.Address = limitsHref;
+        openLimits.Visibility = limitsHref is null ? Visibility.Collapsed : Visibility.Visible;
         reported.Text = Reported ?? string.Empty;
         report.Visibility = string.IsNullOrWhiteSpace(Reported) ? Visibility.Collapsed : Visibility.Visible;
     }

@@ -16,7 +16,7 @@ internal sealed class ExtensionRow : Grid
 
     private readonly StackPanel beneath = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private readonly Button turnOn = new() { Kind = ButtonKind.Primary };
+    private readonly Button turnOn = new() { Kind = ButtonKind.Quiet };
 
     private ExtensionServerSteps? steps;
 

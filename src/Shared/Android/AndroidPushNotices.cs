@@ -1,16 +1,19 @@
 namespace Drover.App.Platforms.Android;
 
-/// <summary>The device's own notifications, for <see cref="PushWakeFlow"/>.</summary>
-internal sealed class AndroidPushNotices : IPushNotices
+/// <summary>Posts only while the receiving registration still owns the device.</summary>
+internal sealed class AndroidPushNotices(AndroidPushRegistration registration, AndroidPushSubscription saved)
+    : IPushNotices
 {
     #region Interface Implementations
 
-    public void Show(PushWakeText wake, AndroidPushSubscription saved, bool canReply) =>
-        AndroidNotifications.Show(wake, saved, canReply);
+    public Task Show(PushWakeText wake, bool canReply) =>
+        registration.WhileRegistered(saved.UserId, saved.Token, () => AndroidNotifications.Show(wake, saved, canReply));
 
-    public void ShowChange() => AndroidNotifications.ShowChange();
+    public Task ShowChange() =>
+        registration.WhileRegistered(saved.UserId, saved.Token, AndroidNotifications.ShowChange);
 
-    public void ShowTest() => AndroidNotifications.ShowTest();
+    public Task ShowTest() =>
+        registration.WhileRegistered(saved.UserId, saved.Token, AndroidNotifications.ShowTest);
 
     #endregion
 }

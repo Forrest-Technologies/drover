@@ -128,6 +128,50 @@ public sealed class AttentionApiTests(PostgresServer postgres) : ServerTestBase(
             "the run's thread is private to alice, so to anyone else the run is not there");
     }
 
+    [Fact]
+    public async Task A_run_stopped_by_step_limit_or_token_limit_carries_its_limit_kind_used_and_cap_in_the_thread_summary()
+    {
+        script = new ScriptedModel(
+            [new ToolCallOutput("c1", "time_now")],
+            [new ToolCallOutput("c2", "time_now")],
+            [new ToolCallOutput("t1", "time_now")],
+            [new ToolCallOutput("t2", "time_now")]);
+        var alice = await SeedPerson("alice");
+        var api = await Api(alice);
+        var bot = await CreateBot(api, alice.SpaceId);
+
+        await api.Api.UpdateBotDefinition(
+            alice.SpaceId,
+            bot.Id,
+            new UpdateBotRequest(null, null, null, null, null, null, null, null, null, null, null, null, null, new RunLimitsBody(2, null, null)),
+            Token);
+        var stepThread = await api.Api.CreateThread(alice.SpaceId, bot.Id, cancellationToken: Token);
+        var stepSent = await api.Api.SendMessage(alice.SpaceId, stepThread.Id, "Loop steps", cancellationToken: Token);
+        await WaitForRun(api, alice.SpaceId, stepSent.Run.Id, "failed");
+        var stepAttention = (await api.Api.GetThread(alice.SpaceId, stepThread.Id, Token)).Attention!;
+
+        await api.Api.UpdateBotDefinition(
+            alice.SpaceId,
+            bot.Id,
+            new UpdateBotRequest(null, null, null, null, null, null, null, null, null, null, null, null, null, new RunLimitsBody(null, 20, null)),
+            Token);
+        var tokenThread = await api.Api.CreateThread(alice.SpaceId, bot.Id, cancellationToken: Token);
+        var tokenSent = await api.Api.SendMessage(alice.SpaceId, tokenThread.Id, "Loop tokens", cancellationToken: Token);
+        await WaitForRun(api, alice.SpaceId, tokenSent.Run.Id, "failed");
+        var tokenAttention = (await api.Api.GetThread(alice.SpaceId, tokenThread.Id, Token)).Attention!;
+
+        stepAttention.Failed.Should().BeTrue();
+        stepAttention.LastFailure.Should().Match<RunFailure>(failure =>
+            failure.RunId == stepSent.Run.Id
+            && failure.Cause == FailureCauses.BudgetReached
+            && failure.Limit == new RunFailureLimit(FailureLimits.ModelCalls, 2, 2));
+        tokenAttention.Failed.Should().BeTrue();
+        tokenAttention.LastFailure.Should().Match<RunFailure>(failure =>
+            failure.RunId == tokenSent.Run.Id
+            && failure.Cause == FailureCauses.BudgetReached
+            && failure.Limit == new RunFailureLimit(FailureLimits.Tokens, 30, 20));
+    }
+
     #endregion
 
     #region Helpers

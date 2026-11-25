@@ -1,6 +1,7 @@
 namespace Drover.App.Platforms.Android;
 
-internal sealed class AndroidPushMessages(DroverApi api, AndroidPushRegistration registration, ILogger<AndroidPushMessages> logger)
+internal sealed class AndroidPushMessages(
+    DroverApi api, AndroidPushRegistration registration, ILogger<AndroidPushMessages> logger)
 {
     #region Public Methods
 
@@ -9,49 +10,50 @@ internal sealed class AndroidPushMessages(DroverApi api, AndroidPushRegistration
             saved,
             saved.Open(payload),
             () => registration.BelongsTo(saved.UserId, saved.Token),
-            new AndroidPushNotices(),
+            new AndroidPushNotices(registration, saved),
             cancellationToken);
 
     public async Task Reply(Intent intent, CancellationToken cancellationToken)
     {
-        if (intent.Action != AndroidNotifications.ReplyAction || !AndroidNotifications.Conversation(intent, out var bot, out var thread))
+        if (intent.Action != AndroidNotifications.ReplyAction
+            || !OperatingSystem.IsAndroidVersionAtLeast(31)
+            || AndroidApplication.Context.GetSystemService(Context.KeyguardService) is not KeyguardManager keyguard
+            || keyguard.IsDeviceLocked
+            || AndroidNotifications.ReadTarget(intent) is not { Space: { } space } target
+            || RemoteInput.GetResultsFromIntent(intent)?.GetCharSequence(AndroidNotifications.ReplyText)?.ToString()
+                is not { } draft
+            || string.IsNullOrWhiteSpace(draft)
+            || !await registration.BelongsTo(target.User, target.Registration))
         {
             return;
         }
 
-        if (!Guid.TryParse(intent.GetStringExtra("user"), out var user)
-            || !Guid.TryParse(intent.GetStringExtra("space"), out var space)
-            || intent.GetStringExtra("registration") is not { } token
-            || RemoteInput.GetResultsFromIntent(intent)?.GetCharSequence(AndroidNotifications.ReplyText)?.ToString()?.Trim() is not { Length: > 0 } text
-            || !await registration.BelongsTo(user, token))
-        {
-            // Nothing is sent, and the notification goes, so Android does not show the reply as still sending.
-            AndroidNotifications.Clear(thread);
-            return;
-        }
-
-        var body = "Reply sent";
+        MessageResponse? sent = null;
         try
         {
-            if ((await api.GetSession(cancellationToken))?.UserId != user)
+            if ((await api.GetSession(cancellationToken))?.UserId != target.User)
             {
-                body = "Sign in to Drover to reply";
+                await registration.WhileRegistered(target.User, target.Registration,
+                    () => AndroidNotifications.Dismiss(target));
+                return;
             }
-            else
+
+            if (!await registration.BelongsTo(target.User, target.Registration) || keyguard.IsDeviceLocked)
             {
-                await api.SendMessage(space, thread, text, BusyModes.Queue, cancellationToken: cancellationToken);
+                return;
             }
+
+            var response = await api.SendMessage(space, target.Thread, draft.Trim(), BusyModes.Queue,
+                cancellationToken: cancellationToken);
+            sent = response.Message;
         }
         catch (Exception exception) when (exception is HttpRequestException or DroverApiException or OperationCanceledException)
         {
             logger.LogWarning("Drover could not confirm a notification reply");
-            body = "Could not confirm your reply. Open Drover to check the conversation.";
         }
 
-        if (await registration.BelongsTo(user, token))
-        {
-            AndroidNotifications.ShowReplyResult(bot, thread, intent.GetBooleanExtra("main", true), body, user, token, space);
-        }
+        await registration.WhileRegistered(target.User, target.Registration,
+            () => AndroidNotifications.ShowReplyResult(target, draft, sent));
     }
 
     #endregion

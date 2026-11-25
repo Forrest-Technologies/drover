@@ -44,6 +44,8 @@ public sealed class TalkViewModel(
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
 
+    private readonly Dictionary<Guid, long> threadRevisions = [];
+
     private TalkAddress address = new();
 
     private IReadOnlyList<BotSummary>? bots;
@@ -179,14 +181,14 @@ public sealed class TalkViewModel(
             "No model is connected", "A bot needs a model to think with, and this space has none yet.", "Connect a model", Addresses.SetupModel),
         WorkspaceState.NoBot => new("No bot yet", "A model is connected, and there is no bot to use it.", "Meet your first bot", Addresses.SetupBot),
         WorkspaceState.Loading => null,
-        _ when formerMissing => new("This conversation is not here", "It was removed, or it belongs to someone else.", "Back to the crew", Addresses.Home),
-        _ when Shown is null => new("This bot is not here", "It was removed, or it belongs to another space.", "Back to the crew", Addresses.Home),
+        _ when formerMissing => new("Conversation not found", "It was removed, or it belongs to someone else.", "Back to conversations", Addresses.Home),
+        _ when Shown is null => new("Bot not found", "It was removed, or it belongs to another space.", "Back to conversations", Addresses.Home),
         _ => null,
     };
 
     /// <summary>What the rail says when the bot whose side of handed work was asked for is gone.</summary>
     public EmptyNotice? WorkNotice => Side is SideView.Work && WorkBot is null && Shown is { } shown
-        ? new("This bot is not here", "It was removed, so its side of this work cannot be shown.", $"Back to {shown.Name}", Addresses.Talk(shown.Id))
+        ? new("Bot not found", "It was removed, so its side of this work cannot be shown.", $"Back to {shown.Name}", Addresses.Talk(shown.Id))
         : null;
 
     /// <summary>The address kept from before names a conversation that is not there.</summary>
@@ -523,7 +525,10 @@ public sealed class TalkViewModel(
     }
 
     // Each thread arrives with what it has for this person, so the crew's first paint already says it.
-    private async Task LoadThreads(IReadOnlyList<BotSummary> crew, CancellationToken cancellationToken)
+    private async Task LoadThreads(
+        IReadOnlyList<BotSummary> crew,
+        CancellationToken cancellationToken,
+        bool reportChanges = false)
     {
         Dictionary<Guid, ThreadSummary> found = [];
         foreach (var threadsOfBot in await Task.WhenAll(crew.Select(bot => api.ListThreads(SpaceId, bot.Id, cancellationToken))))
@@ -538,6 +543,19 @@ public sealed class TalkViewModel(
         foreach (var (id, thread) in found)
         {
             threads[id] = thread;
+            if (reportChanges)
+            {
+                threadRevisions[id] = threadRevisions.GetValueOrDefault(id) + 1;
+            }
+            else
+            {
+                threadRevisions.TryAdd(id, 0);
+            }
+        }
+
+        foreach (var removed in threadRevisions.Keys.Except(found.Keys).ToList())
+        {
+            threadRevisions.Remove(removed);
         }
     }
 
@@ -627,11 +645,12 @@ public sealed class TalkViewModel(
             if (signal.Kind is UserSignalKinds.Reconnected)
             {
                 var crew = await api.ListBots(SpaceId, cancellationToken);
-                await LoadThreads(crew, cancellationToken);
+                await LoadThreads(crew, cancellationToken, reportChanges: true);
                 bots = crew;
 
                 // A connection that came back may have missed the answers these panes waited for. Reading them again
                 // here fixes the screen without asking the person to press anything.
+                Changed();
                 ui.Post(() =>
                 {
                     ConversationViewModel?[] panes = [MainPane, SidePane, WorkPane];
@@ -647,12 +666,17 @@ public sealed class TalkViewModel(
             else if (signal.ThreadId is { } threadId)
             {
                 threads[threadId] = await api.GetThread(SpaceId, threadId, cancellationToken);
+                if (signal.Kind is UserSignalKinds.ThreadChanged)
+                {
+                    threadRevisions[threadId] = threadRevisions.GetValueOrDefault(threadId) + 1;
+                }
             }
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound && signal.ThreadId is { } removed)
         {
             logger.LogInformation(exception, "Thread {ThreadId} is no longer visible on the {Screen} screen", removed, nameof(TalkViewModel));
             threads.Remove(removed);
+            threadRevisions.Remove(removed);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -687,6 +711,7 @@ public sealed class TalkViewModel(
                 HeldCallId = HeldCallId,
                 ScreenAccess = screenAccess,
                 ScreenSetupHref = screenSetupHref,
+                ThreadRevision = RevisionOf(shown!.Id, main: true),
             },
             pane =>
             {
@@ -716,6 +741,7 @@ public sealed class TalkViewModel(
                 WorkAddress = WorkAddress,
                 ScreenAccess = screenAccess,
                 ScreenSetupHref = screenSetupHref,
+                ThreadRevision = RevisionOf(shown!.Id, main: false, ThreadId),
             },
             pane =>
             {
@@ -725,6 +751,14 @@ public sealed class TalkViewModel(
                 pane.OnHandoffsChanged = handoffs => Heard(() => sideHandoffs = handoffs);
                 pane.OnOpenScreen = takeover => Heard(() => ScreenTakenOver(takeover));
             });
+    }
+
+    private long RevisionOf(Guid botId, bool main, Guid? threadId = null)
+    {
+        var id = main
+            ? threads.Values.FirstOrDefault(thread => thread.IsMain && thread.BotId == botId)?.Id
+            : threadId;
+        return id is { } known ? threadRevisions.GetValueOrDefault(known) : 0;
     }
 
     private ConversationViewModel? Keep(

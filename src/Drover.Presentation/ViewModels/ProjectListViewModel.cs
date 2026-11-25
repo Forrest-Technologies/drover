@@ -27,24 +27,25 @@ public sealed partial class ProjectListViewModel(
 
     public const string EmptyAction = "New project";
 
-    public const string MemberEmptyCause = "An owner or admin of the space can make one.";
+    public const string MemberEmptyCause = "An owner or admin of the space can create one.";
 
     public const string MemberEmptyAction = "Back to conversations";
 
-    public const string MemberNote = "Owners and admins make a project. You can open one and use its conversations.";
+    public const string MemberNote =
+        "Owners and admins create projects. You can open any project and use its conversations.";
 
-    public const string NeedsName = "A project needs a name.";
+    public const string NeedsName = "Enter a name for the project.";
 
-    public const string Making = "Making the project.";
+    public const string Making = "Creating the project.";
 
     private int loadGeneration;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(State))]
+    [NotifyPropertyChangedFor(nameof(State), nameof(ShowsNewProject))]
     private IReadOnlyList<ProjectSummary>? projects;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(State))]
+    [NotifyPropertyChangedFor(nameof(State), nameof(ShowsNewProject))]
     private string? loadProblem;
 
     [ObservableProperty]
@@ -55,6 +56,9 @@ public sealed partial class ProjectListViewModel(
 
     [ObservableProperty]
     private string draftName = string.Empty;
+
+    [ObservableProperty]
+    private bool creating;
 
     #endregion
 
@@ -71,6 +75,9 @@ public sealed partial class ProjectListViewModel(
     /// <summary>The server still checks the role. This only keeps a control a person cannot use from looking ready.</summary>
     public bool CanManage => session.Space?.Role is "owner" or "admin";
 
+    /// <summary>The header offers a new project only once the list has loaded and the role can create one.</summary>
+    public bool ShowsNewProject => CanManage && State is ProjectListState.Listed;
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     #endregion
@@ -83,6 +90,7 @@ public sealed partial class ProjectListViewModel(
         DraftName = string.Empty;
         LoadProblem = null;
         Problem = null;
+        Creating = false;
 
         try
         {
@@ -139,9 +147,34 @@ public sealed partial class ProjectListViewModel(
             .FirstOrDefault(string.Empty);
 
     /// <summary>Drops a load that is still in flight, so its answer cannot replace a later one.</summary>
-    public void Cancel() => loadGeneration++;
+    public void Cancel()
+    {
+        loadGeneration++;
+        Creating = false;
+    }
 
     public void UpdateDraftName(string value) => DraftName = value;
+
+    /// <summary>Opens the dialog with an empty name and no old reason on it.</summary>
+    public void StartCreating()
+    {
+        if (!CanManage)
+        {
+            return;
+        }
+
+        DraftName = string.Empty;
+        Problem = null;
+        Creating = true;
+    }
+
+    /// <summary>Closes the dialog and forgets what was typed and why the last try was refused.</summary>
+    public void CancelCreating()
+    {
+        Creating = false;
+        DraftName = string.Empty;
+        Problem = null;
+    }
 
     public Task Create() => Create(DraftName);
 
@@ -173,6 +206,7 @@ public sealed partial class ProjectListViewModel(
             }
 
             DraftName = string.Empty;
+            Creating = false;
             navigator.NavigateTo(Addresses.Project(project.Id));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))

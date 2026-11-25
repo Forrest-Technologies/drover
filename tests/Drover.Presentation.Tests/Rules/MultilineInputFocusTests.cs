@@ -46,6 +46,21 @@ public sealed class MultilineInputFocusTests
     }
 
     [Fact]
+    public void Edit_sheet_instructions_use_the_shared_multiline_input()
+    {
+        var page = Repository.NativeFiles(".cs").Single(file => file.Path == "Pages/Projects/ProjectPage.cs").Text;
+        var area = Repository.NativeFiles(".cs").Single(file => file.Path == "Controls/TextArea.cs").Text;
+
+        page.Should().Contain("TextArea instructionsField");
+        page.Should().Contain("Rows = 8");
+        page.Should().Contain("\"ProjectInstructionsField\"");
+        page.Should().NotContain("new TextBox");
+        area.Should().Contain("Template = Styles.Template(\"DvTextBoxTemplate\")");
+        area.Should().Contain("AcceptsReturn = true");
+        area.Should().Contain("VerticalContentAlignment = VerticalAlignment.Stretch");
+    }
+
+    [Fact]
     public void Shipping_builds_omit_multiline_input_focus_check_and_launch_hooks()
     {
         var nativeRoot = Path.Combine(Repository.Root, "src", "Drover.Native");

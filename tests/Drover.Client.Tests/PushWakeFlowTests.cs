@@ -9,6 +9,8 @@ public sealed class PushWakeFlowTests
 {
     #region Private Fields
 
+    private const string Endpoint = "https://push.example.test/device";
+
     private static readonly Guid user = Guid.Parse("8f0b6f5e-3d7d-4a55-9f6b-2f3d6a1b0c11");
 
     private static readonly Guid thread = Guid.Parse("2d1d4c3b-6a77-4f0e-8c1a-0b9a5c4d3e22");
@@ -59,14 +61,52 @@ public sealed class PushWakeFlowTests
     }
 
     [Fact]
-    public async Task A_wake_whose_words_cannot_be_read_still_tells_the_person_something_changed()
+    public async Task Show_WakeReadFails_ShowsGenericChangeOnly()
     {
         var server = new Server { OnWake = _ => throw new HttpRequestException("Reset.") };
 
         var shown = await Run(server, "run.finished");
 
         shown.Notices.Should().Equal("change");
+        shown.Wake.Should().BeNull();
         shown.Log.Should().ContainSingle().Which.Should().Contain("HttpRequestException");
+    }
+
+    [Fact]
+    public async Task Show_FinishedRun_PassesReplyTextToNotices()
+    {
+        var wake = new PushWakeText("The bot finished.", Guid.NewGuid(), thread, IsMain: true,
+            BotName: "Clara", ReplyText: "Here is the answer.");
+        var server = new Server { OnWake = _ => Task.FromResult<PushWakeText?>(wake) };
+
+        var shown = await Run(server, "run.finished");
+
+        shown.Notices.Should().Equal("words, reply");
+        shown.Wake.Should().Be(wake);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.Conflict)]
+    public async Task A_wake_refused_for_the_session_or_registration_shows_nothing(HttpStatusCode status)
+    {
+        var shown = await Run(new Server { WakeStatus = status }, "run.finished");
+
+        shown.Notices.Should().BeEmpty();
+        shown.Wake.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_wake_for_another_person_never_reads_the_session()
+    {
+        var server = new Server { OnSession = _ => throw new InvalidOperationException("No request expected.") };
+        var payload = Encoding.UTF8.GetBytes(
+            $$"""{"kind":"run.finished","thread":"{{thread}}","user":"{{Guid.NewGuid()}}"}""");
+
+        var shown = await Run(server, clear: payload);
+
+        shown.Notices.Should().BeEmpty();
     }
 
     [Fact]
@@ -157,7 +197,7 @@ public sealed class PushWakeFlowTests
     {
         var notices = new Notices();
         var log = new Recorder();
-        var saved = AndroidPushSubscription.Create("org.sample.distributor", user);
+        var saved = AndroidPushSubscription.Create("org.sample.distributor", user) with { Endpoint = Endpoint };
         var about = thread ?? PushWakeFlowTests.thread;
         var payload = clear ?? Encoding.UTF8.GetBytes($$"""{"kind":"{{kind}}","thread":"{{about}}"}""");
 
@@ -170,14 +210,14 @@ public sealed class PushWakeFlowTests
         var token = patience?.Token ?? TestContext.Current.CancellationToken;
         await flow.Show(saved, payload, () => Task.FromResult(belongs), notices, token);
 
-        return new(notices.Seen, log.Lines);
+        return new(notices.Seen, log.Lines, notices.Wake);
     }
 
     #endregion
 
     #region Nested Types
 
-    private sealed record Shown(IReadOnlyList<string> Notices, IReadOnlyList<string> Log);
+    private sealed record Shown(IReadOnlyList<string> Notices, IReadOnlyList<string> Log, PushWakeText? Wake);
 
     private sealed class Notices : IPushNotices
     {
@@ -185,16 +225,31 @@ public sealed class PushWakeFlowTests
 
         public List<string> Seen { get; } = [];
 
+        public PushWakeText? Wake { get; private set; }
+
         #endregion
 
         #region Interface Implementations
 
-        public void Show(PushWakeText wake, AndroidPushSubscription saved, bool canReply) =>
-            Seen.Add(canReply ? "words, reply" : "words");
+        public Task Show(PushWakeText wake, bool canReply)
+        {
+            Wake = wake;
+            return Record(canReply ? "words, reply" : "words");
+        }
 
-        public void ShowChange() => Seen.Add("change");
+        public Task ShowChange() => Record("change");
 
-        public void ShowTest() => Seen.Add("test");
+        public Task ShowTest() => Record("test");
+
+        #endregion
+
+        #region Private Methods
+
+        private Task Record(string notice)
+        {
+            Seen.Add(notice);
+            return Task.CompletedTask;
+        }
 
         #endregion
     }
@@ -238,6 +293,8 @@ public sealed class PushWakeFlowTests
 
         public Func<CancellationToken, Task<PushWakeText?>>? OnWake { get; init; }
 
+        public HttpStatusCode? WakeStatus { get; init; }
+
         #endregion
 
         #region Protected Methods
@@ -248,6 +305,13 @@ public sealed class PushWakeFlowTests
             if (request.RequestUri!.AbsolutePath.EndsWith("/session", StringComparison.Ordinal))
             {
                 return OnSession is { } scripted ? await scripted(cancellationToken) ?? Session() : Session();
+            }
+
+            request.RequestUri.Query.Should().Contain($"user={user}");
+            request.Headers.GetValues("Push-Endpoint").Should().Equal(Endpoint);
+            if (WakeStatus is { } status)
+            {
+                return new HttpResponseMessage(status);
             }
 
             if (OnWake is not null)

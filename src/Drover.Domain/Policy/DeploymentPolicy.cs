@@ -9,11 +9,15 @@ public sealed record DeploymentPolicy
 {
     #region Public Methods
 
-    /// <summary>The rules whose value is looser than the preset allows. A rule the operator may set freely never counts.</summary>
-    public IReadOnlyList<string> FindLoosenedRules(DeploymentPolicy preset) =>
+    /// <summary>
+    /// The rules whose value is looser than the preset allows. A rule the operator may set freely never counts, and
+    /// with <paramref name="limitsAreDefaults"/>, as on a self-hosted server, neither does a limit: there a limit is
+    /// a safe starting value the operator may raise, never a ceiling on what they can do with their own server.
+    /// </summary>
+    public IReadOnlyList<string> FindLoosenedRules(DeploymentPolicy preset, bool limitsAreDefaults = false) =>
     [
         .. Rules
-            .Where(rule => rule.IsLocked && rule.Looseness(this) > rule.Looseness(preset))
+            .Where(rule => rule.IsLocked && !(limitsAreDefaults && rule.IsLimit) && rule.Looseness(this) > rule.Looseness(preset))
             .Select(rule => rule.Name),
     ];
 
@@ -31,7 +35,7 @@ public sealed record DeploymentPolicy
             .. Rules
                 .Where(rule => !rule.HasDefinedValue(this))
                 .Select(rule => $"{rule.Name} is not one of the values this rule has."),
-            .. FindLoosenedRules(preset).Select(name => $"{name} is set looser than the '{presetName}' preset allows."),
+            .. FindLoosenedRules(preset, limitsAreDefaults: presetName == SelfHostedName).Select(name => $"{name} is set looser than the '{presetName}' preset allows."),
         ];
 
         // Each requirement is checked when either the preset or the policy asks for the strict value, so no
@@ -150,13 +154,22 @@ public sealed record DeploymentPolicy
 
     public const int DelegationDepth = 5;
 
-    public const int RunsPerDelegationTree = 50;
+    /// <summary>No limit on the runs of one tree: a self-hosted tree is bounded by its cost and its depth.</summary>
+    public const int SelfHostedMaxRunsPerDelegationTree = int.MaxValue;
+
+    public const int HostedMaxRunsPerDelegationTree = 50;
 
     public const int SelfHostedMaxDelegationTreeCostCents = 10_000;
 
     public const int HostedMaxDelegationTreeCostCents = 1_000;
 
-    public const int StepsPerRun = 50;
+    /// <summary>
+    /// No limit on model calls: a self-hosted run is bounded by its tokens, as an agent loop is by default elsewhere.
+    /// Every limit narrows by taking the lower, so the largest number stands for none.
+    /// </summary>
+    public const int SelfHostedMaxStepsPerRun = int.MaxValue;
+
+    public const int HostedMaxStepsPerRun = 50;
 
     public const int SelfHostedMaxTokensPerRun = 5_000_000;
 
@@ -285,7 +298,7 @@ public sealed record DeploymentPolicy
     public int MaxDelegationDepth { get; init; } = DelegationDepth;
 
     /// <summary>The most runs one run tree may hold, the run a person started included. A space may only lower it.</summary>
-    public int MaxRunsPerDelegationTree { get; init; } = RunsPerDelegationTree;
+    public int MaxRunsPerDelegationTree { get; init; } = SelfHostedMaxRunsPerDelegationTree;
 
     /// <summary>
     /// What a run tree may have cost, in hundredths of the price list's currency, before no further delegation is
@@ -296,9 +309,10 @@ public sealed record DeploymentPolicy
 
     /// <summary>
     /// The most model calls one run makes before it is stopped with <c>step_limit</c>. A space may only lower it, and
-    /// a bot may lower it again. A model that keeps calling tools without finishing is stopped here.
+    /// a bot may lower it again. None on a self-hosted server, where <see cref="MaxTokensPerRun"/> bounds a run; 50 on
+    /// the hosted preset, where a model that keeps calling tools without finishing is stopped here.
     /// </summary>
-    public int MaxStepsPerRun { get; init; } = StepsPerRun;
+    public int MaxStepsPerRun { get; init; } = SelfHostedMaxStepsPerRun;
 
     /// <summary>
     /// The most tokens, read and written together, one run uses before it is stopped with <c>token_limit</c>. A space
@@ -580,7 +594,7 @@ public sealed record DeploymentPolicy
         PolicyRule.Limit(
             nameof(MaxRunsPerDelegationTree),
             policy => policy.MaxRunsPerDelegationTree,
-            RunsPerDelegationTree,
+            HostedMaxRunsPerDelegationTree,
             Enforcement.Now("RunGovernor, when a bot delegates")),
         PolicyRule.Limit(
             nameof(MaxDelegationTreeCostCents),
@@ -590,7 +604,7 @@ public sealed record DeploymentPolicy
         PolicyRule.Limit(
             nameof(MaxStepsPerRun),
             policy => policy.MaxStepsPerRun,
-            StepsPerRun,
+            HostedMaxStepsPerRun,
             Enforcement.Now("RunSession, before every model call of a run")),
         PolicyRule.Limit(
             nameof(MaxTokensPerRun),
