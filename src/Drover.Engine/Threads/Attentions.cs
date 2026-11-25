@@ -22,7 +22,11 @@ public static class Attentions
 
     /// <summary>The run's failure as a cause a person can act on, and the error as the run's log holds it.</summary>
     public static RunFailure ToFailure(this Run run) =>
-        new(run.Id, Cause(run.Error?.Code), run.Error is { } error ? $"{error.Code}: {error.Message}" : string.Empty);
+        new(
+            run.Id,
+            Cause(run.Error?.Code),
+            run.Error is { } error ? $"{error.Code}: {error.Message}" : string.Empty,
+            run.Error?.Limit is { } limit ? new RunFailureLimit(limit.Kind, limit.Used, limit.Cap) : null);
 
     public static string Cause(string? code) => code switch
     {

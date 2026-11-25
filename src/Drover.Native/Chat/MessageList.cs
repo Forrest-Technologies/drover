@@ -363,6 +363,8 @@ public sealed class MessageList : Grid
 
         failure.Cause = cause;
         failure.BotName = list.BotName;
+        failure.Limit = failed.Limit;
+        failure.LimitsHref = list.FailureLimitsHref;
         failure.Reported = failed.Reported;
         failure.Retrying = list.Retrying;
     }

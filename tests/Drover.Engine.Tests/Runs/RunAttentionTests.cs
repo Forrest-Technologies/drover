@@ -106,6 +106,7 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     [InlineData("retry_later", FailureCauses.ModelBusy)]
     [InlineData("out_of_credit", FailureCauses.ModelOutOfCredit)]
     [InlineData("step_limit", FailureCauses.BudgetReached)]
+    [InlineData("token_limit", FailureCauses.BudgetReached)]
     [InlineData("stopped_by_rule", FailureCauses.StoppedByRule)]
     [InlineData("blocked_by_rule", FailureCauses.StoppedByRule)]
     [InlineData("lease_lost", FailureCauses.ServerRestarted)]
@@ -113,6 +114,54 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     [InlineData(null, FailureCauses.Unknown)]
     public void A_failure_is_put_down_to_a_cause_a_person_can_act_on(string? code, string cause) =>
         Attentions.Cause(code).Should().Be(cause);
+
+    [Fact]
+    public async Task A_run_stopped_by_step_limit_reports_model_calls_with_used_and_cap()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        IReadOnlyList<ModelOutput>[] turns =
+        [
+            .. Enumerable.Range(1, 51)
+                .Select(step => (IReadOnlyList<ModelOutput>)[new ToolCallOutput($"c{step}", "test_lookup")]),
+        ];
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(turns), tools);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var failedId = await world.Post(threadId, "Loop");
+        await world.WaitForStatus(failedId, RunStatus.Failed);
+        var failed = await AttentionOf(world, threadId, world.UserId);
+
+        failed.Failed.Should().BeTrue();
+        failed.LastFailure.Should().Match<RunFailure>(failure =>
+            failure.RunId == failedId
+            && failure.Cause == FailureCauses.BudgetReached
+            && failure.Limit == new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+    }
+
+    [Fact]
+    public async Task A_run_stopped_by_token_limit_reports_tokens_with_used_and_cap()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new TextOutput("Never reached.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.SetSpaceSettings(new SpaceSettings { MaxTokensPerRun = 20 });
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var failedId = await world.Post(threadId, "Loop");
+        await world.WaitForStatus(failedId, RunStatus.Failed);
+        var failed = await AttentionOf(world, threadId, world.UserId);
+
+        failed.Failed.Should().BeTrue();
+        failed.LastFailure.Should().Match<RunFailure>(failure =>
+            failure.RunId == failedId
+            && failure.Cause == FailureCauses.BudgetReached
+            && failure.Limit == new RunFailureLimit(FailureLimits.Tokens, 30, 20));
+    }
 
     #endregion
 

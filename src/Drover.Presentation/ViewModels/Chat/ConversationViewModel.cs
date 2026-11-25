@@ -231,9 +231,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool Busy => Working && run?.Status is not "waiting";
 
+    private bool CanEditBot => session.Space?.Role is "owner" or "admin";
+
     // Who reads what a reply used, by the same rule the server answers with.
     private UsageReader? Reader => session.Current is { } person
-        ? new UsageReader(person.UserId, session.Space?.Role is "owner" or "admin")
+        ? new UsageReader(person.UserId, CanEditBot)
         : null;
 
     #endregion
@@ -1167,7 +1169,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             history.With(run),
             run,
             fileId => api.FileAddress(SpaceId, fileId),
-            new Handover(Bot.Name, parameters.Crew.ToDictionary(bot => bot.Id, bot => bot.Name), parameters.WorkAddress),
+            new Handover(
+                Bot.Name,
+                parameters.Crew.ToDictionary(bot => bot.Id, bot => bot.Name),
+                parameters.WorkAddress,
+                BotId: Bot.Id,
+                LimitsAddress: CanEditBot ? Addresses.BotLimits : null),
             Reader)
         .OfferingVersions(idle: !ReadOnly && !loading && !LoadFailed && !sending && !changing && !Working && thread is not null)
         .InTurns();
@@ -1223,6 +1230,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.Notice = Notice;
         List.ForgottenNotes = forgottenNotes;
         List.MemoryHref = Addresses.Memory(Bot.Id);
+        List.LimitsHref = CanEditBot ? Addresses.BotLimits(Bot.Id) : null;
         List.Failure = Failure;
         List.Retrying = retrying;
         List.Changing = changing;

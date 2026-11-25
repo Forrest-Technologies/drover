@@ -106,6 +106,9 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>The bot's memory beside the conversation, where a note that changed since its card can be seen.</summary>
     public string? MemoryHref { get; set; }
 
+    /// <summary>The bot's Limits settings, for a person who can edit the bot; null for everyone else.</summary>
+    public string? LimitsHref { get; set; }
+
     /// <summary>Reads a text file's whole content for "Show all".</summary>
     public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
 
@@ -134,6 +137,15 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>The cause of the failure, as the line that ends the conversation says it.</summary>
     public FailureCause? FailureCause => Failure is { } failure ? AttentionWords.CauseOf(failure.Cause) : null;
+
+    /// <summary>The first line of the failure card, naming the limit and its numbers when the server reported one.</summary>
+    public string? FailureSentence => Failure is { } failure ? AttentionWords.Failure(failure, BotName) : null;
+
+    /// <summary>Where the failure card's limits action goes: set for a limit stop when the person can edit the bot.</summary>
+    public string? FailureLimitsHref => FailureCause is FailureCause.BudgetReached ? LimitsHref : null;
+
+    /// <summary>The label of the failure card's limits action, or null when no limits action is offered.</summary>
+    public string? FailureLimitsLabel => FailureLimitsHref is not null ? AttentionWords.OpenLimitsLabel : null;
 
     /// <summary>
     /// Raised to bring the newest message into view. For when the person sends: they want to see what they wrote,
@@ -201,7 +213,7 @@ public sealed class MessageListViewModel : ObservableObject
         if (Failure is { } failure && failure.RunId != announcedFailure)
         {
             announcedFailure = failure.RunId;
-            Spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
+            Spoken = AttentionWords.Failure(failure, BotName);
         }
 
         Status.Show(new(Messages, Working || Thinking, Thinking, Waiting, Model, ModelIsChosen), LoadUsage, Logger);
