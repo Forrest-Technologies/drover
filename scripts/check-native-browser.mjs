@@ -706,6 +706,11 @@ try {
                     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
                     await field.press('X');
                     assert.equal(await field.inputValue(), '', 'the field is disabled while the state is shown');
+                    const waitingField = page.getByRole('textbox', {
+                        name: 'Message to Sample bot', exact: true,
+                        description: /^Available when the conversation has loaded\.$/,
+                    });
+                    await waitingField.waitFor({ state: 'attached', timeout: 5000 });
                 }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
@@ -722,6 +727,15 @@ try {
                     await field.press('X');
                     assert.equal(await field.inputValue(), 'X', 'the field takes text once the conversation has been read');
                     await field.fill('');
+                    // The description leaves with the failure. Uno debounces accessibility updates, so wait for it.
+                    await page.waitForFunction(
+                        () => !document.querySelector('[aria-label="Message to Sample bot"]')?.getAttribute('aria-description'),
+                        null, { timeout: 5000 });
+                    const waitingField = page.getByRole('textbox', {
+                        name: 'Message to Sample bot', exact: true,
+                        description: /^Available when the conversation has loaded\.$/,
+                    });
+                    assert.equal(await waitingField.count(), 0, 'the field says nothing about waiting once the conversation is read');
                 }
                 if (name === 'extension-editor') {
                     // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.

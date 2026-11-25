@@ -26,6 +26,10 @@ public sealed partial class ComposerViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanSend))]
     private bool disabled;
 
+    // Why the field cannot take a message, read by assistive technology while it is disabled.
+    [ObservableProperty]
+    private string fieldDescription = string.Empty;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSend))]
     private bool sending;

@@ -166,6 +166,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #575 fix: a bot rule is removed on one press with no way back
 - #576 fix: Use another server forgets the server on one tap
 - #752 Native client: hide the composer on a delegation conversation
+- #875 fix: a disabled conversation field has no accessible description
 
 **Interface specs.** [recovery-states.md](ux/recovery-states.md)
 
@@ -174,6 +175,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - With the server stopped, every screen opens to a failed state with a working Try again.
 - A reply lost mid-stream stays on screen and is recovered with one press.
 - A draft, an unsaved bot and a half-written rule each survive leaving and coming back.
+- A conversation that could not be read tells assistive technology when its disabled message field will be available, and stops saying so after a successful retry.
 - Every state in `recovery-states.md` exists with its exact words.
 
 ### 04 Runs you can trust
