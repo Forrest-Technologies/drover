@@ -119,12 +119,12 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     public async Task A_run_stopped_by_step_limit_reports_model_calls_with_used_and_cap()
     {
         var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
-        IReadOnlyList<ModelOutput>[] turns =
-        [
-            .. Enumerable.Range(1, 51)
-                .Select(step => (IReadOnlyList<ModelOutput>)[new ToolCallOutput($"c{step}", "test_lookup")]),
-        ];
-        await using var world = await RunWorld.Create(postgres, new ScriptedModel(turns), tools);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new ToolCallOutput("c3", "test_lookup")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.SetSpaceSettings(new SpaceSettings { MaxStepsPerRun = 2 });
         world.StartHost();
         var threadId = await world.NewThread();
 
@@ -136,7 +136,7 @@ public sealed class RunAttentionTests(PostgresServer postgres)
         failed.LastFailure.Should().Match<RunFailure>(failure =>
             failure.RunId == failedId
             && failure.Cause == FailureCauses.BudgetReached
-            && failure.Limit == new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+            && failure.Limit == new RunFailureLimit(FailureLimits.ModelCalls, 2, 2));
     }
 
     [Fact]
