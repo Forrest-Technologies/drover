@@ -286,6 +286,8 @@ try {
                     return;
                 } else { errors.push(`${message.location().url}: ${message.text()}`); }
             });
+            // The account already keeps the look this device runs, as a second device would find it.
+            let accountAppearance = { themeId: 'front-office', mode: theme, accent: 'theme' };
             let current;
             let heldRoute;
             let botCreates = 0;
@@ -335,6 +337,12 @@ try {
                 }
                 else if (address === '/api/setup' && current === 'sign-in') { await route.fulfill({ status: 404 }); return; }
                 else if (address === '/api/setup') { body = { requiresCode: true }; }
+                else if (address === '/api/account/appearance' && method === 'GET') { body = accountAppearance; }
+                else if (address === '/api/account/appearance' && method === 'PUT') {
+                    accountAppearance = route.request().postDataJSON();
+                    await route.fulfill({ status: 204 });
+                    return;
+                }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
