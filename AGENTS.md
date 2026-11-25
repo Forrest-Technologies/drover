@@ -162,6 +162,10 @@ If you cannot meet one of these, stop and say which and why. Do not work around 
 ## 14. How work is tracked
 
 - GitHub Issues are the source of truth for tasks. `ROADMAP.md` gives direction and links to tracking issues; it never holds status.
+- Start feature, fix, test, and documentation branches from `develop` and target `develop` in pull requests.
+- `develop` is preview; `main` is production. Promote reviewed work with a `develop` to `main` pull request. Do not create a separate preview branch.
+- Both branches require passing checks and maintainer approval from `steven-forresttechnologies` or `VelocityLabs`; new commits dismiss stale approvals. Never bypass these gates.
+- Preserve an explicitly documented dependency branch until its prerequisite merges, then retarget to `develop`. Earlier issue references to `main` or `feat/uno-assistant-parity` describe prior source snapshots, not the default PR target.
 - One issue, one branch, one pull request. The pull request body starts with `Closes #n` and says how the issue's verification plan was carried out.
 - Name every new work branch `<type>/<short-description>` before the first commit.
   Use `feat/` for features, `bug/` or `fix/` for fixes, and `docs/`, `test/`, `build/`, `refactor/`, or `chore/` as appropriate.
