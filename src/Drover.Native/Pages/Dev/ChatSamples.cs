@@ -102,7 +102,7 @@ internal static class ChatSamples
         [
             Wide(new FailureLine { Cause = FailureCause.ModelUnreachable, BotName = "Sample lead bot", Reported = "sample_error: A sample report from the server." }),
         ]),
-        new("Composer", "Enter sends. While a bot works, Stop stands where Send was and a line travels the top edge.", () =>
+        new("Composer", "Enter sends. While a bot works, Stop stands where Send was and a line travels around the composer.", () =>
         [
             Wide(new Composer { Model = new() { BotName = "Sample lead bot" } }),
             Wide(new Composer { Model = new() { BotName = "Sample lead bot", Running = true } }),
