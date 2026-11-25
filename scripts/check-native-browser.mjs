@@ -198,7 +198,7 @@ const nativeProjectScreens = [
     ['projects', '/projects', 'Projects', 'Projects'],
     ['project-loading', `/projects/${projectId}`, 'Project', 'Project'],
     ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
-    ['project-missing', `/projects/${projectId}`, 'Project', 'This project is not here'],
+    ['project-missing', `/projects/${projectId}`, 'Project', 'Project not found'],
     ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
     ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
@@ -673,7 +673,9 @@ try {
                 }
                 if (name === 'projects') {
                     await page.getByRole('link', { name: 'Weekly', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    await page.getByRole('textbox', { name: 'Project name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'New project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByRole('textbox', { name: 'Name', exact: true }).count(), 0,
+                        'the projects list must not hold a field until New project is pressed');
                 }
                 if (name === 'project-loading') {
                     await page.getByLabel('Loading the project.', { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
@@ -685,10 +687,12 @@ try {
                     await page.getByRole('link', { name: 'Back to projects', exact: true }).first().waitFor({ state: 'attached', timeout: 5000 });
                 }
                 if (name === 'project' || name === 'project-member') {
-                    await page.getByRole('textbox', { name: 'Name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('heading', { name: 'Instructions', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('heading', { name: 'Conversations', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('heading', { name: 'Files', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                     await page.getByRole('button', { name: 'Download brief.txt', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    await page.getByRole('button', { name: 'Start with Sample bot', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByRole('textbox', { name: 'Name', exact: true }).count(), 0,
+                        'a project reads before it edits, so no field is on the page');
                 }
                 if (name === 'conversation-load-failed') {
                     await page.getByRole('heading', { name: 'Drover could not load this conversation', exact: true })
@@ -749,8 +753,10 @@ try {
                     }
                 }
                 if (name === 'project-member') {
-                    await page.getByText("Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.", { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    assert.equal(await page.getByRole('button', { name: 'Save project', exact: true }).isDisabled(), true);
+                    assert.equal(await page.getByRole('button', { name: 'Edit project', exact: true }).count(), 0,
+                        'a member is not offered the edit action');
+                    assert.equal(await page.getByRole('button', { name: 'More', exact: true }).count(), 0,
+                        'a member is not offered the more menu');
                 }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
@@ -1767,19 +1773,29 @@ async function checkPhoneNavLayout(page, width) {
 }
 
 async function checkProjectListKeyboard(page) {
-    const field = page.getByRole('textbox', { name: 'Project name', exact: true });
+    const add = page.getByRole('button', { name: 'New project', exact: true });
+    await add.focus();
+    await page.keyboard.press('Enter');
+    const field = page.getByRole('textbox', { name: 'Name', exact: true });
+    await field.waitFor({ state: 'attached', timeout: 5000 });
     await field.focus();
     await page.keyboard.type('Draft');
     await page.waitForTimeout(150);
     assert.equal(await field.inputValue(), 'Draft');
     await page.keyboard.press('Tab');
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
-    assert.equal(activeName, 'New project', `Expected Tab from Project name to land on New project, got ${activeName}`);
+    assert.ok(['Cancel', 'Create project'].includes(activeName),
+        `Expected Tab from Name to stay in the dialog, got ${activeName}`);
+    await page.keyboard.press('Escape');
+    await field.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 async function checkProjectDraftsAndKeyboard(page) {
+    await page.getByRole('button', { name: 'Edit project', exact: true }).dispatchEvent('click');
     const nameField = page.getByRole('textbox', { name: 'Name', exact: true });
     const instructionsField = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    await nameField.waitFor({ state: 'attached', timeout: 5000 });
+    await instructionsField.waitFor({ state: 'attached', timeout: 5000 });
     await nameField.focus();
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.type('Weekly draft');
@@ -1789,15 +1805,9 @@ async function checkProjectDraftsAndKeyboard(page) {
     await page.waitForTimeout(200);
 
     assert.equal(await nameField.inputValue(), 'Weekly draft',
-        'Project name did not take the typed draft before refreshing.');
+        "The sheet's Name did not take the typed draft.");
     assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
         'Project instructions did not take the typed draft before refreshing.');
-
-    await page.getByRole('button', { name: 'Move Quarterly planning into this project', exact: true }).dispatchEvent('click');
-    await page.getByRole('button', { name: 'Move Quarterly planning out of this project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-
-    assert.equal(await nameField.inputValue(), 'Weekly draft', 'Project name draft was lost after refreshing project details.');
-    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.', 'Project instructions draft was lost after refreshing project details.');
 
     await instructionsField.focus();
     await page.keyboard.press('Home');
@@ -1843,7 +1853,13 @@ async function checkProjectDraftsAndKeyboard(page) {
     await instructionsField.focus();
     await page.keyboard.press('Tab');
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
-    assert.equal(activeName, 'Save project', `Expected Tab from Instructions to reach Save project, got ${activeName}`);
+    assert.ok(['Cancel', 'Save changes'].includes(activeName),
+        `Expected Tab from Instructions to stay in the sheet, got ${activeName}`);
+    await page.keyboard.press('Escape');
+    await page.getByRole('heading', { name: 'Discard changes?', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+    await page.getByRole('button', { name: 'Keep editing', exact: true }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Discard', exact: true }).dispatchEvent('click');
+    await nameField.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 async function selectNativeTextRange(field, start, end, direction) {
