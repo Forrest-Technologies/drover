@@ -61,7 +61,7 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
             ? setting.Accent
             : Accents.ThemeId;
 
-        Choose(new(chosen.Id, mode, accent));
+        Choose(new ThemeChoice(chosen.Id, mode, accent));
     }
 
     /// <summary>Takes another mode of the theme in use.</summary>
