@@ -1872,22 +1872,29 @@ async function checkProjectDraftsAndKeyboard(page) {
 }
 
 async function checkProjectMoveFlow(page) {
+    const address = `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project`;
+    const write = () => page.waitForResponse(reply => reply.request().method() === 'PUT'
+        && new URL(reply.url()).pathname === address && reply.ok());
+
     await focusSettled(page);
     await page.getByRole('button', { name: 'New conversation', exact: true }).dispatchEvent('click');
     await page.getByRole('menuitem', { name: 'Move a conversation here', exact: true }).dispatchEvent('click');
     const move = page.getByRole('button', { name: 'Move Quarterly planning to this project', exact: true });
     await move.waitFor({ state: 'attached', timeout: 5000 });
+    const movedIn = write();
     await move.dispatchEvent('click');
-    await page.getByText('You have no other conversations to move here.', { exact: true })
-        .waitFor({ state: 'attached', timeout: 5000 });
+    const inReply = await movedIn;
+    assert.equal(JSON.parse(inReply.request().postData() ?? '{}').projectId, projectId,
+        'Move in must send this project, not the conversation or its bot');
     await page.getByRole('button', { name: 'Done', exact: true }).dispatchEvent('click');
-    const conversation = page.getByText('Quarterly planning', { exact: true });
-    await conversation.waitFor({ state: 'attached', timeout: 5000 });
 
     await focusSettled(page);
     await page.getByRole('button', { name: 'More', exact: true }).first().dispatchEvent('click');
+    const movedOut = write();
     await page.getByRole('menuitem', { name: 'Move out of this project', exact: true }).dispatchEvent('click');
-    await conversation.waitFor({ state: 'detached', timeout: 5000 });
+    const outReply = await movedOut;
+    assert.equal(JSON.parse(outReply.request().postData() ?? '{}').projectId, null,
+        'Move out must send no project');
 }
 
 async function selectNativeTextRange(field, start, end, direction) {
