@@ -128,7 +128,7 @@ public sealed class ToolConnectionsPage : Screen
             {
                 draft = new();
             }
-        }, Refresh, ButtonKind.Primary);
+        }, Refresh, kind: ButtonKind.Primary);
         addSheet.Body = Forms.SheetBody(nameField, addressField, kindName, kind, headerPart, oauthPart, more, addProblem, addBusy,
             PageParts.Row(cancelAdd, addButton));
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
@@ -149,7 +149,7 @@ public sealed class ToolConnectionsPage : Screen
         replaceValueField = PageParts.Field("Header value", string.Empty, value => model.HeaderValue = value, "password",
             "Stored encrypted. It is not shown again.");
         cancelReplace = PageParts.Action("Cancel", () => { model.CancelReplacingHeader(); return Task.CompletedTask; }, Refresh);
-        saveHeader = PageParts.Action("Save header", () => model.ReplaceHeader(Replacing()), Refresh, ButtonKind.Primary);
+        saveHeader = PageParts.Action("Save header", () => model.ReplaceHeader(Replacing()), Refresh, kind: ButtonKind.Primary);
         replaceDialog.Body = Forms.SheetBody(replaceNameField, replaceValueField, replaceProblem, replaceBusy,
             PageParts.Row(cancelReplace, saveHeader));
         replaceNameField.Loaded += (_, _) => { if (replaceDialog.Open) { replaceNameField.TakeFocus(); } };
@@ -488,10 +488,11 @@ public sealed class ToolConnectionsPage : Screen
         return toggle;
     }
 
-    private Button Action(string label, Func<Task> work, ButtonKind kind = ButtonKind.Quiet)
-    {
-        return PageParts.Action(label, work, Refresh, !model.ChangePending, kind);
-    }
+    private Button Action(string label, Action work, ButtonKind kind = ButtonKind.Quiet) =>
+        Action(label, () => { work(); return Task.CompletedTask; }, kind);
+
+    private Button Action(string label, Func<Task> work, ButtonKind kind = ButtonKind.Quiet) =>
+        PageParts.Action(label, work, Refresh, !model.ChangePending, kind);
 
     private static MenuItem MenuEntry(string label, Action choose)
     {

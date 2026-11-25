@@ -58,7 +58,7 @@ public sealed class ModelConnectionsPage : Screen
         });
 
         cancelAdd = PageParts.Action("Cancel", () => { model.Adding = false; return Task.CompletedTask; }, Refresh);
-        addButton = PageParts.Action("Add and test", model.Add, Refresh, ButtonKind.Primary);
+        addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
         addSheet.Body = Forms.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy,
             PageParts.Row(cancelAdd, addButton));
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
@@ -76,7 +76,7 @@ public sealed class ModelConnectionsPage : Screen
         });
 
         cancelReplace = PageParts.Action("Cancel", () => { model.CancelReplacing(); return Task.CompletedTask; }, Refresh);
-        saveKey = PageParts.Action("Save key", () => model.ReplaceKey(Replacing()), Refresh, ButtonKind.Primary);
+        saveKey = PageParts.Action("Save key", () => model.ReplaceKey(Replacing()), Refresh, kind: ButtonKind.Primary);
         replaceDialog.Body = Forms.SheetBody(newKeyField, replaceProblem, replaceBusy, PageParts.Row(cancelReplace, saveKey));
         newKeyField.Loaded += (_, _) => { if (replaceDialog.Open) { newKeyField.TakeFocus(); } };
         replaceDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
