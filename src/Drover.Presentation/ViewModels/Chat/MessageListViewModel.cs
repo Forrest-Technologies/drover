@@ -142,7 +142,7 @@ public sealed class MessageListViewModel : ObservableObject
     public string? FailureSentence => Failure is { } failure ? AttentionWords.Failure(failure, BotName) : null;
 
     /// <summary>Where the failure card's limits action goes: set for a limit stop when the person can edit the bot.</summary>
-    public string? FailureLimitsHref => FailureCause is FailureCause.BudgetReached ? LimitsHref : null;
+    public string? FailureLimitsHref => Failure?.Cause is FailureCauses.BudgetReached ? LimitsHref : null;
 
     /// <summary>The label of the failure card's limits action, or null when no limits action is offered.</summary>
     public string? FailureLimitsLabel => FailureLimitsHref is not null ? AttentionWords.OpenLimitsLabel : null;
