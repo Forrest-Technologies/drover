@@ -711,7 +711,7 @@ public sealed class TalkViewModel(
                 HeldCallId = HeldCallId,
                 ScreenAccess = screenAccess,
                 ScreenSetupHref = screenSetupHref,
-                ThreadRevision = RevisionOf(shown.Id, main: true),
+                ThreadRevision = RevisionOf(shown!.Id, main: true),
             },
             pane =>
             {
@@ -741,7 +741,7 @@ public sealed class TalkViewModel(
                 WorkAddress = WorkAddress,
                 ScreenAccess = screenAccess,
                 ScreenSetupHref = screenSetupHref,
-                ThreadRevision = RevisionOf(shown.Id, main: false, ThreadId),
+                ThreadRevision = RevisionOf(shown!.Id, main: false, ThreadId),
             },
             pane =>
             {

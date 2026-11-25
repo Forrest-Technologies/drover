@@ -413,6 +413,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             }
             catch (OperationCanceledException) when (left.IsCancellationRequested)
             {
+                logger.LogDebug("Stopped waiting to read a change to thread {ThreadId}", thread?.Id);
                 return;
             }
 
