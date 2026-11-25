@@ -2,7 +2,7 @@ namespace Drover.Native.Chat;
 
 /// <summary>
 /// A tool call: a compact card in the bot's turn. Closed, it reads what the bot did, its arguments on one line, and
-/// its state in words. Its top edge carries the state: a traveling line while the tool runs, then a still line in
+/// its state in words. Its frame carries the state: a line traveling around it while the tool runs, then a still top line in
 /// green or red once it has ended. A call that waits for a person is a question with its two answers instead.
 /// </summary>
 public sealed class ToolCallCard : Grid

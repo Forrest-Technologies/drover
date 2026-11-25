@@ -48,7 +48,7 @@ public sealed class Disclosure : Grid
         content.Children.Add(mark);
 
         toggle.Content = content;
-        toggle.MinHeight = Tokens.Number("DvTargetTouch");
+        toggle.MinHeight = Targets.Minimum;
         toggle.HorizontalAlignment = HorizontalAlignment.Stretch;
         toggle.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         toggle.Click += (_, _) => Open = !Open;
@@ -58,6 +58,8 @@ public sealed class Disclosure : Grid
         SetRow(body, 1);
         frame.Children.Add(toggle);
         frame.Children.Add(body);
+        SetRowSpan(travel, 2);
+        travel.Margin = TravelLine.Over(frame.Padding);
         frame.Children.Add(travel);
         Children.Add(frame);
         Show();
@@ -118,7 +120,7 @@ public sealed class Disclosure : Grid
         set => SetValue(EdgeProperty, value);
     }
 
-    /// <summary>True while a tool the section is about runs: the line of a running tool travels its top edge.</summary>
+    /// <summary>True while a tool the section is about runs: the line of a running tool travels around its frame.</summary>
     public bool Running
     {
         get => (bool)GetValue(RunningProperty);

@@ -20,7 +20,7 @@ public sealed class CheckItem : CheckBox
         var words = machine ? BotParts.Mono(label).Inked("DvText") : Styles.Text(label);
         words.VerticalAlignment = VerticalAlignment.Center;
         Content = words;
-        MinHeight = Tokens.Number("DvTargetTouch");
+        MinHeight = Targets.Minimum;
         VerticalContentAlignment = VerticalAlignment.Center;
         AutomationProperties.SetName(this, label);
         Checked += (_, _) => Raise();

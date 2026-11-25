@@ -4,7 +4,7 @@ namespace Drover.Native.Chat;
 /// The console a person writes to a bot in: the field and its actions in one frame. Enter sends and Shift+Enter
 /// breaks the line; on a touch keyboard Enter breaks the line and Send sends. The field grows with its text up to
 /// a set number of lines. Files chosen with Attach, pasted into the field, or dropped on the conversation all go the
-/// same way. While the bot works, a line travels the frame's top edge and Stop stands where Send was. The model the
+/// same way. While the bot works, a line travels around the frame and Stop stands where Send was. The model the
 /// conversation answers with is chosen behind the plus button, beside Attach, when the bot may use more than one.
 /// </summary>
 public sealed class Composer : Grid
@@ -267,7 +267,7 @@ public sealed class Composer : Grid
 
         var pad = Tokens.Number("DvSpace2");
         frame.Padding = new(pad);
-        travel.Margin = new(-pad, -pad, -pad, 0);
+        travel.Margin = TravelLine.Over(frame.Padding);
         frame.Children.Add(row);
         frame.Children.Add(travel);
     }

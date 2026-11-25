@@ -13,7 +13,7 @@ public sealed class ListCard : StackPanel
     {
         Role = FacetRole.Frame,
         Cut = Tokens.Number("DvCut"),
-        MinHeight = Tokens.Number("DvTargetTouch"),
+        MinHeight = Targets.Minimum,
         Padding = Tokens.Space("DvSpace4", "DvSpace3"),
     };
 

@@ -57,10 +57,17 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
     public bool ContinuesTurn { get; init; }
 
     /// <summary>
-    /// On the first message of a bot's turn, the whole turn's work as one list: its reasoning and its calls in order,
-    /// a run of three or more calls of one tool as one step. Null where the work is drawn as cards, as in handed work.
+    /// The work of a bot's turn done before this message's words, since the words before them: its reasoning and its
+    /// calls in order, a run of three or more calls of one tool as one step. It stands just above the words. Null
+    /// where there is none, and where the work is drawn as cards, as in handed work.
     /// </summary>
     public IReadOnlyList<LedgerStep>? Ledger { get; init; }
+
+    /// <summary>
+    /// The work done after this message's words, on the turn's last message only: what the bot is doing, or did, once
+    /// it last said something. It stands just under the words. Null where there is none.
+    /// </summary>
+    public IReadOnlyList<LedgerStep>? LedgerAfter { get; init; }
 
     #endregion
 }

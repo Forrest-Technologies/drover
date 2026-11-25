@@ -1536,7 +1536,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         MainPane.Messages[^1].Should().Match<ChatMessage>(message => message.FromPerson && message.Text == "Another sample question");
         (MainPane.Composer.ShowsStop, MainPane.Composer.ShowsSend).Should().Be((true, false));
         MainPane.Composer.Text.Should().BeEmpty();
-        MainPane.Composer.IsWorking.Should().BeTrue("the line travels the composer's top edge");
+        MainPane.Composer.IsWorking.Should().BeTrue("the line travels around the composer");
         shown.Should().Be(1, "the person sees what they wrote, wherever they had scrolled to");
         await Until(() => ChatRows.CrewRowName(Marshal, Talk.WorkingBots, Talk.ForYou).Should().Be("Marshal, thinking"));
         Talk.MainBusy.Should().BeTrue("the head in the header is lit");
