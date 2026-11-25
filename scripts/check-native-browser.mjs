@@ -528,8 +528,9 @@ try {
                     body = projectMoved ? [{ ...projectOutsideThread, projectId }] : [projectOutsideThread];
                 }
                 else if (address === `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project` && method === 'PUT') {
-                    projectMoved = true;
-                    body = { ...projectOutsideThread, projectId };
+                    const sent = JSON.parse(route.request().postData() ?? '{}');
+                    projectMoved = sent.projectId != null;
+                    body = projectMoved ? { ...projectOutsideThread, projectId } : projectOutsideThread;
                 }
                 else if (address === `/api/spaces/${spaceId}/projects` && method === 'GET') {
                     if (current === 'projects-failed') {
@@ -751,6 +752,7 @@ try {
                         await cpu.send('Emulation.setCPUThrottlingRate', { rate: 1 });
                         await cpu.detach();
                     }
+                    await checkProjectMoveFlow(page);
                 }
                 if (name === 'project-member') {
                     assert.equal(await page.getByRole('button', { name: 'Edit project', exact: true }).count(), 0,
@@ -1786,6 +1788,11 @@ async function checkProjectListKeyboard(page) {
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
     assert.ok(['Cancel', 'Create project'].includes(activeName),
         `Expected Tab from Name to stay in the dialog, got ${activeName}`);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).dispatchEvent('click');
+    await field.waitFor({ state: 'detached', timeout: 5000 });
+    await add.dispatchEvent('click');
+    await field.waitFor({ state: 'attached', timeout: 5000 });
+    assert.equal(await field.inputValue(), '', 'Reopening New project must start with an empty Name field');
     await page.keyboard.press('Escape');
     await field.waitFor({ state: 'detached', timeout: 5000 });
 }
@@ -1861,6 +1868,20 @@ async function checkProjectDraftsAndKeyboard(page) {
     await page.getByRole('button', { name: 'Cancel', exact: true }).dispatchEvent('click');
     await page.getByRole('button', { name: 'Discard', exact: true }).dispatchEvent('click');
     await nameField.waitFor({ state: 'detached', timeout: 5000 });
+}
+
+async function checkProjectMoveFlow(page) {
+    await page.getByRole('button', { name: 'New conversation', exact: true }).dispatchEvent('click');
+    await page.getByText('Move a conversation here', { exact: true }).dispatchEvent('click');
+    const move = page.getByRole('button', { name: 'Move Quarterly planning to this project', exact: true });
+    await move.waitFor({ state: 'attached', timeout: 5000 });
+    await move.dispatchEvent('click');
+    const conversation = page.getByRole('link', { name: 'Quarterly planning', exact: true });
+    await conversation.waitFor({ state: 'attached', timeout: 5000 });
+
+    await page.getByRole('button', { name: 'More', exact: true }).first().dispatchEvent('click');
+    await page.getByText('Move out of this project', { exact: true }).dispatchEvent('click');
+    await conversation.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 async function selectNativeTextRange(field, start, end, direction) {

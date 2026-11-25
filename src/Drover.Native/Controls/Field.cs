@@ -155,6 +155,10 @@ public sealed class Field : StackPanel
     /// <summary>Moves the focus into the field, for when it takes the place of the control a person just used.</summary>
     public void TakeFocus() => input.Focus(FocusState.Keyboard);
 
+    #endregion
+
+    #region Internal Methods
+
     /// <summary>Submits the value the way Enter does, for a screen check that cannot inject a key.</summary>
     internal void SubmitFromKeyboard() => Submit();
 

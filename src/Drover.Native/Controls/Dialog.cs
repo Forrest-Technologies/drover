@@ -70,6 +70,16 @@ public class Dialog : Grid
         init => surface.AtOnce = value;
     }
 
+    /// <summary>The control that takes the focus when the surface opens, before its own Close button.</summary>
+    public FrameworkElement? InitialFocus { get; init; }
+
+    /// <summary>Called before closing. Returning false keeps the surface open, for a dialog that asks first.</summary>
+    public Func<bool>? Closing
+    {
+        get => surface.Closing;
+        init => surface.Closing = value;
+    }
+
     /// <summary>How the person closed the dialog: with the keyboard, or with a pointer or a touch.</summary>
     public FocusState ClosedWith => surface.ClosedWith;
 
@@ -95,7 +105,7 @@ public class Dialog : Grid
     {
         if (Open && IsLoaded)
         {
-            surface.Show(Title, Body, Actions);
+            surface.Show(Title, Body, Actions, InitialFocus);
         }
         else
         {

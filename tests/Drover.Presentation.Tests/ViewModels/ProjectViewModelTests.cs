@@ -225,6 +225,61 @@ public sealed class ProjectViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task Closing_the_sheet_clears_the_last_error()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        screen.StartEditing();
+        screen.UpdateDraftName(string.Empty);
+
+        await screen.Save();
+
+        screen.Problem.Should().Be(ProjectViewModel.NeedsName);
+        screen.Discard();
+        screen.Problem.Should().BeNull();
+
+        screen.StartEditing();
+        screen.Problem = "The last refusal.";
+        screen.CancelEditing();
+        screen.Problem.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_member_cannot_open_the_edit_or_remove_file_dialogs()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer(role: "member", files: [Note]);
+        await screen.Open(projectId);
+
+        screen.StartEditing();
+        screen.AskRemoveFile(Note);
+
+        screen.Editing.Should().BeFalse();
+        screen.RemovingFile.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Removing_a_project_clears_the_confirmation_and_a_refusal_stays_on_the_dialog()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        Server.Refuse("DELETE", projectPath, HttpStatusCode.Forbidden, "Only an owner or admin can remove a project.");
+
+        screen.PrepareRemove();
+        await screen.Remove();
+
+        screen.ConfirmingRemove.Should().BeTrue();
+        screen.Problem.Should().Be("Only an owner or admin can remove a project.");
+
+        Server.Answer("DELETE", projectPath, HttpStatusCode.NoContent);
+        await screen.Remove();
+
+        screen.ConfirmingRemove.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Removing_a_file_asks_first_and_keeping_it_sends_nothing()
     {
         var screen = Make<ProjectViewModel>();
@@ -240,10 +295,11 @@ public sealed class ProjectViewModelTests : ViewModelTest
 
         screen.AskRemoveFile(Note);
         Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
-        Server.Answer("GET", filePath, Array.Empty<ProjectFileResponse>());
+        Server.Answer("GET", filePath, []);
         await screen.RemoveFile(Note);
 
         Server.Sent("DELETE", $"{filePath}/{fileId}").Should().ContainSingle();
+        screen.RemovingFile.Should().BeNull();
         screen.Files.Should().BeEmpty();
     }
 
@@ -328,7 +384,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         var other = new ProjectSummary(otherProjectId, "Other", "Other instructions.", when, when);
         Server.Answer("GET", $"{space}/projects/{otherProjectId}", other);
         Server.Answer("GET", $"{space}/projects/{otherProjectId}/threads", Array.Empty<ThreadSummary>());
-        Server.Answer("GET", $"{space}/projects/{otherProjectId}/files", Array.Empty<ProjectFileResponse>());
+        Server.Answer("GET", $"{space}/projects/{otherProjectId}/files", []);
         await screen.Open(otherProjectId);
 
         screen.DraftName.Should().Be("Other");
@@ -554,7 +610,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         Answer(files: [Note]);
         await screen.Open(projectId);
         Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
-        Server.Answer("GET", filePath, Array.Empty<ProjectFileResponse>());
+        Server.Answer("GET", filePath, []);
 
         await screen.RemoveFile(Note);
 

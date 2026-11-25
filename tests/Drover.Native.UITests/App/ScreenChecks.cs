@@ -572,6 +572,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             await AtWidth(width);
             navigator.NavigateTo(Addresses.Project(project));
             await Shown("ScreenBack");
+            await Shown("EditProject");
             if (VisibleEditor() is { } shown)
             {
                 throw new CheckFailedException($"the project showed a text field before Edit: {shown.GetType().Name}");

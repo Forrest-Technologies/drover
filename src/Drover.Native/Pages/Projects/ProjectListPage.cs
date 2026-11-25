@@ -38,6 +38,8 @@ public sealed class ProjectListPage : Screen
 
     private bool showing;
 
+    private bool updating;
+
     #endregion
 
     #region Constructors
@@ -73,7 +75,11 @@ public sealed class ProjectListPage : Screen
             Refresh();
         };
 
-        cancelCreateButton.Click += (_, _) => model.CancelCreating();
+        cancelCreateButton.Click += (_, _) =>
+        {
+            model.CancelCreating();
+            Refresh();
+        };
         createButton.Click += async (_, _) =>
         {
             var pending = model.Create();
@@ -90,6 +96,7 @@ public sealed class ProjectListPage : Screen
             Title = "New project",
             Body = body,
             Actions = PageParts.Row(cancelCreateButton, createButton),
+            InitialFocus = newProjectName,
         };
         newProject.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => ProjectDialogChanged());
 
@@ -121,9 +128,8 @@ public sealed class ProjectListPage : Screen
 
     private void ProjectDialogChanged()
     {
-        if (newProject.Open)
+        if (updating || newProject.Open)
         {
-            Pieces.FocusWhenShown(newProjectName, () => newProjectName.TakeFocus());
             return;
         }
 
@@ -136,8 +142,28 @@ public sealed class ProjectListPage : Screen
 
     private void Refresh()
     {
+        if (updating)
+        {
+            return;
+        }
+
+        updating = true;
+        try
+        {
+            RefreshView();
+        }
+        finally
+        {
+            updating = false;
+        }
+    }
+
+    private void RefreshView()
+    {
         var ready = model.State is ProjectListState.Empty or ProjectListState.Listed;
-        memberNoteText.Visibility = ready && !model.CanManage ? Visibility.Visible : Visibility.Collapsed;
+        memberNoteText.Visibility = model.State is ProjectListState.Listed && !model.CanManage
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         newProjectButton.Visibility = model.ShowsNewProject ? Visibility.Visible : Visibility.Collapsed;
 
         showing = true;
@@ -158,6 +184,12 @@ public sealed class ProjectListPage : Screen
         newProjectNote.Text = model.Working ?? model.Problem;
         newProjectNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
         Open(newProject, model.Creating);
+
+        // The control that opened the dialog stays alive, so closing it returns the focus there.
+        if (model.Creating)
+        {
+            return;
+        }
 
         listPanel.Children.Clear();
 

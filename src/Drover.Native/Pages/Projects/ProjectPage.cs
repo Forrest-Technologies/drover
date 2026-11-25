@@ -47,6 +47,10 @@ public sealed class ProjectPage : Screen
 
     private readonly StatusNote editNote = new();
 
+    private readonly TextBlock discardBody = Styles.Text(null, "DvTextParagraph");
+
+    private readonly StatusNote removeProblem = new() { Kind = NoteKind.Danger };
+
     private readonly Button cancelEditButton = new() { Content = "Cancel" };
 
     private readonly Button saveButton = new() { Content = "Save changes", Kind = ButtonKind.Primary };
@@ -87,6 +91,8 @@ public sealed class ProjectPage : Screen
 
     private bool showing;
 
+    private bool updating;
+
     #endregion
 
     #region Constructors
@@ -99,11 +105,7 @@ public sealed class ProjectPage : Screen
             model.StartEditing();
             Refresh();
         };
-        moreMenu.Items.Add(Item(ProjectViewModel.RemoveProject, () =>
-        {
-            model.PrepareRemove();
-            Refresh();
-        }));
+        moreMenu.Items.Add(Item(ProjectViewModel.RemoveProject, model.PrepareRemove));
         header.Actions.Add(editButton);
         header.Actions.Add(moreMenu);
 
@@ -115,7 +117,13 @@ public sealed class ProjectPage : Screen
                 model.UpdateDraftName(projectNameField.Value);
             }
         });
-        projectNameField.Submitted += async (_, _) => await SaveFromSheet();
+        projectNameField.Submitted += async (_, _) =>
+        {
+            if (model.CanManage && model.Working is null)
+            {
+                await SaveFromSheet();
+            }
+        };
 
         AutomationProperties.SetAutomationId(instructionsField, "ProjectInstructionsField");
         instructionsField.RegisterPropertyChangedCallback(TextArea.ValueProperty, (_, _) =>
@@ -137,11 +145,7 @@ public sealed class ProjectPage : Screen
             model.KeepEditing();
             Refresh();
         };
-        discardButton.Click += (_, _) =>
-        {
-            model.Discard();
-            Refresh();
-        };
+        discardButton.Click += (_, _) => DiscardEdits();
         doneButton.Click += (_, _) =>
         {
             model.StopMoving();
@@ -179,55 +183,58 @@ public sealed class ProjectPage : Screen
             Title = "Edit project",
             Body = editBody,
             Actions = PageParts.Row(cancelEditButton, saveButton),
+            InitialFocus = projectNameField,
+            Closing = AskBeforeDiscard,
         };
         AutomationProperties.SetAutomationId(editSheet, "EditProjectSheet");
 
         discardDialog = new Dialog
         {
             Title = "Discard changes?",
+            Body = discardBody,
             Actions = PageParts.Row(keepEditingButton, discardButton),
+            InitialFocus = keepEditingButton,
         };
         moveDialog = new Dialog
         {
             Title = ProjectViewModel.MoveHere,
             Body = movableRows,
             Actions = doneButton,
+            InitialFocus = doneButton,
         };
+        var removeBody = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
+        removeBody.Children.Add(Styles.Text(ProjectViewModel.RemoveQuestion, "DvTextParagraph"));
+        removeBody.Children.Add(removeProblem);
         removeDialog = new Dialog
         {
-            Body = Styles.Text(ProjectViewModel.RemoveQuestion, "DvTextParagraph"),
+            Body = removeBody,
             Actions = PageParts.Row(keepProjectButton, removeProjectButton),
+            InitialFocus = keepProjectButton,
         };
         removeFileDialog = new Dialog
         {
             Body = Styles.Text(ProjectViewModel.RemoveFileQuestion, "DvTextParagraph"),
             Actions = PageParts.Row(keepFileButton, removeFileButton),
+            InitialFocus = keepFileButton,
         };
 
-        Watch(editSheet,
-            () =>
+        Watch(editSheet, () =>
+        {
+            if (model.Editing)
             {
-                if (model.Editing)
-                {
-                    model.CancelEditing();
-                }
-            },
-            () => Pieces.FocusWhenShown(projectNameField, () => projectNameField.TakeFocus()));
-        Watch(discardDialog,
-            () =>
+                model.CancelEditing();
+            }
+        });
+        Watch(discardDialog, () =>
+        {
+            if (model.ConfirmingDiscard)
             {
-                if (model.ConfirmingDiscard)
-                {
-                    model.KeepEditing();
-                }
-            },
-            () => Pieces.FocusWhenShown(keepEditingButton, () => keepEditingButton.TakeFocus()));
-        Watch(moveDialog, model.StopMoving,
-            () => Pieces.FocusWhenShown(doneButton, () => doneButton.TakeFocus()));
-        Watch(removeDialog, model.CancelRemove,
-            () => Pieces.FocusWhenShown(keepProjectButton, () => keepProjectButton.TakeFocus()));
-        Watch(removeFileDialog, model.KeepFile,
-            () => Pieces.FocusWhenShown(keepFileButton, () => keepFileButton.TakeFocus()));
+                model.KeepEditing();
+            }
+        });
+        Watch(moveDialog, model.StopMoving);
+        Watch(removeDialog, model.CancelRemove);
+        Watch(removeFileDialog, model.KeepFile);
 
         layout.Body.Add(header);
         layout.Body.Add(statusNote);
@@ -269,6 +276,24 @@ public sealed class ProjectPage : Screen
 
     private void Refresh()
     {
+        if (updating)
+        {
+            return;
+        }
+
+        updating = true;
+        try
+        {
+            RefreshView();
+        }
+        finally
+        {
+            updating = false;
+        }
+    }
+
+    private void RefreshView()
+    {
         var ready = model.State is ProjectScreenState.Ready;
         header.Title = ready ? model.Name : "Project";
         editButton.Visibility = ready && model.CanManage ? Visibility.Visible : Visibility.Collapsed;
@@ -277,7 +302,7 @@ public sealed class ProjectPage : Screen
         statusNote.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
         bodyPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
 
-        statusNote.Text = model.Working ?? model.Problem;
+        statusNote.Text = model.Editing ? null : model.Working ?? model.Problem;
         statusNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
 
         statePanel.Children.Clear();
@@ -318,10 +343,20 @@ public sealed class ProjectPage : Screen
             showing = false;
         }
 
-        saveButton.IsEnabled = model.CanManage && model.Working is null;
-        editNote.Text = model.Problem;
-        editNote.Kind = NoteKind.Danger;
-        discardDialog.Body = Styles.Text(ProjectViewModel.DiscardQuestion(model.Name), "DvTextParagraph");
+        var idle = model.Working is null;
+        saveButton.IsEnabled = model.CanManage && idle;
+        cancelEditButton.IsEnabled = idle;
+        keepEditingButton.IsEnabled = idle;
+        discardButton.IsEnabled = idle;
+        doneButton.IsEnabled = idle;
+        keepProjectButton.IsEnabled = idle;
+        removeProjectButton.IsEnabled = model.CanManage && idle;
+        keepFileButton.IsEnabled = idle;
+        removeFileButton.IsEnabled = model.CanManage && idle;
+        editNote.Text = model.Working ?? model.Problem;
+        editNote.Kind = model.Working is null ? NoteKind.Danger : NoteKind.Info;
+        discardBody.Text = ProjectViewModel.DiscardQuestion(model.Name);
+        removeProblem.Text = model.Problem;
         removeDialog.Title = ProjectViewModel.RemoveTitle(model.Name);
         removeFileDialog.Title = model.RemovingFile is { } file
             ? ProjectViewModel.RemoveTitle(file.File.Name)
@@ -329,6 +364,13 @@ public sealed class ProjectPage : Screen
 
         ShowMovable();
         ShowDialogs();
+
+        // Keep the control that opened a dialog alive, so closing it can return the focus there.
+        if (model.Editing || model.ConfirmingDiscard || model.MovingConversations
+            || model.ConfirmingRemove || model.RemovingFile is not null)
+        {
+            return;
+        }
 
         bodyPanel.Children.Clear();
         ShowInstructions();
@@ -362,11 +404,7 @@ public sealed class ProjectPage : Screen
             add.Items.Add(TaskItem(bot.Name, () => model.Start(bot.Id)));
         }
 
-        add.Items.Add(Item(ProjectViewModel.MoveHere, () =>
-        {
-            model.StartMoving();
-            Refresh();
-        }));
+        add.Items.Add(Item(ProjectViewModel.MoveHere, model.StartMoving));
         bodyPanel.Children.Add(Heading("Conversations", add));
 
         if (model.ActiveBots.Count == 0)
@@ -391,7 +429,12 @@ public sealed class ProjectPage : Screen
         IconButton? add = null;
         if (model.CanManage)
         {
-            add = new IconButton { Icon = IconName.Attach, Label = ProjectViewModel.AddFile };
+            add = new IconButton
+            {
+                Icon = IconName.Attach,
+                Label = ProjectViewModel.AddFile,
+                IsEnabled = model.Working is null,
+            };
             add.Click += async (_, _) => await Run(AddFile);
         }
 
@@ -420,14 +463,18 @@ public sealed class ProjectPage : Screen
         foreach (var thread in model.Movable)
         {
             var label = model.ThreadLabel(thread);
+            var move = new Button { Content = "Move", IsEnabled = model.Working is null };
+            AutomationProperties.SetName(move, ProjectViewModel.MoveToProjectLabel(label));
+            move.Click += async (_, _) => await Run(() => model.MoveIn(thread.Id));
             var row = PageParts.Row(Styles.Text(label));
-            row.Children.Add(TaskItem(ProjectViewModel.MoveToProjectLabel(label), () => model.MoveIn(thread.Id)));
+            row.Children.Add(move);
             movableRows.Children.Add(row);
         }
     }
 
     private Grid FileRow(ProjectFileResponse file)
     {
+        var canDownload = model.Delivers || OperatingSystem.IsBrowser();
         var row = new Grid
         {
             ColumnSpacing = Tokens.Number("DvSpace2"),
@@ -436,7 +483,11 @@ public sealed class ProjectPage : Screen
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        if (canDownload)
+        {
+            row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        }
+
         if (model.CanManage)
         {
             row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -450,33 +501,47 @@ public sealed class ProjectPage : Screen
         var size = Styles.Text(Words.Size(file.File.Size), "DvTextMono");
         size.Foreground = Tokens.Brush(size, "DvText2");
         size.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(icon, 0);
-        Grid.SetColumn(name, 1);
-        Grid.SetColumn(size, 2);
+        var column = 0;
+        Grid.SetColumn(icon, column++);
+        Grid.SetColumn(name, column++);
+        Grid.SetColumn(size, column++);
         row.Children.Add(icon);
         row.Children.Add(name);
         row.Children.Add(size);
 
-        var download = new IconButton { Icon = IconName.Download, Label = ProjectViewModel.DownloadLabel(file) };
-        download.Click += async (_, _) =>
+        if (canDownload)
         {
-            Func<Task> work = model.Delivers
-                ? () => model.Download(file)
-                : () => OpenDownload(model.DownloadAddress(file.File.Id));
-            await Run(work);
-        };
-        Grid.SetColumn(download, 3);
-        row.Children.Add(download);
+            var download = new IconButton
+            {
+                Icon = IconName.Download,
+                Label = ProjectViewModel.DownloadLabel(file),
+                IsEnabled = model.Working is null,
+            };
+            download.Click += async (_, _) =>
+            {
+                Func<Task> work = model.Delivers
+                    ? () => model.Download(file)
+                    : () => OpenDownload(model.DownloadAddress(file.File.Id));
+                await Run(work);
+            };
+            Grid.SetColumn(download, column++);
+            row.Children.Add(download);
+        }
 
         if (model.CanManage)
         {
-            var remove = new IconButton { Icon = IconName.Remove, Label = ProjectViewModel.RemoveFileLabel(file) };
+            var remove = new IconButton
+            {
+                Icon = IconName.Remove,
+                Label = ProjectViewModel.RemoveFileLabel(file),
+                IsEnabled = model.Working is null,
+            };
             remove.Click += (_, _) =>
             {
                 model.AskRemoveFile(file);
                 Refresh();
             };
-            Grid.SetColumn(remove, 4);
+            Grid.SetColumn(remove, column);
             row.Children.Add(remove);
         }
 
@@ -520,6 +585,36 @@ public sealed class ProjectPage : Screen
         return item;
     }
 
+    private bool AskBeforeDiscard()
+    {
+        if (model.Editing && model.HasChanges)
+        {
+            model.CancelEditing();
+            Refresh();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void DiscardEdits()
+    {
+        model.Discard();
+        updating = true;
+        try
+        {
+            Open(discardDialog, false);
+            Open(editSheet, false);
+        }
+        finally
+        {
+            updating = false;
+        }
+
+        Refresh();
+        editButton.TakeFocus();
+    }
+
     private Task SaveFromSheet() => Run(model.Save);
 
     private async Task Run(Func<Task> work)
@@ -530,13 +625,12 @@ public sealed class ProjectPage : Screen
         Refresh();
     }
 
-    private void Watch(Dialog dialog, Action closed, Action? opened)
+    private void Watch(Dialog dialog, Action closed)
     {
         dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
         {
-            if (dialog.Open)
+            if (updating || dialog.Open)
             {
-                opened?.Invoke();
                 return;
             }
 
@@ -607,7 +701,7 @@ public sealed class ProjectPage : Screen
 
     private static Task OpenDownload(string address)
     {
-        if (Uri.TryCreate(address, UriKind.Absolute, out var uri))
+        if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
         {
             _ = Launcher.LaunchUriAsync(uri);
         }

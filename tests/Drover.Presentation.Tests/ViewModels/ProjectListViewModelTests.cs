@@ -271,6 +271,19 @@ public sealed class ProjectListViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_member_cannot_open_the_create_dialog()
+    {
+        Answer(role: "member", projects: [Weekly]);
+        var list = Make<ProjectListViewModel>();
+        await list.Open();
+
+        list.StartCreating();
+
+        list.Creating.Should().BeFalse();
+        list.DraftName.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_member_is_not_offered_a_new_project()
     {
         var list = Make<ProjectListViewModel>();

@@ -525,18 +525,18 @@ No screen class derives from `PendingScreen` any more; the class stays for a scr
 written. The last two to move were the bot editor and the share screen.
 
 Projects have a native list and a native project screen (`ProjectListPage`, `ProjectPage`) with view models in
-`Drover.Presentation` and screenshots in `docs/screenshots/issue-328/`. An owner or admin creates a project from a
-dialog and changes its name and instructions in a sheet. Removal and file removal ask first and are reached from icon
-buttons. A member sees no edit or more action and can still open a project, start a conversation with a bot, and move a
-conversation they own. The server still decides each request. The sheet and dialogs are bound both ways to the view
-model, so a refusal keeps them open with the reason and a typed draft survives a failed save. Project file downloads
-use `DroverApi` through `IFileDelivery` on desktop and Android and fall back to `Launcher` only in the browser target.
-Devices without file delivery do not offer a download action.
+`Drover.Presentation` and screenshots from the browser check in the CI artifact. An owner or admin creates a project
+from a dialog and changes its name and instructions in a sheet. Removal and file removal ask first and are reached from
+icon buttons. A member sees no edit or more action and can still open a project, start a conversation with a bot, and
+move a conversation they own. The server still decides each request. The sheet and dialogs are bound both ways to the
+view model, so a refusal keeps them open with the reason; the named view model tests cover drafts after a failed save.
+Project file downloads use `DroverApi` through `IFileDelivery` on desktop and Android and fall back to `Launcher` only
+in the browser target. Devices without file delivery do not offer a download action.
 Upload size checks read the server's limit from `/files/rules`, and
 movable conversations are fetched in one request for the signed-in owner. The list keeps the existing limit of
 200 non-archived threads, including scheduled and handed work. `scripts/check-native-browser.mjs` checks
-every project state, the new project dialog, the edit sheet, draft persistence, keyboard focus, and the five-item
-`PhoneNav` dock at 360 pixels.
+every project state, the new project dialog and Cancel, the edit sheet and Discard, the move in and move out flow,
+keyboard text, and the five-item `PhoneNav` dock at 360 pixels.
 
 The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one process-wide `ShareInbox.Process`, names the
 chosen bot there with `SendTo`, and opens that bot's conversation; the bot's main `ConversationViewModel` takes the

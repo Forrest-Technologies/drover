@@ -342,6 +342,11 @@ public sealed partial class ProjectViewModel(
     /// <summary>Opens the sheet with the stored name and instructions, ready to change.</summary>
     public void StartEditing()
     {
+        if (!CanManage)
+        {
+            return;
+        }
+
         DraftName = Name;
         DraftInstructions = Instructions;
         nameEdited = false;
@@ -353,6 +358,7 @@ public sealed partial class ProjectViewModel(
     /// <summary>Closes the sheet when nothing changed, or asks first when something did.</summary>
     public void CancelEditing()
     {
+        Problem = null;
         if (HasChanges)
         {
             ConfirmingDiscard = true;
@@ -365,6 +371,7 @@ public sealed partial class ProjectViewModel(
     /// <summary>Puts the stored words back and closes both the question and the sheet.</summary>
     public void Discard()
     {
+        Problem = null;
         DraftName = Name;
         DraftInstructions = Instructions;
         nameEdited = false;
@@ -379,7 +386,13 @@ public sealed partial class ProjectViewModel(
 
     public void StopMoving() => MovingConversations = false;
 
-    public void AskRemoveFile(ProjectFileResponse file) => RemovingFile = file;
+    public void AskRemoveFile(ProjectFileResponse file)
+    {
+        if (CanManage)
+        {
+            RemovingFile = file;
+        }
+    }
 
     public void KeepFile() => RemovingFile = null;
 
@@ -431,6 +444,7 @@ public sealed partial class ProjectViewModel(
         try
         {
             await api.RemoveProject(SpaceId, ProjectId);
+            ConfirmingRemove = false;
             navigator.NavigateTo(Addresses.Projects);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
@@ -567,15 +581,16 @@ public sealed partial class ProjectViewModel(
     }
 
     /// <summary>Removes the file the person confirmed in the dialog. Conversations keep the rest.</summary>
-    public Task RemoveFile(ProjectFileResponse file)
+    public async Task RemoveFile(ProjectFileResponse file)
     {
         if (!CanManage)
         {
             Problem = MemberNote;
-            return Task.CompletedTask;
+            return;
         }
 
-        return Run($"Removing {file.File.Name}.", () => api.RemoveProjectFile(SpaceId, ProjectId, file.File.Id));
+        await Run($"Removing {file.File.Name}.", () => api.RemoveProjectFile(SpaceId, ProjectId, file.File.Id));
+        RemovingFile = null;
     }
 
     /// <summary>Saves a shared project file through platform file delivery on desktop and Android.</summary>

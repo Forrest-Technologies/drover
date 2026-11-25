@@ -41,11 +41,11 @@ public sealed partial class ProjectListViewModel(
     private int loadGeneration;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(State))]
+    [NotifyPropertyChangedFor(nameof(State), nameof(ShowsNewProject))]
     private IReadOnlyList<ProjectSummary>? projects;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(State))]
+    [NotifyPropertyChangedFor(nameof(State), nameof(ShowsNewProject))]
     private string? loadProblem;
 
     [ObservableProperty]
@@ -158,6 +158,11 @@ public sealed partial class ProjectListViewModel(
     /// <summary>Opens the dialog with an empty name and no old reason on it.</summary>
     public void StartCreating()
     {
+        if (!CanManage)
+        {
+            return;
+        }
+
         DraftName = string.Empty;
         Problem = null;
         Creating = true;
