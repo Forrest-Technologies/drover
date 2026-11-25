@@ -1,5 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <!-- The server serves no JS modules. In Debug, SDK 11.0.100 still makes a hot reload script here and hands it
+       to the Web SDK test projects that reference the server, whose Debug build then fails (#916). Remove once
+       global.json moves to an SDK with the fix (#917). -->
+  <PropertyGroup>
+    <JSModulesEnabled>false</JSModulesEnabled>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="HtmlSanitizer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
