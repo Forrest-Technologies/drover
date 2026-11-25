@@ -351,6 +351,13 @@ public static class Conversations
             return card with { Facts = [new("Bot", childName), new("Task", task)] };
         }
 
+        var refusalLimit = refusal is DelegationRefusal.TooManyHandoffs
+            ? DelegationWords.RefusalLimitIn(call.Preview) ?? DelegationWords.RefusalLimitIn(result?.Result)
+            : null;
+        var limitsHref = refusal is DelegationRefusal.TooManyHandoffs && handover.BotId != Guid.Empty
+            ? handover.LimitsAddress?.Invoke(handover.BotId)
+            : null;
+
         var item = new DelegationItem(
             call.ToolCallId,
             handover.BotName,
@@ -361,8 +368,12 @@ public static class Conversations
             call.Delegation is { Outcome: "completed", Answer: { } answer } ? answer : null,
             refusal ?? DelegationRefusal.None,
             call.Delegation is { ChildThreadId: { } thread } ? handover.WorkAddress?.Invoke(child, thread) : null,
-            handover.Depth);
-        return card with { Delegation = Answered(item with { Work = WorkOf(call.Delegation, handover.Below(childName)) }) };
+            handover.Depth)
+        {
+            RefusalLimit = refusalLimit,
+            LimitsHref = limitsHref,
+        };
+        return card with { Delegation = Answered(item with { Work = WorkOf(call.Delegation, handover.Below(childName, child)) }) };
     }
 
     // The answer a parent was given is the child's last reply, cut to its start. Where the work shows that reply, it is

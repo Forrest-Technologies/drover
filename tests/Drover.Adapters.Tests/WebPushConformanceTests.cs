@@ -4,7 +4,7 @@ namespace Drover.Adapters.Tests;
 /// The Web Push channel against recorded push service answers, offline. The device's keys are made here, so the test
 /// reads the payload the way the device would: by decrypting what reached the push service (RFC 8291, aes128gcm).
 /// </summary>
-public sealed class WebPushConformanceTests : PushChannelConformance
+public sealed class PushPayloadTests : PushChannelConformance
 {
     #region Urgency
 
@@ -22,6 +22,24 @@ public sealed class WebPushConformanceTests : PushChannelConformance
         await rig.Channel.Send(rig.Subscription, new PushWakeUp(kind, Guid.CreateVersion7()), TestContext.Current.CancellationToken);
 
         rig.Received().Should().ContainSingle().Which.Headers.Should().Contain("Urgency", "high");
+    }
+
+    [Fact]
+    public async Task Payload_NeverContainsMessageText()
+    {
+        var rig = Rig(PushServiceAnswer.Accepted);
+
+        await rig.Channel.Send(
+            rig.Subscription,
+            new PushWakeUp(PushKinds.RunFinished, Guid.CreateVersion7()),
+            TestContext.Current.CancellationToken);
+
+        using var payload = JsonDocument.Parse(rig.Received().Should().ContainSingle().Subject.Payload);
+        payload.RootElement.EnumerateObject().Select(property => property.Name).Should()
+            .BeEquivalentTo(["kind", "thread", "user"]);
+        payload.RootElement.TryGetProperty("body", out _).Should().BeFalse();
+        payload.RootElement.TryGetProperty("botName", out _).Should().BeFalse();
+        payload.RootElement.TryGetProperty("replyText", out _).Should().BeFalse();
     }
 
     #endregion

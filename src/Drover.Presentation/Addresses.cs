@@ -97,6 +97,9 @@ public static class Addresses
     /// <summary>A bot's editor with its Memory section open.</summary>
     public static string BotMemory(Guid botId) => $"/bots/{botId}?section=memory";
 
+    /// <summary>A bot's editor with its Limits section open.</summary>
+    public static string BotLimits(Guid botId) => $"/bots/{botId}?section=limits";
+
     /// <summary>A bot's sandbox: its screen, its terminal, and its power controls.</summary>
     public static string BotSandbox(Guid botId) => $"/bots/{botId}/sandbox";
 

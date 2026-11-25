@@ -46,6 +46,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     private string? leavingFor;
 
+    private string? openedSection;
+
     // The bot an unsaved new bot goes beneath, or null for the top of the crew.
     private Guid? newParentId;
 
@@ -351,6 +353,19 @@ public sealed partial class BotEditorViewModel : ObservableObject
             OpenNamedSection(section);
             Notify();
         }
+        else if (shownBotId == BotId && section is not null)
+        {
+            OpenNamedSection(section);
+            Notify();
+        }
+    }
+
+    /// <summary>The section named in the address to scroll into view once drawn, read once.</summary>
+    public string? TakeOpenedSection()
+    {
+        var section = openedSection;
+        openedSection = null;
+        return section;
     }
 
     /// <summary>Runs when the screen is gone, so the navigator no longer asks it.</summary>
@@ -735,6 +750,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
         if (string.Equals(section, MemorySection, StringComparison.OrdinalIgnoreCase))
         {
             open.Add(MemorySection);
+            openedSection = MemorySection;
+        }
+        else if (string.Equals(section, LimitsSection, StringComparison.OrdinalIgnoreCase))
+        {
+            open.Add(LimitsSection);
+            openedSection = LimitsSection;
         }
     }
 

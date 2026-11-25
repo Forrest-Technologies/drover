@@ -37,6 +37,20 @@ public sealed class AttentionWordsTests
         }
     }
 
+    [Fact]
+    public void A_limit_stop_names_the_limit_with_used_against_cap_and_falls_back_without_limit_data()
+    {
+        var steps = new RunFailure(Guid.NewGuid(), FailureCauses.BudgetReached, "step_limit: ...", new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+        var oneStep = new RunFailure(Guid.NewGuid(), FailureCauses.BudgetReached, "step_limit: ...", new RunFailureLimit(FailureLimits.ModelCalls, 1, 1));
+        var tokens = new RunFailure(Guid.NewGuid(), FailureCauses.BudgetReached, "token_limit: ...", new RunFailureLimit(FailureLimits.Tokens, 5_012_340, 5_000_000));
+        var older = new RunFailure(Guid.NewGuid(), FailureCauses.BudgetReached, "step_limit: ...");
+
+        AttentionWords.Failure(steps, "Slueth").Should().Be("Slueth stopped after 50 of 50 model calls.");
+        AttentionWords.Failure(oneStep, "Slueth").Should().Be("Slueth stopped after 1 of 1 model call.");
+        AttentionWords.Failure(tokens, "Slueth").Should().Be("Slueth stopped after 5,012,340 of 5,000,000 tokens.");
+        AttentionWords.Failure(older, "Slueth").Should().Be("Slueth stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.");
+    }
+
     [Theory]
     [InlineData(FailureCauses.ModelUnreachable, FailureCause.ModelUnreachable)]
     [InlineData(FailureCauses.ModelRefused, FailureCause.ModelRefused)]

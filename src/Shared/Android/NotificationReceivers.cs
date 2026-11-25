@@ -20,7 +20,11 @@ public sealed class NotificationReplyReceiver : BroadcastReceiver
 {
     public override void OnReceive(Context? context, Intent? intent)
     {
-        if (intent is not null)
+        if (intent?.Action == AndroidNotifications.DismissAction)
+        {
+            AndroidNotifications.Dismissed(intent);
+        }
+        else if (intent is not null)
         {
             _ = NotificationReceivers.Run(GoAsync(), (services, token) =>
                 services.GetRequiredService<AndroidPushMessages>().Reply(intent, token));

@@ -45,6 +45,18 @@ public sealed record BotNotifySetting(bool Notifies);
 
 /// <summary>
 /// What a woken device shows, fetched by the device from the person's own server: a sentence that names the bot and
-/// says what happened, and the conversation to open. <see cref="IsMain"/> is false for a side chat.
+/// says what happened, and the conversation to open. A finished run also names its latest visible reply, so a device
+/// can show and order it without message text ever crossing the push service. <see cref="IsMain"/> is false for a
+/// side chat.
 /// </summary>
-public sealed record PushWakeText(string Body, Guid BotId, Guid ThreadId, bool IsMain, Guid? SpaceId = null);
+public sealed record PushWakeText(
+    string Body,
+    Guid BotId,
+    Guid ThreadId,
+    bool IsMain,
+    Guid? SpaceId = null,
+    string? BotName = null,
+    string? ReplyText = null,
+    string? ConversationTitle = null,
+    Guid? ReplyMessageId = null,
+    DateTimeOffset? ReplyCreatedAt = null);
