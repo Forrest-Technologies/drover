@@ -36,7 +36,7 @@ public sealed class BotWordsTests
     {
         var space = new BotRunLimitOptions(null, 5_000_000, 49);
 
-        BotSummaries.Limits(new BotDraft(), null).Should().Be("The space's limits", "nothing is claimed before the server has said");
+        BotSummaries.Limits(new BotDraft(), null).Should().Be("No limit", "an empty model-call limit means there is no limit");
         BotSummaries.Limits(new BotDraft(), space).Should().Be("No limit · 5,000,000 tokens · 49 handoffs");
         BotSummaries.Limits(new BotDraft { MaxSteps = " 1 ", MaxDelegations = "0" }, space).Should().Be("1 model call · 5,000,000 tokens · 0 handoffs");
         BotSummaries.Limits(new BotDraft { MaxTokens = "20000" }, null).Should().Be("20,000 tokens");
