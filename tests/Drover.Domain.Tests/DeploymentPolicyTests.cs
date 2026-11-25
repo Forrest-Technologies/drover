@@ -120,6 +120,36 @@ public sealed class DeploymentPolicyTests
     }
 
     [Fact]
+    public void A_self_hosted_operator_may_raise_any_limit_but_not_turn_on_a_locked_permission()
+    {
+        var raised = DeploymentPolicy.SelfHosted with
+        {
+            MaxDelegationDepth = 50,
+            MaxDelegationTreeCostCents = 1_000_000,
+            MaxTokensPerRun = 50_000_000,
+        };
+
+        raised.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("a limit on a self-hosted server is a safe default its operator may raise");
+        raised.FindLoosenedRules(DeploymentPolicy.Hosted)
+            .Should().Contain(nameof(DeploymentPolicy.MaxDelegationDepth), "the hosted preset still holds every limit");
+        (DeploymentPolicy.SelfHosted with { AllowWrittenRulePatterns = true })
+            .FindLoosenedRules(DeploymentPolicy.SelfHosted, limitsAreDefaults: true)
+            .Should().Contain(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "only limits rise; a locked permission stays locked");
+    }
+
+    [Fact]
+    public void A_self_hosted_server_sets_no_limit_on_model_calls_or_on_the_runs_of_a_tree()
+    {
+        DeploymentPolicy.SelfHosted.MaxStepsPerRun.Should().Be(int.MaxValue);
+        DeploymentPolicy.SelfHosted.MaxRunsPerDelegationTree.Should().Be(int.MaxValue);
+        new DelegationLimits(5, int.MaxValue, 100).MaxHandoffs.Should().Be(int.MaxValue, "no limit has nothing to subtract from");
+        new DelegationLimits(5, 50, 100).MaxHandoffs.Should().Be(49);
+        DeploymentPolicy.Hosted.MaxStepsPerRun.Should().Be(int.MaxValue);
+        DeploymentPolicy.Hosted.MaxRunsPerDelegationTree.Should().Be(50);
+    }
+
+    [Fact]
     public void A_limit_looser_than_the_hosted_preset_is_reported_as_loosened()
     {
         var loosened = DeploymentPolicy.Hosted with { MaxModelListBytes = DeploymentPolicy.SelfHostedMaxModelListBytes };

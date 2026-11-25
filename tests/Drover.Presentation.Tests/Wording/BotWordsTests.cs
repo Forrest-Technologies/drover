@@ -34,7 +34,7 @@ public sealed class BotWordsTests
     [Fact]
     public void The_limits_summary_says_what_is_in_force_the_bots_own_limit_or_else_its_spaces()
     {
-        var space = new BotRunLimitOptions(null, 5_000_000, 49);
+        var space = new BotRunLimitOptions(BotRunLimitOptions.NoLimit, 5_000_000, 49);
 
         BotSummaries.Limits(new BotDraft(), null).Should().Be("No limit", "an empty model-call limit means there is no limit");
         BotSummaries.Limits(new BotDraft(), space).Should().Be("No limit · 5,000,000 tokens · 49 handoffs");

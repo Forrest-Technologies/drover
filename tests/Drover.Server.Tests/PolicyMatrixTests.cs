@@ -283,7 +283,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         policies.Delegation(new SpaceSettings
         {
             MaxDelegationDepth = ceilings.MaxDepth + 1,
-            MaxRunsPerDelegationTree = ceilings.MaxRuns + 1,
+            MaxRunsPerDelegationTree = Above(ceilings.MaxRuns),
             MaxDelegationTreeCostCents = ceilings.MaxCostCents + 1,
         }).Should().Be(ceilings);
         policies.Delegation(new SpaceSettings { MaxDelegationDepth = 1, MaxRunsPerDelegationTree = 2, MaxDelegationTreeCostCents = 3 })
@@ -298,7 +298,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var ceilings = new RunCeilings(
             DeploymentPolicy.StepsPerRun,
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture) - 1);
+            new DelegationLimits(1, int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture), 1).MaxHandoffs);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
         policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
@@ -340,6 +340,9 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     #endregion
 
     #region Private Methods
+
+    // One more than a ceiling, or the ceiling itself where it is no limit at all and nothing is above it.
+    private static int Above(int most) => most is int.MaxValue ? most : most + 1;
 
     private string Setting(string rule) => PolicyMatrix.Setting(rule, preset);
 
