@@ -41,9 +41,6 @@ internal sealed record AndroidNotificationContent(
 }
 
 
-[System.Text.Json.Serialization.JsonSerializable(typeof(AndroidNotificationContent))]
-internal sealed partial class AndroidNotificationJson : System.Text.Json.Serialization.JsonSerializerContext;
-
 
 internal sealed record ConversationTarget(Guid Bot, Guid Thread, bool Main, Guid User, string Registration, Guid? Space)
 {

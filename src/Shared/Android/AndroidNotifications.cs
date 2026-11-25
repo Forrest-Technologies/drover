@@ -104,10 +104,17 @@ internal static class AndroidNotifications
                 content = new AndroidNotificationContent("Drover", "Drover", [], CanReply: true);
             }
 
-            content = sent is null
-                ? content with { Draft = draft }
-                : content.Add(new(draft.Trim(), sent.CreatedAt.ToUnixTimeMilliseconds(), FromOwner: true, sent.Id))
-                    with { Draft = null };
+            if (sent is null)
+            {
+                content = content with { Draft = draft };
+            }
+            else
+            {
+                var message = new AndroidNoticeMessage(
+                    draft.Trim(), sent.CreatedAt.ToUnixTimeMilliseconds(), FromOwner: true, sent.Id);
+                content = content.Add(message) with { Draft = null };
+            }
+
             PostConversation(target, content, quiet: true);
         }
     }
@@ -198,8 +205,8 @@ internal static class AndroidNotifications
 
         using var builder = Build();
         using var extras = new Bundle();
-        extras.PutString(ContentKey,
-            JsonSerializer.Serialize(content, AndroidNotificationJson.Default.AndroidNotificationContent));
+        using var state = WriteContent(content);
+        extras.PutBundle(ContentKey, state);
         builder.AddExtras(extras)!.SetContentIntent(open)!.SetDeleteIntent(dismiss)!
             .SetOnlyAlertOnce(quiet)!.SetGroup(UpdateGroup(target.Group, target.Key, includesNew: true));
         if (OperatingSystem.IsAndroidVersionAtLeast(26))
@@ -268,10 +275,44 @@ internal static class AndroidNotifications
         (Manager.GetActiveNotifications() ?? []).FirstOrDefault(
             notice => notice.Id == NoticeId && notice.Tag == tag)?.Notification;
 
-    private static AndroidNotificationContent? ReadContent(Notification? notification) =>
-        notification?.Extras?.GetString(ContentKey) is { } stored
-            ? JsonSerializer.Deserialize(stored, AndroidNotificationJson.Default.AndroidNotificationContent)
-            : null;
+    private static Bundle WriteContent(AndroidNotificationContent content)
+    {
+        var state = new Bundle();
+        state.PutString("botName", content.BotName);
+        state.PutString("title", content.Title);
+        state.PutString("status", content.Status);
+        state.PutString("draft", content.Draft);
+        state.PutBoolean("canReply", content.CanReply);
+        state.PutStringArray("text", [.. content.Messages.Select(message => message.Text)]);
+        state.PutLongArray("time", [.. content.Messages.Select(message => message.SentAt)]);
+        state.PutBooleanArray("fromOwner", [.. content.Messages.Select(message => message.FromOwner)]);
+        state.PutStringArray("id", [.. content.Messages.Select(message => message.Id?.ToString() ?? string.Empty)]);
+        return state;
+    }
+
+    private static AndroidNotificationContent? ReadContent(Notification? notification)
+    {
+        using var state = notification?.Extras?.GetBundle(ContentKey);
+        if (state is null || state.GetString("botName") is not { } botName
+            || state.GetString("title") is not { } title
+            || state.GetStringArray("text") is not { } text
+            || state.GetLongArray("time") is not { } time || time.Length != text.Length
+            || state.GetBooleanArray("fromOwner") is not { } fromOwner || fromOwner.Length != text.Length
+            || state.GetStringArray("id") is not { } ids || ids.Length != text.Length)
+        {
+            return null;
+        }
+
+        var messages = new AndroidNoticeMessage[text.Length];
+        for (var index = 0; index < messages.Length; index++)
+        {
+            messages[index] = new(text[index], time[index], fromOwner[index],
+                Guid.TryParse(ids[index], out var id) ? id : null);
+        }
+
+        return new(botName, title, messages, state.GetString("status"), state.GetString("draft"),
+            state.GetBoolean("canReply"));
+    }
 
     private static void Fill(Notification.Builder builder, AndroidNotificationContent content)
     {
