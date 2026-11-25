@@ -56,7 +56,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
         Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(true));
         Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: true, MaxIdleMinutes: 60, Desktop: true));
-        Server.Answer("GET", $"{bot}/limits/options", new BotRunLimitOptions(MaxSteps: BotRunLimitOptions.NoLimit, MaxTokens: 5_000_000, MaxDelegations: 49));
+        Server.Answer("GET", $"{bot}/limits/options", new BotRunLimitOptions(MaxSteps: null, MaxTokens: 5_000_000, MaxDelegations: 49));
+        Server.Answer("GET", $"{space}/bots/{Guid.Empty}/limits/options", new BotRunLimitOptions(MaxSteps: null, MaxTokens: 5_000_000, MaxDelegations: 49));
     }
 
     #endregion
@@ -369,17 +370,19 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         string[] labels = [LimitsSectionFields.StepsLabel, LimitsSectionFields.TokensLabel, LimitsSectionFields.DelegationsLabel];
         labels.Should().Equal("Model calls", "Tokens", "Handoffs");
         int?[] limits = [options?.MaxSteps, options?.MaxTokens, options?.MaxDelegations];
-        LimitsSectionFields.StepsPlaceholder(options?.MaxSteps).Should().Be("No limit");
+        LimitsSectionFields.StepsPlaceholder(options).Should().Be("No limit");
         limits.Skip(1).Select(LimitsSectionFields.Placeholder).Should().Equal("5,000,000", "49");
         LimitsSectionFields.Caption.Should().Be("These limits stop a bot before it uses too much for one piece of work.");
         LimitsSectionFields.FallbackCaption.Should().Be("Leave a limit empty to use the space's.");
         LimitsSectionFields.StepsHint(options).Should().EndWith("This space sets no limit.");
         LimitsSectionFields.StepsHint(new BotRunLimitOptions(7, 5_000_000, 49)).Should().EndWith("This space allows up to 7.");
-        LimitsSectionFields.StepsPlaceholder(7).Should().Be("7");
+        LimitsSectionFields.StepsPlaceholder(new BotRunLimitOptions(7, 5_000_000, 49)).Should().Be("7");
+        LimitsSectionFields.StepsPlaceholder(null).Should().BeEmpty();
+        LimitsSectionFields.StepsHint(null).Should().Be("Each time the bot asks its model what to do next.");
         LimitsSectionFields.TokensHint(options).Should().EndWith("This space allows up to 5,000,000.");
         LimitsSectionFields.DelegationsHint(options).Should().Contain("0 keeps all work with this bot. This space allows up to 49.");
         LimitsSectionFields.Placeholder(BotRunLimitOptions.NoLimit).Should().Be("No limit");
-        LimitsSectionFields.StepsHint(new BotRunLimitOptions(BotRunLimitOptions.NoLimit, 1, 0)).Should().EndWith("This space sets no limit.");
+        LimitsSectionFields.StepsHint(new BotRunLimitOptions(null, 1, 0)).Should().EndWith("No limit.");
 
         editor.Edit(draft => draft.MaxSteps = "12");
         editor.Edit(draft => draft.MaxDelegations = "0");
@@ -610,6 +613,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Draft.Handle.Should().Be("new-bot");
         editor.Draft.ModelConnectionId.Should().Be(connectionId);
         editor.Draft.Model.Should().Be("sample-large");
+        editor.LimitsSummary.Should().Be("No limit");
         editor.SaveWords.Should().Be("Not made until you save");
         editor.SaveLabel.Should().Be("Make bot");
         editor.CanSave.Should().BeTrue();

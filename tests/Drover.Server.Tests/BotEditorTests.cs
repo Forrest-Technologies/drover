@@ -498,7 +498,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
 
         var options = await GetFor<BotRunLimitOptions>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/limits/options");
 
-        options.Should().Be(new BotRunLimitOptions(DeploymentPolicy.SelfHostedMaxStepsPerRun, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.SelfHostedMaxRunsPerDelegationTree - 1));
+        options.Should().Be(new BotRunLimitOptions(null, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.SelfHostedMaxRunsPerDelegationTree - 1));
     }
 
     [Fact]

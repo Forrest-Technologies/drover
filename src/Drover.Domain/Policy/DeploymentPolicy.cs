@@ -169,7 +169,7 @@ public sealed record DeploymentPolicy
     /// </summary>
     public const int SelfHostedMaxStepsPerRun = int.MaxValue;
 
-    public const int HostedMaxStepsPerRun = int.MaxValue;
+    public const int HostedMaxStepsPerRun = 50;
 
     public const int StepsPerRun = SelfHostedMaxStepsPerRun;
 

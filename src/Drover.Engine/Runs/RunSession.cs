@@ -521,8 +521,8 @@ public sealed class RunSession(
     public void AddUsage(long inputTokens, long outputTokens, decimal cost) =>
         usage = usage with
         {
-            InputTokens = usage.InputTokens + inputTokens,
-            OutputTokens = usage.OutputTokens + outputTokens,
+            InputTokens = usage.InputTokens + Math.Max(0, inputTokens),
+            OutputTokens = usage.OutputTokens + Math.Max(0, outputTokens),
             Cost = usage.Cost + cost,
         };
 

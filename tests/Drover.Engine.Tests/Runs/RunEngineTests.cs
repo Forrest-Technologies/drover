@@ -6,6 +6,20 @@ namespace Drover.Engine.Tests.Runs;
 /// </summary>
 public sealed class RunEngineTests(PostgresServer postgres)
 {
+    [Fact]
+    public async Task Run_session_clamps_negative_token_usage_to_zero()
+    {
+        await using var session = new RunSession(
+            new Run(), null!, "worker", null!,
+            new RunEventWriter(null!, Guid.Empty, null!, null!, new RunOptions(), TimeProvider.System, NullLogger<RunEventWriter>.Instance),
+            [], null!, new RunOptions(), TimeProvider.System,
+            new RunCeilings(int.MaxValue, 100, int.MaxValue), 0, []);
+
+        session.AddUsage(-4, 7, 0);
+
+        session.TokensUsed.Should().Be(7);
+    }
+
     #region A Complete Run
 
     [Fact]

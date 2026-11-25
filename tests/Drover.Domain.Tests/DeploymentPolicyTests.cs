@@ -145,7 +145,7 @@ public sealed class DeploymentPolicyTests
         DeploymentPolicy.SelfHosted.MaxRunsPerDelegationTree.Should().Be(int.MaxValue);
         new DelegationLimits(5, int.MaxValue, 100).MaxHandoffs.Should().Be(int.MaxValue, "no limit has nothing to subtract from");
         new DelegationLimits(5, 50, 100).MaxHandoffs.Should().Be(49);
-        DeploymentPolicy.Hosted.MaxStepsPerRun.Should().Be(int.MaxValue);
+        DeploymentPolicy.Hosted.MaxStepsPerRun.Should().Be(50);
         DeploymentPolicy.Hosted.MaxRunsPerDelegationTree.Should().Be(50);
     }
 

@@ -257,7 +257,7 @@ public static class BotEditorEndpoints
     {
         var limits = await policies.GetRuns(context.GetSpaceAccess().SpaceId, context.RequestAborted);
         return TypedResults.Ok(new BotRunLimitOptions(
-            limits.MaxSteps,
+            limits.MaxSteps == int.MaxValue ? null : limits.MaxSteps,
             limits.MaxTokens,
             limits.MaxDelegations));
     }

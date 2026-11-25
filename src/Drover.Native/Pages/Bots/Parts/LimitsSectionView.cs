@@ -37,7 +37,7 @@ public sealed class LimitsSectionView : EditorPart
     protected override void Update()
     {
         var options = Editor.RunLimitOptions;
-        (steps.Placeholder, steps.Hint) = (LimitsSectionFields.StepsPlaceholder(options?.MaxSteps), LimitsSectionFields.StepsHint(options));
+        (steps.Placeholder, steps.Hint) = (LimitsSectionFields.StepsPlaceholder(options), LimitsSectionFields.StepsHint(options));
         (tokens.Placeholder, tokens.Hint) = (LimitsSectionFields.Placeholder(options?.MaxTokens), LimitsSectionFields.TokensHint(options));
         (delegations.Placeholder, delegations.Hint) = (LimitsSectionFields.Placeholder(options?.MaxDelegations), LimitsSectionFields.DelegationsHint(options));
         steps.Show(Draft.MaxSteps);
