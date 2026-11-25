@@ -60,6 +60,14 @@ public sealed class ProjectListViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public void A_project_card_shows_the_first_line_of_its_instructions()
+    {
+        ProjectListViewModel.Facts(Weekly with { Instructions = "\n  Use the style guide.\nSecond line" })
+            .Should().Be("Use the style guide.");
+        ProjectListViewModel.Facts(Weekly with { Instructions = string.Empty }).Should().Be(string.Empty);
+    }
+
+    [Fact]
     public async Task A_member_sees_the_projects_and_is_told_who_makes_one()
     {
         Answer(role: "member", projects: [Weekly]);

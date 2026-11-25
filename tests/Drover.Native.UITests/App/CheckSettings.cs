@@ -2,8 +2,9 @@ namespace Drover.Native.Checks;
 
 /// <summary>
 /// What the harness tells a build made for the screen checks: the test server, the account on it, the project and bot
-/// it opens, the words its bot answers with, and where to report. A desktop reads them from the environment; Android from the extras of the
-/// intent that started the app. When they are missing the app starts as any other build does.
+/// it opens, the words its bot answers with, and where to report. A desktop reads them from the environment;
+/// Android from the extras of the intent that started the app. When they are missing,
+/// the app starts as any other build does.
 /// </summary>
 internal sealed record CheckSettings(
     Uri Server,

@@ -141,6 +141,11 @@ public sealed partial class ProjectListViewModel(
         }
     }
 
+    /// <summary>The first line of a project's instructions, for the line under its name on a card.</summary>
+    public static string Facts(ProjectSummary project) =>
+        project.Instructions.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(string.Empty);
+
     /// <summary>Drops a load that is still in flight, so its answer cannot replace a later one.</summary>
     public void Cancel()
     {

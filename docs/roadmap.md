@@ -33,7 +33,7 @@ Checked against the code on the trunk, not against older documents.
 | Tools | MCP tool servers with no auth, a header or a sign-in. Built-in tools for time, web pages, web search, memory, images, delegation and the crew |
 | Sandboxes | Optional, turned on with one sandbox service key in `.env` and a restart; the status page names the setting when none is set. A sandbox runs commands, handles files, shows a screen a bot can use, and a person can watch and take over. A finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Uploads use a writable directory in the image; a failed write answers 503 with `storage_unavailable` |
 | Models | Two kinds of connection: one hosted provider with its own adapter, and any server that speaks the chat completions API. A stored catalog of each connection's models. Stored fallback lists. Usage and cost per run and per bot |
-| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Projects read first and open a sheet to change their name and instructions; a new project is made from a dialog. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
+| Clients | One client codebase. Every work screen starts with one header that names the screen, takes one step back and holds its icon actions. Lists of projects and bots draw each item with a card that opens on tap, click, Enter or Space. Extensions use the same card frame, with their actions in words beneath it. Projects read first and open a sheet to change their name and instructions; a new project is made from a dialog. The browser build ships with the server, and an Android preview is released. A share opened on a cold start of Android reaches the share screen and is cleared when a session or a server changes. Desktop builds for Linux, Windows and macOS and an iOS simulator build pass checks on every pull request, and none of them is released yet |
 | People | Password sign-in, a setup code for the first account, device sessions. Each person has their own space. Roles exist (owner, admin, member), and there is no way yet to invite a second person |
 | Security | Row-level security in PostgreSQL enforces isolation between spaces and people. Grants are checked at call time and narrow down the hierarchy. Secrets are encrypted with a key ring and never returned. A deployment policy sets every limit, and limits only narrow. Containers run read-only with capabilities dropped. Every pull request runs code scanning, secret scanning, dependency and license checks |
 | Documentation | `README.md`, `AGENTS.md`, `CODE_STYLE.md`, `DESIGN.md`, nineteen architecture files, eighteen decision records, and guides for self-hosting, desktop installers and the Android preview |
@@ -77,7 +77,7 @@ Milestone 06 lands work that is already written and reviewed. It follows 05.
 
 Milestones 09 to 12 fill the largest gaps: people, sandboxes, operations, and a calm conversation.
 
-Milestones 13 to 20 complete the product. Their issues are assigned and will be given the seven sections before each milestone starts.
+Milestones 13 to 20 complete the product. Their issues are assigned and carry the `roadmap` label with the seven sections.
 
 ## Milestones
 
@@ -642,29 +642,105 @@ Milestones 13 to 20 complete the product. Their issues are assigned and will be 
 - #577 feat: pick a routine's time and time zone instead of typing them, and see everything scheduled in the space
 - #588 feat: move a bot to another place in the crew
 
-
-## Later milestones
-
-These complete the product. Each has its issues assigned on GitHub. Those issues do not carry the `roadmap` label yet: before a milestone starts, each issue is checked against `main`, given the seven sections, and given its interface spec where it has an interface.
-
-
 ### 18 Shared spaces and channels
 
-[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/18) · 29 issues
+[Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/18) · 28 issues
 
-Rooms with several bots and people, mentions and read state, shared conversations, limits an owner sets for a space, export and deletion of a person's data, passkeys, and bots reachable from a chat channel.
+**Goal.** Share conversations and set space limits, with rooms, chat channels, mentions, read state, pins and passkeys, and export and deletion of a person's data.
+
+**Issues.**
+
+- #363 feat: mention bots and people in group conversations, and route replies and reactions by mention
+- #364 feat: per-conversation notification controls: all, mentions only, off, snooze
+- #366 feat: pins and bookmarks per conversation
+- #475 feat: export everything a space or a person has
+- #519 feat: an owner or admin sets a space's limits, and the server applies them
+- #520 feat: delete an account, and delete a space
+- #521 feat: remove a sent file and get its room back
+- #522 feat: share a conversation with the space, and make it private again
+- #365 feat: typing and working indicators and read state in shared conversations
+- #525 feat: sign in with a passkey
+- #526 feat: sign in to a model provider with a personal plan instead of a key
+- #714 feat: rooms, the lead bot's members as data on the lead, validated
+- #715 feat: rooms, the cap on bot turns between two messages of a person
+- #716 feat: rooms, member contributions in the lead's conversation, reusing the delegation checks
+- #717 feat: rooms, a person may mention any member bot
+- #718 feat: rooms in the native client, members speak in turn and the stop is explained
+- #719 feat: rooms in the bot editor, a team section and the per-space turn cap
+- #722 feat: chat channel, the Domain interface and its conformance suite
+- #723 feat: chat channel, records, link codes and the fixed reply to unlinked senders
+- #724 feat: chat channel, a linked message lands in the person's main conversation
+- #726 feat: chat channel, the deployment policy rule and the hosted preset row
+- #725 feat: chat channel, the first adapter by polling with a free bot token
+- #727 feat: chat channel, the link flow and its screen in the native client
+- #729 feat: draw typed emoji in messages in every target
+- #730 feat: reaction picker with free emoji and normalization to meaning keys
+- #731 feat: push is held only while the conversation is on a visible screen, on any server
+- #732 feat: clients report which conversation is on a visible screen
+- #733 feat: pinned messages enter the bot's context as quoted reference data with a size cap
 
 ### 19 Voice and memory
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/19) · 19 issues
 
-Speak to a bot and hear replies, conversations shortened to fit the model, prompt caching, memory a person can search, and model fallback that switches during a run.
+**Goal.** Speak to a bot and hear replies, shorten a conversation to fit the model, cache prompts where a provider offers it, search what a bot remembers, and fall back to another model during a run.
+
+**Issues.**
+
+- #64 Apply a bot's memory settings in the runtime (compaction strategy and thresholds)
+- #161 feat: a bot finds what it needs from past conversations and older notes by meaning
+- #399 feat: a run moves to the next model when its model is unavailable
+- #400 feat: reorder fallback models and see model switches in the native client
+- #411 feat: speech interfaces and a compatible-endpoint speech adapter, hosted or self-hosted
+- #412 feat: transcribe and read-aloud endpoints with per-person speech model choice
+- #413 feat: voice in the composer, read aloud, and Voice settings in the native client
+- #154 feat: speak a message to a bot, and have a reply read aloud
+- #497 feat: one Files screen for everything your bots have made, with earlier versions kept
+- #498 feat: tell your bots about yourself once, bring notes in from elsewhere, and see what each run is given
+- #500 feat: call a bot: a live spoken conversation you can interrupt
+- #501 feat: a bot calls you when it matters
+- #532 feat: a long conversation is shortened to fit the model's context, and a message that cannot fit says so
+- #533 feat: prompt caching where a provider offers it, with cached tokens in usage and cost
+- #535 feat: a bot can be given a required answer shape and advanced sampling settings
+- #536 feat: reasoning a provider requires back is kept across the model calls of a run
+- #537 feat: a model connection notices when it stops working, waits when told to, and can cap its calls at once
+- #581 feat: a model picker with search, price, context size and what each model can read
+- #602 feat: search and export what a bot remembers
 
 ### 20 Every device
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/20) · 26 issues
 
-Offline reading and a send queue, a desktop tray and more than one window, sharing into the app, translation, links into the app, and release checks on every platform.
+**Goal.** Keep recent conversations readable offline with a send queue, run once in the desktop tray with more than one window, share into the app and open links in it, translate the interface, and check every platform before release.
+
+**Issues.**
+
+- #275 Run the Drover native client in the Uno Studio Android companion
+- #358 test: run the shared native screen checks on the browser client
+- #375 build: serve a preview over HTTPS so the browser build works from another device
+- #478 chore: remove dead settings and unreachable code
+- #480 test: run engine, wake-up, redaction, session, usage and preview cases that have no test
+- #481 test: client streaming has tests, and every server route has a client method
+- #494 feat: teach a bot a task by doing it once on its screen
+- #586 feat: see the rules of this server on Status, and change a tool connection's trust and protocol after adding it
+- #601 feat: usage shows what the space spent in any period, how close it is to its limit, and saves as a file
+- #606 feat: offline, the app says so, keeps recent conversations readable, and sends what you wrote once it is back
+- #607 feat: on desktop, Drover runs once, stays in the tray, can start at sign-in, and opens more than one window
+- #605 feat: links into the app: copy a link to a conversation, open Drover links in the installed app
+- #608 feat: share into Drover from the browser and desktop, and quick actions from the home screen
+- #609 feat: the interface can be translated, and dates and numbers follow the device's format
+- #610 feat: wide screens show a list beside its detail on Bots, Models and Tools
+- #615 build: a Linux download that runs on any distribution, and a published key to check it against
+- #616 build: the Android preview states the Android versions it supports, and CI starts it on the oldest one
+- #618 test: open the browser client that the Docker image serves in a real browser
+- #620 feat: background task failures are logged, and a person can send crash reports to their own server
+- #621 test: unit tests for the native client's own logic
+- #622 test: desktop notifications and the Android rules for outside input have tests
+- #623 test: a test class for each view model that has few or no tests
+- #624 test: screen checks open every screen, and cover the wide layout, light theme, a long reply and a dropped stream
+- #625 test: every screen the checks open is audited for accessible names, target size and fit at 360 px
+- #626 test: the browser client's self-update, two more browser engines, and native checks that gate a release
+- #661 feat: a bot works on a person's own computer through a small connector that asks the server for jobs
 
 ## Good first issues
 

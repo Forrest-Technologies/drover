@@ -48,6 +48,25 @@ public sealed class ConversationsTests
     }
 
     [Fact]
+    public void Reasoning_saved_in_pieces_reads_as_one_text_and_a_tool_call_keeps_two_thoughts_apart()
+    {
+        var reply = Message(
+            "assistant",
+            false,
+            new PartView("reasoning", "Let"),
+            new PartView("reasoning", " me check whether the sample"),
+            new PartView("reasoning", " page lists it."),
+            new PartView("tool_call", ToolName: "web.search", Arguments: "{}"),
+            new PartView("reasoning", "It does."),
+            new PartView("reasoning", " "),
+            new PartView("text", "Yes."));
+
+        var shown = new[] { reply }.ToChatMessages().Single();
+
+        shown.Reasoning.Should().Be("Let me check whether the sample page lists it.\n\nIt does. ");
+    }
+
+    [Fact]
     public void A_reply_shows_the_web_sources_it_cites_once_each_with_a_title()
     {
         var reply = Message(

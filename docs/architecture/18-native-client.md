@@ -285,6 +285,7 @@ Every component of the retired web client has a control of the same name in `src
 | `Field` | `Label`, `Value` (two-way), `Type`, `Placeholder`, `Hint`, `Error`, `Disabled`, `MaxLength` (the web's `maxlength`), `Autofill` (the web's `autocomplete`), the `Submitted` event |
 | `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`. Drawn from `IconShapes` |
 | `IconButton` | `Icon`, `Label` (required: it throws without one) |
+| `ListCard` | The one frame for a list of things to open. `Title` is the link named by the item; `Facts`, `Leading`, `Status` and `Trailing` fill its four columns; `Beneath` holds a block below the frame. The `Opened` event makes the whole card a tap target and gives its name a keyboard path; with no handler the name is plain text |
 | `ScreenHeader` | The one header at the top of a work screen. `Title` is the level one heading; `BackLabel` and `BackAddress` add the arrow button (`ScreenBack`) when both are set; `Actions` holds icon buttons and icon menus |
 | `MarkdownView` | `Text`, `Streaming`. Draws the nodes of `MarkdownDocument` as native text |
 | `Menu`, `MenuItem` | `Label`, `AccessibleLabel` (the web's `AriaLabel`), `TriggerIcon`, `ShowTriggerLabel`, `Items`; an item's `Selected` event |
@@ -525,12 +526,12 @@ written. The last two to move were the bot editor and the share screen.
 
 Projects have a native list and a native project screen (`ProjectListPage`, `ProjectPage`) with view models in
 `Drover.Presentation` and screenshots in `docs/screenshots/issue-328/`. An owner or admin creates a project from a
-dialog and changes its name and instructions in a sheet. Removal asks first, and both removal
-and file removal are reached from icon buttons. A member sees no edit or more action and can still open a project, start
-a conversation with a bot, and move a conversation they own. The server still decides each request. The sheet and
-dialogs are bound both ways to the view model, so a refusal keeps them open with the reason and a typed draft survives
-a failed save. Project file downloads use `DroverApi` through `IFileDelivery` on desktop and Android and fall
-back to `Launcher` only in the browser target. Devices without file delivery do not offer a download action.
+dialog and changes its name and instructions in a sheet. Removal and file removal ask first and are reached from icon
+buttons. A member sees no edit or more action and can still open a project, start a conversation with a bot, and move a
+conversation they own. The server still decides each request. The sheet and dialogs are bound both ways to the view
+model, so a refusal keeps them open with the reason and a typed draft survives a failed save. Project file downloads
+use `DroverApi` through `IFileDelivery` on desktop and Android and fall back to `Launcher` only in the browser target.
+Devices without file delivery do not offer a download action.
 Upload size checks read the server's limit from `/files/rules`, and
 movable conversations are fetched in one request for the signed-in owner. The list keeps the existing limit of
 200 non-archived threads, including scheduled and handed work. `scripts/check-native-browser.mjs` checks

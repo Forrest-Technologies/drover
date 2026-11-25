@@ -12,6 +12,8 @@ public sealed class ProjectPage : Screen
 
     private readonly ProjectViewModel model = Make<ProjectViewModel>();
 
+    private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+
     private readonly StackPanel statePanel = new() { Spacing = Tokens.Number("DvSpace3") };
 
     private readonly StatusNote statusNote = new();
@@ -380,11 +382,7 @@ public sealed class ProjectPage : Screen
 
         foreach (var thread in model.Threads)
         {
-            var label = model.ThreadLabel(thread);
-            var link = ThreadLink(label, Addresses.Conversation(thread.Id));
-            bodyPanel.Children.Add(model.CanMoveOut(thread.Id)
-                ? PageParts.Row(link, More(thread.Id))
-                : PageParts.Row(link));
+            bodyPanel.Children.Add(ConversationCard(thread));
         }
     }
 
@@ -485,6 +483,18 @@ public sealed class ProjectPage : Screen
         return row;
     }
 
+    private ListCard ConversationCard(ThreadSummary thread)
+    {
+        var card = new ListCard { Title = model.ThreadLabel(thread) };
+        card.Opened += () => navigator.NavigateTo(Addresses.Conversation(thread.Id));
+        if (model.CanMoveOut(thread.Id))
+        {
+            card.Trailing = More(thread.Id);
+        }
+
+        return card;
+    }
+
     private Menu More(Guid threadId)
     {
         var menu = new Menu { Label = "More", TriggerIcon = IconName.More, ShowTriggerLabel = false };
@@ -565,18 +575,6 @@ public sealed class ProjectPage : Screen
         var block = Styles.Text(text, "DvTextParagraph");
         block.IsTextSelectionEnabled = true;
         return block;
-    }
-
-    private static Link ThreadLink(string label, string address)
-    {
-        var link = new Link
-        {
-            Text = label,
-            Address = address,
-            MinHeight = Tokens.Number("DvTargetTouch"),
-        };
-        AutomationProperties.SetName(link, label);
-        return link;
     }
 
     private static EmptyState Missing() => new()

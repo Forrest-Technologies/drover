@@ -146,6 +146,34 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void Lists_of_things_to_open_use_the_list_card()
+    {
+        string[] listFiles =
+        [
+            "Pages/Projects/ProjectListPage.cs", "Pages/Bots/Parts/CrewRow.cs", "Pages/Extensions/ExtensionRow.cs",
+        ];
+        var found = from file in Repository.NativeFiles(".cs")
+                    where listFiles.Contains(file.Path)
+                    from match in OwnFrameOrLink().Matches(file.Text).Cast<Match>()
+                    select $"{file.Path}: {match.Value.Trim()}";
+
+        found.Should().BeEmpty("one card draws every list of things to open");
+    }
+
+    [Fact]
+    public void A_page_that_draws_its_own_frame_or_link_is_caught()
+    {
+        const string Sample = """
+            var frame = new Facet();
+            Facet other = new();
+            var link = new Link { Text = "A project" };
+            Link another = new();
+            """;
+
+        OwnFrameOrLink().Count(Sample).Should().Be(4);
+    }
+
+    [Fact]
     public void Every_work_screen_starts_with_one_screen_header()
     {
         var found = from file in Repository.NativeFiles(".xaml", ".cs")
@@ -260,6 +288,9 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Private Methods
+
+    [GeneratedRegex(@"new\s+Facet\b|\bFacet\s+\w+\s*=\s*new\s*\(|new\s+Link\b|\bLink\s+\w+\s*=\s*new\s*\(")]
+    private static partial Regex OwnFrameOrLink();
 
     private static string PageOf(string path) =>
         path.EndsWith(".xaml.cs", StringComparison.Ordinal) ? path[..^3] : path;
