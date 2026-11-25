@@ -31,21 +31,17 @@ public static class GovernedAgentBuilder
         // Rules about replies go between the tool loop and the model, so every model call's answer passes them. A
         // tool's picture and the bot's notes are added below them, after the framework has handed the call's messages
         // to history, so neither is ever stored.
-        // A custom stack keeps per-call history persistence between the model's tool loop and the provider. The
-        // default ChatClientAgent decorators cannot be used here because they would place that persistence outside
-        // the custom tool loop, which conflicts with providers that manage their own conversation history.
-        var governedClient = new ReplyRules(new TransientImages(WithContext(chatClient, run), run), run.Governor)
-            .AsBuilder()
-            .UsePerServiceCallChatHistoryPersistence()
-            .UseFunctionInvocation(loggerFactory, invocation => invocation.MaximumIterationsPerRequest = int.MaxValue)
-            .UseMessageInjection()
-            .UseApprovalNotRequiredFunctionBypassing(loggerFactory)
-            .UseApprovalResponseBinding(loggerFactory)
-            .Build();
+        var agent = new ReplyRules(new TransientImages(WithContext(chatClient, run), run), run.Governor)
+            .AsAIAgent(options, loggerFactory);
 
-        options.UseProvidedChatClientAsIs = true;
+        // Keep ChatClientAgent's own middleware ordering. In particular, its per-call history decorator must stay
+        // inside the function loop for providers that manage conversation history on the server.
+        if (agent.GetService<FunctionInvokingChatClient>() is { } invocation)
+        {
+            invocation.MaximumIterationsPerRequest = int.MaxValue;
+        }
 
-        return governedClient.AsAIAgent(options, loggerFactory)
+        return agent
             .AsBuilder()
             .Use(gate.Invoke)
             .UseOpenTelemetry(AgentRuntime.TelemetrySource, telemetry => telemetry.EnableSensitiveData = false)
