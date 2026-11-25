@@ -56,7 +56,12 @@ public sealed class DelegationCardViewModel : ObservableObject
 
     public bool IsRefused => Item.Phase is DelegationPhase.Refused;
 
-    public string RefusedLine => DelegationWords.Refused(Item.Refusal, Item.ChildName);
+    public string RefusedLine => DelegationWords.Refused(Item.Refusal, Item.ChildName, Item.RefusalLimit);
+
+    /// <summary>The bot's Limits settings, when a handoff limit refused this call and the person can edit the bot.</summary>
+    public string? LimitsHref => IsRefused && Item.Refusal is DelegationRefusal.TooManyHandoffs ? Item.LimitsHref : null;
+
+    public string? LimitsLinkText => LimitsHref is not null ? AttentionWords.OpenLimitsLabel : null;
 
     public string TaskTitle => $"What {Item.ChildName} was asked";
 

@@ -5,8 +5,9 @@ public static class LimitsSectionFields
 {
     #region Properties
 
-    public static string Note =>
-        "These stop a bot that runs away before it spends your model credit. Each counts one piece of work: one message answered, or one task handed to it. Leave a limit empty to use the space's.";
+    public static string Caption => "These limits stop a bot before it uses too much for one piece of work.";
+
+    public static string FallbackCaption => "Leave a limit empty to use the space's.";
 
     public static string StepsLabel => "Model calls";
 

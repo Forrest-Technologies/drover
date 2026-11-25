@@ -10,7 +10,9 @@ public sealed record Handover(
     string BotName,
     IReadOnlyDictionary<Guid, string> Names,
     Func<Guid, Guid, string>? WorkAddress = null,
-    int Depth = 0)
+    int Depth = 0,
+    Guid BotId = default,
+    Func<Guid, string>? LimitsAddress = null)
 {
     #region Properties
 
@@ -24,7 +26,8 @@ public sealed record Handover(
     public string NameOf(Guid botId) => Names.GetValueOrDefault(botId) ?? Unknown;
 
     /// <summary>The same, one level down: for the messages of the bot that was handed the work.</summary>
-    public Handover Below(string childName) => this with { BotName = childName, Depth = Depth + 1 };
+    public Handover Below(string childName, Guid childId = default) =>
+        this with { BotName = childName, Depth = Depth + 1, BotId = childId };
 
     #endregion
 }

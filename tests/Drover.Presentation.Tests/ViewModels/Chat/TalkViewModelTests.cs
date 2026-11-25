@@ -1623,6 +1623,62 @@ public sealed class TalkViewModelTests : WorkspaceTest
         (MainPane.Composer.ShowsStop, MainPane.Composer.ShowsSend).Should().Be((false, true));
         MainPane.Notice.Should().BeNull("a failed run is not a notice: the conversation ends with its failure line");
         MainPane.List.Failure!.Reported.Should().Be("invalid_key: Sample report of the failure.", "the server's report is shown only when asked for");
+        MainPane.List.FailureLimitsHref.Should().BeNull("only a limit stop offers a link to Limits");
+    }
+
+    [Fact]
+    public async Task A_run_stopped_at_a_limit_names_the_limit_with_numbers_and_links_a_bot_editor_to_limits()
+    {
+        var steps = new RunFailure(
+            failedRunId,
+            FailureCauses.BudgetReached,
+            "step_limit: This work stopped after 50 model calls.",
+            new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+        Main(Thread(null) with { Attention = new(false, true, false, steps) });
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.List.FailureSentence.Should().Be("Marshal stopped after 50 of 50 model calls."));
+        MainPane.List.Spoken.Should().Be("Marshal stopped after 50 of 50 model calls.");
+        MainPane.List.FailureLimitsLabel.Should().Be("Open limits");
+        MainPane.List.FailureLimitsHref.Should().Be(Addresses.BotLimits(botId));
+
+        var tokens = new RunFailure(
+            Guid.Parse("0196f1a0-0000-7000-8000-00000000000b"),
+            FailureCauses.BudgetReached,
+            "token_limit: This work stopped after it used 5,012,340 tokens.",
+            new RunFailureLimit(FailureLimits.Tokens, 5_012_340, 5_000_000));
+        var older = new RunFailure(
+            Guid.Parse("0196f1a0-0000-7000-8000-00000000000c"),
+            FailureCauses.BudgetReached,
+            "step_limit: Older run without structured limit data.");
+
+        var list = new MessageListViewModel { BotName = "Marshal", LimitsHref = Addresses.BotLimits(botId), Failure = tokens };
+        list.Update();
+        list.FailureSentence.Should().Be("Marshal stopped after 5,012,340 of 5,000,000 tokens.");
+        list.FailureLimitsHref.Should().Be(Addresses.BotLimits(botId));
+
+        list.Failure = older;
+        list.Update();
+        list.FailureSentence.Should().Be("Marshal stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.");
+        list.FailureLimitsHref.Should().Be(Addresses.BotLimits(botId));
+    }
+
+    [Fact]
+    public async Task A_member_who_cannot_edit_the_bot_sees_the_limit_sentence_without_open_limits()
+    {
+        Server.Answer("GET", "/api/session", Person with { Spaces = [Person.Spaces[0] with { Role = "member" }] });
+        var steps = new RunFailure(
+            failedRunId,
+            FailureCauses.BudgetReached,
+            "step_limit: This work stopped after 50 model calls.",
+            new RunFailureLimit(FailureLimits.ModelCalls, 50, 50));
+        Main(Thread(null) with { Attention = new(false, true, false, steps) });
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.List.FailureSentence.Should().Be("Marshal stopped after 50 of 50 model calls."));
+        MainPane.List.FailureLimitsHref.Should().BeNull("a member cannot edit the bot's limits");
+        MainPane.List.FailureLimitsLabel.Should().BeNull();
     }
 
     [Fact]
