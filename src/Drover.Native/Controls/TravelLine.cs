@@ -139,15 +139,9 @@ public sealed class TravelLine : SKCanvasElement
         var cut = double.IsNaN(Cut) ? FrameOutline.CutOf(Role) : Cut;
         var corners = FrameOutline.Of(
             ThemeTokens.Current.Shape.Corners, width, height, Tokens.Number("DvTravelLine") / 2, cut, FrameOutline.RadiusOf(Role));
-        var path = new SKPath();
-        path.MoveTo((float)(corners[0].X + bloom), (float)(corners[0].Y + bloom));
-        foreach (var corner in corners.Skip(1))
-        {
-            path.LineTo((float)(corner.X + bloom), (float)(corner.Y + bloom));
-        }
-
-        path.Close();
-        return path;
+        using var builder = new SKPathBuilder();
+        builder.AddPoly([.. corners.Select(corner => new SKPoint((float)(corner.X + bloom), (float)(corner.Y + bloom)))], true);
+        return builder.Detach();
     }
 
     // The stretch of the outline the line covers now. It keeps the length it had on the top edge, a share of the
@@ -158,14 +152,14 @@ public sealed class TravelLine : SKCanvasElement
         var length = (float)Math.Min(around, (area.Width - (2 * Bloom)) * Tokens.Number("DvTravelWidth"));
         var turns = elapsed.Elapsed.TotalMilliseconds / Tokens.Number("DvDurTravel");
         var start = (float)(turns * LengthsPerTurn * length % around);
-        var piece = new SKPath();
+        using var piece = new SKPathBuilder();
         measure.GetSegment(start, start + length, piece, true);
         if (start + length > around)
         {
             measure.GetSegment(0, start + length - around, piece, true);
         }
 
-        return piece;
+        return piece.Detach();
     }
 
     private static SKPaint Paint(SKColor color, bool glow)
