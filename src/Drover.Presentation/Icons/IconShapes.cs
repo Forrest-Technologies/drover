@@ -31,6 +31,9 @@ public static class IconShapes
             """<path d="m4 7 5 5-5 5"/><path d="M12 18h8"/>""",
         [IconName.Conversation] =
             """<path d="M6 4h14v12l-3 3h-6l-5 3v-3H3V7z"/><path d="M7 9h9m-9 4h7"/>""",
+        // One bubble in front of another: talk beside the main conversation.
+        [IconName.SideChats] =
+            """<path d="M3 10h12v8l-2 2H8l-4 3v-3H3z"/><path d="M8 10V5h13v9l-2 2h-4"/>""",
         [IconName.Copy] =
             """<path d="M11 8h10v10l-3 3H8V11z"/><path d="M5 16H3V6l3-3h10v2"/>""",
         [IconName.Crew] =

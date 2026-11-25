@@ -103,9 +103,13 @@ public sealed record RunLimitsBody(int? MaxSteps, int? MaxTokens, int? MaxDelega
 
 /// <summary>
 /// The limits of the bot's space on one piece of work, so the editor says what leaving a limit empty means and the
-/// most a bot's own limit may be. A bot's limit only lowers these.
+/// most a bot's own limit may be. A bot's limit only lowers these. <see cref="NoLimit"/> means the space sets none.
 /// </summary>
-public sealed record BotRunLimitOptions(int MaxSteps, int MaxTokens, int MaxDelegations);
+public sealed record BotRunLimitOptions(int MaxSteps, int MaxTokens, int MaxDelegations)
+{
+    /// <summary>A limit the space does not set: the largest number, since every limit narrows by taking the lower.</summary>
+    public const int NoLimit = int.MaxValue;
+}
 
 /// <summary>
 /// What a sandbox on this server may be, so the editor offers only that: whether the server has a sandbox provider at

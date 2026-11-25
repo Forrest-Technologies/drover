@@ -115,7 +115,7 @@ public static class BotSummaries
         ];
         var said = limits
             .Select(limit => (Most: int.TryParse(limit.Own.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var own) ? own : limit.Space, limit.One, limit.Many))
-            .Where(limit => limit.Most is not null)
+            .Where(limit => limit.Most is not (null or BotRunLimitOptions.NoLimit))
             .Select(limit => $"{Count(limit.Most)} {(limit.Most is 1 ? limit.One : limit.Many)}")
             .ToList();
         return said.Count == 0 ? "The space's limits" : string.Join(" · ", said);
