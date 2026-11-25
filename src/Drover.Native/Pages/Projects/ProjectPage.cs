@@ -427,7 +427,7 @@ public sealed class ProjectPage : Screen
         }
     }
 
-    private UIElement FileRow(ProjectFileResponse file)
+    private Grid FileRow(ProjectFileResponse file)
     {
         var row = new Grid
         {
@@ -461,7 +461,7 @@ public sealed class ProjectPage : Screen
         var download = new IconButton { Icon = IconName.Download, Label = ProjectViewModel.DownloadLabel(file) };
         download.Click += async (_, _) =>
         {
-            var work = model.Delivers
+            Func<Task> work = model.Delivers
                 ? () => model.Download(file)
                 : () => OpenDownload(model.DownloadAddress(file.File.Id));
             await Run(work);
@@ -542,7 +542,7 @@ public sealed class ProjectPage : Screen
         }
     }
 
-    private static Grid Heading(string title, UIElement? action)
+    private static Grid Heading(string title, FrameworkElement? action)
     {
         var heading = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
         heading.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
