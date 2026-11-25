@@ -295,7 +295,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
 
         screen.AskRemoveFile(Note);
         Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
-        Server.Answer("GET", filePath, []);
+        Server.Answer("GET", filePath, Array.Empty<ProjectFileResponse>());
         await screen.RemoveFile(Note);
 
         Server.Sent("DELETE", $"{filePath}/{fileId}").Should().ContainSingle();
@@ -384,7 +384,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         var other = new ProjectSummary(otherProjectId, "Other", "Other instructions.", when, when);
         Server.Answer("GET", $"{space}/projects/{otherProjectId}", other);
         Server.Answer("GET", $"{space}/projects/{otherProjectId}/threads", Array.Empty<ThreadSummary>());
-        Server.Answer("GET", $"{space}/projects/{otherProjectId}/files", []);
+        Server.Answer("GET", $"{space}/projects/{otherProjectId}/files", Array.Empty<ProjectFileResponse>());
         await screen.Open(otherProjectId);
 
         screen.DraftName.Should().Be("Other");
@@ -610,7 +610,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         Answer(files: [Note]);
         await screen.Open(projectId);
         Server.Answer("DELETE", $"{filePath}/{fileId}", HttpStatusCode.NoContent);
-        Server.Answer("GET", filePath, []);
+        Server.Answer("GET", filePath, Array.Empty<ProjectFileResponse>());
 
         await screen.RemoveFile(Note);
 
