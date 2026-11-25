@@ -1235,8 +1235,22 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     assert.ok(fieldBox, 'The message field has an accessible box in the composer.');
     const fieldBefore = await field.inputValue();
     await page.mouse.click(fieldBox.x + fieldBox.width / 2, fieldBox.y + fieldBox.height / 2);
-    await page.evaluate(() => new Promise(resolve =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    // The click puts focus on the field a frame or more later. A person cannot type before that, so the check waits
+    // until focus has stayed on the field for 300 ms. Letters typed sooner land elsewhere and are lost.
+    await page.waitForFunction(() => {
+        const now = performance.now();
+        if (document.activeElement?.getAttribute('aria-label') !== 'Message to Sample bot') {
+            window.droverFieldFocusSince = undefined;
+            return false;
+        }
+
+        window.droverFieldFocusSince ??= now;
+        return now - window.droverFieldFocusSince >= 300;
+    }, null, { polling: 50, timeout: 5000 }).catch(async cause => {
+        const focused = await page.evaluate(() =>
+            document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName);
+        throw new Error(`A mouse click on the composer field did not keep focus on it after a cancelled drag (focus: ${JSON.stringify(focused)}).`, { cause });
+    });
     await page.keyboard.type('after cancel');
     await page.waitForFunction(
         before => {
