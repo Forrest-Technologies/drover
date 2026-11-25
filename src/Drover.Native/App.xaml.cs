@@ -125,6 +125,15 @@ public partial class App : Application
                 return;
             }
 #endif
+#if DROVER_LONG_CONVERSATION_CHECK
+            // A browser has no environment to ask: a build made for the check runs it there.
+            if (OperatingSystem.IsBrowser() || Environment.GetEnvironmentVariable("DROVER_LONG_CONVERSATION_CHECK") == "1")
+            {
+                LongConversationCheck.Start(MainWindow);
+                MainWindow.Activate();
+                return;
+            }
+#endif
 #if DROVER_MULTILINE_FOCUS_CHECK
             if (Environment.GetEnvironmentVariable("DROVER_MULTILINE_FOCUS_CHECK") == "1")
             {

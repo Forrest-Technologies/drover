@@ -624,14 +624,8 @@ is kept and told what changed, never made again. A new child is put in at its pl
 moved is taken out, so a child that holds the focus keeps it. The activity timeline keeps its nodes and their open
 details by event the same way, so a node or a control in its details keeps the focus while a live run's events arrive.
 
-**The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
-message that changed is looked at again. That gives what the web client's reversed column gives: the reader at the
-foot stays at the foot while text streams, the reader who scrolled up stays put, a link to a moment can land on any
-message, an open card stays open, and assistive technology has the whole conversation. Measured on the desktop
-build with sample replies (bold, inline code, a list), on a machine whose four cores were loaded two to three times
-over by other builds: 300 messages took 2.2 s to first show and 22 ms for each update of a streaming reply (median
-of 40); 600 messages took 2.8 s and 26 ms. Before unchanged messages were skipped the update took 36 ms at 300. If
-conversations of thousands of messages become common, load the older part on demand; do not recycle elements.
+**The message list shows a page of the conversation, not all of it.** The newest messages are on the page and the
+rest are shown as the reader comes to them; nothing is cut from the conversation. See [Long lists](#long-lists).
 
 A streaming reply is parsed and laid out again for each stretch of text that arrives, as the web client does. The
 list draws at most once in a quarter of the shortest duration, and after what the person is doing, so a reply
@@ -653,6 +647,76 @@ Known differences of this screen from the web client:
 | A bot's name in the header | In a wide header a long name is not cut short with an ellipsis; it is in a wrapped or phone header |
 | The line along the composer | Under the virtual display it was drawn with gaps. It is the shared `TravelLine` |
 | Failure heading | Wraps greedily, as every heading here does |
+
+#### Long lists
+
+**A list that can grow without end shows a page of itself, and keeps all of itself.** Every child of a list is an
+element that is made, measured and drawn, about 60 of them for one message, so what a screen costs follows how
+many are on the page. `ListWindow` (`Drover.Presentation/Components`) is the one way to keep that number small. It
+holds no elements and cuts nothing from the list: it says which run of neighbouring items is on the page, by the
+keys of its two ends, and the view model hands that run to the control (`MessageListViewModel.Shown`, beside
+`Messages`, which stays whole). It is unit tested without a screen (`ListWindowTests`).
+
+| What happens | What the window does |
+| --- | --- |
+| The list is opened | The newest `Page` items (30) are on the page |
+| Items arrive at the end | They are shown while the page ends with the newest; a page that left the end stays where it is |
+| The reader comes within one view of an end | `Step` more items (10) are shown on that side, before the reader gets there |
+| A link lands on an item | Near the page, the page grows to it. Far from it, the page moves to stand around it, so a landing costs the same anywhere in the list |
+| The page passes `Most` items (200) | The end furthest from the reader lets go. Those items are still in the list and come back as the reader does |
+| The person sends | The page ends with the newest again |
+| A group shown as one (a turn) | Is never cut at either end of the page |
+
+The rules for a control that draws such a page, all of them in `MessageList`:
+
+- Draw the page, never the list (test: `The_message_list_draws_its_page_and_never_the_whole_conversation`).
+- When items come or go above the reader, hold the item they are reading where it is on the screen, in the same
+  turn of the interface, so no frame shows it moved.
+- Put an action at each end that has more: "Show earlier messages" above, "Go to newest messages" below. Scrolling
+  does the same without them; they are how a keyboard and a screen reader get there, and while the keyboard is on
+  one the page does not grow by itself there, so the action stays under it.
+- What follows the newest item (the bot thinking, how the run ended) is shown only while the page ends with it.
+- Do not recycle elements. A child is kept by its key for as long as it is on the page (`Keyed.Sync`), so an open
+  card, the focus and a selection outlive every change around them. A child that left the page is made again when
+  the reader comes back, closed.
+
+Every other list kept by `Keyed.Sync` is named in `NativeInterfaceRuleTests.keyedLists` with what keeps it short: a
+message's cards, a turn's steps, a run's moments. A new keyed list fails that test until it is listed with its
+bound or shown through a `ListWindow`. A list of things a person made by hand (bots, projects, connections) is short
+by what it holds; a list a conversation, a run or a log adds to is not.
+
+Measured with `LongConversationCheck` on the Linux desktop build, drawn in software on a virtual display, four
+cores, with sample replies (bold, inline code, a list). "Every message" is the same build with a page large enough
+to hold the whole conversation, which is what the list did before:
+
+| Messages | First show, every message | First show, a page | A scrolling frame, every message | A scrolling frame, a page |
+| --- | --- | --- | --- | --- |
+| 100 | 1.7 s | 0.9 s | 16.5 ms | 16.3 ms |
+| 600 | 5.5 s | 1.1 s | 17.2 ms | 16.3 ms |
+| 2,000 | 16.2 s | 1.1 s | 28.7 ms | 16.5 ms |
+
+First show is the time from starting the app to the newest message laid out at the foot. It rose by about 8 ms
+for each message, and is now the same at any length. A scrolling frame is the median time between two frames
+while the reader moves back a tenth of a view on each; 16.6 ms is the display's own pace. One update of a streaming
+reply was never the cost: 4 to 6 ms (median of 40) at every length, before and now, because a message that did not
+change is not looked at again.
+
+The browser is where the same cost was felt most. The published WebAssembly build in headless Chromium, drawn in
+software, took 25.1 s to first show 600 messages with every message made; with a page it shows 2,000 in 2.8 s. An
+update of a streaming reply took 27 ms then and 24 ms now, and a scrolling frame 71 ms then and 59 ms now: there
+the software drawing of one view sets the frame, not the length of the conversation. Not measured: a browser with
+a graphics card, a phone, and a conversation with pictures or long tool output.
+
+The check runs in CI on the Linux desktop (`native.yml`) with 2,000 messages. It fails when more than a page is
+made to open the conversation, to land on a message in its middle, or to come back to the newest; when a streaming
+reply moves the reader off the foot; when going back hundreds of messages keeps more than the page may; when the
+message being read moves as earlier ones arrive above it; or when the action above the page cannot be pressed
+without a pointer. Its last lines say the three times, so a change that makes the list slower shows in the log.
+
+Known limits. The whole conversation is still read from the server and worked out for each change
+(`ConversationViewModel.Build`); at 2,000 messages that is inside the update time above. Assistive technology
+has the page and the two actions, not every message at once. Search runs on the server, and a link to a moment reaches every
+message, because it is looked up in `Messages`.
 
 #### Needs a manual check: pasting and dropping files
 
