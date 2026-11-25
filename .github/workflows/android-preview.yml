@@ -6,6 +6,8 @@ on:
       - '.github/workflows/android-preview.yml'
       - 'scripts/android-release-metadata.py'
       - 'scripts/test-android-release-metadata.py'
+      - 'scripts/android-release-notes.py'
+      - 'scripts/test-android-release-notes.py'
       - 'src/Drover.Native/**'
       - 'src/Drover.Presentation/**'
       - 'src/Shared/**'
@@ -66,6 +68,7 @@ jobs:
         shell: bash
         run: |
           python3 scripts/test-android-release-metadata.py
+          python3 scripts/test-android-release-notes.py
           python3 scripts/android-release-metadata.py
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             git merge-base --is-ancestor HEAD refs/remotes/origin/main || \
@@ -208,6 +211,10 @@ jobs:
     permissions:
       contents: write # create the GitHub prerelease and attach the signed assets
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signed-android-apk
@@ -231,7 +238,17 @@ jobs:
           else
             flags+=(--target "$GITHUB_SHA")
           fi
+          notes="$RUNNER_TEMP/notes"
+          mkdir -p "$notes"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$notes/releases.json"
+          previous=$(python3 scripts/android-release-notes.py previous "$notes/releases.json" "$CHANNEL" "$RELEASE_TAG")
+          : > "$notes/generated.md"
+          if [[ -n "$previous" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$RELEASE_TAG" \
+              -f target_commitish="$GITHUB_SHA" -f previous_tag_name="$previous" --jq .body > "$notes/generated.md"
+          fi
+          python3 scripts/android-release-notes.py body "$notes/generated.md" "$CHANNEL" "$previous" > "$notes/body.md"
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${flags[@]}" \
             --title "Drover Android $RELEASE_TAG" \
-            --notes 'Install the APK and sign in with the HTTPS address of your Drover server. See the [Android guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
+            --notes-file "$notes/body.md" \
             "release/$apk" "release/$apk.sha256"

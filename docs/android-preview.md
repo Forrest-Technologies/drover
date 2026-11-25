@@ -25,6 +25,8 @@ dotnet publish src/Drover.Native -f net11.0-android -c Release \
 
 Merging a reviewed pull request into `develop` publishes a signed Android prerelease. Promoting `develop` into `main` publishes a signed stable Android release. There is no separate `preview` branch.
 
+Each release lists what changed. Its notes count and list the pull requests merged since the previous release of the same channel, so a prerelease is compared with the last prerelease and a stable release with the last stable release.
+
 Each run uses its workflow run number as the Android version code. The display versions are `0.1.<run>-preview.<run>` on `develop` and `0.1.<run>` on `main`; tags start with `android-v`. Keep the existing workflow file so its run numbers continue increasing. Both channels use the same package ID (`com.forresttechnologies.drover.client`) and certificate, so a later build can update an earlier installation.
 
 Builds run on GitHub-hosted runners. Pull requests build unsigned APKs and never enter the signing environment. Release builds do not restore pull request caches. Only protected branch pushes or legacy protected preview tags can enter the `android-preview` signing environment. Despite its historical name, this environment signs both Android channels. The signing job receives only the keystore, password, alias and expected certificate digest; it verifies the certificate and alignment before publishing the APK and SHA-256 checksum.
