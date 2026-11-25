@@ -23,12 +23,12 @@ dotnet publish src/Drover.Native -f net11.0-android -c Release \
   -p:DroverNativeTargetFrameworks=net11.0-android -p:AndroidPackageFormats=apk
 ```
 
-Maintainers publish previews by pushing a protected tag like `v0.1.0-android-preview.1` at a commit on `main`:
+Merging a reviewed pull request into `develop` publishes a signed Android prerelease. Promoting `develop` into `main` publishes a signed stable Android release. There is no separate `preview` branch.
 
-```bash
-git fetch origin main
-git tag -a v0.1.0-android-preview.1 origin/main -m 'Android preview 1'
-git push origin refs/tags/v0.1.0-android-preview.1
-```
+Each run uses its workflow run number as the Android version code. The display versions are `0.1.<run>-preview.<run>` on `develop` and `0.1.<run>` on `main`; tags start with `android-v`. Keep the existing workflow file so its run numbers continue increasing. Both channels use the same package ID (`com.forresttechnologies.drover.client`) and certificate, so a later build can update an earlier installation.
 
-The workflow builds on GitHub-hosted runners, signs in the tag-only `android-preview` environment, checks the certificate and alignment, then publishes the APK and SHA-256 checksum as a prerelease. Only the signing job receives the preview keystore and password. Keep the Uno package ID (`com.forresttechnologies.drover.client`) and signing certificate for future Uno preview updates. The ordinary release environment is separate.
+Builds run on GitHub-hosted runners. Pull requests build unsigned APKs and never enter the signing environment. Release builds do not restore pull request caches. Only protected branch pushes or legacy protected preview tags can enter the `android-preview` signing environment. Despite its historical name, this environment signs both Android channels. The signing job receives only the keystore, password, alias and expected certificate digest; it verifies the certificate and alignment before publishing the APK and SHA-256 checksum.
+
+Legacy `v0.1.0-android-preview.1` style tags remain supported when their commit is on `develop` or `main`. Automatic Android tags do not match the desktop release workflow. Android releases use `--latest=false`, including stable APK releases, so the desktop updater's latest release remains separate.
+
+See [maintainer settings](maintainers.md#branches-and-android-releases) for the branch and environment restrictions required before enabling releases.
