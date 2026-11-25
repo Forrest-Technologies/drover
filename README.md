@@ -49,7 +49,7 @@ This is what the trunk does today. Planned work is in the [roadmap](#roadmap).
 
 Bots sit in a tree. The crew list on the left is how you move around: pick a bot and you land in its main conversation. A bot can hand a task to a bot below it and wait for the answer, and you can open that handoff and read it. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused there.
 
-If you grant the crew tools, a bot can list, create, change, and remove the bots under it. Creating a bot always asks a person first. Each run has a cap on tokens (and, on the hosted preset, on model calls), and a chain of handoffs stops at 5 levels or 50 runs unless you change the server's limits.
+If you grant the crew tools, a bot can list, create, change, and remove the bots under it. Creating a bot always asks a person first. Each run has a cap on tokens (and, on the hosted preset, on model calls), and a chain of handoffs stops at 5 levels or a cost budget. On your own server every limit is a default you can raise.
 
 Each bot gets a character drawn from a set of parts (head, visor, top, mark, tilt, and color). The visor lights up while the bot thinks, writes, or runs a tool. The same state shows in words for screen readers and for anyone who turns motion off.
 

@@ -283,7 +283,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         policies.Delegation(new SpaceSettings
         {
             MaxDelegationDepth = ceilings.MaxDepth + 1,
-            MaxRunsPerDelegationTree = ceilings.MaxRuns + 1,
+            MaxRunsPerDelegationTree = Above(ceilings.MaxRuns),
             MaxDelegationTreeCostCents = ceilings.MaxCostCents + 1,
         }).Should().Be(ceilings);
         policies.Delegation(new SpaceSettings { MaxDelegationDepth = 1, MaxRunsPerDelegationTree = 2, MaxDelegationTreeCostCents = 3 })
@@ -298,7 +298,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var ceilings = new RunCeilings(
             int.Parse(Setting(nameof(DeploymentPolicy.MaxStepsPerRun)), CultureInfo.InvariantCulture),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture) - 1);
+            new DelegationLimits(1, int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture), 1).MaxHandoffs);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
         policies.Runs(new SpaceSettings { MaxStepsPerRun = Above(ceilings.MaxSteps), MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
