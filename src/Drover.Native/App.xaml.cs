@@ -137,6 +137,8 @@ public partial class App : Application
 #if DROVER_MULTILINE_FOCUS_CHECK
             if (Environment.GetEnvironmentVariable("DROVER_MULTILINE_FOCUS_CHECK") == "1")
             {
+                // The message field makes its own view model for a spoken message, from the app's services.
+                services = AppServices.Build();
                 MultilineInputFocusCheck.Start(MainWindow);
                 MainWindow.Activate();
                 return;
