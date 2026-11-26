@@ -231,7 +231,11 @@ public sealed record DeploymentPolicy
 
     #region Rules
 
-    /// <summary>Outbound requests to private and link-local addresses (model base URLs, MCP URLs, OAuth discovery).</summary>
+    /// <summary>
+    /// Outbound requests to private and link-local addresses that a space, a person, or a bot supplies (model base
+    /// URLs, MCP URLs, OAuth discovery). A service the operator names in the server's own configuration is reached
+    /// whatever this says.
+    /// </summary>
     public bool AllowPrivateAddresses { get; init; } = true;
 
     /// <summary>Which sandbox providers the server registers. A provider without a hard isolation boundary is left out when strict.</summary>
@@ -501,7 +505,7 @@ public sealed record DeploymentPolicy
         PolicyRule.Permission(
             nameof(AllowPrivateAddresses),
             policy => policy.AllowPrivateAddresses,
-            Enforcement.Now("OutboundHttp, on every outbound connection")),
+            Enforcement.Now("OutboundHttp, on every outbound connection to an address a space, a person, or a bot supplied")),
         PolicyRule.Limit(
             nameof(MaxModelListBytes),
             policy => policy.MaxModelListBytes,

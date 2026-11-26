@@ -113,7 +113,7 @@ Turn Sandbox on in the bot's editor, then grant the sandbox tools the bot may us
 
 - Finish setup before making Drover available over the internet. Read the one-time code from `docker compose logs drover`.
 - Leave open registration off for a private server.
-- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled.
+- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled. The services you name in the server's own configuration (the speech container of `compose.voice.yaml`, a search service beside the server) keep working either way: the rule covers addresses a space, a person, or a bot supplies, not yours.
 - Keep database and key ring backups private. Together they can be used to read stored secrets.
 
 ## The public address
