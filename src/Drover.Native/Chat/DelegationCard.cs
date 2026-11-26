@@ -32,6 +32,8 @@ public sealed class DelegationCard : Grid
 
     private readonly MarkdownView answer = new();
 
+    private readonly UnusableToolRequestCard unusableAnswer = new();
+
     private bool phone;
 
     private bool nested;
@@ -204,8 +206,20 @@ public sealed class DelegationCard : Grid
 
         if (model.Answer is { } text)
         {
-            answer.Text = text;
-            body.Children.Add(Pieces.Part(model.AnswerTitle, Pieces.Detached(answer)));
+            if (model.AnswerUnusable)
+            {
+                unusableAnswer.MessageKey = model.Item.Id.ToString();
+                unusableAnswer.BotName = model.Item.ChildName;
+                unusableAnswer.OriginalResponse = text;
+                // The child's message in this card's work view has no way to ask for another reply, so neither has this.
+                unusableAnswer.CanRetry = false;
+                body.Children.Add(Pieces.Part(model.AnswerTitle, Pieces.Detached(unusableAnswer)));
+            }
+            else
+            {
+                answer.Text = text;
+                body.Children.Add(Pieces.Part(model.AnswerTitle, Pieces.Detached(answer)));
+            }
         }
 
         if (model.LinkHref is { } address)

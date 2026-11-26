@@ -77,6 +77,12 @@ public sealed class DelegationCardViewModel : ObservableObject
 
     public string AnswerTitle => $"What {Item.ChildName} answered";
 
+    /// <summary>
+    /// True when the answer is a raw tool request, whole or cut off. The card then shows the message list's card in
+    /// place of the text: the same words, and Try again only where that message would offer it.
+    /// </summary>
+    public bool AnswerUnusable => Answer is { } answer && UnusableToolRequests.IsUnusableRequest(answer);
+
     public string? LinkHref => IsRefused ? null : Item.ChildHref;
 
     public string LinkText => $"Open {Item.ChildName}'s side of this";

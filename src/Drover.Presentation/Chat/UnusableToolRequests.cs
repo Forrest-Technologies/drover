@@ -68,6 +68,32 @@ public static class UnusableToolRequests
         return envelopes > 0;
     }
 
+    /// <summary>
+    /// True when a completed reply starts with a DSML envelope, holds an invocation marker, and ends before that
+    /// envelope's closing tag. Text that closed the envelope, quoted examples, code fences, and prose are not marked.
+    /// </summary>
+    public static bool IsCutOffProtocolRequest(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var span = text.AsSpan().Trim();
+        if (span.Length < 2 || span[0] != '<' || span[1] is not (FullWidthBar or AsciiBar))
+        {
+            return false;
+        }
+
+        var bar = span[1];
+        var index = 0;
+        return TryMatchWrapperOpen(span, ref index, bar, out var wrapper) && EndsInsideRequest(span, index, bar, wrapper);
+    }
+
+    /// <summary>True for a completed reply that holds only a raw tool request, whole or cut off before its closing tags.</summary>
+    public static bool IsUnusableRequest(string? text) =>
+        IsProtocolEnvelope(text) || IsCutOffProtocolRequest(text);
+
     /// <summary>The heading explaining that the model returned a tool request Drover could not use.</summary>
     public static string Title(string botName) =>
         string.IsNullOrWhiteSpace(botName)
@@ -355,6 +381,53 @@ public static class UnusableToolRequests
 
         index++;
         return true;
+    }
+
+    // Walks only protocol structure after the opening tag. Prose, quoting and code fences stop the walk, so none of
+    // them can count as an invocation inside a request that never came back whole.
+    private static bool EndsInsideRequest(ReadOnlySpan<char> span, int from, char bar, string wrapper)
+    {
+        var index = from;
+        var invocations = 0;
+
+        while (index < span.Length)
+        {
+            SkipWhitespace(span, ref index);
+            if (index >= span.Length)
+            {
+                return invocations > 0;
+            }
+
+            if (TryMatchCloseTag(span, ref index, bar, wrapper))
+            {
+                return false;
+            }
+
+            if (invocations > 0 && IsPartialWrapperClose(span, index, bar, wrapper))
+            {
+                return true;
+            }
+
+            var at = index;
+            if (TryReadInvoke(span, ref index, bar))
+            {
+                invocations++;
+                continue;
+            }
+
+            index = at;
+            return TryMatchNamedOpenTag(span, ref index, bar, InvokeTag);
+        }
+
+        return invocations > 0;
+    }
+
+    private static bool IsPartialWrapperClose(ReadOnlySpan<char> span, int from, char bar, string wrapper)
+    {
+        var prefix = bar == FullWidthBar ? FullWidthClosePrefix : AsciiClosePrefix;
+        var close = $"{prefix}{wrapper}>";
+        var rest = span[from..];
+        return rest.Length > 0 && rest.Length < close.Length && close.StartsWith(rest, StringComparison.Ordinal);
     }
 
     private static string OpenPrefix(char bar) =>
