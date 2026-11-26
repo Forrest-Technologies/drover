@@ -1933,20 +1933,19 @@ async function checkApprovalKeepsPosition(page, width, theme) {
             decisionsSeen.push(`${request.method()} ${request.url()}`);
         }
     });
-    const approvalButtons = () => page.evaluate(() => [...document.querySelectorAll('[role="button"]')]
-        .map(button => ({
-            label: button.getAttribute('aria-label') ?? '',
-            text: (button.textContent ?? '').trim(),
-            disabled: button.disabled === true || button.getAttribute('aria-disabled') === 'true',
-        }))
-        .filter(button => button.label === 'Approve' || button.text === 'Approve'));
-    let ready = await approvalButtons();
-    for (let waited = 0; waited < 15000 && (ready.length < 3 || ready.some(button => button.disabled)); waited += 250) {
-        await page.waitForTimeout(250);
-        ready = await approvalButtons();
+    let ready = false;
+    for (let waited = 0; waited < 15000 && !ready; waited += 250) {
+        ready = await approves.count() >= 3;
+        for (let index = 0; ready && index < 3; index++) {
+            ready = await approves.nth(index).isEnabled();
+        }
+        if (!ready) {
+            await page.waitForTimeout(250);
+        }
     }
-    if (ready.length < 3 || ready.some(button => button.disabled)) {
-        throw new Error(`The three waiting calls did not offer three enabled Approve buttons: ${JSON.stringify(ready)}.`);
+    if (!ready) {
+        const html = await approves.evaluateAll(nodes => nodes.map(node => node.outerHTML.slice(0, 400)));
+        throw new Error(`The three waiting calls did not offer three enabled Approve buttons: ${JSON.stringify(html)}.`);
     }
 
     // The reader is above the foot, looking at the current requests with another waiting below them.
@@ -1970,14 +1969,13 @@ async function checkApprovalKeepsPosition(page, width, theme) {
         && /\/tool-calls\/[^/]+\/decision$/.test(new URL(response.url()).pathname)
         && response.ok(), { timeout: 15000 });
 
+    const approveState = await approves.evaluateAll(nodes => nodes.map(node => node.outerHTML.slice(0, 200)));
     const diagnose = error => new Error(
-        `${error.message}. Decision requests seen: ${JSON.stringify(decisionsSeen)}. Approve buttons: ${JSON.stringify(ready)}.`,
+        `${error.message}. Decision requests seen: ${JSON.stringify(decisionsSeen)}. Approve buttons: ${JSON.stringify(approveState)}.`,
         { cause: error });
 
     const first = decided();
-    const approveBox = await approves.first().boundingBox({ timeout: 5000 });
-    assert.ok(approveBox, 'the visible request has an Approve button in the accessibility tree.');
-    await page.mouse.click(approveBox.x + approveBox.width / 2, approveBox.y + approveBox.height / 2);
+    await approves.first().click({ timeout: 5000 });
     try {
         await first;
     } catch (error) {
