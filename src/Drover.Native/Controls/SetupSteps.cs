@@ -5,7 +5,7 @@ public sealed class SetupSteps : StackPanel
 {
     #region Private Fields
 
-    private static readonly string[] names = ["Create your account", "Connect a model", "Meet your first bot"];
+    private static readonly string[] names = ["Create your account", "Connect a model", "Create your first bot"];
 
     private readonly TextBlock count = Styles.Text(null, "DvTextCaption");
 

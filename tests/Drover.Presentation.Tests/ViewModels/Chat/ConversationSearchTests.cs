@@ -35,6 +35,13 @@ public sealed class ConversationSearchTests : IDisposable
     #region Finding
 
     [Fact]
+    public void The_placeholder_names_what_is_searched()
+    {
+        ConversationSearchViewModel.Placeholder.Should().Be("Search messages");
+        ConversationSearchViewModel.Label.Should().Be("Search conversations", "the field's label stays the same");
+    }
+
+    [Fact]
     public async Task Each_message_found_opens_its_conversation_at_that_message()
     {
         bench.Server.Answer("POST", search, SearchPages.Page(

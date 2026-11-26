@@ -256,7 +256,10 @@ public static class BotEditorEndpoints
     private static async Task<Ok<BotRunLimitOptions>> GetRunLimitOptions(HttpContext context, PolicyService policies)
     {
         var limits = await policies.GetRuns(context.GetSpaceAccess().SpaceId, context.RequestAborted);
-        return TypedResults.Ok(new BotRunLimitOptions(limits.MaxSteps, limits.MaxTokens, limits.MaxDelegations));
+        return TypedResults.Ok(new BotRunLimitOptions(
+            limits.MaxSteps == int.MaxValue ? null : limits.MaxSteps,
+            limits.MaxTokens,
+            limits.MaxDelegations));
     }
 
     #endregion

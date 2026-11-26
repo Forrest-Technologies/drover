@@ -18,7 +18,7 @@ public sealed class ReplyReasoningTests
         ChatRows.Shape(thinking, compact: false).Should().Be(ChatEntryShape.Bot);
         ChatRows.Arriving(thinking).Should().Be("Thinking");
         ChatRows.Arriving(writing).Should().Be("Writing");
-        ChatRows.EntryName(thinking, "Sample bot", null).Should().Be("What Sample bot thought");
+        ChatRows.EntryName(thinking, "Sample bot", null).Should().Be("Sample bot's reasoning");
     }
 
     [Fact]
@@ -27,7 +27,7 @@ public sealed class ReplyReasoningTests
         var calls = new ChatMessage("calls", false, string.Empty);
 
         ChatRows.Shape(calls, compact: false).Should().Be(ChatEntryShape.Tools);
-        ChatRows.EntryName(calls, "Sample bot", null).Should().Be("What Sample bot did");
+        ChatRows.EntryName(calls, "Sample bot", null).Should().Be("Sample bot's activity");
     }
 
     [Fact]

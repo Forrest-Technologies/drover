@@ -51,6 +51,12 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
     public bool MayRegenerate { get; init; }
 
     /// <summary>
+    /// True when a completed bot reply contains only a raw tool-call protocol envelope instead of an answer or a
+    /// structured tool call. <see cref="Text"/> keeps the original response for copy, export, and activity.
+    /// </summary>
+    public bool UnusableToolRequest { get; init; }
+
+    /// <summary>
     /// True for a bot's message that goes on the turn begun by the message before it: the same run, nothing from a
     /// person between. It stands under that message without a head of its own. Set by <see cref="TurnLedger.InTurns"/>.
     /// </summary>

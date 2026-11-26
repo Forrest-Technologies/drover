@@ -105,12 +105,13 @@ public sealed class ActivityPanelTests : IDisposable
     {
         var page = await OpenFinished(ThreeBots);
 
+        page.TimelineLabel.Should().Be("Activity in this run of Marshal");
         page.Model.Lanes.Select(lane => lane.Name).Should().Equal("Marshal", "Scout", "Checker");
         Sentences(page).Should().Equal(
             "Marshal: Thought and wrote. Done, took under a second.",
             "Marshal: Handed work to Scout. Done, took 5 seconds.",
             "Scout: Thought and wrote. Done, took under a second.",
-            "Scout: Looked over its crew. Done, took under a second.",
+            "Scout: Listed its bots. Done, took under a second.",
             "Scout: Thought. Done, took under a second.",
             "Scout: Handed work to Checker. Done, took 3 seconds.",
             "Checker: Thought and wrote. Done, took under a second.",
@@ -355,6 +356,8 @@ public sealed class ActivityPanelTests : IDisposable
         var page = await OpenFinished(ThreeBots, log: [.. log.Where(stored => stored.Seq > 20)]);
 
         page.LostNote.Should().Be("The start of this run is no longer kept, so its earliest events are not shown.");
+        ActivityPanelViewModel.EmptyTimeline.Should()
+            .Be("This run's events are no longer kept. The messages are still in the conversation.");
         page.Model.Lanes.Select(lane => lane.Name).Should().Contain("A bot this run no longer names");
     }
 

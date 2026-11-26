@@ -107,7 +107,7 @@ public sealed class ConversationSaverTests : IDisposable
         await saver.Save(null, ExportFormats.Markdown, (_, _, _) => Task.FromResult(true));
 
         server.Requests.Should().NotContain(request => request.Path.EndsWith("/export", StringComparison.Ordinal));
-        toasts.Toasts.Single().Message.Should().Be("Nothing has been said in this conversation yet, so there is nothing to save.");
+        toasts.Toasts.Single().Message.Should().Be("This conversation has no messages yet, so there is nothing to save.");
     }
 
     [Fact]

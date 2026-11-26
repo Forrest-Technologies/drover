@@ -9,10 +9,10 @@
   <session:SessionGate>
     <layouts:EntryLayout>
       <dv:SetupSteps Current="3" />
-      <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Meet your first bot" />
+      <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Create your first bot" />
       <ContentControl x:Name="State" />
       <StackPanel x:Name="Form" Spacing="{StaticResource DvSpace4}">
-        <TextBlock Style="{StaticResource DvTextSecondary}" Text="Your first bot leads the crew. You talk to it, and the bots it makes for you work beneath it. Name it and choose the model it thinks with." />
+        <TextBlock Style="{StaticResource DvTextSecondary}" Text="Your first bot is at the top of the crew. Bots it makes work beneath it. Give it a name and choose its model." />
         <dv:Field Label="Name" MaxLength="{x:Bind contracts:FieldLimits.BotName}" Value="{x:Bind Model.Name, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
         <dv:Select x:Name="Models" Label="Model" Value="{x:Bind Model.Model, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
         <dv:Field x:Name="ModelName" Label="Model name" MaxLength="{x:Bind contracts:FieldLimits.ModelName}" Value="{x:Bind Model.Model, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />

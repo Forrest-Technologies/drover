@@ -164,12 +164,14 @@ public sealed record DeploymentPolicy
     public const int HostedMaxDelegationTreeCostCents = 1_000;
 
     /// <summary>
-    /// No limit on model calls: a self-hosted run is bounded by its tokens, as an agent loop is by default elsewhere.
+    /// No limit on model calls: every run is bounded by its tokens.
     /// Every limit narrows by taking the lower, so the largest number stands for none.
     /// </summary>
     public const int SelfHostedMaxStepsPerRun = int.MaxValue;
 
     public const int HostedMaxStepsPerRun = 50;
+
+    public const int StepsPerRun = SelfHostedMaxStepsPerRun;
 
     public const int SelfHostedMaxTokensPerRun = 5_000_000;
 
@@ -308,9 +310,8 @@ public sealed record DeploymentPolicy
     public int MaxDelegationTreeCostCents { get; init; } = SelfHostedMaxDelegationTreeCostCents;
 
     /// <summary>
-    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. A space may only lower it, and
-    /// a bot may lower it again. None on a self-hosted server, where <see cref="MaxTokensPerRun"/> bounds a run; 50 on
-    /// the hosted preset, where a model that keeps calling tools without finishing is stopped here.
+    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. The hosted preset defaults to
+    /// 50. Self-hosted has no default ceiling; an operator may set one, which a space may lower and a bot may lower again.
     /// </summary>
     public int MaxStepsPerRun { get; init; } = SelfHostedMaxStepsPerRun;
 

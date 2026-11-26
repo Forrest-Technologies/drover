@@ -321,6 +321,13 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
     }
 
     [Fact]
+    public void The_editor_says_it_saves_a_bot_as_a_file_that_can_be_imported()
+    {
+        ExtensionEditorViewModel.Lead.Should().Be(
+            "Save a bot as a file that someone else can import, with the tool server it uses if it has one. The file holds text and an address. It holds no keys, grants or notes.");
+    }
+
+    [Fact]
     public async Task Naming_a_tool_server_adds_its_fields_and_writes_it_into_the_file_with_no_field_for_a_key()
     {
         var editor = await Opened();

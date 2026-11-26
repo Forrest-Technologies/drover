@@ -24,7 +24,7 @@ public sealed class TakeoverCardTests
         card.Title.Should().Be("You have Sample bot's screen");
         card.Press(Step(card, "I could not do it"));
         card.ShowsDecline.Should().BeTrue();
-        card.DeclineLabel.Should().Be("What got in the way (optional, Sample bot reads it)");
+        card.DeclineLabel.Should().Be("Reason (optional, Sample bot reads it)");
         card.Note = "  The site wants a code I do not have.  ";
         card.Decline();
 
@@ -55,7 +55,7 @@ public sealed class TakeoverCardTests
         var card = Card(TakeoverPhase.Asked, reason: "Sign in to the sample site.");
         card.OpenScreen += () => opened = true;
 
-        card.Title.Should().Be("Sample bot needs you at its screen");
+        card.Title.Should().Be("Sample bot asks you to take over its screen");
         card.Reason.Should().Be("Sign in to the sample site.");
         card.State.Should().Be("Waiting for you");
         card.StateKind.Should().Be(BadgeKind.Warn);
@@ -100,7 +100,7 @@ public sealed class TakeoverCardTests
         var card = Card(TakeoverPhase.Asked, ScreenAccess.Missing, setupHref: "/bots/sample");
 
         card.NoteText.Should().Contain("Sample bot has no screen now, so this cannot be done there.");
-        card.NoteWords.Should().ContainSingle(words => words.Href != null).Which.Should().Be(new TakeoverWords("See what it needs.", "/bots/sample"));
+        card.NoteWords.Should().ContainSingle(words => words.Href != null).Which.Should().Be(new TakeoverWords("Read its request.", "/bots/sample"));
         card.Actions.Select(action => action.Label).Should().Equal("I cannot do it");
     }
 
