@@ -446,6 +446,12 @@ try {
                     };
                 }
                 else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
+                else if (address === '/api/model-provider-kinds') {
+                    body = [
+                        { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, signIn: false },
+                        { kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required', addressHint: 'Any server that speaks the chat completions API.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false, signIn: false },
+                    ];
+                }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
