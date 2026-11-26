@@ -1670,6 +1670,77 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
     #endregion
 
+    #region Files And Extensions
+
+    [Fact]
+    public async Task Saving_a_bot_as_a_file_asks_the_server_for_its_words_and_hands_the_file_to_the_device()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/export", new BotFile(1, "Sample bot", "Keep notes short.") { SuggestedModel = "sample-large" });
+        var editor = await OpenEditor();
+        (string Name, string Text)? saved = null;
+
+        await editor.SaveAsFile((name, text) =>
+        {
+            saved = (name, text);
+            return Task.FromResult(true);
+        });
+
+        BotEditorViewModel.SaveAsFileLabel.Should().Be("Save as a file");
+        saved!.Value.Name.Should().Be(BotFiles.NameFor(editor.Saved!.Handle)).And.EndWith(".bot.json");
+        saved.Value.Text.Should().Contain("\"instructions\": \"Keep notes short.\"").And.NotContain("grant").And.NotContain("sandbox");
+        Toasts.Toasts.Should().Contain(toast => toast.Message.EndsWith("was handed to this device to save as a file.", StringComparison.Ordinal));
+        editor.ActionProblem.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_save_the_person_cancels_says_nothing_and_one_the_device_refuses_says_so()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/export", new BotFile(1, "Sample bot", "Keep notes short."));
+        var editor = await OpenEditor();
+
+        await editor.SaveAsFile((_, _) => Task.FromResult(false));
+        var toastsAfterCancel = Toasts.Toasts.Count;
+        await editor.SaveAsFile((_, _) => Task.FromException<bool>(new DeviceCallFailedException("Sample: the picker failed.", new InvalidOperationException())));
+
+        toastsAfterCancel.Should().Be(0);
+        editor.ActionProblem.Should().Be("The file could not be saved on this device.");
+    }
+
+    [Fact]
+    public async Task The_rules_an_extension_offers_are_starters_named_for_it_and_added_like_any_other()
+    {
+        var offered = new BotRuleBody("Sample: ask before writing", true, "before_tool", "ask", [new RuleConditionBody("tool_kind") { ToolKinds = ["write"] }]);
+        Server.Answer("GET", $"{space}/extensions", (ExtensionSummary[])
+        [
+            new(Guid.CreateVersion7(), "sample.studio", "Sample studio", string.Empty, DateTimeOffset.UnixEpoch) { Parts = new() { Rules = [offered] } },
+        ]);
+        Server.Answer("POST", $"{space}/bots/{botId}/rules", new BotRuleResponse(Guid.CreateVersion7(), botId, "Sample bot", false, offered.Name!, true, 0, "before_tool", "ask", offered.Conditions!), HttpStatusCode.Created);
+        var editor = await OpenEditor();
+        var part = editor.RulesPart;
+
+        var starter = part.Starters[^1];
+        await part.AddStarter(starter);
+
+        part.Starters.Should().HaveCount(RuleStarters.For("UTC").Count + 1, "Drover's own starters come first, then what the space's extensions offer");
+        part.Starters.Should().BeSameAs(part.Starters, "the screen draws its buttons once");
+        starter.Label.Should().Be("Sample: ask before writing (from Sample studio)");
+        Server.Sent("POST", $"{space}/bots/{botId}/rules").Should().ContainSingle().Which.Should().Contain("\"name\":\"Sample: ask before writing\"");
+        part.Own.Should().ContainSingle(rule => rule.Name == "Sample: ask before writing");
+    }
+
+    [Fact]
+    public async Task An_editor_whose_space_cannot_list_its_extensions_still_opens_with_drovers_own_starters()
+    {
+        Server.Refuse("GET", $"{space}/extensions", HttpStatusCode.InternalServerError, "Sample failure.");
+
+        var editor = await OpenEditor();
+
+        editor.State.Should().Be(BotEditorState.Shown);
+        editor.RulesPart.Starters.Should().HaveCount(RuleStarters.For("UTC").Count);
+    }
+
+    #endregion
+
     #region States
 
     [Fact]

@@ -110,6 +110,9 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public IReadOnlyList<BotRuleResponse>? Rules { get; internal set; }
 
+    /// <summary>The rules the space's extensions offer, each as a starter a person adds like any other.</summary>
+    public IReadOnlyList<RuleStarter> ExtensionStarters { get; private set; } = [];
+
     public bool WrittenPatterns { get; private set; } = true;
 
     public BotSandboxOptions SandboxOptions { get; private set; } = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
@@ -218,7 +221,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string DuplicateLabel => "Duplicate";
 
-    public static string MakeExtensionLabel => "Make an extension";
+    public static string SaveAsFileLabel => "Save as a file";
 
     public static string PauseLabel => "Pause";
 
@@ -502,6 +505,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             SandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
             RunLimitOptions = await api.GetBotRunLimitOptions(SpaceId, BotId);
             Rules = await api.ListBotRules(SpaceId, BotId);
+            ExtensionStarters = await ReadExtensionStarters();
             SandboxStatus = await ReadSandbox();
             Readers = await ListReaders();
         }
@@ -583,7 +587,31 @@ public sealed partial class BotEditorViewModel : ObservableObject
             },
             problem => ActionProblem = problem);
 
-    public void MakeExtension() => navigator.NavigateTo(Addresses.ExtensionFromBot(BotId));
+    /// <summary>
+    /// Writes the bot down as a file someone else can import, and offers it to the device to save. The file holds
+    /// the bot's name, what it is for, its instructions, and its model as a suggestion, and nothing else of it.
+    /// Cancelling the save leaves everything as it was.
+    /// </summary>
+    public Task SaveAsFile(Func<string, string, Task<bool>> save) =>
+        Try(
+            async () =>
+            {
+                var file = await api.ExportBot(SpaceId, BotId);
+
+                try
+                {
+                    if (await save(BotFiles.NameFor(Saved!.Handle), BotFiles.Write(file)))
+                    {
+                        toasts.Show($"{Saved.Name} was handed to this device to save as a file.", ToastKind.Success);
+                    }
+                }
+                catch (DeviceCallFailedException exception)
+                {
+                    logger.LogWarning(exception, "The bot editor could not save the bot's file");
+                    ActionProblem = "The file could not be saved on this device.";
+                }
+            },
+            problem => ActionProblem = problem);
 
     public Task Pause() => SetStatus(() => api.PauseBot(SpaceId, BotId), "is paused. It starts no run until it is resumed.");
 
@@ -975,6 +1003,20 @@ public sealed partial class BotEditorViewModel : ObservableObject
                 toasts.Show($"{Saved.Name} {outcome}");
             },
             problem => ActionProblem = problem);
+
+    // The editor works without them: a space whose extensions cannot be read offers the starters Drover has and no more.
+    private async Task<IReadOnlyList<RuleStarter>> ReadExtensionStarters()
+    {
+        try
+        {
+            return RuleStarters.From(await api.ListExtensions(SpaceId));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The rules the space's extensions offer could not be read for the {Screen} screen", nameof(BotEditorViewModel));
+            return [];
+        }
+    }
 
     private async Task Try(Func<Task> work, Action<string> report)
     {

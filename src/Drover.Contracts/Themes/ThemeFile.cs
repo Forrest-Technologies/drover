@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>The corner language the shape class draws.</summary>
 public enum CornerLanguage

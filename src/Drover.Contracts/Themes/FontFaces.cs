@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// The faces a theme file may name. A face is bundled when its file ships in the app; one that is named but not yet

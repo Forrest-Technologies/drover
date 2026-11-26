@@ -1,4 +1,4 @@
-namespace Drover.Presentation.Drawing;
+namespace Drover.Contracts.Themes;
 
 /// <summary>An opaque color, as the tokens write one: "#05070A".</summary>
 public readonly record struct Rgb(byte Red, byte Green, byte Blue)

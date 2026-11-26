@@ -21,8 +21,6 @@ public sealed class CopyAuditTests
         ("Open its settings", "Open bot settings"),
         ("This space has no bots yet. An owner or admin of the space can make one.",
             "This space has no bots yet. An owner or admin of the space can create one."),
-        ("What the extension is for", "Description"),
-        ("Changes here become the form when you go back to it.", "Changes here also change the form."),
         ("How Drover proves who is calling", "How Drover signs in to this server"),
         ("The words are the same. What the tool accepts as input changed.",
             "The description is the same. The tool's input changed."),
@@ -30,10 +28,9 @@ public sealed class CopyAuditTests
             "Only your own runs are shown. An owner or admin sees the whole space."),
     ];
 
-    // The table's sign-in row holds three separate option labels, each matched as a whole literal or attribute.
+    // The table's sign-in row holds three separate option labels, each matched as a whole literal or attribute. The
+    // words that replaced them stood only in the extension editor, which is gone, so only their absence is checked.
     private static readonly string[] retiredOptions = ["Nothing", "A header", "A sign-in"];
-
-    private static readonly string[] newOptions = ["None", "Header", "Sign-in"];
 
     // Only these words in ToolConnectionsPage are left to the issues that rewrite that file.
     private static readonly string[] otherIssues =
@@ -79,11 +76,6 @@ public sealed class CopyAuditTests
         foreach (var (_, replacement) in copy)
         {
             source.Should().Contain(replacement, "the new words are in the client");
-        }
-
-        foreach (var option in newOptions)
-        {
-            source.Should().Contain($"\"{option}\"", "the new sign-in options are in the client");
         }
     }
 

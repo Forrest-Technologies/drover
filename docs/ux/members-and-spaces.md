@@ -140,7 +140,7 @@ Account menu                      Sheet: Your spaces
 | Case | Behavior |
 | --- | --- |
 | A row is chosen | the app switches at once: the crew of that space loads, focus is on the crew. Toast (`Info`): `You are now in {space}.` |
-| The bot editor or the extension editor holds unsaved work | the leave dialog from `recovery-states.md`, section 5, asks first |
+| The bot editor holds unsaved work | the leave dialog from `recovery-states.md`, section 5, asks first |
 | A message is half written and drafts are not kept yet | `Dialog`: title `Switch to {space}`, body `What you are writing in this space is not sent yet and will be dropped.`, buttons `Stay here` (focused), `Switch` |
 | An address from another space is opened | the existing `This bot is not here` notice gains a second action, `Switch space`, which opens the sheet |
 | The spaces could not be read | the sheet shows `Your spaces could not be loaded. {failure sentence}` and `Try again` |

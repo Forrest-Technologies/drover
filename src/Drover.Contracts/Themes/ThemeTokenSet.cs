@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// A theme in one mode, resolved into the values a screen draws with. Colors and numbers are named as the token file

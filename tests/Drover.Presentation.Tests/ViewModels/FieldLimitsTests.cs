@@ -2,8 +2,8 @@ namespace Drover.Presentation.Tests.ViewModels;
 
 /// <summary>
 /// Every length the native client sets on a field comes from the constant the server's validators read
-/// (<see cref="FieldLimits"/>, and <see cref="ExtensionFile.MaxIdLength"/> for an id), and every shared limit is set
-/// there, so a person is stopped while typing instead of after sending.
+/// (<see cref="FieldLimits"/>), and every shared limit is set there, so a person is stopped while typing instead of
+/// after sending.
 /// </summary>
 public sealed partial class FieldLimitsTests
 {
@@ -25,7 +25,6 @@ public sealed partial class FieldLimitsTests
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
             .Where(field => field.IsLiteral && field.FieldType == typeof(int))
             .Select(field => $"{nameof(FieldLimits)}.{field.Name}")
-            .Append($"{nameof(ExtensionFile)}.{nameof(ExtensionFile.MaxIdLength)}")
             .ToArray();
 
         var native = Repository.NativeFiles(".cs", ".xaml")
@@ -41,7 +40,7 @@ public sealed partial class FieldLimitsTests
 
     #region Private Methods
 
-    [GeneratedRegex(@"\b(FieldLimits\.\w+|ExtensionFile\.MaxIdLength)\b")]
+    [GeneratedRegex(@"\bFieldLimits\.\w+\b")]
     private static partial Regex SharedConstant();
 
     [GeneratedRegex(@"MaxLength\s*=\s*""?\d")]

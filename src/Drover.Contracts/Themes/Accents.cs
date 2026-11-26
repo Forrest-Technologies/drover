@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// One hue a person may give the color of their own intent. The theme's own color has no hue here: it is the color
