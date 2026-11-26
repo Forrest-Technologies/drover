@@ -618,6 +618,72 @@ public sealed class RunEngineTests(PostgresServer postgres)
         script.Requests.Should().HaveCount(3, "calls that report tokens are outside the unmetered count");
     }
 
+    [Fact]
+    public async Task The_unmetered_call_bound_counts_calls_made_before_an_approval_wait()
+    {
+        var tools = new TestTools().Add("test.write", ToolSensitivity.Write);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_write")],
+            [new ToolCallOutput("c2", "test_write")],
+            [new ToolCallOutput("c3", "test_write")],
+            [new TextOutput("Never reached.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(0, 0, 0);
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 3 });
+        await world.Grant("test.write", GrantEffect.Ask);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Write it");
+        await world.WaitForStatus(runId, RunStatus.Waiting);
+        var call = (await world.ReadToolCalls(runId)).Single();
+        await world.Grant("test.write", GrantEffect.Allow);
+        (await world.Decide(call.Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
+        var run = await world.WaitForStatusWithin(runId, TimeSpan.FromMinutes(2), RunStatus.Failed, RunStatus.Completed);
+
+        run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
+        run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
+        run.Error!.Limit.Should().Be(new RunErrorLimit(FailureLimits.UnmeteredModelCalls, 3, 3));
+        script.Requests.Should().HaveCount(3, "the fourth model call is refused after the wait");
+    }
+
+    [Fact]
+    public async Task A_tool_model_call_that_reports_no_token_use_counts_toward_the_unmetered_bound()
+    {
+        var tools = new TestTools().AddWithCall("test.reader", ToolSensitivity.Read, async (call, _) =>
+        {
+            var refused = 0;
+            for (var index = 1; index <= 4; index++)
+            {
+                try
+                {
+                    await call.BeginModelCall();
+                    await call.RecordModelUsage(new ToolModelUsage(Guid.Empty, "reader", new ModelPricing(), index is 2 ? 5 : 0, 0)
+                    {
+                        HasTokenUsage = index is not 2,
+                    });
+                }
+                catch (BuiltinToolException error) when (error.Message.Contains("no token use", StringComparison.Ordinal))
+                {
+                    refused++;
+                }
+            }
+
+            return JsonSerializer.SerializeToElement(new { refused });
+        });
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_reader")], [new TextOutput("Done.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 2 });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Read it");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        var tool = (await world.ReadToolCalls(runId)).Single();
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        tool.Result!.Value.GetProperty("refused").GetInt32().Should().Be(1, "the fourth call is refused after two unmetered ones");
+    }
+
     [Theory]
     [InlineData(false, RunStatus.Failed, 1)]
     [InlineData(true, RunStatus.Completed, 2)]

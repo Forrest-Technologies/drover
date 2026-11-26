@@ -258,6 +258,7 @@ public sealed partial class RunExecutor(
 
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
+        var unmetered = await services.GetRequiredService<RunRepository>().CountUnmeteredCalls(runId, cancellationToken);
         var openMessage = steps.Open is { } open
             ? await services.GetRequiredService<MessageRepository>().FindMessage(open.MessageId, cancellationToken)
             : null;
@@ -303,6 +304,7 @@ public sealed partial class RunExecutor(
             entry?.Pricing ?? new ModelPricing(),
             granted,
             steps,
+            unmetered,
             openMessage,
             unsettled,
             rows,
@@ -488,7 +490,8 @@ public sealed partial class RunExecutor(
             loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
-            parent);
+            parent,
+            loaded.UnmeteredCalls);
     }
 
     /// <summary>
@@ -1245,6 +1248,7 @@ public sealed partial class RunExecutor(
         ModelPricing Pricing,
         IReadOnlyList<GrantedTool> Granted,
         StepState Steps,
+        int UnmeteredCalls,
         Message? OpenStepMessage,
         IReadOnlyList<Guid> UnsettledCalls,
         IReadOnlyList<ToolCall> UnsettledRows,

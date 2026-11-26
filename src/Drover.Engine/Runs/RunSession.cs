@@ -50,7 +50,8 @@ public sealed class RunSession(
     RunCeilings limits,
     int stepsSoFar,
     IReadOnlyList<Guid> alreadyDelivered,
-    RunSession? parent = null) : IAsyncDisposable
+    RunSession? parent = null,
+    int unmeteredCallsSoFar = 0) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -77,8 +78,11 @@ public sealed class RunSession(
     /// <summary>Model calls tools made for this execution, such as reading the screen. They count against the step limit.</summary>
     private int toolModelCalls;
 
-    /// <summary>Model calls of the run, tools' calls included, whose usage was missing or zero.</summary>
-    private int unmeteredModelCalls;
+    /// <summary>
+    /// Model calls of the run, tools' calls included, whose usage was missing or zero. Seeded from the calls the
+    /// records already hold, so a wait for a person or a restart cannot start the count again.
+    /// </summary>
+    private int unmeteredModelCalls = unmeteredCallsSoFar;
 
     private StepChanged? openStep;
 
