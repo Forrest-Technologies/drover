@@ -60,6 +60,9 @@ public sealed class ScriptedModelProvider(ScriptedModel model, string kind = Scr
     /// <summary>A failure the next model call throws in place of an answer, once.</summary>
     public ModelProviderException? FailNext { get; set; }
 
+    /// <summary>The token usage every model call reports.</summary>
+    public ModelTokenUsage Usage { get; set; } = new(10, 5, 15);
+
     #endregion
 
     #region Interface Implementations
@@ -126,7 +129,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model, string kind = Scr
                 yield return new ModelChatUpdate([ToContent(output)]) { Role = "assistant" };
             }
 
-            yield return new ModelChatUpdate([new ModelTokenUsage(10, 5, 15)])
+            yield return new ModelChatUpdate([provider.Usage])
             {
                 Role = "assistant",
                 FinishReason = turn.Any(output => output is ToolCallOutput) ? "tool_calls" : "stop",

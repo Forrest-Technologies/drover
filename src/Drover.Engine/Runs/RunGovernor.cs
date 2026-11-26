@@ -568,8 +568,9 @@ public sealed class RunGovernor(
     /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen.
     /// The record names the model that answered, so a call by another model is told apart from the bot's own.
     /// </summary>
-    private async Task Record(ToolModelUsage usage)
+    private async Task Record(ToolModelUsage reported)
     {
+        var usage = NonNegative(reported);
         var cost = Cost(usage);
         session.AddUsage(usage.InputTokens, usage.OutputTokens, cost ?? 0);
         var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);
@@ -597,6 +598,17 @@ public sealed class RunGovernor(
             },
             [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
     }
+
+    /// <summary>
+    /// The usage with nothing below zero. A provider that reports a negative count or cost would otherwise lower the
+    /// run's totals, and with them how close the run is to its limits.
+    /// </summary>
+    internal static ToolModelUsage NonNegative(ToolModelUsage usage) => usage with
+    {
+        InputTokens = Math.Max(0, usage.InputTokens),
+        OutputTokens = Math.Max(0, usage.OutputTokens),
+        DirectCost = usage.DirectCost is { } direct ? Math.Max(0, direct) : null,
+    };
 
     /// <summary>
     /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
