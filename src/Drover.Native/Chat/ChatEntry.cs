@@ -79,6 +79,8 @@ public sealed class ChatEntry : ContentControl
 
     private readonly MarkdownView words = new();
 
+    private readonly UnusableToolRequestCard unusableReply = new();
+
     private readonly ReplyReasoning reasoning = new();
 
     // The turn's work as one list, on the turn's first message.
@@ -203,6 +205,7 @@ public sealed class ChatEntry : ContentControl
         };
         sendEdit.Click += async (_, _) => await SendEdit();
         cancelEdit.Click += (_, _) => StopEditing();
+        unusableReply.Retry += async (_, _) => await Act();
 
         // The focus is read once it has settled: on its way from one part of a reply to the next it is nowhere.
         GotFocus += (_, _) => ShowFocus();
@@ -265,7 +268,7 @@ public sealed class ChatEntry : ContentControl
 
     private bool HasAnyShown()
     {
-        UIElement[] parts = [words, sources, tools, files];
+        UIElement[] parts = [words, unusableReply, sources, tools, files];
         return hasFooter || parts.Any(part => part.Visibility is Visibility.Visible);
     }
 
@@ -301,7 +304,7 @@ public sealed class ChatEntry : ContentControl
 
     private FrameworkElement Lay(ChatEntryShape wanted, bool bubbles)
     {
-        Detach(words, reasoning, ledger, ledgerAfter, sources, tools, files, footer, versions, editor);
+        Detach(words, unusableReply, reasoning, ledger, ledgerAfter, sources, tools, files, footer, versions, editor);
         Detach(bubble, reply, sentBy, pending, plate, head, name, writing, run);
         fromRow = null;
         words.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -310,7 +313,7 @@ public sealed class ChatEntry : ContentControl
         {
             ChatEntryShape.Person => Column(HorizontalAlignment.Right, bubble, editor, sentBy, files, pending, versions),
             ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, sources, files, versions),
-            ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, ledger, words, ledgerAfter, sources, tools, files),
+            ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, ledger, words, unusableReply, ledgerAfter, sources, tools, files),
             ChatEntryShape.Continued => Continued(bubbles),
             _ => bubbles ? SpokenInBubbles() : Spoken(),
         };
@@ -324,10 +327,10 @@ public sealed class ChatEntry : ContentControl
         footer.Hold(versions);
         if (!bubbles)
         {
-            return Column(HorizontalAlignment.Stretch, ledger, words, ledgerAfter, sources, tools, files, footer);
+            return Column(HorizontalAlignment.Stretch, ledger, words, unusableReply, ledgerAfter, sources, tools, files, footer);
         }
 
-        var column = Column(HorizontalAlignment.Stretch, ledger, InBubble(), ledgerAfter, sources, tools, files, footer);
+        var column = Column(HorizontalAlignment.Stretch, ledger, InBubble(), unusableReply, ledgerAfter, sources, tools, files, footer);
         reply.HorizontalAlignment = HorizontalAlignment.Left;
         return column;
     }
@@ -376,7 +379,7 @@ public sealed class ChatEntry : ContentControl
         footer.Hold(versions);
         var from = From(withHead: true);
         var side = HorizontalAlignment.Stretch;
-        var body = Column(side, from, reasoning, ledger, InBubble(), ledgerAfter, sources, tools, files, footer);
+        var body = Column(side, from, reasoning, ledger, InBubble(), unusableReply, ledgerAfter, sources, tools, files, footer);
         reply.HorizontalAlignment = HorizontalAlignment.Left;
         return body;
     }
@@ -391,7 +394,7 @@ public sealed class ChatEntry : ContentControl
 
         // A reply's versions and the way to another reply stand on its footer's one line, after copy.
         footer.Hold(versions);
-        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, words, ledgerAfter, sources, tools, files, footer);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, ledger, words, unusableReply, ledgerAfter, sources, tools, files, footer);
         body.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
 
         var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
@@ -498,13 +501,23 @@ public sealed class ChatEntry : ContentControl
         run.Address = parameters.RunAddress is { } address && message.ActivityRunId is { } activityRunId ? address(activityRunId) : null;
         leads = run.Address is not null && shape is ChatEntryShape.Bot;
 
-        if (!message.FromPerson && message.Text.Length > 0)
+        var unusable = !message.FromPerson && message.UnusableToolRequest;
+
+        if (!message.FromPerson && message.Text.Length > 0 && !unusable)
         {
             words.Streaming = message.Streaming;
             words.Text = message.Text;
         }
 
-        words.Visibility = reply.Visibility = Shown(message.Text.Length > 0);
+        words.Visibility = reply.Visibility = Shown(message.Text.Length > 0 && !unusable);
+        unusableReply.Visibility = Shown(unusable);
+        if (unusable)
+        {
+            unusableReply.MessageKey = message.Key;
+            unusableReply.BotName = parameters.BotName;
+            unusableReply.OriginalResponse = message.Text;
+            unusableReply.CanRetry = ChatRows.OffersUnusableRetry(message, parameters.Regenerate is not null);
+        }
         // In a turn, the reasoning and the calls that fold are rows of the work between the bot's words.
         var inTurn = message.Ledger is not null || message.LedgerAfter is not null || message.ContinuesTurn;
         reasoning.Visibility = Shown(message.Reasoning is not null && !inTurn);
@@ -826,12 +839,12 @@ public sealed class ChatEntry : ContentControl
     {
         for (var at = pressed; at is not null && !ReferenceEquals(at, this); at = VisualTreeHelper.GetParent(at))
         {
-            if (at is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or TextBox or ChatEntry)
+            if (at is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or TextBox or ChatEntry or Disclosure)
             {
                 return false;
             }
 
-            if (ReferenceEquals(at, words) || ReferenceEquals(at, reply) || ReferenceEquals(at, fromRow))
+            if (ReferenceEquals(at, words) || ReferenceEquals(at, reply) || ReferenceEquals(at, unusableReply) || ReferenceEquals(at, fromRow))
             {
                 return true;
             }
