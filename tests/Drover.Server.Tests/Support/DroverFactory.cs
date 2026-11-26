@@ -12,7 +12,8 @@ public sealed class DroverFactory(
     HashCounter hashes,
     IReadOnlyDictionary<string, string?> settings,
     bool useAppConnection = true,
-    Action<IServiceCollection>? configure = null) : WebApplicationFactory<Program>
+    Action<IServiceCollection>? configure = null,
+    bool listsTestKinds = false) : WebApplicationFactory<Program>
 {
     #region Public Methods
 
@@ -24,6 +25,11 @@ public sealed class DroverFactory(
     #region Constants
 
     public const string RemoteIpHeader = "X-Test-Remote-Ip";
+
+    /// <summary>The kinds a hosted server under test offers when its test does not say.</summary>
+    public static IReadOnlyList<string> HostedTestKinds { get; } = ["scripted", "scripted_model", "openai_compatible", "venice"];
+
+    public const string AllowedKindsSetting = "Drover:Policy:Rules:AllowedModelProviderKinds";
 
     #endregion
 
@@ -43,6 +49,11 @@ public sealed class DroverFactory(
             builder.UseSetting(key, value);
         }
 
+        if (listsTestKinds)
+        {
+            NameTestKindsAsAnOperatorWould(builder);
+        }
+
         builder.ConfigureLogging(logging =>
         {
             logging.ClearProviders();
@@ -57,6 +68,29 @@ public sealed class DroverFactory(
             services.AddSingleton<IPasswordHasher<User>, CountingPasswordHasher>();
             configure?.Invoke(services);
         });
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>
+    /// The hosted preset offers no provider kind until its operator lists some, so a hosted server under test
+    /// (started by ServerTestBase) lists the kinds the tests use, as an operator would, unless the test sets the list.
+    /// </summary>
+    private void NameTestKindsAsAnOperatorWould(IWebHostBuilder builder)
+    {
+        var listed = settings.Keys.Any(key => key.StartsWith(AllowedKindsSetting, StringComparison.Ordinal));
+
+        if (listed || settings.GetValueOrDefault("DROVER_POLICY") != DeploymentPolicy.HostedName)
+        {
+            return;
+        }
+
+        for (var index = 0; index < HostedTestKinds.Count; index++)
+        {
+            builder.UseSetting($"{AllowedKindsSetting}:{index}", HostedTestKinds[index]);
+        }
     }
 
     #endregion

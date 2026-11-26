@@ -66,7 +66,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
 
         status!.Preset.Should().Be(preset);
         status.Rules.Select(rule => (rule.Rule, rule.Setting))
-            .Should().BeEquivalentTo(PolicyMatrix.Rows.Select(row => (row.Rule, row.For(preset))));
+            .Should().BeEquivalentTo(PolicyMatrix.Rows.Select(row => (row.Rule, ListedSetting(row))));
         status.Rules.Should().OnlyContain(rule => rule.EnforcedBy != string.Empty);
     }
 
@@ -355,6 +355,15 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     private static int Above(int most) => most is int.MaxValue ? most : most + 1;
 
     private string Setting(string rule) => PolicyMatrix.Setting(rule, preset);
+
+    /// <summary>
+    /// What the status listing shows for a rule. A hosted server lists no provider kind, so the test server's operator
+    /// names the kinds the tests use (<see cref="DroverFactory"/>); every other rule shows the preset's value.
+    /// </summary>
+    private string ListedSetting(PolicyMatrixRow row) =>
+        row.Rule == nameof(DeploymentPolicy.AllowedModelProviderKinds) && preset == DeploymentPolicy.HostedName
+            ? string.Join(", ", DroverFactory.HostedTestKinds)
+            : row.For(preset);
 
     /// <summary>A limit's number, where the listing's "No limit" is the largest number there is.</summary>
     private int Limit(string rule) =>

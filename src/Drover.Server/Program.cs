@@ -109,6 +109,7 @@ api.MapAccountEndpoints();
 api.MapNativeSessionEndpoints(app);
 api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
+api.MapModelProviderKindEndpoints();
 api.MapSpaceEndpoints();
 api.MapPushEndpoints();
 api.MapAppearanceEndpoints();
