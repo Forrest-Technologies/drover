@@ -1,6 +1,7 @@
 # docker compose -f compose.yaml -f compose.voice.yaml up --build
 # Adds a speech server beside Drover, so every space can have replies read aloud with nothing to set up.
 # It runs on this machine's processor and needs no account and no key. Nothing outside this file reaches it.
+# It works whatever the server's rule for private addresses is, so also with open registration: the address is yours, not a space's.
 #
 # Memory: the speech server may use up to DROVER_SPEECH_MEMORY (2g unless you set it), for example
 #   DROVER_SPEECH_MEMORY=4g docker compose -f compose.yaml -f compose.voice.yaml up
