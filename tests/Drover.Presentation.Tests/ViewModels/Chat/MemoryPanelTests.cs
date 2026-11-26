@@ -27,7 +27,7 @@ public sealed class MemoryPanelTests
             return Task.FromResult<string?>(null);
         };
 
-        panel.ListName.Should().Be("What Sample bot remembers about you");
+        panel.ListName.Should().Be("Sample bot's notes about you");
         panel.Origin(note).Should().StartWith("Sample bot noted this");
         MemoryPanelViewModel.OpenMoment.Should().Be("Open that moment");
         MemoryPanelViewModel.ChangeName(note).Should().Be("Change the note: Prefers short answers.");
@@ -79,7 +79,7 @@ public sealed class MemoryPanelTests
     {
         var panel = Panel(MemoryPanelState.Loading);
 
-        panel.LoadingHint.Should().Be("Loading what Sample bot remembers.");
+        panel.LoadingHint.Should().Be("Loading Sample bot's notes.");
         panel.OffHint.Should().StartWith("Memory is off for Sample bot, so it keeps no notes.");
         panel.EmptyHint.Should().StartWith("Sample bot has not noted anything about you yet.");
     }
@@ -138,7 +138,7 @@ public sealed class MemoryPanelTests
             "Sample bot has not noted anything about you yet. It keeps a note when it learns a preference or a fact worth keeping.");
         MemoryPanelViewModel.AddLabel.Should().Be("Add a note");
         MemoryPanelViewModel.AddAction.Should().Be("Add the note");
-        panel.AddHint.Should().Be("Something Sample bot should know about you from now on.");
+        panel.AddHint.Should().Be("A fact or preference for Sample bot to keep");
     }
 
     [Fact]

@@ -16,7 +16,8 @@ public sealed class ReplyFooterTests
         var usage = new ReplyUsageViewModel(detail.RunId, _ => Task.FromResult(Count(detail)), NullLogger.Instance, "vendor/sample-stronger");
 
         ReplyUsageViewModel.Label.Should().Be("Usage for this reply");
-        usage.WrittenBy.Should().Be("Written by vendor/sample-stronger");
+        ReplyUsageViewModel.Adding.Should().Be("Loading usage.");
+        usage.WrittenBy.Should().Be("Model: vendor/sample-stronger");
         asked.Should().Be(0, "nothing is read until a person asks");
 
         await usage.Toggle();
@@ -25,7 +26,7 @@ public sealed class ReplyFooterTests
         asked.Should().Be(1);
 
         usage.Model = "vendor/another";
-        usage.WrittenBy.Should().Be("Written by vendor/another", "the model can become known after the view model was made");
+        usage.WrittenBy.Should().Be("Model: vendor/another", "the model can become known after the view model was made");
         usage.Detail.Should().BeSameAs(detail, "what was read stays");
 
         RunUsageDetail Count(RunUsageDetail read)

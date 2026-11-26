@@ -58,7 +58,7 @@ public sealed class TakeoverCardViewModel : ObservableObject
     /// <summary>"I'm done" takes the keyboard focus when the card turns to holding, as the control that replaced "Open the screen".</summary>
     public bool TakeFocus { get; set; }
 
-    /// <summary>True while the person writes what got in the way.</summary>
+    /// <summary>True while the person writes the reason.</summary>
     public bool Declining { get; private set; }
 
     /// <summary>What the person chose to tell the bot about why they could not do it.</summary>
@@ -68,7 +68,7 @@ public sealed class TakeoverCardViewModel : ObservableObject
 
     public string Title => Phase switch
     {
-        TakeoverPhase.Asked => $"{BotName} needs you at its screen",
+        TakeoverPhase.Asked => $"{BotName} asks you to take over its screen",
         TakeoverPhase.Holding => $"You have {BotName}'s screen",
         TakeoverPhase.Done => $"You told {BotName} it is done",
         _ => $"You told {BotName} you could not do it",
@@ -96,7 +96,7 @@ public sealed class TakeoverCardViewModel : ObservableObject
         (TakeoverPhase.Asked, ScreenAccess.Missing) =>
         [
             new($"{BotName} has no screen now, so this cannot be done there."),
-            .. SetupHref is { } setup ? [new(" "), new("See what it needs.", setup)] : Array.Empty<TakeoverWords>(),
+            .. SetupHref is { } setup ? [new(" "), new("Read its request.", setup)] : Array.Empty<TakeoverWords>(),
         ],
         (TakeoverPhase.Asked, ScreenAccess.Elsewhere) =>
         [
@@ -131,7 +131,7 @@ public sealed class TakeoverCardViewModel : ObservableObject
 
     public bool ShowsDecline => Declining && Waits;
 
-    public string DeclineLabel => $"What got in the way (optional, {BotName} reads it)";
+    public string DeclineLabel => $"Reason (optional, {BotName} reads it)";
 
     public string DeclineSubmit => $"Tell {BotName} I could not";
 

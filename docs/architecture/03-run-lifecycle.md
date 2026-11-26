@@ -128,11 +128,11 @@ A **step** is one model call. The engine hands the runtime a model client of its
 
 | Limit | Deployment rule | Space | Bot | When it is reached |
 | --- | --- | --- | --- | --- |
-| Model calls | `MaxStepsPerRun` (50) | `max_steps_per_run` | `max_steps` | Checked before every model call, a tool's own included (the screen reader). The run fails with `step_limit`. |
+| Model calls | `MaxStepsPerRun` (self-hosted: no limit; hosted: 50) | `max_steps_per_run` | `max_steps` | Checked before every model call, including a tool's own model call. Self-hosted has no ceiling unless an operator, space, or bot sets one; hosted starts at 50. When reached, the run fails with `step_limit`. |
 | Tokens | `MaxTokensPerRun` (5,000,000; hosted 2,000,000) | `max_tokens_per_run` | `max_tokens` | Input and output tokens of every model call the run has recorded, earlier executions included, checked before every model call. The run fails with `token_limit`. The call that takes the run past the limit finishes and is recorded, so a run can end above it by one call. |
 | Handoffs | `MaxRunsPerDelegationTree` less the root | (through the tree's limit) | `max_delegations` | Counted from the run's child runs when it calls `delegate`. The call is refused with `budget_exceeded`, detail `handoffs`, with `used` and `cap`; the run goes on with what it has. `0` keeps a bot from handing work over at all. |
 
-A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit` or `token_limit` shows in its thread as `budget_reached`, carrying the limit kind (`model_calls` or `tokens`), the amount used, and the cap on `RunFailure.Limit`. The failure card names the limit with used against cap in its first line and offers an "Open limits" link straight to that bot's Limits section for editors; older runs without limit data fall back to the general sentence. A `delegate` call refused for `handoffs` names the handoff limit with its numbers and offers the same link to editors.
+A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit` or `token_limit` shows in its thread as `budget_reached`, carrying the limit kind (`model_calls` or `tokens`), the amount used, and the cap on `RunFailure.Limit`. The failure card names the limit with used against cap in its first line and offers an "Open limits" link straight to that bot's Limits section for editors; older runs without limit data fall back to the general sentence. A `delegate` call refused for `handoffs` names the handoff limit with its numbers and offers the same link to editors. Self-hosted has no model-call ceiling unless an operator, space, or bot sets one; hosted starts at 50. The check runs before every model call, including calls made by tools. Self-hosted bots default to 5,000,000 tokens per run. A bot editor can select Unlimited and acknowledge the risk of API overspending. Hosted, explicit operator, and space ceilings always apply, including to previously opted-out bots. Duplicating a bot requires a fresh opt-in.
 
 Read-only tools requested together run in parallel. Everything else runs in order: a call that is not read-only waits for the calls that are not read-only listed before it in the same model response.
 
@@ -328,7 +328,15 @@ The code that would run a written pattern is still there for the day the rule ca
 
 **What a rule cannot rewrite.** A rule that redacts rewrites text: a reply, a message, a string in a tool's input or result. The name of an input, a number, and a flag are examined and never rewritten, because the result would not be the call the tool knows; neither is an object in which two inputs share a name, because writing it out again would keep only one. A redacting rule that matches in one of those, or that could not check its subject for work or for size, blocks, and nothing of the subject is kept in what is stored. A rule that blocks on what stands in the name of an input keeps nothing of the call either.
 
+## Fitting the next model request
+
+Before an agent calls its model, Drover estimates input tokens for the complete request and reserves output space. For a known catalog context size, it can replace old tool results with a labeled omission, drop older reasoning, and remove older exchanges together. System instructions, current work, the summary, and recent messages stay in the outgoing copy. The transcript and cumulative usage stay intact. Step events include the estimated input and whether shortening occurred. The next estimate uses the previous call’s measured input, with a multiplier between 0.5 and 2.
+
+When the model’s context size is unknown the first request goes through unchanged. A compatible provider’s context-length refusal allows one shorter retry before any output has been delivered. An oversized request that cannot fit reports `context_too_long`.
+
 ## Conversation summaries
+
+A summary can also become due by estimated size, including lengthy tool results. The bot’s configured threshold takes precedence over half of its model’s available input. Large summaries use successive bounded requests under one deadline. Each successful pass records its usage and conditionally advances the stored summary before the next call.
 
 A person's main thread with a bot grows without end, so the server keeps a running summary of it on the thread's own row (`summary`, `summary_through_position`, `summary_updated_at`; [02-data-model.md](02-data-model.md)). `ConversationSummarizer` in `Drover.Engine` writes it.
 

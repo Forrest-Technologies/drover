@@ -37,6 +37,7 @@ public sealed class DeploymentPolicySetup(IConfiguration configuration)
         DeploymentPolicy.TryGetPreset(options.Preset, out var preset);
         var rules = preset with { };
         section.GetSection("Rules").Bind(rules, binder => binder.ErrorOnUnknownConfiguration = true);
+        options.HasConfiguredTokenLimit = section["Rules:MaxTokensPerRun"] is not null;
         options.Rules = rules;
     }
 

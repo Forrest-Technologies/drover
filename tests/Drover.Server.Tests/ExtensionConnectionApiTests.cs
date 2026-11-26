@@ -166,6 +166,32 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
     }
 
     [Fact]
+    public async Task A_bot_using_an_extensions_tool_server_is_saved_as_a_file_with_no_address_credential_or_grant()
+    {
+        var secret = NewPassword();
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless, HeaderName, secret));
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var imported = await PostFor<ExtensionSummary>(client, $"{space}/extensions", new ExtensionText(File(server.Url.ToString(), "header", HeaderName)));
+        var connected = await PostFor<ExtensionSummary>(client, $"{space}/extensions/{imported.Id}/connection", new ConnectExtensionRequest(AcceptLocalAddress: true, HeaderValue: secret));
+        var echo = connected.Connection!.Tools.Single(tool => tool.Name == "echo");
+        (await client.Put($"{space}/bots/{bot.Id}/tools/{echo.ToolId}", new SetToolGrantRequest("ask"))).EnsureSuccessStatusCode();
+
+        var exported = await client.Get($"{space}/bots/{bot.Id}/export");
+        var body = await exported.Content.ReadAsStringAsync(Token);
+
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        body.Should().NotContain(secret, "a header value is never written to a file");
+        body.Should().NotContain(server.Url.Authority, "a bot file names no tool server");
+        body.Should().NotContain(HeaderName, "a bot file names no header");
+        body.Should().NotContain("echo", "the tools a bot was granted are not in its file");
+        body.Should().NotContain(imported.Id.ToString(), "the extension is not part of the file");
+    }
+
+    [Fact]
     public async Task Only_an_admin_of_the_extensions_own_space_connects_it()
     {
         await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless));

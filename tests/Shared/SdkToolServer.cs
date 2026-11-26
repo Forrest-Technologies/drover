@@ -20,6 +20,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private int sessionsClosed;
 
+    private static readonly TimeSpan listenPatience = TimeSpan.FromSeconds(30);
+
     private volatile bool callsForbidden;
 
     private volatile string? headerValue = spec.HeaderValue;
@@ -60,8 +62,18 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     public static async Task<SdkToolServer> Start(ToolServerSpec spec)
     {
         var server = new SdkToolServer(spec);
-        await server.Run();
-        return server;
+
+        try
+        {
+            await server.Run();
+            return server;
+        }
+        catch
+        {
+            // The caller never receives the server, so nothing else can close the listener Run opened.
+            await server.DisposeAsync();
+            throw;
+        }
     }
 
     #endregion
@@ -128,12 +140,65 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
             })
             .WithTools(Tools());
         var built = builder.Build();
+        built.Use(CloseAnswerAfterEachUse);
         built.Use(CheckHeaderAndCountHandshakes);
         desk?.Map(built);
         built.MapMcp();
         await built.StartAsync(TestContext.Current.CancellationToken);
         port = new Uri(built.Urls.First()).Port;
         app = built;
+        await WaitUntilListening();
+    }
+
+    /// <summary>
+    /// A test that drops this server drops the connection the caller had pooled to its old listener. Closing every
+    /// answer leaves none behind, so the next request opens a connection to the listener that is really there.
+    /// The event stream is a GET and stays open, so it is the one answer that is not closed here.
+    /// </summary>
+    private static Task CloseAnswerAfterEachUse(HttpContext context, RequestDelegate next)
+    {
+        if (!HttpMethods.IsGet(context.Request.Method))
+        {
+            context.Response.Headers["Connection"] = "close";
+        }
+
+        return next(context);
+    }
+
+    /// <summary>
+    /// Waits until the listener accepts a connection, so a restart is ready before the first call after it.
+    /// </summary>
+    private async Task WaitUntilListening()
+    {
+        using var timeout = new CancellationTokenSource(listenPatience);
+        var testToken = TestContext.Current.CancellationToken;
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(testToken, timeout.Token);
+        while (true)
+        {
+            try
+            {
+                using var probe = new TcpClient();
+                await probe.ConnectAsync(IPAddress.Loopback, port, patience.Token);
+                return;
+            }
+            catch (SocketException failure)
+            {
+                if (patience.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"Tool server did not start listening on port {port}.", failure);
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(20), patience.Token);
+            }
+            catch (OperationCanceledException) when (testToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException failure)
+            {
+                throw new TimeoutException($"Tool server did not start listening on port {port}.", failure);
+            }
+        }
     }
 
     private async Task CheckHeaderAndCountHandshakes(HttpContext context, RequestDelegate next)

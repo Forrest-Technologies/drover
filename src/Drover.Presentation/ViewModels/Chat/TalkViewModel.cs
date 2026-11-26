@@ -178,8 +178,8 @@ public sealed class TalkViewModel(
     {
         WorkspaceState.Failed => new("Drover could not load this space", spaceProblem!, "Try again", null),
         WorkspaceState.NoModel => new(
-            "No model is connected", "A bot needs a model to think with, and this space has none yet.", "Connect a model", Addresses.SetupModel),
-        WorkspaceState.NoBot => new("No bot yet", "A model is connected, and there is no bot to use it.", "Meet your first bot", Addresses.SetupBot),
+            "No model is connected", "A bot needs a model, and this space has none yet.", "Connect a model", Addresses.SetupModel),
+        WorkspaceState.NoBot => new("No bot yet", "A model is connected, and there is no bot to use it.", "Create your first bot", Addresses.SetupBot),
         WorkspaceState.Loading => null,
         _ when formerMissing => new("Conversation not found", "It was removed, or it belongs to someone else.", "Back to conversations", Addresses.Home),
         _ when Shown is null => new("Bot not found", "It was removed, or it belongs to another space.", "Back to conversations", Addresses.Home),
@@ -300,10 +300,10 @@ public sealed class TalkViewModel(
     {
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
-        SideView.Activity => $"What {Shown!.Name} and its crew did in a run",
+        SideView.Activity => $"Activity of {Shown!.Name} and its crew in a run",
         SideView.Work => $"{WorkName}'s side of work handed to it",
         SideView.Files => $"Files exchanged with {Shown!.Name}",
-        SideView.Memory => $"What {Shown!.Name} remembers about you",
+        SideView.Memory => $"{Shown!.Name}'s notes about you",
         _ => $"Side chats with {Shown!.Name}",
     };
 

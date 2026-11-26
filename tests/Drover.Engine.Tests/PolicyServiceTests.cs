@@ -123,7 +123,7 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
             .Should().Be(new RunCeilings(8, 90_000, 2));
         ceilings.NarrowedBy(new RunLimits()).Should().Be(ceilings);
         ceilings.NarrowedBy(new RunLimits { MaxSteps = 4, MaxDelegations = 0 }).Should().Be(ceilings with { MaxSteps = 4, MaxDelegations = 0 });
-        ceilings.NarrowedBy(new RunLimits { MaxSteps = 51, MaxTokens = int.MaxValue, MaxDelegations = 50 }).Should().Be(ceilings);
+        ceilings.NarrowedBy(new RunLimits { MaxSteps = int.MaxValue, MaxTokens = int.MaxValue, MaxDelegations = 50 }).Should().Be(ceilings);
     }
 
     #endregion

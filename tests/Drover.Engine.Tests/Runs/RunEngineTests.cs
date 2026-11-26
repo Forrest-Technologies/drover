@@ -6,6 +6,24 @@ namespace Drover.Engine.Tests.Runs;
 /// </summary>
 public sealed class RunEngineTests(PostgresServer postgres)
 {
+    #region Usage
+
+    [Fact]
+    public async Task Run_session_clamps_negative_token_usage_to_zero()
+    {
+        await using var session = new RunSession(
+            new Run(), null!, "worker", null!,
+            new RunEventWriter(null!, Guid.Empty, null!, null!, new RunOptions(), TimeProvider.System, NullLogger<RunEventWriter>.Instance),
+            [], null!, new RunOptions(), TimeProvider.System,
+            new RunCeilings(int.MaxValue, 100, int.MaxValue), 0, []);
+
+        session.AddUsage(-4, 7, 0);
+
+        session.TokensUsed.Should().Be(7);
+    }
+
+    #endregion
+
     #region A Complete Run
 
     [Fact]
@@ -485,6 +503,8 @@ public sealed class RunEngineTests(PostgresServer postgres)
         tools.Count("test.write").Should().Be(0, "the gate reads the grant again when the call is made");
         script.Requests[1].Should().Contain(message => message.Role == "tool" && message.Summary.Contains("no grant", StringComparison.Ordinal));
         (await world.ReadToolCalls(runId)).Should().ContainSingle(call => call.Status == ToolCallStatus.Failed && call.IsError);
+        (await world.ReadMessages(run.ThreadId)).SelectMany(message => message.Parts).OfType<ToolResultPart>()
+            .Should().ContainSingle().Which.IsError.Should().BeTrue();
         (await world.ReadEvents(runId)).Where(stored => stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
             .Should().ContainSingle().Which.Outcome.Should().Be("refused");
     }
@@ -517,6 +537,24 @@ public sealed class RunEngineTests(PostgresServer postgres)
     #region Limits And Failures
 
     [Fact]
+    public async Task Run_has_no_model_call_limit_by_default()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var turns = Enumerable.Range(1, 60)
+            .Select(index => (IReadOnlyList<ModelOutput>)[new ToolCallOutput($"call-{index}", "test_lookup")])
+            .Append((IReadOnlyList<ModelOutput>)[new TextOutput("Done.")]);
+        var script = new ScriptedModel([.. turns]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Keep working");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        script.Requests.Should().HaveCount(61);
+    }
+
+    [Fact]
     public async Task A_run_that_reaches_the_step_limit_fails_with_step_limit()
     {
         var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
@@ -536,6 +574,26 @@ public sealed class RunEngineTests(PostgresServer postgres)
         run.Error!.Message.Should().Contain("2 model calls");
         script.Requests.Should().HaveCount(2, "the third model call is never made");
         (await world.ReadEvents(runId))[^1].Type.Should().Be(RunEventTypes.RunFailed);
+    }
+
+    [Theory]
+    [InlineData(false, RunStatus.Failed, 1)]
+    [InlineData(true, RunStatus.Completed, 2)]
+    public async Task Only_an_acknowledged_unlimited_run_continues_at_five_million_tokens(bool acknowledged, RunStatus expected, int calls)
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_lookup")], [new TextOutput("Finished.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(4_999_999, 1, 5_000_000);
+        await world.SetRunLimits(new RunLimits { UncappedUsageAcknowledged = acknowledged });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Continue");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(expected);
+        run.Usage.InputTokens.Should().Be(4_999_999L * calls);
+        script.Requests.Should().HaveCount(calls);
     }
 
     [Fact]
@@ -563,7 +621,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task A_bots_own_limit_lowers_its_spaces_and_one_above_the_spaces_changes_nothing()
+    public async Task Space_or_bot_model_call_limit_still_stops_the_run()
     {
         var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
         var script = new ScriptedModel(

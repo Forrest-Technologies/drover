@@ -56,6 +56,15 @@ public sealed class RoutineRowViewModelTests
     #region Product
 
     [Fact]
+    public void A_routine_without_a_next_run_says_the_run_time_is_not_known_yet()
+    {
+        var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.", "0 8 * * *", "UTC", true, null, null);
+        var row = new RoutineRowViewModel { Routine = routine, BotName = "Sample bot" };
+
+        row.Next.Should().Be("The next run time is not known yet.");
+    }
+
+    [Fact]
     public void Only_the_routines_owner_may_change_it_and_every_control_is_named_with_its_sentence()
     {
         var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.", "0 8 * * 1-5", "Europe/Berlin", false, null, null);
