@@ -34,7 +34,7 @@ public sealed class JudgedChecksTests(PostgresServer postgres)
         (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
         tools.Count("email.send").Should().Be(1, "both rules pass, so the call runs");
         var request = judge.Requests.Should().ContainSingle("every rule due at one checkpoint goes out in one request").Subject;
-        request.Questions.Select(question => question.Name).Should().Equal("rule1.applies", "rule1.met", "rule2.applies", "rule2.met");
+        request.Questions.Select(question => question.Name).Should().Equal("rule1_applies", "rule1_met", "rule2_applies", "rule2_met");
         request.Questions[0].Text.Should().Contain(AskFirst);
         request.State["action"].Should().Contain("email.send").And.Contain("write");
         var checks = Checked(await world.ReadEvents(runId));
@@ -147,7 +147,7 @@ public sealed class JudgedChecksTests(PostgresServer postgres)
     {
         var judge = new ScriptedDecisionModel
         {
-            Answer = (_, _) => Task.FromResult(new DecisionAnswer(new Dictionary<string, DecisionResult> { ["rule1.applies"] = new() { Yes = 1.7 } }, 10)),
+            Answer = (_, _) => Task.FromResult(new DecisionAnswer(new Dictionary<string, DecisionResult> { ["rule1_applies"] = new() { Yes = 1.7 } }, 10)),
         };
         await using var world = await AskedAbout(judge);
 

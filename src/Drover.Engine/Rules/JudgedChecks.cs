@@ -118,7 +118,7 @@ public sealed class JudgedChecks(SpaceDecisionModel? model, int maxSeconds, Time
         return new(parts, questions);
     }
 
-    public static string Name(int index, string question) => $"rule{index + 1}.{question}";
+    public static string Name(int index, string question) => $"rule{index + 1}_{question}";
 
     #endregion
 
