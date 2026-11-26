@@ -35,6 +35,12 @@ public sealed class UnusableToolRequestsTests
         ```
         """;
 
+    private const string CutOffEnvelope = """
+        <｜DSML｜calls>
+        <｜DSML｜invoke name="sandbox.run">
+        <｜DSML｜parameter name="command" string="true">ls -la
+        """;
+
     #endregion
 
     #region Detection
@@ -65,6 +71,62 @@ public sealed class UnusableToolRequestsTests
     [InlineData("<｜DSML｜calls>ordinary prose<｜DSML｜invoke name=\"sandbox.run\"></｜DSML｜invoke></｜DSML｜calls>")]
     public void Ordinary_prose_quoted_examples_and_incomplete_markup_are_not_marked_unusable(string? text) =>
         UnusableToolRequests.IsProtocolEnvelope(text).Should().BeFalse();
+
+    [Fact]
+    public void A_reply_cut_off_inside_a_request_is_flagged_when_complete()
+    {
+        UnusableToolRequests.IsProtocolEnvelope(CutOffEnvelope).Should().BeFalse("the envelope has no closing tags");
+        UnusableToolRequests.IsCutOffProtocolRequest(CutOffEnvelope).Should().BeTrue();
+        UnusableToolRequests.IsUnusableRequest(CutOffEnvelope).Should().BeTrue();
+
+        var reply = Message("assistant", false, new PartView("text", CutOffEnvelope)) with { RunId = Guid.CreateVersion7() };
+        var shown = new[] { reply }.ToChatMessages();
+
+        shown.Single().UnusableToolRequest.Should().BeTrue("a finished reply cut off inside a request is marked");
+        shown.Single().Text.Should().Be(CutOffEnvelope, "the raw text stays for inspection and never becomes a call");
+        shown.Single().Tools.Should().BeEmpty();
+
+        var item = new DelegationItem(Guid.CreateVersion7(), "Parent bot", Guid.CreateVersion7(), "Helper bot", "List files.",
+            DelegationPhase.Done, CutOffEnvelope, DelegationRefusal.None, null, 0);
+        var handoff = new DelegationCardViewModel { Item = item };
+        handoff.ParametersSet();
+
+        handoff.AnswerUnusable.Should().BeTrue("a handoff answer cut off inside a request is marked too");
+    }
+
+    [Fact]
+    public void A_reply_still_streaming_is_not_flagged()
+    {
+        var reply = Message("assistant", true, new PartView("text", CutOffEnvelope));
+        var shown = new[] { reply }.ToChatMessages();
+
+        shown.Single().Streaming.Should().BeTrue();
+        shown.Single().UnusableToolRequest.Should().BeFalse("nothing is marked while the words still arrive");
+    }
+
+    [Fact]
+    public void Quoted_examples_and_prose_are_never_flagged()
+    {
+        string[] quoted =
+        [
+            QuotedCodeSample,
+            $"```xml\n{CutOffEnvelope}\n```",
+            $"`{CutOffEnvelope}`",
+            $"> {CutOffEnvelope}",
+            $"\"{CutOffEnvelope}\"",
+            "DSML uses <｜DSML｜calls> and <｜DSML｜invoke> markers.",
+            $"Here is the format: {CutOffEnvelope}",
+        ];
+
+        foreach (var text in quoted)
+        {
+            UnusableToolRequests.IsCutOffProtocolRequest(text).Should().BeFalse();
+            UnusableToolRequests.IsUnusableRequest(text).Should().BeFalse();
+        }
+
+        var replies = quoted.Select(text => Message("assistant", false, new PartView("text", text))).ToArray();
+        replies.ToChatMessages().Should().OnlyContain(reply => !reply.UnusableToolRequest);
+    }
 
     #endregion
 
@@ -163,6 +225,40 @@ public sealed class UnusableToolRequestsTests
         var tree = RunTreeReducer.Apply(RunTreeView.Start(runId, Guid.CreateVersion7()), [.. streamEvents, .. completionEvents]);
         var step = tree.Moments.Single(moment => moment.Kind is RunMomentKind.Step);
         RunTimelines.TextOf(tree, step).Should().Be(FullWidthEnvelope, "activity keeps the original response for diagnostics");
+    }
+
+    [Fact]
+    public void A_handoff_answer_that_is_an_unusable_request_is_flagged()
+    {
+        var childId = Guid.CreateVersion7();
+        var callId = Guid.CreateVersion7();
+        var childRunId = Guid.CreateVersion7();
+        var childReply = Message("assistant", false, new PartView("text", FullWidthEnvelope)) with { RunId = childRunId };
+        var childRun = RunView.Start(childRunId) with { Status = "completed", Messages = [childReply] };
+        var call = new ToolCallView(callId, "delegate", "Delegate", $"{{\"bot_id\":\"{childId}\",\"task\":\"List files\"}}", "allow", "completed")
+        {
+            Delegation = new(childRunId, childId, Guid.CreateVersion7(), childRun)
+            {
+                Outcome = "completed",
+                Answer = FullWidthEnvelope,
+            },
+        };
+        var parentMessage = Message("assistant", false, new PartView("tool_call", ToolCallId: callId, ToolName: "delegate", Arguments: call.Arguments));
+        var handover = new Handover("Parent bot", new Dictionary<Guid, string> { [childId] = "Helper bot" });
+
+        var shown = new[] { parentMessage }.ToChatMessages(new Dictionary<Guid, ToolCallView> { [callId] = call }, handover: handover);
+        var work = shown.Single().Tools.Single().Delegation!;
+
+        work.Answer.Should().Be(FullWidthEnvelope);
+        work.Work.Should().ContainSingle(child => child.UnusableToolRequest, "an unusable reply is not promoted into a clean answer");
+
+        var card = new DelegationCardViewModel { Item = work };
+        card.ParametersSet();
+
+        card.AnswerUnusable.Should().BeTrue();
+        card.Answer.Should().Be(FullWidthEnvelope, "the original stays for the disclosure");
+        UnusableToolRequests.Title("Helper bot").Should().Be("Helper bot's model returned a tool request that could not be used.");
+        UnusableToolRequests.Detail(canRetry: false).Should().Be("No tool ran.", "a handoff answer cannot ask for another reply, as the child's message here cannot");
     }
 
     [Fact]

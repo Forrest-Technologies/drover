@@ -68,6 +68,37 @@ public static class UnusableToolRequests
         return envelopes > 0;
     }
 
+    /// <summary>
+    /// True when a completed reply starts with a DSML envelope, holds an invocation marker, and ends before that
+    /// envelope's closing tag. Text that closed the envelope, quoted examples, code fences, and prose are not marked.
+    /// </summary>
+    public static bool IsCutOffProtocolRequest(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var span = text.AsSpan().Trim();
+        if (span.Length < 2 || span[0] != '<' || span[1] is not (FullWidthBar or AsciiBar))
+        {
+            return false;
+        }
+
+        var bar = span[1];
+        var index = 0;
+        if (!TryMatchWrapperOpen(span, ref index, bar, out var wrapper) || !HasInvocationMarker(span, index, bar))
+        {
+            return false;
+        }
+
+        return !HasWrapperClose(span, bar, wrapper, index);
+    }
+
+    /// <summary>True for a completed reply that holds only a raw tool request, whole or cut off before its closing tags.</summary>
+    public static bool IsUnusableRequest(string? text) =>
+        IsProtocolEnvelope(text) || IsCutOffProtocolRequest(text);
+
     /// <summary>The heading explaining that the model returned a tool request Drover could not use.</summary>
     public static string Title(string botName) =>
         string.IsNullOrWhiteSpace(botName)
@@ -355,6 +386,38 @@ public static class UnusableToolRequests
 
         index++;
         return true;
+    }
+
+    private static bool HasInvocationMarker(ReadOnlySpan<char> span, int from, char bar)
+    {
+        var marker = $"{OpenPrefix(bar)}{InvokeTag}";
+        var search = from;
+
+        while (search < span.Length)
+        {
+            var offset = span[search..].IndexOf(marker, StringComparison.Ordinal);
+            if (offset < 0)
+            {
+                return false;
+            }
+
+            var after = search + offset + marker.Length;
+            if (after < span.Length && (char.IsWhiteSpace(span[after]) || span[after] is '/' or '>'))
+            {
+                return true;
+            }
+
+            search = after;
+        }
+
+        return false;
+    }
+
+    private static bool HasWrapperClose(ReadOnlySpan<char> span, char bar, string wrapper, int from)
+    {
+        var prefix = bar == FullWidthBar ? FullWidthClosePrefix : AsciiClosePrefix;
+        var close = $"{prefix}{wrapper}";
+        return span[from..].IndexOf(close, StringComparison.Ordinal) >= 0;
     }
 
     private static string OpenPrefix(char bar) =>
