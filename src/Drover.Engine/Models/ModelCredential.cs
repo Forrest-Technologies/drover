@@ -29,8 +29,11 @@ public sealed record ModelCredential(string? Value, ModelCredentialProblem? Prob
 
     public static ModelCredential None { get; } = new(null, null, null);
 
-    /// <summary>A sign-in whose access token runs out soon, to be renewed before the call, outside any transaction.</summary>
-    public ModelSignInHandle? Renewal { get; init; }
+    /// <summary>The person's sign-in this credential came from, or null for a key. <see cref="ModelCredentials.Ready"/> renews through it.</summary>
+    public ModelSignInHandle? SignIn { get; init; }
+
+    /// <summary>When the access token runs out, or null when it has no end.</summary>
+    public DateTimeOffset? ExpiresAt { get; init; }
 
     #endregion
 
@@ -41,6 +44,16 @@ public sealed record ModelCredential(string? Value, ModelCredentialProblem? Prob
     public static ModelCredential Refused(ModelCredentialProblem problem, string message) => new(null, problem, message);
 
     public override string ToString() => $"{nameof(ModelCredential)} {Problem?.ToString() ?? "[secret]"}";
+
+    #endregion
+}
+
+/// <summary>A model call could not be given a credential. Its <see cref="Credential"/> says why, in words for the person.</summary>
+public sealed class ModelCredentialException(ModelCredential credential) : Exception(credential.Message)
+{
+    #region Properties
+
+    public ModelCredential Credential { get; } = credential;
 
     #endregion
 }

@@ -14,7 +14,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261126161451_PersonalModelCredentials")]
+[Migration("20261126173030_PersonalModelCredentials")]
 partial class PersonalModelCredentials
 {
     /// <inheritdoc />
@@ -1177,6 +1177,10 @@ partial class PersonalModelCredentials
                 b.Property<Guid>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
+
+                b.Property<DateTimeOffset?>("RenewAttemptedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renew_attempted_at");
 
                 b.Property<DateTimeOffset?>("RenewedAt")
                     .HasColumnType("timestamp with time zone")

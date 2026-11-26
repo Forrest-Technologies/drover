@@ -26,6 +26,12 @@ public sealed class ModelSignInRenewal(
     /// <summary>A sign-in not renewed for this long is renewed by the pass.</summary>
     public static readonly TimeSpan Idle = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// How long a sign-in that a pass took up and did not renew waits before another pass takes it up: one that
+    /// failed, or one passed over because this server refuses its kind. So those cannot fill every pass.
+    /// </summary>
+    public static readonly TimeSpan RetryAfter = TimeSpan.FromDays(1);
+
     /// <summary>The time between two passes.</summary>
     public static readonly TimeSpan Interval = TimeSpan.FromHours(1);
 
@@ -39,9 +45,10 @@ public sealed class ModelSignInRenewal(
     /// <summary>Looks once for sign-ins idle for <see cref="Idle"/> and renews them. Returns how many now have new tokens.</summary>
     public async Task<int> RenewDue(CancellationToken cancellationToken)
     {
-        var cutoff = time.GetUtcNow() - Idle;
+        var now = time.GetUtcNow();
+        var cutoff = now - Idle;
         var due = await scopes.WithoutTenant(
-            services => services.GetRequiredService<ModelConnectionCredentialRepository>().ListSignInsDue(cutoff, MaxPerPass, cancellationToken),
+            services => services.GetRequiredService<ModelConnectionCredentialRepository>().ListSignInsDue(cutoff, now - RetryAfter, MaxPerPass, cancellationToken),
             cancellationToken);
         var renewed = 0;
 
@@ -74,8 +81,18 @@ public sealed class ModelSignInRenewal(
 
     private async Task<bool> Renew(ModelSignInDue signIn, DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
+        // Noted first, in its own transaction, whatever happens next: a renewal clears it, and anything else leaves
+        // the sign-in to wait its turn.
         var connection = await scopes.For(signIn.SpaceId, signIn.AudienceUserId).Transact(
-            services => services.GetRequiredService<ModelConnectionRepository>().FindConnection(signIn.ModelConnectionId, cancellationToken),
+            async services =>
+            {
+                if (await services.GetRequiredService<ModelConnectionCredentialRepository>().GetCredential(signIn.CredentialId, cancellationToken) is { } credential)
+                {
+                    credential.RenewAttemptedAt = time.GetUtcNow();
+                }
+
+                return await services.GetRequiredService<ModelConnectionRepository>().FindConnection(signIn.ModelConnectionId, cancellationToken);
+            },
             cancellationToken);
 
         if (connection is null || credentials.FindSignIn(connection.Kind) is not { } kind || credentials.FindRefusal(kind) is not null)

@@ -33,6 +33,13 @@ public sealed class ModelConnectionCredential : ISpaceOwned, IAudienceScoped
     /// <summary>When the tokens were last replaced by a refresh, or first stored. The renewal leaves one renewed lately alone.</summary>
     public DateTimeOffset? RenewedAt { get; set; }
 
+    /// <summary>
+    /// When the background renewal last took this sign-in up and did not renew it, whether it was tried or passed
+    /// over. Null when that never happened, or it was renewed since. A sign-in taken up lately waits its turn, so
+    /// sign-ins that cannot be renewed do not take every pass from those that can.
+    /// </summary>
+    public DateTimeOffset? RenewAttemptedAt { get; set; }
+
     public ModelSignInStatus Status { get; set; } = ModelSignInStatus.Active;
 
     #endregion

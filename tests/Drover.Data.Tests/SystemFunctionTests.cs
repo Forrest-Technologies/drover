@@ -266,11 +266,12 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         await SaveModelSignIn(provider, world.SpaceA, world.Traveler, now.AddDays(-1), now.AddHours(1));
         await SaveModelSignIn(provider, world.SpaceB, world.UserB1, now.AddDays(-30), null);
         await SaveModelSignIn(provider, world.SpaceB, world.Traveler, now.AddDays(-30), now.AddHours(1), ModelSignInStatus.NeedsSignIn);
-        const string Sql = "SELECT space_id, audience_user_id, model_connection_id, credential_id FROM sys.model_sign_ins_due(@renewed, @limit)";
+        const string Sql = "SELECT space_id, audience_user_id, model_connection_id, credential_id FROM sys.model_sign_ins_due(@renewed, @since, @limit)";
+        var since = now.AddDays(-1).UtcDateTime;
 
-        var due = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("limit", 10));
-        var first = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("limit", 1));
-        var shape = await Query(scratch.AppConnectionString, "SELECT * FROM sys.model_sign_ins_due(@renewed, @limit)", ("renewed", now.AddDays(-7).UtcDateTime), ("limit", 1));
+        var due = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("since", since), ("limit", 10));
+        var first = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("since", since), ("limit", 1));
+        var shape = await Query(scratch.AppConnectionString, "SELECT * FROM sys.model_sign_ins_due(@renewed, @since, @limit)", ("renewed", now.AddDays(-7).UtcDateTime), ("since", since), ("limit", 1));
 
         due.Select(row => ((Guid)row[0]!, (Guid)row[1]!, (Guid)row[3]!)).Should().Equal(
             [
@@ -281,6 +282,32 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             "not the one renewed yesterday, the one with no end, or the one that has ended; one from each space before a second from any");
         first.Should().ContainSingle();
         shape.Single().Should().HaveCount(4, "ids only: nothing that leads to a token");
+    }
+
+    [Fact]
+    public async Task Model_sign_ins_taken_up_lately_and_not_renewed_wait_their_turn_so_they_cannot_fill_every_pass()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        List<Guid> stuck = [];
+
+        for (var index = 0; index < 55; index++)
+        {
+            stuck.Add(await SaveModelSignIn(provider, world.SpaceA, world.UserA1, now.AddDays(-30), now.AddHours(1), attemptedAt: now.AddHours(-1)));
+        }
+
+        var waiting = await SaveModelSignIn(provider, world.SpaceA, world.UserA2, now.AddDays(-8), now.AddHours(1));
+        var triedLongAgo = await SaveModelSignIn(provider, world.SpaceA, world.Traveler, now.AddDays(-40), now.AddHours(1), attemptedAt: now.AddDays(-3));
+        const string Sql = "SELECT credential_id FROM sys.model_sign_ins_due(@renewed, @since, @limit)";
+
+        var due = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("since", now.AddDays(-1).UtcDateTime), ("limit", 50));
+
+        due.Select(row => (Guid)row[0]!).Should().Equal(
+            [waiting, triedLongAgo],
+            "the 55 taken up an hour ago wait a day; the one never taken up comes before the one taken up long ago");
+        stuck.Should().HaveCount(55);
     }
 
     #endregion
@@ -400,7 +427,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("memberships_for_user", "SELECT * FROM sys.memberships_for_user()", 2, [("as_user", world.Traveler)]),
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
             ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("renewed", DateTime.UtcNow), ("limit", 10)]),
-            ("model_sign_ins_due", "SELECT * FROM sys.model_sign_ins_due(@renewed, @limit)", 0, [("renewed", DateTime.UtcNow), ("limit", 10)]),
+            ("model_sign_ins_due", "SELECT * FROM sys.model_sign_ins_due(@renewed, @since, @limit)", 0, [("renewed", DateTime.UtcNow), ("since", DateTime.UtcNow), ("limit", 10)]),
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("clear_project_threads", "SELECT sys.clear_project_threads(@project)", 0, [("as_space", world.SpaceA), ("as_user", world.UserA1), ("project", Guid.CreateVersion7())]),
             ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
@@ -513,7 +540,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("pending_upload_deletions", "SELECT", "id space_id audience_user_id cleanup_claim_until created_at"),
             .. Columns("pending_upload_deletions", "UPDATE", "cleanup_claim_until"),
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
-            .. Columns("model_connection_credentials", "SELECT", "id space_id audience_user_id model_connection_id status expires_at renewed_at"),
+            .. Columns("model_connection_credentials", "SELECT", "id space_id audience_user_id model_connection_id status expires_at renewed_at renew_attempted_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
             .. Columns("threads", "SELECT", "id space_id project_id"),
@@ -712,7 +739,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         Guid userId,
         DateTimeOffset renewedAt,
         DateTimeOffset? expiresAt,
-        ModelSignInStatus status = ModelSignInStatus.Active)
+        ModelSignInStatus status = ModelSignInStatus.Active,
+        DateTimeOffset? attemptedAt = null)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
         var connection = CoreRows.NewConnection();
@@ -724,6 +752,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             RenewedAt = renewedAt,
             ExpiresAt = expiresAt,
             Status = status,
+            RenewAttemptedAt = attemptedAt,
         };
         session.Db.ModelConnections.Add(connection);
         session.Db.ModelConnectionCredentials.Add(credential);

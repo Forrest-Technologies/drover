@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126161451_PersonalModelCredentials";
+    public override string LastMigrationId => "20261126173030_PersonalModelCredentials";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1179,6 +1179,10 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
+
+                b.Property<DateTimeOffset?>("RenewAttemptedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renew_attempted_at");
 
                 b.Property<DateTimeOffset?>("RenewedAt")
                     .HasColumnType("timestamp with time zone")

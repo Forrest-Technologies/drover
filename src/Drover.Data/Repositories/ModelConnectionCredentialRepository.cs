@@ -30,17 +30,22 @@ public sealed class ModelConnectionCredentialRepository(DroverDbContext db)
             .ToListAsync(cancellationToken);
 
     /// <summary>
-    /// The active sign-ins, in every space, last renewed before the given moment. This crosses spaces, so it goes
-    /// through <c>sys.model_sign_ins_due</c>, which returns ids only: the caller then refreshes each one inside its
-    /// own space's tenant scope, as the person it belongs to. The spaces take turns, one from each before a second
-    /// from any, and the longest unrenewed come first.
+    /// The active sign-ins with an end, in every space, last renewed before <paramref name="notRenewedSince"/>. This
+    /// crosses spaces, so it goes through <c>sys.model_sign_ins_due</c>, which returns ids only: the caller then
+    /// refreshes each one inside its own space's tenant scope, as the person it belongs to. One taken up and not
+    /// renewed since <paramref name="notTriedSince"/> is left out, and those never taken up come first. The spaces
+    /// take turns, one from each before a second from any.
     /// </summary>
-    public Task<List<ModelSignInDue>> ListSignInsDue(DateTimeOffset notRenewedSince, int limit, CancellationToken cancellationToken) =>
+    public Task<List<ModelSignInDue>> ListSignInsDue(
+        DateTimeOffset notRenewedSince,
+        DateTimeOffset notTriedSince,
+        int limit,
+        CancellationToken cancellationToken) =>
         db.Database
             .SqlQuery<ModelSignInDue>(
                 $"""
                 SELECT space_id, audience_user_id, model_connection_id, credential_id
-                FROM sys.model_sign_ins_due({notRenewedSince}, {limit})
+                FROM sys.model_sign_ins_due({notRenewedSince}, {notTriedSince}, {limit})
                 """)
             .ToListAsync(cancellationToken);
 

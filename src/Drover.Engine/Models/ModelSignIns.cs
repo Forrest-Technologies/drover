@@ -124,20 +124,17 @@ public sealed class ModelSignIns(
             return Outcome(pending, credentials.FindSignIn(pending.Kind) is null ? UnknownKind : ModelCredentials.NotAvailable, 403);
         }
 
-        var tenant = scopes.For(spaceId, userId);
-        var policy = await tenant.Transact(services => services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken), cancellationToken);
-        var tokens = await Exchange(signIn, pending, policy, arrived ?? string.Empty, cancellationToken);
-
-        if (tokens is null)
+        try
         {
-            return Outcome(pending, Cancelled, 400);
+            return await Complete(spaceId, userId, pending, signIn, arrived ?? string.Empty, cancellationToken);
         }
-
-        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, cancellationToken), CancellationToken.None);
-        await ListModels(tenant, connectionId, cancellationToken);
-        pending.Done(connectionId);
-        logger.LogInformation("Model sign-in {AttemptId} to {Kind} finished for connection {ConnectionId}", attemptId, pending.Kind, connectionId);
-        return Outcome(pending, null, 200);
+        catch (Exception failure)
+        {
+            // Whatever went wrong, the one-time code may be spent: the attempt is over, not left finishing.
+            pending.End(ModelSignInState.Refused);
+            logger.LogWarning("Model sign-in {AttemptId} to {Kind} failed: {Failure}", attemptId, pending.Kind, failure.GetType().Name);
+            throw;
+        }
     }
 
     /// <summary>Where the caller's own sign-in stands. Anyone else's, or one in another space, does not exist for them.</summary>
@@ -172,6 +169,30 @@ public sealed class ModelSignIns(
     #endregion
 
     #region Finishing
+
+    private async Task<ModelSignInOutcome> Complete(
+        Guid spaceId,
+        Guid userId,
+        Pending pending,
+        IModelSignIn signIn,
+        string arrived,
+        CancellationToken cancellationToken)
+    {
+        var tenant = scopes.For(spaceId, userId);
+        var policy = await tenant.Transact(services => services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken), cancellationToken);
+        var tokens = await Exchange(signIn, pending, policy, arrived, cancellationToken);
+
+        if (tokens is null)
+        {
+            return Outcome(pending, Cancelled, 400);
+        }
+
+        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, cancellationToken), CancellationToken.None);
+        await ListModels(tenant, connectionId, cancellationToken);
+        pending.Done(connectionId);
+        logger.LogInformation("Model sign-in {AttemptId} to {Kind} finished for connection {ConnectionId}", pending.Attempt.Id, pending.Kind, connectionId);
+        return Outcome(pending, null, 200);
+    }
 
     /// <summary>The provider's exchange, with no transaction open. Null when the attempt ended without tokens.</summary>
     private async Task<ModelTokens?> Exchange(IModelSignIn signIn, Pending pending, EffectivePolicy policy, string arrived, CancellationToken cancellationToken)

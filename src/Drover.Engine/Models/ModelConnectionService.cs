@@ -361,6 +361,27 @@ public sealed class ModelConnectionService(
     /// <summary>First scope: read the connection, reveal its key, and work out the space's rule. Then close.</summary>
     private async Task<PreparedCall?> Prepare(Guid connectionId, CancellationToken cancellationToken)
     {
+        if (await ReadForCall(connectionId, cancellationToken) is not { } found)
+        {
+            return null;
+        }
+
+        var (connection, effective, read) = found;
+
+        // The scope is closed and disposed: a sign-in that runs out soon is renewed now, waiting on the provider.
+        var credential = await credentials.Ready(read, cancellationToken);
+        var provider = providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind);
+        var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
+        var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
+        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits };
+        return new PreparedCall(connection, provider, endpoint, credential, effective);
+    }
+
+    /// <summary>The connection, the space's rule and the credential as read, in a scope that is over when this returns.</summary>
+    private async Task<(ModelConnection Connection, EffectivePolicy Policy, ModelCredential Read)?> ReadForCall(
+        Guid connectionId,
+        CancellationToken cancellationToken)
+    {
         await using var work = await scope.Begin(cancellationToken);
         var connection = await connections.FindConnection(connectionId, cancellationToken);
 
@@ -373,15 +394,7 @@ public sealed class ModelConnectionService(
         var effective = await policy.GetEffective(spaceId, cancellationToken);
         var read = await credentials.Read(tenant, signIns, vault, connection, cancellationToken);
         await work.Commit(cancellationToken);
-
-        // A sign-in that runs out soon is renewed now, with the scope closed: it waits on the provider.
-        var credential = await credentials.Ready(read, cancellationToken);
-
-        var provider = providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind);
-        var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
-        var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
-        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits };
-        return new PreparedCall(connection, provider, endpoint, credential, effective);
+        return (connection, effective, read);
     }
 
     /// <summary>No scope is open here. The adapter's requests carry the space's outbound rule.</summary>

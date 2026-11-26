@@ -90,20 +90,22 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
         var signIn = new FakeModelSignIn(ScriptedModelProvider.ConnectionKind) { Lifetime = TimeSpan.FromMinutes(2) };
         var host = world.IdleHost(services => services.AddSingleton<IModelSignIn>(signIn));
         await SignIn(world, host, signIn, world.UserId);
+        var before = signIn.Refreshes;
         var credentials = host.Services.GetRequiredService<ModelCredentials>();
         var first = await Read(world, host, world.UserId, ready: false);
         var second = await Read(world, host, world.UserId, ready: false);
-        first.Renewal.Should().NotBeNull("the token runs out within the lead");
+        first.SignIn.Should().NotBeNull();
+        first.ExpiresAt.Should().BeBefore(DateTimeOffset.UtcNow + ModelCredentials.RefreshLead, "the token runs out within the lead");
         signIn.Lifetime = TimeSpan.FromHours(1);
         signIn.RefreshGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var one = credentials.Ready(first, RunWorld.Token);
         var two = credentials.Ready(second, RunWorld.Token);
-        await WaitFor(() => signIn.Refreshes == 1);
+        await WaitFor(() => signIn.Refreshes == before + 1);
         signIn.RefreshGate.SetResult();
         var results = await Task.WhenAll(one, two);
 
-        signIn.Refreshes.Should().Be(1);
+        signIn.Refreshes.Should().Be(before + 1);
         results.Should().OnlyContain(result => result.Problem == null);
         results[0].Value.Should().Be(results[1].Value).And.NotBeNull();
         var stored = await world.Read(db => db.ModelConnectionCredentials.SingleAsync(RunWorld.Token));
@@ -118,6 +120,7 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
         var signIn = new FakeModelSignIn(ScriptedModelProvider.ConnectionKind) { Lifetime = TimeSpan.FromMinutes(2) };
         var host = world.IdleHost(services => services.AddSingleton<IModelSignIn>(signIn));
         await SignIn(world, host, signIn, world.UserId);
+        var before = signIn.Refreshes;
         signIn.RefreshAnswer = FakeRefreshAnswer.Ended;
 
         var ended = await Read(world, host, world.UserId);
@@ -125,7 +128,7 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
 
         ended.Problem.Should().Be(ModelCredentialProblem.SignInEnded);
         after.Problem.Should().Be(ModelCredentialProblem.SignInEnded, "the row is kept and says so, with nothing sent again");
-        signIn.Refreshes.Should().Be(1);
+        signIn.Refreshes.Should().Be(before + 1);
         (await world.Read(db => db.ModelConnectionCredentials.SingleAsync(RunWorld.Token))).Status.Should().Be(ModelSignInStatus.NeedsSignIn);
 
         signIn.RefreshAnswer = FakeRefreshAnswer.Renewed;
@@ -164,6 +167,7 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
         var signIn = new FakeModelSignIn(ScriptedModelProvider.ConnectionKind) { Lifetime = TimeSpan.FromMinutes(2) };
         var open = world.IdleHost(services => services.AddSingleton<IModelSignIn>(signIn));
         await SignIn(world, open, signIn, world.UserId);
+        var before = signIn.Refreshes;
         var hosted = world.IdleHost(services =>
         {
             services.AddSingleton<IModelSignIn>(signIn);
@@ -181,7 +185,7 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
         onHosted.Problem.Should().Be(ModelCredentialProblem.NotAvailable);
         onHosted.Message.Should().Be(ModelCredentials.NotAvailable);
         offHere.Problem.Should().Be(ModelCredentialProblem.NotAvailable);
-        signIn.Refreshes.Should().Be(0, "nothing is sent for a refused kind");
+        signIn.Refreshes.Should().Be(before, "nothing is sent for a refused kind");
     }
 
     #endregion

@@ -62,7 +62,7 @@ public sealed class ModelCredentials(
 
     /// <summary>
     /// The credential for a call through the connection, read inside the caller's transaction as the person the call
-    /// acts for. A sign-in that runs out soon comes back with a renewal to make in <see cref="Ready"/>.
+    /// acts for. A sign-in comes back with what <see cref="Ready"/> needs to renew it when it runs out soon.
     /// </summary>
     public Task<ModelCredential> Read(IServiceProvider services, ModelConnection connection, CancellationToken cancellationToken) =>
         Read(
@@ -112,23 +112,22 @@ public sealed class ModelCredentials(
             return Unreadable(connection.Name);
         }
 
-        return RunsOutSoon(tokens)
-            ? ModelCredential.None with { Renewal = new(connection.SpaceId, userId, connection.Id, credential.Id, connection.Kind, connection.Name) }
-            : ModelCredential.Of(tokens.AccessToken);
+        return SignedIn(tokens, new(connection.SpaceId, userId, connection.Id, credential.Id, connection.Kind, connection.Name));
     }
 
     /// <summary>
     /// The credential ready to send. Renews a sign-in that runs out soon first. Call it with no transaction open:
-    /// a renewal waits on the provider.
+    /// a renewal waits on the provider. A call that lasts calls it again before each model call, so a token that runs
+    /// out while a run goes on is renewed then.
     /// </summary>
     public async Task<ModelCredential> Ready(ModelCredential credential, CancellationToken cancellationToken)
     {
-        if (credential.Renewal is not { } handle)
+        if (credential is not { SignIn: { } handle, Problem: null } || !RunsOutSoon(credential.ExpiresAt))
         {
             return credential;
         }
 
-        return await Renew(handle, (tokens, _) => RunsOutSoon(tokens), cancellationToken);
+        return await Renew(handle, (tokens, _) => RunsOutSoon(tokens.ExpiresAt), cancellationToken);
     }
 
     /// <summary>
@@ -168,7 +167,7 @@ public sealed class ModelCredentials(
         if (!isDue(tokens, stored.RenewedAt))
         {
             // Another call renewed it while this one waited for the lock.
-            return ModelCredential.Of(tokens.AccessToken);
+            return SignedIn(tokens, handle);
         }
 
         ModelTokens renewed;
@@ -293,7 +292,7 @@ public sealed class ModelCredentials(
         if (credential.SecretId != secretId)
         {
             return await RevealTokens(services.GetRequiredService<ISecretVault>(), credential, cancellationToken) is { } current
-                ? ModelCredential.Of(current.AccessToken)
+                ? SignedIn(current, handle)
                 : Unreadable(handle.ConnectionName);
         }
 
@@ -301,9 +300,10 @@ public sealed class ModelCredentials(
         credential.Status = ModelSignInStatus.Active;
         credential.ExpiresAt = renewed.ExpiresAt;
         credential.RenewedAt = time.GetUtcNow();
+        credential.RenewAttemptedAt = null;
         credential.AccountLabel = renewed.AccountLabel ?? credential.AccountLabel;
         logger.LogInformation("The sign-in {CredentialId} to model connection {ConnectionId} was renewed", handle.CredentialId, handle.ConnectionId);
-        return ModelCredential.Of(renewed.AccessToken);
+        return SignedIn(renewed, handle);
     }
 
     private static async Task MarkEnded(IServiceProvider services, ModelSignInHandle handle, Guid secretId, CancellationToken cancellationToken)
@@ -317,8 +317,11 @@ public sealed class ModelCredentials(
         }
     }
 
-    private bool RunsOutSoon(ModelTokens tokens) =>
-        tokens.ExpiresAt is { } expiresAt && expiresAt - time.GetUtcNow() < RefreshLead;
+    private bool RunsOutSoon(DateTimeOffset? expiresAt) =>
+        expiresAt is { } end && end - time.GetUtcNow() < RefreshLead;
+
+    private static ModelCredential SignedIn(ModelTokens tokens, ModelSignInHandle handle) =>
+        ModelCredential.Of(tokens.AccessToken) with { SignIn = handle, ExpiresAt = tokens.ExpiresAt };
 
     private static bool IsTransient(Exception failure, CancellationToken cancellationToken) =>
         failure is ModelProviderException or HttpRequestException or IOException

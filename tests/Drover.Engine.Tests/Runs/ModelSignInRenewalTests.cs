@@ -32,6 +32,7 @@ public sealed class ModelSignInRenewalTests(PostgresServer postgres)
         signIn.Refreshes.Should().Be(1);
         (await RenewedAt(world, world.UserId))!.Value.Should().BeCloseTo(clock.GetUtcNow(), TimeSpan.FromMilliseconds(1), "the owner's sign-in sat unused for eight days");
         (await RenewedAt(world, memberId)).Should().Be(membersBefore, "the member's was renewed yesterday");
+        (await Read(world, world.UserId)).RenewAttemptedAt.Should().BeNull("a renewal clears the note that it was taken up");
     }
 
     [Fact]
@@ -58,15 +59,18 @@ public sealed class ModelSignInRenewalTests(PostgresServer postgres)
 
         renewed.Should().Be(0);
         signIn.Refreshes.Should().Be(0);
+        (await Read(world, world.UserId)).RenewAttemptedAt.Should().NotBeNull("one passed over waits its turn, so it cannot fill every pass");
     }
 
     #endregion
 
     #region Private Methods
 
-    private static Task<DateTimeOffset?> RenewedAt(RunWorld world, Guid userId) =>
-        world.TransactAs(world.SpaceId, userId, async services =>
-            (await services.GetRequiredService<DroverDbContext>().ModelConnectionCredentials.SingleAsync(RunWorld.Token)).RenewedAt);
+    private static async Task<DateTimeOffset?> RenewedAt(RunWorld world, Guid userId) => (await Read(world, userId)).RenewedAt;
+
+    private static Task<ModelConnectionCredential> Read(RunWorld world, Guid userId) =>
+        world.TransactAs(world.SpaceId, userId, services =>
+            services.GetRequiredService<DroverDbContext>().ModelConnectionCredentials.AsNoTracking().SingleAsync(RunWorld.Token));
 
     #endregion
 }

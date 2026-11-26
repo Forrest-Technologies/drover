@@ -23,6 +23,7 @@ public partial class PersonalModelCredentials : Migration
                 account_label = table.Column<string>(type: "character varying(320)", maxLength: 320, nullable: true),
                 expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                 renewed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                renew_attempted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                 status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false)
             },
             constraints: table =>
@@ -50,15 +51,17 @@ public partial class PersonalModelCredentials : Migration
         migrationBuilder.IsolateToOnePerson("model_connection_credentials");
 
         // What the function reads, by column, and nothing else. No secret id: it cannot lead anyone to a token.
-        migrationBuilder.Sql("GRANT SELECT (id, space_id, audience_user_id, model_connection_id, status, expires_at, renewed_at) ON model_connection_credentials TO drover_system;");
+        migrationBuilder.Sql("GRANT SELECT (id, space_id, audience_user_id, model_connection_id, status, expires_at, renewed_at, renew_attempted_at) ON model_connection_credentials TO drover_system;");
 
         // Renewing sign-ins that sat unused has no tenant: it must find them in every space. It returns ids only, and
         // each sign-in is then renewed inside its own space's tenant scope, as the person it belongs to. A sign-in
-        // with no end is left out: there is nothing to renew. The spaces take turns, one from each before a second
-        // from any, so one space cannot take every pass.
+        // with no end is left out: there is nothing to renew. One taken up lately and not renewed (tried and failed,
+        // or passed over because its kind is refused) waits until not_tried_since, and those never taken up come
+        // first, so sign-ins that cannot be renewed do not fill every pass. The spaces take turns, one from each
+        // before a second from any, so one space cannot take every pass either.
         migrationBuilder.CreateSystemFunction(
             "model_sign_ins_due",
-            [("not_renewed_since", "timestamp with time zone"), ("max_rows", "integer")],
+            [("not_renewed_since", "timestamp with time zone"), ("not_tried_since", "timestamp with time zone"), ("max_rows", "integer")],
             "TABLE (space_id uuid, audience_user_id uuid, model_connection_id uuid, credential_id uuid)",
             """
             #variable_conflict use_column
@@ -66,15 +69,16 @@ public partial class PersonalModelCredentials : Migration
               RETURN QUERY
               WITH due AS (
                 SELECT c.space_id AS found_space, c.audience_user_id AS found_audience, c.model_connection_id AS found_connection, c.id AS found_credential,
-                       c.renewed_at AS last_renewed,
-                       row_number() OVER (PARTITION BY c.space_id ORDER BY c.renewed_at NULLS FIRST, c.id) AS turn
+                       c.renew_attempted_at AS tried_at, c.renewed_at AS last_renewed,
+                       row_number() OVER (PARTITION BY c.space_id ORDER BY c.renew_attempted_at NULLS FIRST, c.renewed_at NULLS FIRST, c.id) AS turn
                 FROM public.model_connection_credentials c
                 WHERE c.status = 'active' AND c.expires_at IS NOT NULL
-                  AND (c.renewed_at IS NULL OR c.renewed_at < not_renewed_since)),
+                  AND (c.renewed_at IS NULL OR c.renewed_at < not_renewed_since)
+                  AND (c.renew_attempted_at IS NULL OR c.renew_attempted_at < not_tried_since)),
               found AS (
                 SELECT found_space, found_audience, found_connection, found_credential
                 FROM due
-                ORDER BY turn, last_renewed NULLS FIRST, found_credential
+                ORDER BY turn, tried_at NULLS FIRST, last_renewed NULLS FIRST, found_credential
                 LIMIT greatest(max_rows, 0)),
               logged AS (
                 INSERT INTO sys.audit (function_name, caller, row_count)
@@ -87,7 +91,7 @@ public partial class PersonalModelCredentials : Migration
     /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropSystemFunction("model_sign_ins_due", "timestamp with time zone, integer");
+        migrationBuilder.DropSystemFunction("model_sign_ins_due", "timestamp with time zone, timestamp with time zone, integer");
 
         migrationBuilder.DropTable(
             name: "model_connection_credentials");

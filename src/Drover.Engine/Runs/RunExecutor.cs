@@ -621,7 +621,7 @@ public sealed partial class RunExecutor(
             NewRunFiles(session, loaded),
             new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
-            provider.CreateChatClient(endpoint, loaded.Credential.Value, bot.Model, bot.ModelSettings),
+            ChatClient(provider, endpoint, bot, loaded.Credential, session.Redactor),
             session,
             connection.Id,
             loggers.CreateLogger<MeteredModelClient>(),
@@ -914,6 +914,24 @@ public sealed partial class RunExecutor(
         };
     }
 
+    /// <summary>
+    /// The run's model client. On a sign-in connection each call gets the person's credential first, renewed when it
+    /// runs out soon, and the run scrubs every token it is handed; a key connection's client holds its key.
+    /// </summary>
+    private IModelChatClient ChatClient(IModelClientProvider provider, ModelEndpoint endpoint, Bot bot, ModelCredential credential, Redactor redactor) =>
+        credential.SignIn is null
+            ? provider.CreateChatClient(endpoint, credential.Value, bot.Model, bot.ModelSettings)
+            : new RenewingChatClient(provider, endpoint, bot.Model, bot.ModelSettings, credentials, credential, redactor.Remember);
+
+    private static string CodeFor(ModelCredentialProblem? problem) =>
+        problem switch
+        {
+            ModelCredentialProblem.SignInMissing => RunReasons.SignInRequired,
+            ModelCredentialProblem.SignInEnded => RunReasons.SignInEnded,
+            ModelCredentialProblem.Unreachable => ModelFailure.Unreachable.ToWireName(),
+            _ => "model_unavailable",
+        };
+
     private static string WaitingReason(RunSession session) =>
         session.WaitsForAPersonAtTheScreen ? RunReasons.AwaitingTakeover : RunReasons.AwaitingApproval;
 
@@ -982,6 +1000,12 @@ public sealed partial class RunExecutor(
                 RunStatus.Failed,
                 limit.Reason,
                 new RunError(limit.Reason, limit.Message, new RunErrorLimit(limit.Kind, limit.Used, limit.Cap)));
+        }
+
+        if (Find<ModelCredentialException>(failure) is { } refused)
+        {
+            logger.LogWarning("Run {RunId} lost its credential: {Problem}", session.RunId, refused.Credential.Problem);
+            return (RunStatus.Failed, null, new RunError(CodeFor(refused.Credential.Problem), refused.Credential.Message ?? string.Empty));
         }
 
         if (Find<ModelProviderException>(failure) is { } provider)
