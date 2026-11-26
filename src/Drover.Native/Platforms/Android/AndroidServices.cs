@@ -13,9 +13,9 @@ internal static class AndroidServices
     public static IServiceCollection AddDevice(this IServiceCollection services) =>
         services
             .AddSingleton<ISecureStorage, DeviceSecrets>()
-            .AddSingleton<NoAudio>(_ => new(AudioHead.Android))
-            .AddSingleton<IAudioCapture>(provider => provider.GetRequiredService<NoAudio>())
-            .AddSingleton<IAudioPlayback>(provider => provider.GetRequiredService<NoAudio>())
+            .AddSingleton<AndroidAudio>()
+            .AddSingleton<IAudioCapture>(provider => provider.GetRequiredService<AndroidAudio>())
+            .AddSingleton<IAudioPlayback>(provider => provider.GetRequiredService<AndroidAudio>())
             .AddSingleton(MainActivity.Streams)
             .AddSingleton<DocumentDestination>()
             .AddSingleton<IFileDelivery, AndroidFileDelivery>()
