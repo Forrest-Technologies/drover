@@ -68,7 +68,9 @@ public static class VoiceCallEndpoint
 
         if (!context.WebSockets.IsWebSocketRequest)
         {
-            await TypedResults.Problem(title: "Open a live call as a WebSocket.", statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context);
+            // A plain request that got this far would have been let in: a client asks this way first, to read a
+            // refusal's sentence, which a WebSocket handshake cannot carry back to it.
+            await TypedResults.Problem(title: "Open a live call as a WebSocket.", statusCode: StatusCodes.Status426UpgradeRequired).ExecuteAsync(context);
             return;
         }
 

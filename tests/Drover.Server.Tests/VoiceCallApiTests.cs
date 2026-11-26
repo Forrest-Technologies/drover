@@ -146,6 +146,51 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         messages.Should().BeEmpty("the run is the conversation's one writer");
     }
 
+    [Fact]
+    public async Task The_typed_client_holds_a_call_and_reports_a_refusal_with_the_servers_sentence()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var seeded = await SeedBotWithSpeech(client, alice.SpaceId, alice.UserId);
+        var api = new DroverApi(NewRelay(client)) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
+        Task<WebSocket> Connect(Uri address, CancellationToken cancellationToken)
+        {
+            var sockets = NewSocketClient();
+            sockets.ConfigureRequest = request => request.Headers.Cookie = client.CookieHeader;
+            return sockets.ConnectAsync(address, cancellationToken);
+        }
+
+        await using var call = await api.OpenCall(alice.SpaceId, seeded.Thread.Id, Connect, Token);
+        await using var events = call.Read(Token).GetAsyncEnumerator(Token);
+        async Task<VoiceCallEvent> Next() => await events.MoveNextAsync().AsTask().WaitAsync(patience, Token) ? events.Current : throw new EndOfStreamException();
+        var ready = await Next();
+        var model = Speech.Calls.Single();
+        await call.SendAudio(new byte[] { 5, 6 }, Token);
+        var heard = await model.Heard.ReadAsync(Token).AsTask().WaitAsync(patience, Token);
+        model.Does(new RealtimePersonSaid("Hello."), new RealtimeAudioOut(new byte[] { 7 }), new RealtimeBotSaid("Hi there."));
+        var personSaid = await Next();
+        var audio = await Next();
+        var botSaid = await Next();
+        await call.Interrupt(120, Token);
+        var interrupted = await model.Interrupts.ReadAsync(Token).AsTask().WaitAsync(patience, Token);
+        await call.HangUp(Token);
+        var ended = await Next();
+        await SeedActiveRun(alice.SpaceId, alice.UserId, seeded.Thread.Id, seeded.Bot.Id);
+        var refused = () => api.OpenCall(alice.SpaceId, seeded.Thread.Id, Connect, Token);
+
+        ready.Should().Be(new VoiceCallReady("realtime-1", "alloy", 10));
+        heard.Should().Equal(5, 6);
+        personSaid.Should().Be(new VoiceCallPersonSaid("Hello."));
+        audio.Should().BeOfType<VoiceCallAudio>().Which.Samples.ToArray().Should().Equal(7);
+        botSaid.Should().Be(new VoiceCallBotSaid("Hi there."));
+        interrupted.Should().Be(120);
+        ended.Should().Be(new VoiceCallEnded(VoiceCallEndReasons.HungUp));
+        (await events.MoveNextAsync()).Should().BeFalse("the events end with the call");
+        (await refused.Should().ThrowAsync<DroverApiException>()).Which.Should().Match<DroverApiException>(problem =>
+            problem.StatusCode == HttpStatusCode.Conflict && problem.Message == VoiceService.BotIsWorking);
+        Speech.Calls.Should().ContainSingle("the refused call never reached the provider");
+    }
+
     #endregion
 
     #region Refusals
@@ -185,7 +230,7 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         byEve.StatusCode.Should().Be(HttpStatusCode.NotFound, "Eve is no member of the space");
         eveInOwnSpace.StatusCode.Should().Be(HttpStatusCode.NotFound, "the conversation is in another space");
         signedOut.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        notASocket.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        notASocket.StatusCode.Should().Be(HttpStatusCode.UpgradeRequired, "the call would have been let in, and nothing was opened for a plain request");
         badOrigin.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Sentence(badOrigin)).Should().Be("A live call can only be opened from Drover itself.");
         (await badOriginSocket.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("403");

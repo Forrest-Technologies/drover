@@ -292,6 +292,37 @@ public sealed class VoiceApiTests(PostgresServer postgres) : VoiceTestBase(postg
 
     #endregion
 
+    #region Typed Client
+
+    [Fact]
+    public async Task The_typed_client_reaches_every_voice_endpoint()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var seeded = await SeedBotWithSpeech(client, alice.SpaceId, alice.UserId);
+        var api = new DroverApi(NewRelay(client)) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
+
+        var marked = await api.SetModelVoice(alice.SpaceId, seeded.Connection.Id, new SetModelVoiceRequest("plain", false, true, false), Token);
+        var saved = await api.SaveVoiceSettings(alice.SpaceId, new VoiceSettingsRequest(null, new VoiceChoiceBody(seeded.Connection.Id, "plain", "verse"), null), Token);
+        var options = await api.GetVoiceOptions(alice.SpaceId, Token);
+        var voices = await api.ListVoices(alice.SpaceId, seeded.Connection.Id, "plain", Token);
+        using var recording = new MemoryStream([1, 2, 3]);
+        var text = await api.Transcribe(alice.SpaceId, recording, "audio/ogg", Token);
+        using var spoken = await api.Speak(alice.SpaceId, new SpeakRequest(Text: "Good morning."), Token);
+        var refused = () => api.Speak(alice.SpaceId, new SpeakRequest(Text: new string('a', 121)), Token);
+
+        marked.Capabilities.TextToSpeech.Should().BeTrue();
+        saved.Speak.Selected!.Voice.Should().Be("verse");
+        options.Should().BeEquivalentTo(saved);
+        voices.Select(voice => voice.Id).Should().Equal("alloy", "verse");
+        text.Should().Be("hello from the recording");
+        spoken.Content.Headers.ContentType!.MediaType.Should().Be("audio/mpeg");
+        (await spoken.Content.ReadAsStringAsync(Token)).Should().Be("[mp3:verse:Good morning.]");
+        (await refused.Should().ThrowAsync<DroverApiException>()).Which.Message.Should().Be("This text is 121 characters. This server reads aloud up to 120.");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static ByteArrayContent Audio(byte[] bytes, string mediaType)
