@@ -312,13 +312,23 @@ public sealed class VoiceApiTests(PostgresServer postgres) : VoiceTestBase(postg
     /// <summary>A body sent without a declared length, as a recorder that streams while it records sends it.</summary>
     private sealed class UnmeasuredContent : HttpContent
     {
+        #region Private Fields
+
         private readonly byte[] bytes;
+
+        #endregion
+
+        #region Constructors
 
         public UnmeasuredContent(byte[] bytes, string mediaType)
         {
             this.bytes = bytes;
             Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mediaType);
         }
+
+        #endregion
+
+        #region Overrides
 
         protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => stream.WriteAsync(bytes).AsTask();
 
@@ -327,6 +337,8 @@ public sealed class VoiceApiTests(PostgresServer postgres) : VoiceTestBase(postg
             length = 0;
             return false;
         }
+
+        #endregion
     }
 
     #endregion

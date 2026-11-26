@@ -41,7 +41,7 @@ public abstract class VoiceTestBase(PostgresServer postgres) : ServerTestBase(po
     }
 
     protected static async Task<string> Sentence(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync(Token)).RootElement.GetProperty("title").GetString()!;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync(Token)).GetProperty("title").GetString()!;
 
     protected static async Task<ModelConnectionSummary> CreateConnection(ApiClient client, Guid spaceId, string name = "Speech", string? key = null) =>
         await Read<ModelConnectionSummary>(await client.Post(
