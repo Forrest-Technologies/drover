@@ -68,7 +68,7 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         (call.Address, call.Key).Should().Be((new Uri("https://speech.example.test/v1"), "sk-test-speech-key"));
         call.Options.Instructions.Should().Be($"Answer briefly.\n\n{VoiceService.SpokenReplyInstruction}");
         call.Options.History.Should().Equal(new RealtimeTurn(false, "Earlier question."), new RealtimeTurn(true, "Earlier answer."));
-        call.Options.TranscriptionModel.Should().BeNull();
+        call.Options.TranscriptionModel.Should().Be("whisper-1");
         heard.Should().Equal(1, 2, 3, 4);
         started.Type.Should().Be(VoiceCallMessages.PersonStarted);
         (personSaid.Type, personSaid.Text).Should().Be((VoiceCallMessages.PersonSaid, "What is the weather?"));
