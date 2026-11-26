@@ -6,12 +6,18 @@ namespace Drover.Domain.Bots;
 /// </summary>
 public sealed record RunLimits
 {
+    #region Properties
+
     /// <summary>The most model calls one run of the bot makes.</summary>
     public int? MaxSteps { get; init; }
 
     /// <summary>The most tokens, read and written together, one run of the bot uses.</summary>
     public int? MaxTokens { get; init; }
 
+    public bool UncappedUsageAcknowledged { get; init; }
+
     /// <summary>The most times one run of the bot hands work to a bot beneath it.</summary>
     public int? MaxDelegations { get; init; }
+
+    #endregion
 }

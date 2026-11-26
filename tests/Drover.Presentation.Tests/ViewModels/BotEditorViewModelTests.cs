@@ -97,6 +97,16 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     #region At Rest
 
     [Fact]
+    public async Task The_editor_shows_a_new_space_ceiling_on_a_previously_unlimited_bot()
+    {
+        Server.Answer("GET", $"{bot}/definition", Marshal with { RunLimits = new RunLimitsBody(null, null, null, true) });
+        var editor = await OpenEditor();
+        editor.Draft!.UnlimitedTokens.Should().BeFalse();
+        editor.Dirty.Should().BeFalse();
+        editor.Summary(Limits).Should().Contain("5,000,000 tokens");
+    }
+
+    [Fact]
     public async Task Removing_a_bot_with_bots_beneath_asks_whether_they_go_too_and_sends_the_answer()
     {
         var helper = new BotSummary(Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), "Sample helper", "sample-helper", string.Empty, connectionId, "sample-large", "active", botId);
