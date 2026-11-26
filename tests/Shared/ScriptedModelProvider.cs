@@ -37,6 +37,15 @@ public sealed class ScriptedModelProvider(ScriptedModel model, string kind = Scr
 
     public Uri? FixedAddress { get; } = new("https://scripted-model.example.test/v1/");
 
+    public ModelProviderDescriptor Descriptor { get; } = new(
+        kind,
+        "Scripted model",
+        ModelKeyRule.Optional,
+        ModelAddressRule.Fixed,
+        AddressHint: null,
+        KeyHint: null,
+        ReportsCapabilities: false);
+
     public ScriptedModel Model => model;
 
     /// <summary>The tool names each model call was offered, in call order.</summary>

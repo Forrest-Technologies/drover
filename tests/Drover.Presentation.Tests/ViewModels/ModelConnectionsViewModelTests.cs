@@ -5,7 +5,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
 {
     #region Private Fields
 
-    private const string PresetsPath = "/api/model-provider-presets";
+    private const string PresetsPath = "/api/model-provider-kinds";
 
     private static readonly string space = $"/api/spaces/{Samples.Session().Spaces[0].Id}";
 
@@ -33,7 +33,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     [Fact]
     public async Task The_provider_choice_holds_the_servers_named_providers()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Models();
 
         await model.Open();
@@ -45,7 +45,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     [Fact]
     public async Task A_named_provider_hides_the_address_until_asked()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Models();
         await model.Open();
         model.StartAdding();
@@ -66,7 +66,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     [Fact]
     public async Task A_provider_with_no_key_shows_no_key_field()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Models();
         await model.Open();
 
@@ -88,7 +88,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
         model.Named.Options.Select(option => option.Label).Should().Equal("Venice", "Another compatible server");
         model.Connections.Should().NotBeNull("the connections load without the list");
 
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         await model.RetryProviders();
 
         model.Named.State.Should().Be(NamedProvidersState.Loaded);
@@ -100,7 +100,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
         var path = $"{space}/model-connections";
         var created = new ModelConnectionSummary(
             Guid.NewGuid(), "Sample hosted", "openai_compatible", "https://hosted.example.test/v1", true, "pending", null, [], null, null);
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         server.Answer("POST", path, created, HttpStatusCode.Created);
         server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
         var model = Models();

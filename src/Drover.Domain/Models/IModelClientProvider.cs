@@ -9,6 +9,12 @@ public interface IModelClientProvider
     /// <summary>The connection kind this provider serves, for example "venice".</summary>
     string Kind { get; }
 
+    /// <summary>
+    /// What this kind is called and what a connection of it asks for. Its <see cref="ModelProviderDescriptor.Kind"/>
+    /// is <see cref="Kind"/>, and its rules match what the provider does.
+    /// </summary>
+    ModelProviderDescriptor Descriptor { get; }
+
     /// <summary>The address every connection of this kind uses, or null when the connection supplies its own.</summary>
     Uri? FixedAddress => null;
 

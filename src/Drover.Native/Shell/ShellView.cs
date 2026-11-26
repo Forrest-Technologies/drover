@@ -1,9 +1,9 @@
 namespace Drover.Native.Shell;
 
 /// <summary>
-/// The root of the app: the screen for the current address, with the toasts over it. It listens to the navigator
-/// and shows the screen each address names, keeps the frame's own back stack in step, applies the theme choice,
-/// and names the window after the screen. The appearance choices are its own dialog, because a choice makes the
+/// The root of the app: the screen for the current address, with the toasts and the request to remove the retired
+/// Android app over it. It listens to the navigator and shows the screen each address names, keeps the frame's own
+/// back stack in step, applies the theme choice, and names the window after the screen. The appearance choices are its own dialog, because a choice makes the
 /// screen again and the choices stay open over it.
 /// </summary>
 public sealed class ShellView : Grid
@@ -37,6 +37,7 @@ public sealed class ShellView : Grid
 
         Children.Add(frame);
         Children.Add(new ToastHost { Model = ActivatorUtilities.CreateInstance<ToastHostViewModel>(services) });
+        Children.Add(new RetiredAppRequest(ActivatorUtilities.CreateInstance<RetiredAppViewModel>(services)));
 #if ANDROID || __IOS__
         // Keep the window background under the system bars and the controls inside their visible bounds.
         SafeArea.Attach(this);

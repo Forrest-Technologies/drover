@@ -130,6 +130,57 @@ public sealed class OutboundHttpTests
     }
 
     [Fact]
+    public async Task The_operators_own_service_is_reached_on_a_private_address_whatever_the_deployment_allows()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("spoken"));
+        using var client = new HttpClient(OutboundHttp.CreateOperatorHandler());
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{server.Port}/").ForOperatorAddress();
+
+        using var response = await client.SendAsync(request, Token);
+
+        (await response.Content.ReadAsStringAsync(Token)).Should().Be("spoken");
+    }
+
+    [Fact]
+    public async Task A_request_on_the_operators_client_that_is_not_marked_as_the_operators_is_still_refused()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
+        using var client = new HttpClient(OutboundHttp.CreateOperatorHandler());
+
+        var attempt = () => Get(client, $"http://127.0.0.1:{server.Port}/", privateForbidden);
+
+        await attempt.Should().ThrowAsync<OutboundBlockedException>();
+        server.Requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_operators_client_does_not_follow_a_redirect_so_its_permission_stays_with_the_configured_origin()
+    {
+        using var target = new TestWebServer(_ => TestWebServer.Ok("elsewhere"));
+        using var server = new TestWebServer(_ => TestWebServer.Redirect($"http://127.0.0.1:{target.Port}/"));
+        using var client = new HttpClient(OutboundHttp.CreateOperatorHandler());
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{server.Port}/").ForOperatorAddress();
+
+        using var response = await client.SendAsync(request, Token);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        target.Requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_operators_mark_on_any_other_client_does_not_pass_a_deployment_that_forbids_private_addresses()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.Hosted));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{server.Port}/").ForOperatorAddress();
+
+        var attempt = () => client.SendAsync(request, Token);
+
+        await attempt.Should().ThrowAsync<OutboundBlockedException>();
+        server.Requests.Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_host_name_is_resolved_and_one_private_address_among_several_refuses_the_request()
     {
         using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));

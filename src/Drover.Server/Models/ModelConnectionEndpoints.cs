@@ -25,27 +25,9 @@ public static class ModelConnectionEndpoints
         return space;
     }
 
-    /// <summary>
-    /// The named providers this server offers, in table order. Where the deployment forbids private addresses, the
-    /// local ones are left out: the rule that decides is the one that already decides every connection.
-    /// </summary>
-    public static IEndpointRouteBuilder MapModelProviderPresetEndpoints(this RouteGroupBuilder api)
-    {
-        api.MapGet("/model-provider-presets", ListProviderPresets)
-            .RequireAuthorization()
-            .WithName("ListModelProviderPresets");
-        return api;
-    }
-
     #endregion
 
     #region Endpoints
-
-    private static Ok<List<ModelProviderPresetResponse>> ListProviderPresets(PolicyService policy) =>
-        TypedResults.Ok(OpenAICompatibleProvider.Presets
-            .Where(preset => !preset.Local || policy.Deployment.AllowPrivateAddresses)
-            .Select(preset => preset.ToResponse())
-            .ToList());
 
     private static async Task<Ok<List<ModelConnectionSummary>>> ListConnections(HttpContext context, ModelConnectionService models) =>
         TypedResults.Ok((await models.ListConnections(context.RequestAborted)).Select(connection => connection.ToSummary()).ToList());

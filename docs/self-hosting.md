@@ -117,7 +117,7 @@ The provider list on Connect a model includes servers that run on a computer of 
 
 - Finish setup before making Drover available over the internet. Read the one-time code from `docker compose logs drover`.
 - Leave open registration off for a private server.
-- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled.
+- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled. The services you name in the server's own configuration (the speech container of `compose.voice.yaml`, a search service beside the server) keep working either way: the rule covers addresses a space, a person, or a bot supplies, not yours.
 - Keep database and key ring backups private. Together they can be used to read stored secrets.
 
 ## The public address
@@ -215,6 +215,8 @@ Moving is a backup on the old machine and a restore on the new one. Use the same
 ## Upgrading
 
 Check out a newer tag or commit and run the same `docker compose up --build`. Pending database migrations apply before the server starts. Take a backup first. If a release needs a manual step, its notes say so.
+
+Upgrading a server that runs the `hosted` preset, or sets `ModelProviders` to `OperatorList`, to a version that enforces `AllowedModelProviderKinds`: until you list the kinds to offer (`Drover:Policy:Rules:AllowedModelProviderKinds:0`, `:1`, and so on, for example `venice`), no kind is offered, every existing model connection fails with "The operator of this server switched {kind} off.", and no new one can be made. The server logs a warning at start when that is the case. A self-hosted server on the default `All` is not affected.
 
 `docker compose down` keeps your data. `docker compose down --volumes` deletes every volume, including the key ring.
 

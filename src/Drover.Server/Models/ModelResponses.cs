@@ -27,6 +27,22 @@ public static class ModelResponses
             preset.KeyPage,
             preset.Local);
 
+    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor) =>
+        new(
+            descriptor.Kind,
+            descriptor.DisplayName,
+            descriptor.KeyRule switch
+            {
+                ModelKeyRule.Required => ModelKeyRules.Required,
+                ModelKeyRule.Optional => ModelKeyRules.Optional,
+                _ => ModelKeyRules.None,
+            },
+            descriptor.AddressRule is ModelAddressRule.Fixed ? ModelAddressRules.Fixed : ModelAddressRules.Required,
+            descriptor.AddressHint,
+            descriptor.KeyHint,
+            descriptor.ReportsCapabilities,
+            [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())]);
+
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(
             entry.Model,

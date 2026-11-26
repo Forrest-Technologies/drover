@@ -68,7 +68,8 @@ public sealed class KnownProvidersTests
     [Fact]
     public void The_provider_offers_the_table_in_the_same_order()
     {
-        OpenAICompatibleProvider.Presets.Should().Equal(KnownProviders.All);
+        new OpenAICompatibleProvider(new FixtureHttpClientFactory(new ScriptedHandler((_, _, _) => throw new InvalidOperationException())))
+            .Descriptor.NamedProviders.Should().Equal(KnownProviders.All);
     }
 
     #endregion

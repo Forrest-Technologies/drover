@@ -53,7 +53,7 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-Until the kinds come from the server (#850), the provider choice is Venice, the named providers from `GET /api/model-provider-presets` in the server's order, then `Another compatible server`. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
+Until the kinds come from the server (#850), the provider choice is Venice, the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
 
 | Choice | Drawn as |
 | --- | --- |

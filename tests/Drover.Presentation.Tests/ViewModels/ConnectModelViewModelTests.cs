@@ -5,7 +5,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
 {
     #region Private Fields
 
-    private const string PresetsPath = "/api/model-provider-presets";
+    private const string PresetsPath = "/api/model-provider-kinds";
 
     private static readonly string space = $"/api/spaces/{Samples.Session().Spaces[0].Id}";
 
@@ -32,7 +32,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     [Fact]
     public async Task The_provider_choice_holds_the_servers_named_providers()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Step();
 
         await model.Open();
@@ -47,7 +47,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     [Fact]
     public async Task A_server_with_no_named_providers_offers_the_two_choices_of_before()
     {
-        server.Answer("GET", PresetsPath, Array.Empty<ModelProviderPresetResponse>());
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
         var model = Step();
 
         await model.Open();
@@ -58,7 +58,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     [Fact]
     public async Task A_named_provider_hides_the_address_until_asked()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Step();
         await model.Open();
 
@@ -82,7 +82,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     [Fact]
     public async Task A_provider_with_no_key_shows_no_key_field()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Step();
         await model.Open();
 
@@ -99,7 +99,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     [InlineData("/relative/page")]
     public async Task A_key_page_that_is_not_an_absolute_https_address_is_not_linked(string page)
     {
-        server.Answer("GET", PresetsPath, new[] { new ModelProviderPresetResponse("sample-odd", "Sample odd", "https://odd.example.test/v1", "required", page, false) });
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(new ModelProviderPresetResponse("sample-odd", "Sample odd", "https://odd.example.test/v1", "required", page, false)));
         var model = Step();
         await model.Open();
 
@@ -112,7 +112,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     [Fact]
     public async Task A_provider_whose_key_is_optional_says_so()
     {
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Step();
         await model.Open();
 
@@ -141,7 +141,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         model.BaseUrl = "https://models.example.test/v1";
         model.Named.ShowsAddress.Should().BeTrue();
 
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         await model.RetryProvidersCommand.ExecuteAsync(null);
 
         model.Named.State.Should().Be(NamedProvidersState.Loaded);
@@ -153,7 +153,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     public async Task The_list_is_loading_until_the_server_answers()
     {
         var gate = server.Hold("GET", PresetsPath);
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         var model = Step();
 
         var opening = model.Open();
@@ -171,7 +171,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         var path = $"{space}/model-connections";
         var created = new ModelConnectionSummary(
             Guid.NewGuid(), "Sample hosted", "openai_compatible", "https://hosted.example.test/v1", true, "pending", null, [], null, null);
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
         server.Answer("POST", path, created, HttpStatusCode.Created);
         server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
@@ -194,7 +194,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         var path = $"{space}/model-connections";
         var created = new ModelConnectionSummary(
             Guid.NewGuid(), "Sample keyless", "openai_compatible", "http://localhost:9/v1", false, "pending", null, [], null, null);
-        server.Answer("GET", PresetsPath, SampleProviders.All);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
         server.Answer("POST", path, created, HttpStatusCode.Created);
         server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
@@ -222,6 +222,13 @@ public sealed class ConnectModelViewModelTests : IDisposable
 public static class SampleProviders
 {
     #region Properties
+
+    /// <summary>What the server answers for its kinds: Venice, and the compatible kind with these named providers.</summary>
+    public static ModelProviderKindResponse[] Kinds(params ModelProviderPresetResponse[] named) =>
+    [
+        new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
+        new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
+    ];
 
     public static ModelProviderPresetResponse[] All { get; } =
     [

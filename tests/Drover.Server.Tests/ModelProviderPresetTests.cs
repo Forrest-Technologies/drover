@@ -9,7 +9,7 @@ public abstract class ModelProviderPresetTests(PostgresServer postgres) : Server
 {
     #region Private Fields
 
-    protected const string Route = "/api/model-provider-presets";
+    protected const string Route = "/api/model-provider-kinds";
 
     protected static readonly string[] RowFields = ["address", "displayName", "id", "keyPage", "keyRule", "local"];
 
@@ -29,7 +29,8 @@ public abstract class ModelProviderPresetTests(PostgresServer postgres) : Server
     {
         var response = await client.Get(Route);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
-        return (await response.Content.ReadFromJsonAsync<List<ModelProviderPresetResponse>>(Token))!;
+        var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
+        return [.. kinds.Single(kind => kind.Kind == ModelConnectionKinds.Compatible).NamedProviders];
     }
 
     #endregion
@@ -56,9 +57,9 @@ public sealed class SelfHostedModelProviderPresetTests(PostgresServer postgres) 
 
         var listed = await Listed(client);
 
-        listed.Select(row => row.Id).Should().Equal(OpenAICompatibleProvider.Presets.Select(row => row.Id));
+        listed.Select(row => row.Id).Should().Equal(KnownProviders.All.Select(row => row.Id));
         listed.Should().BeEquivalentTo(
-            OpenAICompatibleProvider.Presets.Select(row => new ModelProviderPresetResponse(
+            KnownProviders.All.Select(row => new ModelProviderPresetResponse(
                 row.Id,
                 row.DisplayName,
                 row.Address,
@@ -69,7 +70,8 @@ public sealed class SelfHostedModelProviderPresetTests(PostgresServer postgres) 
         listed.Select(row => row.KeyRule).Should().OnlyContain(rule =>
             rule == ModelProviderKeyRules.Required || rule == ModelProviderKeyRules.Optional || rule == ModelProviderKeyRules.None);
         using var document = JsonDocument.Parse(body);
-        document.RootElement.EnumerateArray()
+        document.RootElement.EnumerateArray().Single(kind => kind.GetProperty("kind").GetString() == ModelConnectionKinds.Compatible)
+            .GetProperty("namedProviders").EnumerateArray()
             .Select(row => row.EnumerateObject().Select(property => property.Name).Order().ToList())
             .Should().OnlyContain(names => names.SequenceEqual(RowFields), "a row carries no secret");
     }
@@ -103,7 +105,7 @@ public sealed class SelfHostedModelProviderPresetTests(PostgresServer postgres) 
     {
         var listed = await Listed(await SignedIn());
 
-        listed.Where(row => row.Local).Select(row => row.Id).Should().Equal(OpenAICompatibleProvider.Presets.Where(row => row.Local).Select(row => row.Id));
+        listed.Where(row => row.Local).Select(row => row.Id).Should().Equal(KnownProviders.All.Where(row => row.Local).Select(row => row.Id));
     }
 
     #endregion
@@ -163,7 +165,55 @@ public sealed class HostedModelProviderPresetTests(PostgresServer postgres) : Mo
 
         listed.Should().NotBeEmpty();
         listed.Should().OnlyContain(row => !row.Local);
-        listed.Select(row => row.Id).Should().Equal(OpenAICompatibleProvider.Presets.Where(row => !row.Local).Select(row => row.Id));
+        listed.Select(row => row.Id).Should().Equal(KnownProviders.All.Where(row => !row.Local).Select(row => row.Id));
+    }
+
+    #endregion
+}
+
+/// <summary>What the catalog offers of the compatible kind's named providers under each rule of the deployment policy.</summary>
+public sealed class ModelProviderCatalogNamedProviderTests
+{
+    #region Public Methods
+
+    [Fact]
+    public void A_kind_the_operator_does_not_offer_offers_no_named_provider()
+    {
+        var rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList, AllowedModelProviderKinds = ["venice"] };
+
+        Catalog(rules).Offered.Should().NotContain(descriptor => descriptor.Kind == ModelConnectionKinds.Compatible);
+    }
+
+    [Fact]
+    public void The_operators_list_can_offer_the_compatible_kind_and_with_it_its_named_providers()
+    {
+        var rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList, AllowedModelProviderKinds = [ModelConnectionKinds.Compatible] };
+
+        Catalog(rules).Offered.Single().NamedProviders.Should().Equal(KnownProviders.All);
+    }
+
+    [Fact]
+    public void Forbidding_private_addresses_leaves_out_only_the_local_ones_and_keeps_the_order()
+    {
+        var offered = Catalog(DeploymentPolicy.SelfHosted with { AllowPrivateAddresses = false }).Offered.Single().NamedProviders;
+
+        offered.Should().Equal(KnownProviders.All.Where(row => !row.Local));
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static ModelProviderCatalog Catalog(DeploymentPolicy rules) =>
+        new([new OpenAICompatibleProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class NoNetwork : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => throw new InvalidOperationException("No call is made.");
     }
 
     #endregion

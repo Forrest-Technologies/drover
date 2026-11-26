@@ -72,6 +72,10 @@ public sealed record DeploymentPolicy
         return problems;
     }
 
+    /// <summary>Whether this deployment offers a kind of model provider: every kind under All, the listed ones otherwise.</summary>
+    public bool OffersModelProvider(string kind) =>
+        ModelProviders is ModelProviderSet.All || AllowedModelProviderKinds.Contains(kind, StringComparer.Ordinal);
+
     #endregion
 
     #region Constants
@@ -231,7 +235,11 @@ public sealed record DeploymentPolicy
 
     #region Rules
 
-    /// <summary>Outbound requests to private and link-local addresses (model base URLs, MCP URLs, OAuth discovery).</summary>
+    /// <summary>
+    /// Outbound requests to private and link-local addresses that a space, a person, or a bot supplies (model base
+    /// URLs, MCP URLs, OAuth discovery). A service the operator names in the server's own configuration is reached
+    /// whatever this says.
+    /// </summary>
     public bool AllowPrivateAddresses { get; init; } = true;
 
     /// <summary>Which sandbox providers the server registers. A provider without a hard isolation boundary is left out when strict.</summary>
@@ -387,6 +395,13 @@ public sealed record DeploymentPolicy
 
     public ModelProviderSet ModelProviders { get; init; } = ModelProviderSet.All;
 
+    /// <summary>
+    /// The kinds of model provider this server offers when <see cref="ModelProviders"/> is
+    /// <see cref="ModelProviderSet.OperatorList"/>. Empty offers none. Ignored under <see cref="ModelProviderSet.All"/>.
+    /// The operator names them; no preset does.
+    /// </summary>
+    public IReadOnlyList<string> AllowedModelProviderKinds { get; init; } = [];
+
     /// <summary>Anyone may register. Off in both presets; the operator of a hosted service may turn it on.</summary>
     public bool OpenRegistration { get; init; }
 
@@ -501,7 +516,7 @@ public sealed record DeploymentPolicy
         PolicyRule.Permission(
             nameof(AllowPrivateAddresses),
             policy => policy.AllowPrivateAddresses,
-            Enforcement.Now("OutboundHttp, on every outbound connection")),
+            Enforcement.Now("OutboundHttp, on every outbound connection to an address a space, a person, or a bot supplied")),
         PolicyRule.Limit(
             nameof(MaxModelListBytes),
             policy => policy.MaxModelListBytes,
@@ -665,7 +680,11 @@ public sealed record DeploymentPolicy
         PolicyRule.Choice(
             nameof(ModelProviders),
             policy => policy.ModelProviders,
-            Enforcement.Later("Model providers: provider registration (15-model-providers.md)")),
+            Enforcement.Now("ModelProviderCatalog, which offers a kind only where the rule and the list allow it")),
+        PolicyRule.Names(
+            nameof(AllowedModelProviderKinds),
+            policy => policy.AllowedModelProviderKinds,
+            Enforcement.Now("ModelProviderCatalog, when ModelProviders is OperatorList")),
         PolicyRule.Permission(
             nameof(OpenRegistration),
             policy => policy.OpenRegistration,

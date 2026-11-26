@@ -154,6 +154,8 @@ public sealed class SandboxKeySettingTests
         // The engine's registration provides the run scopes the broker opens its transactions through; nothing here
         // opens one.
         services.AddSingleton<RunScopes>();
+        // The engine's registration provides the catalog of model providers the screen reader picks one from.
+        services.AddSingleton<ModelProviderCatalog>();
         services.AddDroverSandboxes(configuration, policy ?? DeploymentPolicy.SelfHosted);
         return services.BuildServiceProvider();
     }

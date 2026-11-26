@@ -104,7 +104,8 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
         try
         {
-            presets = await api.ListModelProviderPresets();
+            var kinds = await api.ListModelProviderKinds();
+            presets = kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [];
             State = NamedProvidersState.Loaded;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
