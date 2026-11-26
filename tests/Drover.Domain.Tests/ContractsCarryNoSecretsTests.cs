@@ -16,6 +16,15 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest"];
 
+    // A card's figure, row and answer values are the words shown on the card, not credentials. Their names are fixed
+    // by the card contract; #880 refuses a field label that names a credential, and an answer is the person's message.
+    private static readonly (Type Type, string Name)[] cardDisplayValues =
+    [
+        (typeof(Drover.Contracts.Cards.CardAnswer), "Values"),
+        (typeof(Drover.Contracts.Cards.CardFigure), "Value"),
+        (typeof(Drover.Contracts.Cards.CardRow), "Value"),
+    ];
+
     #endregion
 
     #region Public Methods
@@ -78,6 +87,15 @@ public sealed class ContractsCarryNoSecretsTests
         ReachableProperties(typeof(HoldsTokens)).Should().Equal("HoldsTokens.RefreshTokens", "HoldsTokens.Token");
     }
 
+    [Fact]
+    public void The_card_value_exceptions_are_only_the_display_values()
+    {
+        ReachableProperties(typeof(Drover.Contracts.Cards.CardAnswer)).Should().BeEmpty();
+        ReachableProperties(typeof(Drover.Contracts.Cards.CardFigure)).Should().BeEmpty();
+        ReachableProperties(typeof(Drover.Contracts.Cards.CardRow)).Should().BeEmpty();
+        ReachableProperties(typeof(HoldsAValue)).Should().Equal("HoldsAValue.Value");
+    }
+
     #endregion
 
     #region Private Methods
@@ -125,8 +143,14 @@ public sealed class ContractsCarryNoSecretsTests
     private static bool LooksLikeASecret(PropertyInfo property)
     {
         var lower = property.Name.ToLowerInvariant();
-        return !allowedWords.Contains(lower) && !IsATokenCount(property) && secretWords.Any(word => lower.Contains(word, StringComparison.Ordinal));
+        return !allowedWords.Contains(lower)
+            && !IsATokenCount(property)
+            && !IsCardDisplayValue(property)
+            && secretWords.Any(word => lower.Contains(word, StringComparison.Ordinal));
     }
+
+    private static bool IsCardDisplayValue(PropertyInfo property) =>
+        Array.Exists(cardDisplayValues, item => item.Type == property.DeclaringType && item.Name == property.Name);
 
     // "Tokens" also names what a model counts its text in. A whole number called "...Tokens" is such a count, a size
     // and never a credential, and it keeps the name the data model gives it (max_output_tokens). The type is what
@@ -146,6 +170,8 @@ public sealed class ContractsCarryNoSecretsTests
     private sealed record CountsTokens(int? MaxOutputTokens, long UsedTokens);
 
     private sealed record HoldsTokens(string RefreshTokens, int Token);
+
+    private sealed record HoldsAValue(string Value);
 
     private sealed record WrapsALeak(List<LeakyResponse> Inner);
 
