@@ -19,6 +19,19 @@ public sealed class MessageRepository(DroverDbContext db)
             .OrderBy(message => message.Position)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The last <paramref name="count"/> messages of the conversation that is shown, oldest first.</summary>
+    public async Task<IReadOnlyList<Message>> ListLatestMessages(Guid threadId, int count, CancellationToken cancellationToken)
+    {
+        var latest = await db.Messages
+            .AsNoTracking()
+            .Where(message => message.ThreadId == threadId && message.Position != null && message.ShelvedAt == null)
+            .OrderByDescending(message => message.Position)
+            .Take(count)
+            .ToListAsync(cancellationToken);
+        latest.Reverse();
+        return latest;
+    }
+
     /// <summary>The latest bot reply in the conversation version the person sees.</summary>
     public Task<Message?> FindLatestReply(Guid threadId, CancellationToken cancellationToken) =>
         db.Messages

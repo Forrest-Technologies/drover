@@ -41,6 +41,10 @@ public sealed partial class DroverApi
     public Task<BotToolEntry> SetBotToolGrant(Guid spaceId, Guid botId, Guid toolId, string grant, CancellationToken cancellationToken = default) =>
         Send<BotToolEntry>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/tools/{toolId}", new SetToolGrantRequest(grant), cancellationToken);
 
+    /// <summary>Sets several tools for the bot at once. Either every change holds or, when one is refused, none does.</summary>
+    public Task<List<BotToolEntry>> SetBotToolGrants(Guid spaceId, Guid botId, List<ToolGrantChange> grants, CancellationToken cancellationToken = default) =>
+        Send<List<BotToolEntry>>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/tools", new SetToolGrantsRequest(grants), cancellationToken);
+
     #endregion
 
     #region Schedules

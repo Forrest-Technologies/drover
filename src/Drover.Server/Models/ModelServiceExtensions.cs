@@ -17,6 +17,7 @@ public static class ModelServiceExtensions
         services.AddVeniceProvider();
         services.TryAddTransient<SpaceOutboundHandler>();
         services.AddHttpClient(OpenAICompatibleProvider.HttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
+        services.AddHttpClient(OpenAICompatibleProvider.RealtimeHttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHttpClient(VeniceProvider.HttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddScoped<ModelConnectionService>();
         return services;

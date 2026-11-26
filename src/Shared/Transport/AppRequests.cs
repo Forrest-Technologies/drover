@@ -87,6 +87,41 @@ public sealed class AppRequests : DelegatingHandler
         }
     }
 
+    /// <summary>
+    /// Opens a WebSocket to an API address of the selected server, signed in as every request is: with the native
+    /// session's access token, over the same HTTPS origin and nowhere else.
+    /// </summary>
+    public async Task<WebSocket> OpenSocket(Uri address, CancellationToken cancellationToken)
+    {
+        if (server.Current is not { } origin || address.Host != Placeholder.Host
+            || !address.AbsolutePath.StartsWith("/api/", StringComparison.Ordinal))
+        {
+            throw new HttpRequestException("The request did not name an API on the selected Drover server.");
+        }
+
+        var access = await session.GetAccess(origin, base.SendAsync, cancellationToken);
+        var target = new UriBuilder(new Uri(origin, address.PathAndQuery)) { Scheme = Uri.UriSchemeWss, Port = origin.Port };
+        var socket = new ClientWebSocket();
+
+        try
+        {
+            socket.Options.Cookies = cookies;
+
+            if (access is not null)
+            {
+                socket.Options.SetRequestHeader("Authorization", $"Bearer {access}");
+            }
+
+            await socket.ConnectAsync(target.Uri, cancellationToken);
+            return socket;
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
     #endregion
 
     #region Interface Implementations

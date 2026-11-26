@@ -29,6 +29,13 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
             .OrderBy(entry => entry.DisplayName).ThenBy(entry => entry.Model)
             .ToListAsync(cancellationToken);
 
+    /// <summary>Every catalog row of the space that is offered now, across its connections.</summary>
+    public Task<List<ModelCatalogEntry>> ListAvailableCatalog(CancellationToken cancellationToken) =>
+        db.ModelCatalog.AsNoTracking()
+            .Where(entry => entry.State == AvailabilityState.Available)
+            .OrderBy(entry => entry.Model)
+            .ToListAsync(cancellationToken);
+
     public Task<ModelCatalogEntry?> FindCatalogEntry(Guid connectionId, string model, CancellationToken cancellationToken) =>
         db.ModelCatalog.AsNoTracking()
             .SingleOrDefaultAsync(entry => entry.ModelConnectionId == connectionId && entry.Model == model, cancellationToken);

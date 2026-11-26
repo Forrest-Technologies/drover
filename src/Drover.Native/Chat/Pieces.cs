@@ -15,6 +15,13 @@ internal static class Pieces
     public static T Make<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() =>
         ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services);
 
+    /// <summary>
+    /// Makes a view model that tells its control of changes from a clock or a device of its own: it is given the
+    /// thread the control is drawn on.
+    /// </summary>
+    public static T Make<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(DependencyObject drawnOn) =>
+        ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services, new UiThread(drawnOn.DispatcherQueue));
+
     /// <summary>The small heading of one part of a card: "Arguments", "What the bot was asked".</summary>
     public static TextBlock PartTitle(string text)
     {

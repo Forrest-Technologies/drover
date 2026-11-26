@@ -41,3 +41,12 @@ public sealed record BotToolEntry(
 
 /// <summary>Sets one tool for one bot: "off", "ask", or "allow".</summary>
 public sealed record SetToolGrantRequest(string? Grant);
+
+/// <summary>
+/// Sets several tools for one bot at once, as a group's quick setting in the editor does. Each change is "off",
+/// "ask", or "allow"; either every change holds or none does.
+/// </summary>
+public sealed record SetToolGrantsRequest(List<ToolGrantChange> Grants);
+
+/// <summary>One tool's new setting in <see cref="SetToolGrantsRequest"/>.</summary>
+public sealed record ToolGrantChange(Guid ToolId, string? Grant);

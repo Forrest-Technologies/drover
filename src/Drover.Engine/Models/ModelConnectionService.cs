@@ -163,6 +163,51 @@ public sealed class ModelConnectionService(
         return new ModelVisionChange(entry, null);
     }
 
+    /// <summary>
+    /// Records what a space admin says a model of a compatible connection does with speech: writes it down, reads
+    /// aloud, holds live calls. All three false clears the mark, and the next refresh goes back to what the model's
+    /// name implies. Null when the connection or the model is not in this space's catalog; a sentence when the
+    /// connection's kind takes no mark.
+    /// </summary>
+    public async Task<ModelVisionChange?> SetVoice(
+        Guid connectionId,
+        string model,
+        bool speechToText,
+        bool textToSpeech,
+        bool realtimeVoice,
+        CancellationToken cancellationToken)
+    {
+        if (await connections.FindConnection(connectionId, cancellationToken) is not { } connection)
+        {
+            return null;
+        }
+
+        if (connection.Kind != ModelConnectionKinds.Compatible)
+        {
+            return new ModelVisionChange(null, "Only the models of a compatible endpoint can be marked for speech. This provider reports its own.");
+        }
+
+        if (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken) is not { } entry)
+        {
+            return null;
+        }
+
+        entry.Capabilities = entry.Capabilities with
+        {
+            SpeechToText = speechToText,
+            TextToSpeech = textToSpeech,
+            RealtimeVoice = realtimeVoice,
+            VoiceSetByOperator = speechToText || textToSpeech || realtimeVoice,
+        };
+        logger.LogInformation(
+            "Model connection {ConnectionId} marked a model for speech: listens {Listens}, speaks {Speaks}, live {Live}",
+            connectionId,
+            speechToText,
+            textToSpeech,
+            realtimeVoice);
+        return new ModelVisionChange(entry, null);
+    }
+
     #endregion
 
     #region Provider Calls

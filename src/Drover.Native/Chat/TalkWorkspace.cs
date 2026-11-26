@@ -81,6 +81,13 @@ internal sealed class TalkWorkspace : Grid
     // The side chats, one press away beside the menu, which also holds them.
     private readonly IconButton sideChats = new() { Icon = IconName.SideChats, Label = "Side chats", VerticalAlignment = VerticalAlignment.Center };
 
+    // A live call with the bot. It shows wherever a spoken message can be recorded or a model can hold a call.
+    private readonly IconButton callButton = new() { Icon = IconName.Phone, Label = VoiceWords.Call, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+
+    private readonly CallViewModel call;
+
+    private readonly CallSurface callSurface;
+
     private readonly ContentPresenter mainBody = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
     private readonly Border railHeader = new();
@@ -129,6 +136,8 @@ internal sealed class TalkWorkspace : Grid
     public TalkWorkspace(TalkViewModel model)
     {
         this.model = model;
+        call = Pieces.Make<CallViewModel>(this);
+        callSurface = new(call);
         crewDivider = new(shell, "Resize the crew sidebar", () => crewColumn.ActualWidth, ResizeCrew, growsLeft: false);
         railDivider = new(shell, "Resize the right panel", () => railColumn.ActualWidth, ResizeRail, growsLeft: true);
         shell.ColumnDefinitions.Add(crewColumn);
@@ -152,6 +161,8 @@ internal sealed class TalkWorkspace : Grid
         Children.Add(gate);
 
         model.PropertyChanged += (_, _) => QueueDraw();
+        call.PropertyChanged += (_, _) => QueueDraw();
+        Loaded += async (_, _) => await call.Open();
         model.RailCloseFocusRequested += () =>
         {
             focusClose = true;
@@ -174,6 +185,13 @@ internal sealed class TalkWorkspace : Grid
 
     /// <summary>Raised when the words for the window's title changed.</summary>
     public event Action? TitleChanged;
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>The workspace is left for another screen: a call under way is hung up.</summary>
+    public async Task Leave() => await call.DisposeAsync();
 
     #endregion
 
@@ -260,7 +278,7 @@ internal sealed class TalkWorkspace : Grid
         // every way to what opens beside the conversation, on every width; the side chats also have a button of their
         // own beside it, since a person goes there often.
         var auto = GridLength.Auto;
-        GridLength[] widths = [auto, auto, new(1, GridUnitType.Star), auto, auto, auto];
+        GridLength[] widths = [auto, auto, new(1, GridUnitType.Star), auto, auto, auto, auto];
         foreach (var width in widths)
         {
             mainHeaderRow.ColumnDefinitions.Add(new() { Width = width });
@@ -268,8 +286,10 @@ internal sealed class TalkWorkspace : Grid
 
         AutomationProperties.SetAutomationId(back, "TalkBack");
         AutomationProperties.SetAutomationId(sideChats, "TalkSideChats");
+        AutomationProperties.SetAutomationId(callButton, "TalkCall");
         sideChats.Click += (_, _) => OpenSideChats();
-        FrameworkElement[] parts = [back, head, title, paused, sideChats, more];
+        callButton.Click += async (_, _) => await StartCall();
+        FrameworkElement[] parts = [back, head, title, paused, callButton, sideChats, more];
         foreach (var part in parts)
         {
             SetColumn(part, mainHeaderRow.Children.Count);
@@ -279,12 +299,15 @@ internal sealed class TalkWorkspace : Grid
         Bar(mainHeader, mainHeaderRow);
 
         mainBox.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        mainBox.RowDefinitions.Add(new() { Height = GridLength.Auto });
         mainBox.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var yard = new Yard();
-        SetRowSpan(yard, 2);
-        SetRow(mainBody, 1);
+        SetRowSpan(yard, mainBox.RowDefinitions.Count);
+        SetRow(callSurface, 1);
+        SetRow(mainBody, mainBox.RowDefinitions.Count - 1);
         mainBox.Children.Add(yard);
         mainBox.Children.Add(mainHeader);
+        mainBox.Children.Add(callSurface);
         mainBox.Children.Add(mainBody);
         AutomationProperties.SetLandmarkType(mainBox, AutomationLandmarkType.Main);
     }
@@ -459,7 +482,17 @@ internal sealed class TalkWorkspace : Grid
         AutomationProperties.SetHeadingLevel(title, model.At is "main" ? AutomationHeadingLevel.Level1 : AutomationHeadingLevel.Level2);
         paused.Visibility = Shown(ChatRows.IsPaused(shown));
         sideChats.Label = model.SideChatsLabel;
+        callButton.Visibility = Shown(call.OffersCall && model.MainPane is { ReadOnly: false });
         DrawMenu(shown);
+    }
+
+    // Calls the bot of the main conversation. A call the server would not take is said on the call's surface.
+    private async Task StartCall()
+    {
+        if (model.Shown is { } shown && model.MainPane is { } pane)
+        {
+            await call.Start(shown, pane.ThreadId);
+        }
     }
 
     // Every way to what opens beside the conversation, with the saves: the one place they are, on every width. The

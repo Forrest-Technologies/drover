@@ -24,12 +24,30 @@ public static class ServiceCollectionExtensions
             })
             .SelectPipelineByAuthority();
 
+        services.AddHttpClient(OpenAICompatibleProvider.RealtimeHttpClientName);
+
         services.AddSingleton<OpenAICompatibleProvider>();
         services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
         services.AddSingleton<IModelImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<ISpeechToText>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<ITextToSpeech>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<IRealtimeVoice>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
         services.AddSingleton<CompatibleChatClientBuilder>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().CreateProtocolClient);
         services.AddSingleton<CompatibleImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().GenerateCompatibleImage);
 
         return services;
+    }
+
+    /// <summary>
+    /// Registers the server's own speech service and returns its client's builder, so the server can give it the
+    /// handler that marks its requests as going to an address the operator configured. A first sound from a speech
+    /// model on a small machine can take a while, so the wait for the answer to begin is wider than the default.
+    /// </summary>
+    public static IHttpClientBuilder AddOperatorSpeech(this IServiceCollection services)
+    {
+        services.AddSingleton<OperatorSpeech>();
+        services.AddSingleton<ISpeechToText>(provider => provider.GetRequiredService<OperatorSpeech>());
+        services.AddSingleton<ITextToSpeech>(provider => provider.GetRequiredService<OperatorSpeech>());
+        return services.AddHttpClient(OperatorSpeech.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(5));
     }
 }
