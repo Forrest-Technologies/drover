@@ -556,7 +556,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Until(() => MainPane.Loading.Should().BeFalse());
         await Until(() => MainPane.List.IsEmpty.Should().BeTrue());
-        MainPane.List.StartHint.Should().Be("Nothing said yet. Write to Marshal below.");
+        MainPane.List.StartHint.Should().Be("No messages yet. Write to Marshal below.");
     }
 
     [Theory]
@@ -1165,9 +1165,9 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Theory]
-    [InlineData("memory", SideView.Memory, "Memory", "What Marshal remembers about you", "Close memory")]
+    [InlineData("memory", SideView.Memory, "Memory", "Marshal's notes about you", "Close memory")]
     [InlineData("files", SideView.Files, "Files", "Files exchanged with Marshal", "Close the files")]
-    [InlineData("activity", SideView.Activity, "Activity", "What Marshal and its crew did in a run", "Close the activity")]
+    [InlineData("activity", SideView.Activity, "Activity", "Activity of Marshal and its crew in a run", "Close the activity")]
     public async Task Each_thing_beside_the_conversation_has_its_title_its_name_and_its_way_to_close(
         string rail, SideView side, string title, string name, string close)
     {

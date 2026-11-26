@@ -156,7 +156,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// </summary>
     public bool IsEmpty => !Loading && Messages.Count == 0 && !Thinking;
 
-    public string StartHint => $"Nothing said yet. Write to {BotName} below.";
+    public string StartHint => $"No messages yet. Write to {BotName} below.";
 
     /// <summary>What is read out, politely: the newest reply sentence by sentence, each tool call's change, a failure.</summary>
     public string? Spoken { get; private set; }

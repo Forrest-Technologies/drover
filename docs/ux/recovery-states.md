@@ -35,7 +35,7 @@ Loading                         Failed                              Loaded
 | Any work screen opened with the server unreachable | the screen's own loading line | `The server did not answer` with `Try again` (the session gate, unchanged) | #569 |
 | Sign in, Create account, opened with the server unreachable | | the screen's own `StatusNote` (`Danger`) with the failure sentence, and `Try again` beside it | #569 |
 
-A conversation that failed to load never shows the empty-conversation sentence (`Nothing said yet` on `main` today, `No messages yet` after #865). Its message field is visible and disabled, with the accessible description `Available when the conversation has loaded.`
+A conversation that failed to load never shows the empty-conversation sentence (`No messages yet`). Its message field is visible and disabled, with the accessible description `Available when the conversation has loaded.`
 
 ## 2. A reply that was lost mid-stream (#556)
 

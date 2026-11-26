@@ -93,13 +93,13 @@ public static class ChatRows
         _ => ChatEntryShape.Bot,
     };
 
-    /// <summary>What a message is, read out before its words: who said it, or that it is what a bot did.</summary>
+    /// <summary>What a message is, read out before its words: who said it, or a bot's activity or reasoning.</summary>
     public static string EntryName(ChatMessage message, string botName, string? asker) => message switch
     {
         { FromPerson: true } => asker is null ? message.SentBy ?? "You said" : $"{asker} asked",
         { UnusableToolRequest: true } => UnusableToolRequests.EntryName(botName),
-        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"What {botName} did",
-        { Text.Length: 0 } => $"What {botName} thought",
+        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"{botName}'s activity",
+        { Text.Length: 0 } => $"{botName}'s reasoning",
         _ => $"{botName} said",
     };
 

@@ -75,7 +75,7 @@ public sealed class ChatEntry : ContentControl
 
     private readonly TextBlock writing = Styles.Text("Writing", "DvTextMono");
 
-    private readonly Link run = new() { Text = "See what happened", MinHeight = Targets.Minimum };
+    private readonly Link run = new() { Text = "Show activity", MinHeight = Targets.Minimum };
 
     private readonly MarkdownView words = new();
 

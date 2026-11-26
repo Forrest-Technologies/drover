@@ -168,7 +168,7 @@ public sealed class ConversationStatusTests
         waiting.SetResult(new(run, "USD", new UsageFigure(0.02m, 1_040, 200), null));
 
         status.Line.Should().Be("vendor/sample-model · 1,240 tokens · USD 0.02");
-        status.Usage!.WrittenBy.Should().Be("Written by vendor/sample-model");
+        status.Usage!.WrittenBy.Should().Be("Model: vendor/sample-model");
         asked.Should().Equal([run]);
     }
 
