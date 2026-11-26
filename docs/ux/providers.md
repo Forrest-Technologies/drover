@@ -53,7 +53,7 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-Until the kinds come from the server (#850), the provider choice is Venice, the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
+The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor.
 
 | Choice | Drawn as |
 | --- | --- |
@@ -66,9 +66,11 @@ Until the kinds come from the server (#850), the provider choice is Venice, the 
 
 | State | Words |
 | --- | --- |
-| Loading the list | `Loading the provider list.` Venice and `Another compatible server` can be chosen meanwhile |
-| The list could not be read | `Could not read the provider list.` with `Try again`. `Another compatible server` still works |
-| A server with no named providers | The two choices of before |
+| Loading the list | `Loading the provider list.` and no choice yet |
+| The list could not be read | `Could not read the provider list.` with `Try again`. `Another compatible server` still works, because it needs nothing from the list |
+| A server with one kind and no named providers | No choice. `This server uses {kind}.` |
+| A server whose kind is switched off for an existing connection | The Models row shows the `Off` badge and `The operator of this server switched {kind} off.` |
+| A required field is empty and a button is pressed | Under the field: `Enter the base address.` or `Enter the key.` |
 
 No provider name or id is written in the client; all of it comes from the server.
 

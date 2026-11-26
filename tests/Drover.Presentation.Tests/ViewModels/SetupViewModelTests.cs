@@ -27,6 +27,7 @@ public sealed class SetupViewModelTests : IDisposable
     {
         session = new(server.CreateApi(), new ShareInbox());
         server.Answer("GET", "/api/session", Samples.Session());
+        server.Answer("GET", "/api/model-provider-kinds", SampleProviders.Kinds());
     }
 
     #endregion
@@ -145,6 +146,7 @@ public sealed class SetupViewModelTests : IDisposable
         server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
         var model = ConnectionStep();
         await model.Open();
+        model.ApiKey = "sample-key";
         await model.Test();
 
         model.ChooseProvider("openai_compatible");

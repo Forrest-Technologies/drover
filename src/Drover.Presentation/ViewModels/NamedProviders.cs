@@ -1,6 +1,6 @@
 namespace Drover.Presentation.ViewModels;
 
-/// <summary>Where the list of named providers stands.</summary>
+/// <summary>Where the list of kinds stands.</summary>
 public enum NamedProvidersState
 {
     Loading,
@@ -9,16 +9,16 @@ public enum NamedProvidersState
 }
 
 /// <summary>
-/// The provider choice of a form that connects a model: Venice, the named providers the server offers in its order,
-/// then another compatible server. The names, addresses and key rules all come from the server. What the form shows
-/// for the chosen provider (the address behind "Change address", the key field, a link to where a key is made, the
-/// line about reach) is decided here, so the two forms that connect a model say the same things.
+/// The provider choice of a form that connects a model, drawn from the kinds the server offers, in its order. A kind
+/// that carries named providers contributes them first, then itself. What the form shows for the choice (the address
+/// behind "Change address", the key field and its label, the hints, a link to where a key is made, the line about
+/// reach) is decided here from the server's descriptors, so the two forms that connect a model say the same things
+/// and a kind the server gains needs no client release. The one kind the client names is the compatible one, because
+/// it is the kind a named provider is a starting point for and the one that still works when the list cannot be read.
 /// </summary>
 public sealed class NamedProviders(DroverApi api, ILogger logger)
 {
     #region Private Fields
-
-    public const string VeniceKind = "venice";
 
     public const string CompatibleKind = "openai_compatible";
 
@@ -32,7 +32,16 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public const string ReachWords = "Drover's server must be able to reach this address.";
 
-    private IReadOnlyList<ModelProviderPresetResponse> presets = [];
+    public const string AddressMissingWords = "Enter the base address.";
+
+    public const string KeyMissingWords = "Enter the key.";
+
+    /// <summary>The largest number of choices shown as a segmented control. Five or more are a list.</summary>
+    public const int MostSegments = 4;
+
+    private const string AnotherCompatibleWords = "Another compatible server";
+
+    private IReadOnlyList<ModelProviderKindResponse> kinds = [];
 
     #endregion
 
@@ -43,40 +52,65 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public NamedProvidersState State { get; private set; } = NamedProvidersState.Loading;
 
-    /// <summary>The value of the chosen option: <see cref="VeniceKind"/>, <see cref="CompatibleKind"/>, or a named provider's id.</summary>
-    public string Choice { get; private set; } = VeniceKind;
+    /// <summary>
+    /// The value of the chosen option: a kind, or a named provider's id. Empty until the list has been read, and then
+    /// the server's first option.
+    /// </summary>
+    public string Choice { get; private set; } = string.Empty;
 
     /// <summary>True once a person asked to see the address of a named provider.</summary>
     public bool AddressRevealed { get; private set; }
 
-    public IReadOnlyList<ModelProviderPresetResponse> Presets => presets;
+    public IReadOnlyList<ModelProviderKindResponse> Kinds => kinds;
+
+    public IReadOnlyList<ModelProviderPresetResponse> Presets => [.. kinds.SelectMany(kind => kind.NamedProviders)];
+
+    public ModelProviderPresetResponse? Selected => Presets.FirstOrDefault(preset => preset.Id == Choice);
+
+    /// <summary>What the server says about the kind of the choice. Null until the list is read, and when it cannot be.</summary>
+    public ModelProviderKindResponse? Descriptor =>
+        kinds.FirstOrDefault(kind => kind.NamedProviders.Any(preset => preset.Id == Choice)) ??
+        kinds.FirstOrDefault(kind => kind.Kind == Choice);
 
     /// <summary>The kind the server stores for the choice. A named provider is a compatible server with an address.</summary>
-    public string Kind => Choice == VeniceKind ? VeniceKind : CompatibleKind;
+    public string Kind => Descriptor?.Kind ?? Choice;
 
-    public ModelProviderPresetResponse? Selected => presets.FirstOrDefault(preset => preset.Id == Choice);
+    public IReadOnlyList<SegmentOption<string>> Options => kinds.Count == 0 && State == NamedProvidersState.Failed
+        ? [new(CompatibleKind, AnotherCompatibleWords)]
+        : [.. kinds.SelectMany(OptionsOf)];
 
-    public IReadOnlyList<SegmentOption<string>> Options =>
-    [
-        new(VeniceKind, "Venice"),
-        .. presets.Select(preset => new SegmentOption<string>(preset.Id, preset.DisplayName)),
-        new(CompatibleKind, "Another compatible server"),
-    ];
+    /// <summary>Whether the form asks for a provider at all. A server with one kind and nothing named shows no choice.</summary>
+    public bool ShowsChoice => Options.Count > 1;
 
-    public bool ShowsAddress => Kind == CompatibleKind && (Selected is null || AddressRevealed);
+    /// <summary>Whether the choice is drawn as a list rather than as segments. The order is the server's either way.</summary>
+    public bool UsesList => Options.Count > MostSegments;
+
+    /// <summary>The line that says which kind a server with one kind uses, or null.</summary>
+    public string? OnlyKindWords => State == NamedProvidersState.Loaded && !ShowsChoice && Descriptor is { } only
+        ? $"This server uses {only.DisplayName}."
+        : null;
+
+    /// <summary>Whether a connection of the choice carries an address. A kind the list does not hold is asked for one.</summary>
+    public bool TakesAddress => Kind.Length > 0 && (Descriptor?.AddressRule ?? ModelAddressRules.Required) == ModelAddressRules.Required;
+
+    public bool ShowsAddress => Selected is null ? TakesAddress : AddressRevealed;
 
     public bool OffersAddressChange => Selected is not null && !AddressRevealed;
 
-    public bool ShowsKey => Selected?.KeyRule != ModelProviderKeyRules.None;
+    public string? AddressHint => Selected is null ? Descriptor?.AddressHint : null;
 
-    public string KeyLabel => Selected?.KeyRule == ModelProviderKeyRules.Optional ? "Key (optional)" : "Key";
+    public bool ShowsKey => Selected is { } named
+        ? named.KeyRule != ModelProviderKeyRules.None
+        : (Descriptor?.KeyRule ?? ModelKeyRules.Optional) != ModelKeyRules.None;
 
-    public string KeyHint => Kind switch
-    {
-        VeniceKind => "Made in your Venice account, under API keys.",
-        _ when Selected is null => "Leave this empty if the server needs no key.",
-        _ => string.Empty,
-    };
+    public bool KeyRequired => Selected is { } named
+        ? named.KeyRule == ModelProviderKeyRules.Required
+        : Descriptor?.KeyRule == ModelKeyRules.Required;
+
+    public string KeyLabel => ShowsKey && !KeyRequired ? "Key (optional)" : "Key";
+
+    /// <summary>The server's words under the key field. Plain text, never a link.</summary>
+    public string KeyHint => Selected is null ? Descriptor?.KeyHint ?? string.Empty : string.Empty;
 
     /// <summary>The words of the link to where a key is made, drawn as plain text. Null where the provider gave no page.</summary>
     public string? KeyLinkText => KeyLinkAddress is null ? null : $"Get a key from {Selected!.DisplayName}";
@@ -104,29 +138,23 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
         try
         {
-            var kinds = await api.ListModelProviderKinds();
-            presets = kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [];
+            kinds = await api.ListModelProviderKinds();
             State = NamedProvidersState.Loaded;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "The list of named providers could not be read");
-            presets = [];
+            logger.LogWarning(exception, "The list of provider kinds could not be read");
+            kinds = [];
             State = NamedProvidersState.Failed;
         }
 
-        // A choice the new list no longer holds falls back to the one that always works.
-        if (Choice != VeniceKind && Choice != CompatibleKind && Selected is null)
-        {
-            Choice = CompatibleKind;
-        }
-
+        KeepChoiceOffered();
         Changed?.Invoke();
     }
 
     /// <summary>
     /// Takes a choice and says what the address becomes: a named provider's own, empty when a person leaves one for
-    /// another compatible server, and otherwise whatever it was.
+    /// another kind, and otherwise whatever it was.
     /// </summary>
     public string? Choose(string chosen)
     {
@@ -144,9 +172,44 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         Changed?.Invoke();
     }
 
-    /// <summary>The name a new connection gets when a person gave none: the provider's, else the address's host.</summary>
+    /// <summary>Whether this server offers the kind. False while the list is unread or unreadable.</summary>
+    public bool Offers(string kind) => kinds.Any(offered => offered.Kind == kind);
+
+    /// <summary>The name a new connection gets when a person gave none: the provider's, else the address's host, else the kind's.</summary>
     public string NameFor(string? address) => Selected?.DisplayName ?? (
-        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice");
+        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : Descriptor?.DisplayName ?? Kind);
+
+    /// <summary>What is missing from the form for a request, as the words under the field, or null for a field that is filled.</summary>
+    public (string? Address, string? Key) Missing(string address, string key) =>
+        (ShowsAddress && address.Trim().Length == 0 ? AddressMissingWords : null,
+         ShowsKey && KeyRequired && key.Trim().Length == 0 ? KeyMissingWords : null);
+
+    #endregion
+
+    #region Private Methods
+
+    private static IEnumerable<SegmentOption<string>> OptionsOf(ModelProviderKindResponse kind) =>
+    [
+        .. kind.NamedProviders.Select(preset => new SegmentOption<string>(preset.Id, preset.DisplayName)),
+        new(kind.Kind, kind.Kind == CompatibleKind ? AnotherCompatibleWords : kind.DisplayName),
+    ];
+
+    // The first option is chosen at first. A choice the new list no longer holds falls back to the first option, or,
+    // when the list could not be read, to the one kind that still works without it.
+    private void KeepChoiceOffered()
+    {
+        if (State == NamedProvidersState.Failed)
+        {
+            Choice = CompatibleKind;
+            return;
+        }
+
+        var offered = Options;
+        if (offered.All(option => option.Value != Choice))
+        {
+            Choice = offered.Count > 0 ? offered[0].Value : string.Empty;
+        }
+    }
 
     #endregion
 }

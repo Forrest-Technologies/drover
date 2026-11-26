@@ -19,6 +19,13 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(Provider.Value);
             }
         });
+        ProviderSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
+        {
+            if (ProviderSegments.Value is { Length: > 0 } chosen && chosen != Model.Named.Choice)
+            {
+                Model.ChooseProvider(chosen);
+            }
+        });
         Model.PropertyChanged += (_, _) => Refresh();
         Refresh();
     }
@@ -50,6 +57,24 @@ public sealed partial class ConnectModelPage : Screen
         {
             Provider.Value = providers.Choice;
         }
+
+        if (!ProviderSegments.Options.SequenceEqual(providers.Options))
+        {
+            ProviderSegments.Options = providers.Options;
+        }
+
+        if (ProviderSegments.Value != providers.Choice)
+        {
+            ProviderSegments.Value = providers.Choice;
+        }
+
+        Provider.Visibility = providers.ShowsChoice && providers.UsesList ? Visibility.Visible : Visibility.Collapsed;
+        ProviderSegments.Visibility = providers.ShowsChoice && !providers.UsesList ? Visibility.Visible : Visibility.Collapsed;
+        OnlyKind.Text = providers.OnlyKindWords ?? string.Empty;
+        OnlyKind.Visibility = providers.OnlyKindWords is null ? Visibility.Collapsed : Visibility.Visible;
+        Address.Hint = providers.AddressHint;
+        Address.Error = Model.AddressProblem;
+        Key.Error = Model.KeyProblem;
 
         ProvidersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
         ProvidersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;

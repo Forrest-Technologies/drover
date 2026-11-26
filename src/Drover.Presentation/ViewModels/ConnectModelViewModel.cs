@@ -9,8 +9,6 @@ public sealed partial class ConnectModelViewModel(
 {
     #region Private Fields
 
-    public const string CompatibleKind = NamedProviders.CompatibleKind;
-
     private NamedProviders? named;
 
     [ObservableProperty]
@@ -32,6 +30,12 @@ public sealed partial class ConnectModelViewModel(
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Passed), nameof(Outcome))]
     private string? problem;
+
+    [ObservableProperty]
+    private string? addressProblem;
+
+    [ObservableProperty]
+    private string? keyProblem;
 
     [ObservableProperty]
     private bool busy;
@@ -68,8 +72,11 @@ public sealed partial class ConnectModelViewModel(
             BaseUrl = address;
         }
 
+        ApiKey = string.Empty;
         Result = null;
         Problem = null;
+        AddressProblem = null;
+        KeyProblem = null;
     }
 
     [RelayCommand]
@@ -81,11 +88,23 @@ public sealed partial class ConnectModelViewModel(
     [RelayCommand]
     public async Task Test()
     {
-        Busy = true;
         Problem = null;
         Result = null;
+        (AddressProblem, KeyProblem) = Named.Missing(BaseUrl, ApiKey);
+        if (AddressProblem is not null || KeyProblem is not null || Kind.Length == 0)
+        {
+            return;
+        }
+
+        Busy = true;
         try
         {
+            if (!Named.Offers(Kind) && Named.State == NamedProvidersState.Loaded)
+            {
+                Problem = $"This server no longer offers {Kind}. Choose another provider.";
+                return;
+            }
+
             Connection = await SaveConnection();
             Result = await api.TestModelConnection(SpaceId, Connection.Id);
         }
@@ -106,7 +125,7 @@ public sealed partial class ConnectModelViewModel(
     // second row for the same provider and address would sit on the Models screen as another one.
     private async Task<ModelConnectionSummary> SaveConnection()
     {
-        var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+        var address = Named.TakesAddress ? BaseUrl.Trim() : null;
         var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
 
         if (Connection is null || Connection.Kind != Kind || !string.Equals(Connection.BaseUrl, address, StringComparison.Ordinal))

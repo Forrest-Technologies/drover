@@ -122,8 +122,9 @@ public sealed class ModelSectionViewModel(BotEditorViewModel editor)
 
     public bool StructuredOutputShown => Known is { StructuredOutput: true };
 
-    public bool AppliesWithoutToolsShown =>
-        Draft.StructuredOutput && editor.Connections.FirstOrDefault(connection => connection.Id == Draft.ModelConnectionId)?.Kind is "venice";
+    // Said for any model that reports structured output, whichever provider it comes from: the model's own
+    // capabilities decide, not the name of the kind of its connection.
+    public bool AppliesWithoutToolsShown => Draft.StructuredOutput;
 
     public string? MaxOutputHint => Known?.MaxOutputSize is { } most ? $"This model writes at most {most}." : null;
 

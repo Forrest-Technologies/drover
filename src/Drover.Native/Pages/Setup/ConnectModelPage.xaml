@@ -10,6 +10,8 @@
       <dv:SetupSteps Current="2" />
       <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Connect a model" />
       <TextBlock Style="{StaticResource DvTextSecondary}" Text="Connect the model your bots use. The key is stored encrypted on this server and is never shown again." />
+      <TextBlock x:Name="OnlyKind" Style="{StaticResource DvTextSecondary}" />
+      <dv:SegmentedControl x:Name="ProviderSegments" Label="Provider" Fills="True" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
       <dv:Select x:Name="Provider" Label="Provider" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
       <TextBlock x:Name="ProvidersLoading" Style="{StaticResource DvTextSecondary}" AutomationProperties.LiveSetting="Polite" />
       <StackPanel x:Name="ProvidersFailed" Spacing="{StaticResource DvSpace2}">
@@ -17,7 +19,7 @@
         <dv:Button x:Name="ProvidersRetry" HorizontalAlignment="Left" Command="{x:Bind Model.RetryProvidersCommand}" />
       </StackPanel>
       <TextBlock x:Name="Reach" Style="{StaticResource DvTextSecondary}" />
-      <dv:Field x:Name="Address" Label="Base address" Type="url" Value="{x:Bind Model.BaseUrl, Mode=TwoWay}" Placeholder="https://" Hint="Any server that speaks the chat completions API, such as one on your own machine." Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <dv:Field x:Name="Address" Label="Base address" Type="url" Value="{x:Bind Model.BaseUrl, Mode=TwoWay}" Placeholder="https://" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
       <dv:Button x:Name="ChangeAddress" HorizontalAlignment="Left" Command="{x:Bind Model.ChangeAddressCommand}" />
       <dv:Field x:Name="Key" Label="Key" Type="password" Value="{x:Bind Model.ApiKey, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
       <dv:Link x:Name="KeyLink" />

@@ -248,6 +248,21 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void No_provider_kind_is_named_in_client_source()
+    {
+        // The one kind the client names is the compatible one, once, in NamedProviders: a named provider is a
+        // starting point for it, and it is the kind that still works when the list of kinds cannot be read.
+        var kinds = new[] { "venice", OpenAICompatibleProvider.ConnectionKind };
+        var found = from file in Repository.NativeFiles(".xaml", ".cs").Concat(Repository.PresentationFiles(".cs"))
+                    from kind in kinds
+                    where file.Text.Contains($"\"{kind}\"", StringComparison.Ordinal)
+                    where !(kind == OpenAICompatibleProvider.ConnectionKind && file.Path.EndsWith("NamedProviders.cs", StringComparison.Ordinal))
+                    select $"{file.Path}: \"{kind}\"";
+
+        found.Should().BeEmpty("the kinds, their names and what each asks for come from the server");
+    }
+
+    [Fact]
     public void Every_control_that_draws_itself_as_decoration_is_left_out_of_what_assistive_technology_reads()
     {
         string[] decorations = ["Controls/Icon.cs", "Controls/DroverMark.cs", "Controls/Yard.cs", "Controls/TravelLine.cs", "Controls/LiveLight.cs", "Controls/AvatarCanvas.cs"];

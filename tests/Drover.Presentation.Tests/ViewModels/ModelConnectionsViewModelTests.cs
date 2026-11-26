@@ -85,13 +85,84 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
         await model.Open();
 
         model.Named.State.Should().Be(NamedProvidersState.Failed);
-        model.Named.Options.Select(option => option.Label).Should().Equal("Venice", "Another compatible server");
+        model.Named.Options.Select(option => option.Label).Should().Equal("Another compatible server");
         model.Connections.Should().NotBeNull("the connections load without the list");
 
         server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         await model.RetryProviders();
 
         model.Named.State.Should().Be(NamedProvidersState.Loaded);
+    }
+
+    [Fact]
+    public async Task A_connection_of_a_kind_the_server_no_longer_offers_is_shown_with_its_notice()
+    {
+        var gone = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample old", "sample-gone", null, true, "ready", null, [], null, null);
+        server.Answer("GET", $"{space}/model-connections", new[] { gone });
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        var model = Models();
+
+        await model.Open();
+
+        model.IsOff(gone).Should().BeTrue();
+        model.StatusOf(gone).Should().Be((BadgeKind.Neutral, "Off"));
+        model.OffWords(gone).Should().Be("The operator of this server switched sample-gone off.");
+    }
+
+    [Fact]
+    public async Task A_connection_of_an_offered_kind_is_not_off_and_nothing_is_said_while_the_list_is_unread()
+    {
+        var kept = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample kept", "venice", null, true, "ready", null, [], null, null);
+        server.Answer("GET", $"{space}/model-connections", new[] { kept });
+        server.Answer("GET", PresetsPath, HttpStatusCode.InternalServerError);
+        var model = Models();
+
+        await model.Open();
+
+        model.IsOff(kept).Should().BeFalse("the list could not be read, so nothing is known");
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        await model.RetryProviders();
+        model.IsOff(kept).Should().BeFalse();
+        model.StatusOf(kept).Should().Be((BadgeKind.Ok, "Working"));
+        model.Facts(kept).Should().StartWith("venice · key stored");
+    }
+
+    [Fact]
+    public async Task A_kind_the_client_has_never_heard_of_can_be_added()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "models.example.test", "sample-third", "https://models.example.test/v1", false, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Models();
+        await model.Open();
+        model.StartAdding();
+        model.ChooseProvider("sample-third");
+        model.BaseUrl = "https://models.example.test/v1";
+
+        await model.Add();
+
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest(
+                "sample-third", "models.example.test", "https://models.example.test/v1", null, null));
+    }
+
+    [Fact]
+    public async Task A_required_field_left_empty_says_what_to_enter_and_adds_nothing()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        var model = Models();
+        await model.Open();
+        model.StartAdding();
+
+        await model.Add();
+
+        model.AddKeyProblem.Should().Be("Enter the key.");
+        server.Sent("POST", $"{space}/model-connections").Should().BeEmpty();
     }
 
     [Fact]
