@@ -54,7 +54,11 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
         new(
             Lower(space.MaxStepsPerRun, Deployment.MaxStepsPerRun),
             Lower(space.MaxTokensPerRun, Deployment.MaxTokensPerRun),
-            Delegation(space).MaxHandoffs);
+            Delegation(space).MaxHandoffs)
+        {
+            CanRemoveTokenLimit = Preset == DeploymentPolicy.SelfHostedName && !options.Value.HasConfiguredTokenLimit
+                && Deployment.MaxTokensPerRun == DeploymentPolicy.SelfHostedMaxTokensPerRun && space.MaxTokensPerRun is null,
+        };
 
     /// <summary>The space's limits on one run, read from its settings. Runs in the tenant scope the caller opened.</summary>
     public async Task<RunCeilings> GetRuns(Guid spaceId, CancellationToken cancellationToken) =>

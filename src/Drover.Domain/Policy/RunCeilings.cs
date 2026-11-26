@@ -6,11 +6,18 @@ namespace Drover.Domain.Policy;
 /// </summary>
 public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations)
 {
+    public bool CanRemoveTokenLimit { get; init; }
+
+    public bool TokensUnlimited { get; init; }
+
     #region Public Methods
 
     /// <summary>These limits as one bot's runs have them: each the bot's own value where that is lower.</summary>
     public RunCeilings NarrowedBy(RunLimits bot) =>
-        new(Lower(bot.MaxSteps, MaxSteps), Lower(bot.MaxTokens, MaxTokens), Lower(bot.MaxDelegations, MaxDelegations));
+        new(Lower(bot.MaxSteps, MaxSteps), Lower(bot.MaxTokens, MaxTokens), Lower(bot.MaxDelegations, MaxDelegations))
+        {
+            TokensUnlimited = CanRemoveTokenLimit && bot.UnlimitedTokensAcknowledged && bot.MaxTokens is null,
+        };
 
     #endregion
 

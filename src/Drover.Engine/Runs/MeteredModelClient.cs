@@ -5,12 +5,13 @@ namespace Drover.Engine.Runs;
 /// announced as <c>step.started</c>, given the message id the step's output is stored under, and refused outright if
 /// a tenant transaction is open. Balances a provider reports with a reply are recorded on the connection.
 /// </summary>
-public sealed class MeteredModelClient(IModelChatClient inner, RunSession session, Guid connectionId, ILogger logger) : IModelChatClient
+public sealed class MeteredModelClient(IModelChatClient inner, RunSession session, Guid connectionId, ILogger logger, ModelCapabilities? capabilities, MemorySettings memory) : IModelChatClient
 {
     #region Interface Implementations
 
     public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
+        request = RequestCompaction.Fit(request, capabilities, memory);
         var messageId = await BeginStep();
         var response = await inner.GetResponse(request, cancellation);
         await session.EndStep();
@@ -22,6 +23,7 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
         ModelChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellation = default)
     {
+        request = RequestCompaction.Fit(request, capabilities, memory);
         var messageId = await BeginStep();
         IReadOnlyList<ModelBalance> balances = [];
 

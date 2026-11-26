@@ -259,7 +259,8 @@ public static class BotEditorEndpoints
         return TypedResults.Ok(new BotRunLimitOptions(
             limits.MaxSteps == int.MaxValue ? null : limits.MaxSteps,
             limits.MaxTokens,
-            limits.MaxDelegations));
+            limits.MaxDelegations,
+            limits.CanRemoveTokenLimit));
     }
 
     #endregion

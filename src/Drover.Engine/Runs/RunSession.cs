@@ -258,7 +258,7 @@ public sealed class RunSession(
                 limits.MaxSteps);
         }
 
-        if (TokensUsed >= limits.MaxTokens)
+        if (!limits.TokensUnlimited && TokensUsed >= limits.MaxTokens)
         {
             throw new RunLimitException(
                 RunReasons.TokenLimit,
@@ -281,7 +281,7 @@ public sealed class RunSession(
     /// </summary>
     public Task BeginToolModelCall()
     {
-        if (TokensUsed >= limits.MaxTokens)
+        if (!limits.TokensUnlimited && TokensUsed >= limits.MaxTokens)
         {
             throw new BuiltinToolException($"This run has used {TokensUsed:N0} tokens, and it may use {limits.MaxTokens:N0}, so no other model is called for it.");
         }

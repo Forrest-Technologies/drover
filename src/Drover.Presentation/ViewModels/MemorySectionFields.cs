@@ -12,7 +12,7 @@ public static class MemorySectionFields
     #region Properties
 
     public static string Note =>
-        "With Remember across conversations on, the bot keeps notes on what it learns about each person it talks to. Summarizes older messages works in a bot's main conversation. The other ways to handle a long conversation, and the two numbers under them, are saved and change nothing yet.";
+        "With Remember across conversations on, the bot keeps notes on what it learns about each person it talks to. Summarizes older messages works in a bot's main conversation. Before a model call, Drover can leave out older messages or shorten a tool result to fit the request. Your conversation keeps the original messages.";
 
     public static string RememberLabel => "Remember across conversations";
 

@@ -574,6 +574,26 @@ public sealed class RunEngineTests(PostgresServer postgres)
         (await world.ReadEvents(runId))[^1].Type.Should().Be(RunEventTypes.RunFailed);
     }
 
+    [Theory]
+    [InlineData(false, RunStatus.Failed, 1)]
+    [InlineData(true, RunStatus.Completed, 2)]
+    public async Task Only_an_acknowledged_unlimited_run_continues_at_five_million_tokens(bool acknowledged, RunStatus expected, int calls)
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_lookup")], [new TextOutput("Finished.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(4_999_999, 1, 5_000_000);
+        await world.SetRunLimits(new RunLimits { UnlimitedTokensAcknowledged = acknowledged });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Continue");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(expected);
+        run.Usage.InputTokens.Should().Be(4_999_999L * calls);
+        script.Requests.Should().HaveCount(calls);
+    }
+
     [Fact]
     public async Task A_run_that_has_used_its_tokens_fails_with_token_limit_before_the_next_model_call()
     {
