@@ -240,6 +240,7 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
         editor.ServerAddress.Should().Be("https://learn.example.test/mcp");
         editor.ServerAuth.Should().Be("none");
         editor.SuggestedTools.Should().Be("search: Finds pages.");
+        ExtensionEditorViewModel.IdHint.Should().Contain("fork");
         editor.Id = "forrest.forge-fork";
         editor.FileName.Should().Be("forrest.forge-fork.json");
     }

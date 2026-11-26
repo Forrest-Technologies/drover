@@ -31,6 +31,10 @@ public sealed class ExtensionRepository(DroverDbContext db)
     public async Task<InstalledExtension?> FindInstalled(Guid id, CancellationToken cancellationToken) =>
         (await ListInstalled(id, cancellationToken)).SingleOrDefault();
 
+    /// <summary>The install that added a bot, or null when the bot was made another way.</summary>
+    public Task<ExtensionInstall?> FindForBot(Guid botId, CancellationToken cancellationToken) =>
+        db.ExtensionInstalls.AsNoTracking().SingleOrDefaultAsync(install => install.BotId == botId, cancellationToken);
+
     #endregion
 
     #region Private Methods
