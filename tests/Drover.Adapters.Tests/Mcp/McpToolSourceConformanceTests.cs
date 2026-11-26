@@ -53,7 +53,8 @@ public sealed class McpToolSourceConformanceTests : ToolSourceConformance
         services.AddSingleton(TimeProvider.System);
         services.AddMcpToolSource();
         services.AddSingleton<ClosedConnection>();
-        services.AddHttpClient(McpToolSource.HttpClientName).AddHttpMessageHandler(provider => provider.GetRequiredService<ClosedConnection>());
+        services.AddHttpClient(McpToolSource.HttpClientName)
+            .AddHttpMessageHandler(provider => provider.GetRequiredService<ClosedConnection>());
         return services.BuildServiceProvider();
     }
 
@@ -86,12 +87,16 @@ public sealed class McpToolSourceConformanceTests : ToolSourceConformance
 
         #region Protected Methods
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
         {
             if (Interlocked.Exchange(ref armed, 0) is 1)
             {
                 Interlocked.Increment(ref failures);
-                throw new HttpRequestException("An error occurred while sending the request.", new SocketException((int)SocketError.ConnectionReset));
+                throw new HttpRequestException(
+                    "An error occurred while sending the request.",
+                    new SocketException((int)SocketError.ConnectionReset));
             }
 
             return base.SendAsync(request, cancellationToken);

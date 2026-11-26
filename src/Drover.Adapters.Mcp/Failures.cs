@@ -63,7 +63,8 @@ public static class Failures
     /// </summary>
     public static bool IsConnectionResetOrRefused(Exception failure) =>
         Find<HttpRequestException>(failure) is { StatusCode: null }
-        && Find<SocketException>(failure) is { SocketErrorCode: SocketError.ConnectionReset or SocketError.ConnectionRefused };
+        && Find<SocketException>(failure)?.SocketErrorCode
+            is SocketError.ConnectionReset or SocketError.ConnectionRefused;
 
     /// <summary>
     /// True when a server that was reached and answered would not open with the one protocol revision it was asked
