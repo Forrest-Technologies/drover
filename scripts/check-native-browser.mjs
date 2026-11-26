@@ -1927,6 +1927,16 @@ async function checkConversationSearch(page, width) {
 async function checkApprovalKeepsPosition(page, width, theme) {
     const approves = page.getByRole('button', { name: 'Approve', exact: true });
     await approves.nth(2).waitFor({ state: 'attached', timeout: 20000 });
+    const decisionsSeen = [];
+    page.on('request', request => {
+        if (request.url().includes('/tool-calls/') && request.url().includes('/decision')) {
+            decisionsSeen.push(`${request.method()} ${request.url()}`);
+        }
+    });
+    await page.waitForFunction(() =>
+        [...document.querySelectorAll('[role="button"][aria-label="Approve"]')]
+            .filter(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true').length >= 3,
+    null, { timeout: 15000 });
 
     // The reader is above the foot, looking at the current requests with another waiting below them.
     await page.mouse.move(width / 2, 500);
@@ -1945,13 +1955,23 @@ async function checkApprovalKeepsPosition(page, width, theme) {
     });
     assert.ok(anchor, 'a message of the conversation is in view above the waiting requests.');
 
-    const decided = decision => page.waitForResponse(response => response.request().method() === 'POST'
-        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/tool-calls/${approvalCallIds[decision]}/decision`
+    const decided = () => page.waitForResponse(response => response.request().method() === 'POST'
+        && /\/tool-calls\/[^/]+\/decision$/.test(new URL(response.url()).pathname)
         && response.ok(), { timeout: 15000 });
 
-    const first = decided(0);
+    const buttons = await page.evaluate(() => [...document.querySelectorAll('[role="button"][aria-label="Approve"]')]
+        .map(button => ({ disabled: button.disabled, aria: button.getAttribute('aria-disabled') })));
+    const diagnose = error => new Error(
+        `${error.message}. Decision requests seen: ${JSON.stringify(decisionsSeen)}. Approve buttons: ${JSON.stringify(buttons)}.`,
+        { cause: error });
+
+    const first = decided();
     await approves.first().dispatchEvent('click');
-    await first;
+    try {
+        await first;
+    } catch (error) {
+        throw diagnose(error);
+    }
 
     await page.waitForFunction(() => {
         const active = document.activeElement;
@@ -1973,10 +1993,14 @@ async function checkApprovalKeepsPosition(page, width, theme) {
     assert.ok(Math.abs(afterPointer - anchor.top) <= 4,
         `the message being read moved ${Math.abs(afterPointer - anchor.top)}px when the approval was sent.`);
 
-    const second = decided(1);
+    const second = decided();
     await approves.last().focus();
     await page.keyboard.press('Enter');
-    await second;
+    try {
+        await second;
+    } catch (error) {
+        throw diagnose(error);
+    }
 
     await page.waitForFunction(() => {
         const active = document.activeElement;
@@ -1999,6 +2023,8 @@ async function checkApprovalKeepsPosition(page, width, theme) {
         `the message being read moved ${Math.abs(afterKeyboard - anchor.top)}px when the run events arrived.`);
 
     assert.equal(approvalDecisions.length, 2, 'each request was answered once.');
+    assert.deepEqual(approvalDecisions.map(decision => decision.toolCallId), approvalCallIds.slice(0, 2),
+        'the first two waiting calls were the ones answered.');
     assert.ok(approvalDecisions.every(decision => decision.approved), 'both approvals were sent as approved.');
     approvalHeldEvents.splice(0).forEach(held => held.fulfill({ contentType: 'text/event-stream', body: '' }));
     process.stdout.write(`approval position ${width} ${theme}: passed\n`);
