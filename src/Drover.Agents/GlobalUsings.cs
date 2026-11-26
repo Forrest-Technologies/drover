@@ -28,7 +28,6 @@ global using Drover.Domain.Threads;
 global using Drover.Domain.Tools;
 global using Drover.ModelTransport;
 global using Microsoft.Agents.AI;
-global using FrameworkCompaction = Microsoft.Agents.AI.Compaction;
 global using Microsoft.Agents.AI.Workflows;
 global using Microsoft.Agents.AI.Workflows.Checkpointing;
 global using Microsoft.Extensions.AI;
@@ -36,3 +35,4 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Logging;
 // Drover.Domain.Runs.AgentSession is the stored row; in this project the name means the framework session.
 global using AgentSession = Microsoft.Agents.AI.AgentSession;
+global using FrameworkCompaction = Microsoft.Agents.AI.Compaction;
