@@ -303,7 +303,7 @@ public sealed class MarkdownView : StackPanel
 
         if (prose is [LinkNode link] && link.Children is [TextNode { Text: var label }])
         {
-            var anchor = new Link { Text = label, Address = link.Address };
+            var anchor = new Link { Text = label, Address = link.Address, MinHeight = Targets.Minimum };
             anchor.Click += (_, _) => LinkPressed?.Invoke();
             yield return anchor;
         }
