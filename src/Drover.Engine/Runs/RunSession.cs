@@ -243,7 +243,7 @@ public sealed class RunSession(
     /// Starts a model call. The step's message id is chosen here, before the call, so the deltas, the stored message,
     /// and <c>message.completed</c> all carry the same id.
     /// </summary>
-    public async Task<Guid> BeginStep()
+    public async Task<Guid> BeginStep(long estimatedInputTokens, bool shortened)
     {
         await AnnounceStoredMessage();
 
@@ -268,7 +268,7 @@ public sealed class RunSession(
                 limits.MaxTokens);
         }
 
-        var started = new StepChanged(++step, Guid.CreateVersion7());
+        var started = new StepChanged(++step, Guid.CreateVersion7(), estimatedInputTokens, shortened);
         openStep = started;
         lastStep = started;
         await writer.Append(RunId, RunEventTypes.StepStarted, started);

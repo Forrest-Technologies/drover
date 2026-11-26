@@ -16,6 +16,34 @@ public sealed class ConversationSummaryTests(PostgresServer postgres)
     #region Writing
 
     [Fact]
+    public async Task A_size_triggered_summary_fits_each_pass_and_records_its_progress()
+    {
+        var script = new ScriptedModel([new TextOutput(new string('b', 3500))], [new TextOutput("First pass.")], [new TextOutput("Both messages.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        await world.Read(async db =>
+        {
+            var bot = await db.Bots.SingleAsync(found => found.Id == world.BotId, RunWorld.Token);
+            bot.MemorySettings = new MemorySettings { CompactAtTokens = 1000 };
+            var model = await db.ModelCatalog.SingleAsync(RunWorld.Token);
+            model.Capabilities = new ModelCapabilities { ContextTokens = 2800, MaxOutputTokens = 1000 };
+            return true;
+        });
+        world.StartHost(options =>
+        {
+            options.SummaryAfterMessages = 20;
+            options.SummaryKeepsRecentMessages = 0;
+        });
+        var thread = await world.NewMainThread();
+        await Exchange(world, thread, new string('a', 3500));
+
+        (await WaitForSummary(world, thread, "Both messages.")).SummaryThroughPosition.Should().Be(2);
+        var passes = world.Model.Requests.Skip(1).ToList();
+        passes.Should().HaveCount(2);
+        passes.Should().OnlyContain(request => TokenEstimate.Request(request) <= 1800);
+        passes[^1].Messages[0].Contents.OfType<ModelText>().Single().Text.Should().Contain("First pass.");
+    }
+
+    [Fact]
     public async Task No_summary_is_written_while_fewer_messages_than_the_threshold_lie_beyond_it()
     {
         var script = new ScriptedModel([new TextOutput("Answer one.")], [new TextOutput("Answer two.")], [new TextOutput("Answer three.")]);
@@ -313,6 +341,22 @@ public sealed class ConversationSummaryTests(PostgresServer postgres)
     #endregion
 
     #region Planning
+
+    [Fact]
+    public void Five_messages_with_a_large_tool_result_trigger_a_summary_by_size()
+    {
+        var thread = new ChatThread { IsMain = true };
+        Message[] messages =
+        [
+            Spoken(1, MessageRole.User, "Look it up"),
+            Spoken(2, MessageRole.Assistant, "Looking"),
+            new() { Position = 3, Role = MessageRole.Tool, Parts = [new ToolResultPart(Guid.CreateVersion7(), "call", false, JsonSerializer.SerializeToElement(new string('x', 5000)))] },
+            Spoken(4, MessageRole.Assistant, "Done"),
+            Spoken(5, MessageRole.User, "Continue"),
+        ];
+        ConversationSummarizer.Plan(thread, messages, new RunOptions { SummaryAfterMessages = 20, SummaryKeepsRecentMessages = 2 }, 1000)
+            .Should().NotBeNull();
+    }
 
     [Fact]
     public void A_plan_counts_only_person_and_bot_messages_that_were_not_withheld_and_covers_the_tool_messages_between()

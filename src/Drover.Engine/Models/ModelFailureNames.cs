@@ -10,6 +10,7 @@ public static class ModelFailureNames
             ModelFailure.RetryLater => "retry_later",
             ModelFailure.OutOfCredit => "out_of_credit",
             ModelFailure.Unreachable => "unreachable",
+            ModelFailure.TooLong => "too_long",
             _ => "rejected",
         };
 }
