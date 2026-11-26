@@ -172,7 +172,7 @@ public static class Conversations
             && cards.Count == 0
             && files.Count == 0
             && sources.Count == 0
-            && UnusableToolRequests.IsProtocolEnvelope(words);
+            && UnusableToolRequests.IsUnusableRequest(words);
 
         var shown = new ChatMessage(message.Id.ToString(), fromPerson, words, message.IsStreaming, message.IsPending)
         {
