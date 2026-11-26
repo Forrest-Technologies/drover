@@ -20,7 +20,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 | `IMemoryStore` | Store and recall long-term memory for a bot | PostgreSQL with `pgvector` (Phase 1) | |
 | `IEmbeddingProvider` | Text to vector | Venice and compatible endpoints, through `IEmbeddingGenerator` (Phase 1) | |
 | `IWebSearch` | Search the web, for the `web.search` tool | `Drover.Adapters.SearXng`: the operator's own SearXNG instance through its JSON search API, which a self-hoster runs without an account or a key | Venice's search endpoint; any provider with a plain HTTP API and operator key |
-| `ISpeechToText`, `ITextToSpeech` | Voice in and out | Venice's speech endpoints (Phase 2) | |
+| `ISpeechToText`, `ITextToSpeech`, `IRealtimeVoice` | Write down a recording, read text aloud, and hold a live call with a speech-to-speech model ([15-model-providers.md](15-model-providers.md#voice)) | `Drover.Adapters.OpenAICompatible`, for any endpoint that speaks the compatible audio and realtime protocols, with `HttpClient` and `ClientWebSocket` and no added package; the same adapter on its own client serves the server's own speech service | Venice's speech endpoints |
 | `IPushChannel` | Deliver a wake-up to one subscription | Web Push, which also serves UnifiedPush | Apple relay, Google |
 | `IFileStore` | Store and fetch blobs by key | Local volume | S3-compatible through `AWSSDK.S3` |
 | `IEmailSender` | Send account email | SMTP through MailKit (Phase 2) | |
