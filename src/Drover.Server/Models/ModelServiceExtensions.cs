@@ -19,6 +19,11 @@ public static class ModelServiceExtensions
             OpenAICompatibleProvider.HttpClientName,
             OpenAICompatibleProvider.RealtimeHttpClientName);
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
+        services.Configure<CopilotPlanOptions>(configuration.GetSection(CopilotPlanOptions.Section));
+        services.AddModelProvider<CopilotPlanProvider>(
+            adapter => adapter.AddCopilotPlanProvider(),
+            CopilotPlanProvider.HttpClientName,
+            CopilotPlanProvider.AuthHttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));

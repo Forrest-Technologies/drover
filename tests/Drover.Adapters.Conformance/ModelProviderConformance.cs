@@ -289,7 +289,13 @@ public abstract class ModelProviderConformance
 
         var withoutKey = () => provider.CreateChatClient(subject.Connection, null, subject.ModelId, new ModelSettings()).GetResponse(Prompt(GreetingPrompt));
 
-        if (descriptor.KeyRule is ModelKeyRule.Required)
+        if (descriptor.SignIn)
+        {
+            var failure = (await FluentActions.Awaiting(withoutKey).Should().ThrowAsync<ModelProviderException>()).Which;
+            failure.Failure.Should().Be(ModelFailure.InvalidKey);
+            failure.Message.Should().Contain("sign");
+        }
+        else if (descriptor.KeyRule is ModelKeyRule.Required)
         {
             var failure = (await FluentActions.Awaiting(withoutKey).Should().ThrowAsync<ModelProviderException>()).Which;
             failure.Failure.Should().Be(ModelFailure.InvalidKey);

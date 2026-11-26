@@ -50,4 +50,38 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITextToSpeech>(provider => provider.GetRequiredService<OperatorSpeech>());
         return services.AddHttpClient(OperatorSpeech.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(5));
     }
+
+    /// <summary>
+    /// Registers Copilot as a sign-in provider. Chat and model listing share the compatible transport; GitHub's
+    /// device-code and token-exchange calls go through a second named client. Register the compatible transport
+    /// first. The operator's <c>Drover:Models:Copilot</c> section is bound in <c>AddDroverModels</c>.
+    /// </summary>
+    public static IServiceCollection AddCopilotPlanProvider(this IServiceCollection services)
+    {
+        services.AddOptions<CopilotPlanOptions>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddTransient<CopilotHeaderHandler>();
+
+        services.AddHttpClient(CopilotPlanProvider.HttpClientName)
+            .AddHttpMessageHandler<CopilotHeaderHandler>()
+            .AddStandardResilienceHandler(options =>
+            {
+                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(6);
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
+                options.Retry.ShouldHandle = arguments =>
+                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome));
+                options.CircuitBreaker.ShouldHandle = arguments =>
+                    ValueTask.FromResult(RetryRules.CountsAgainstCircuit(arguments.Outcome));
+            })
+            .SelectPipelineByAuthority();
+
+        services.AddHttpClient(CopilotPlanProvider.AuthHttpClientName)
+            .AddHttpMessageHandler<CopilotHeaderHandler>();
+
+        services.AddSingleton<CopilotPlanProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<CopilotPlanProvider>());
+        services.AddSingleton<IModelSignIn, CopilotPlanSignIn>();
+        return services;
+    }
 }

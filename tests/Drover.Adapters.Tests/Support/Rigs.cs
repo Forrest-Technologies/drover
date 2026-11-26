@@ -21,6 +21,31 @@ public static class VeniceRig
     #endregion
 }
 
+public static class CopilotRig
+{
+    #region Public Methods
+
+    public const string ModelId = "gpt-4.1";
+
+    public static Rig Start(string fixtureName)
+    {
+        var folder = fixtureName is ConformanceScenarios.ListModels or ConformanceScenarios.TestConnection
+            ? "copilot"
+            : "openai-compatible";
+        var handler = new RecordedHandler(RecordedFixture.Load(folder, fixtureName));
+        var clients = new FixtureHttpClientFactory(handler);
+        var provider = new CopilotPlanProvider(
+            clients,
+            Microsoft.Extensions.Options.Options.Create(new CopilotPlanOptions()),
+            NullLogger<CopilotPlanProvider>.Instance);
+        var connection = new ModelEndpoint(ModelConnectionKinds.CopilotSignIn, provider.FixedAddress!);
+
+        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
+    }
+
+    #endregion
+}
+
 public static class CompatibleRig
 {
     #region Public Methods

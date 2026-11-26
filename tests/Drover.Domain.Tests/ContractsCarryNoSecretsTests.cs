@@ -12,7 +12,7 @@ public sealed class ContractsCarryNoSecretsTests
     private static readonly string[] secretWords =
         ["password", "secret", "token", "apikey", "credential", "ciphertext", "passphrase", "privatekey", "code", "value"];
 
-    private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
+    private static readonly string[] allowedWords = ["hasvalue", "requirescode", "usercode"];
 
     private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest"];
 

@@ -8,7 +8,7 @@ public sealed partial class ModelConnectionsViewModel(
     DroverApi api,
     SessionState session,
     SpaceVoice voice,
-    ILogger<ModelConnectionsViewModel> logger) : ObservableObject
+    ILogger<ModelConnectionsViewModel> logger) : ObservableObject, IDisposable
 {
     #region Private Fields
 
@@ -16,11 +16,15 @@ public sealed partial class ModelConnectionsViewModel(
 
     private const string CompatibleKind = "openai_compatible";
 
-    public static readonly SegmentOption<string>[] Providers =
+    private static readonly SegmentOption<string>[] defaultProviders =
     [
         new(VeniceKind, "Venice"),
         new(CompatibleKind, "Compatible endpoint"),
     ];
+
+    private IReadOnlyList<ModelProviderKindResponse> offered = [];
+
+    private CancellationTokenSource? poll;
 
     private readonly Dictionary<Guid, string> problems = [];
 
@@ -28,6 +32,10 @@ public sealed partial class ModelConnectionsViewModel(
     private List<ModelConnectionSummary>? connections;
 
     [ObservableProperty]
+    private IReadOnlyList<SegmentOption<string>> providers = defaultProviders;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSignIn), nameof(SignInName))]
     private string kind = VeniceKind;
 
     [ObservableProperty]
@@ -76,6 +84,15 @@ public sealed partial class ModelConnectionsViewModel(
     [ObservableProperty]
     private string? keyProblem;
 
+    [ObservableProperty]
+    private string? userCode;
+
+    [ObservableProperty]
+    private string? verificationAddress;
+
+    [ObservableProperty]
+    private bool waitingForApproval;
+
     #endregion
 
     #region Properties
@@ -89,6 +106,10 @@ public sealed partial class ModelConnectionsViewModel(
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
     public bool CanEdit => session.Space?.Role is "owner" or "admin";
 
+    public bool IsSignIn => offered.FirstOrDefault(candidate => candidate.Kind == Kind)?.SignIn == true;
+
+    public string SignInName => offered.FirstOrDefault(candidate => candidate.Kind == Kind)?.DisplayName ?? Kind;
+
     #endregion
 
     #region Overrides
@@ -97,9 +118,12 @@ public sealed partial class ModelConnectionsViewModel(
     {
         if (await session.Load() is not null)
         {
+            await LoadKinds();
             await Load();
         }
     }
+
+    public void Dispose() => StopWaiting();
 
     #endregion
 
@@ -112,13 +136,25 @@ public sealed partial class ModelConnectionsViewModel(
         _ => (BadgeKind.Neutral, "Not tested"),
     };
 
-    public static string Facts(ModelConnectionSummary connection)
+    public string Facts(ModelConnectionSummary connection)
     {
-        var kindWords = connection.Kind == CompatibleKind ? "compatible endpoint" : connection.Kind;
-        var key = connection.HasKey ? "key stored" : "no key";
+        var kindWords = DisplayNameOf(connection.Kind);
+        var key = connection.SignIn is { } signIn
+            ? SignInWords(signIn)
+            : connection.HasKey ? "key stored" : "no key";
         var checkedWords = connection.LastCheckedAt is { } at ? $"checked {at.ToLocalTime():g}" : "never checked";
         return $"{kindWords} · {key} · {checkedWords}";
     }
+
+    public string DisplayNameOf(string kind) =>
+        offered.FirstOrDefault(candidate => candidate.Kind == kind)?.DisplayName
+        ?? (kind == CompatibleKind ? "compatible endpoint" : kind);
+
+    public bool NeedsSignIn(ModelConnectionSummary connection) =>
+        connection.SignIn is { Status: ModelSignInStatuses.None or ModelSignInStatuses.NeedsSignIn };
+
+    public bool IsSignedIn(ModelConnectionSummary connection) =>
+        connection.SignIn?.Status == ModelSignInStatuses.Active;
 
     public async Task Load()
     {
@@ -137,8 +173,11 @@ public sealed partial class ModelConnectionsViewModel(
 
     public void ChooseProvider(string chosen)
     {
+        StopWaiting();
         Kind = chosen;
         AddProblem = null;
+        UserCode = null;
+        VerificationAddress = null;
     }
 
     public void StartAdding()
@@ -149,15 +188,21 @@ public sealed partial class ModelConnectionsViewModel(
         ApiKey = string.Empty;
         BaseUrl = string.Empty;
         Name = string.Empty;
+        UserCode = null;
+        VerificationAddress = null;
+        WaitingForApproval = false;
     }
 
     public void CancelAdding()
     {
+        StopWaiting();
         Adding = false;
         AddProblem = null;
         ApiKey = string.Empty;
         BaseUrl = string.Empty;
         Name = string.Empty;
+        UserCode = null;
+        VerificationAddress = null;
     }
 
     public void StartReplacing(ModelConnectionSummary connection)
@@ -180,32 +225,21 @@ public sealed partial class ModelConnectionsViewModel(
         NewKey = string.Empty;
     }
 
-    public async Task Add()
-    {
-        AddingBusy = true;
-        AddProblem = null;
+    public Task Add() => IsSignIn ? StartSignIn() : AddKey();
 
-        try
-        {
-            var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
-            var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
-            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
-            Connections!.Add(added);
-            voice.Forget();
-            Adding = false;
-            ApiKey = string.Empty;
-            await Test(added);
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
-        }
-        finally
-        {
-            AddingBusy = false;
-        }
+    public Task SignIn(ModelConnectionSummary connection)
+    {
+        Kind = connection.Kind;
+        return StartSignIn();
     }
+
+    public async Task SignOut(ModelConnectionSummary connection) =>
+        await Change(connection, async () =>
+        {
+            await api.SignOutOfModelConnection(SpaceId, connection.Id);
+            await Load();
+            Say(false, $"Signed out of {connection.Name}.");
+        });
 
     public Task ShowCatalog(ModelConnectionSummary connection) =>
         Change(connection, async () =>
@@ -312,6 +346,154 @@ public sealed partial class ModelConnectionsViewModel(
         NoticeIsProblem = isProblem;
         Notice = words;
     }
+
+    private async Task LoadKinds()
+    {
+        try
+        {
+            offered = await api.ListModelProviderKinds();
+            Providers = [.. offered.Select(kind => new SegmentOption<string>(kind.Kind, kind.DisplayName))];
+            OnPropertyChanged(nameof(IsSignIn));
+            OnPropertyChanged(nameof(SignInName));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The server did not list model providers on the {Screen} screen", nameof(ModelConnectionsViewModel));
+        }
+    }
+
+    private async Task AddKey()
+    {
+        AddingBusy = true;
+        AddProblem = null;
+
+        try
+        {
+            var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+            var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
+            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
+            Connections!.Add(added);
+            voice.Forget();
+            Adding = false;
+            ApiKey = string.Empty;
+            await Test(added);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
+            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
+        }
+        finally
+        {
+            AddingBusy = false;
+        }
+    }
+
+    private async Task StartSignIn()
+    {
+        StopWaiting();
+        AddingBusy = true;
+        AddProblem = null;
+        UserCode = null;
+        VerificationAddress = null;
+
+        try
+        {
+            var started = await api.StartModelSignIn(SpaceId, new(Kind, null));
+            UserCode = started.UserCode;
+            VerificationAddress = started.Address;
+            WaitingForApproval = true;
+            AddingBusy = false;
+            await WaitForApproval(started.AttemptId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
+            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
+            WaitingForApproval = false;
+        }
+        finally
+        {
+            AddingBusy = false;
+        }
+    }
+
+    private async Task WaitForApproval(Guid attemptId)
+    {
+        poll = new CancellationTokenSource();
+        var token = poll.Token;
+
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), token);
+                var progress = await api.ReadModelSignIn(SpaceId, attemptId, token);
+
+                if (progress.Status == ModelSignInStatuses.Done && progress.Connection is { } made)
+                {
+                    ReplaceOrAdd(made);
+                    voice.Forget();
+                    Adding = false;
+                    WaitingForApproval = false;
+                    UserCode = null;
+                    VerificationAddress = null;
+                    Say(false, "Signed in. Usage bills the signed-in plan.");
+                    return;
+                }
+
+                if (progress.Status is ModelSignInStatuses.Refused or ModelSignInStatuses.Expired)
+                {
+                    AddProblem = progress.Status == ModelSignInStatuses.Expired
+                        ? "Sign-in took too long. Start it again."
+                        : "Sign-in was cancelled.";
+                    WaitingForApproval = false;
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogTrace("The sign-in wait on the {Screen} screen ended", nameof(ModelConnectionsViewModel));
+            WaitingForApproval = false;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
+            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
+            WaitingForApproval = false;
+        }
+    }
+
+    private void StopWaiting()
+    {
+        poll?.Cancel();
+        poll?.Dispose();
+        poll = null;
+        WaitingForApproval = false;
+    }
+
+    private void ReplaceOrAdd(ModelConnectionSummary changed)
+    {
+        Connections ??= [];
+        var index = Connections.FindIndex(connection => connection.Id == changed.Id);
+
+        if (index >= 0)
+        {
+            Connections[index] = changed;
+        }
+        else
+        {
+            Connections.Add(changed);
+        }
+    }
+
+    private static string SignInWords(ModelSignInSummary signIn) => signIn.Status switch
+    {
+        ModelSignInStatuses.Active => string.IsNullOrWhiteSpace(signIn.AccountLabel) ? "signed in" : signIn.AccountLabel,
+        ModelSignInStatuses.NeedsSignIn => "needs sign-in",
+        _ => "not signed in",
+    };
 
     private static string NameFor(string? address) =>
         Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";

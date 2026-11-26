@@ -6,8 +6,11 @@ namespace Drover.Contracts.Models;
 /// </summary>
 public sealed record StartModelSignInRequest(string? Kind, string? RedirectUri);
 
-/// <summary>Where the person goes to approve, and how the answer comes back (<see cref="ModelSignInWaits"/>).</summary>
-public sealed record ModelSignInStarted(Guid AttemptId, string Address, string Wait);
+/// <summary>
+/// Where the person goes to approve, how the answer comes back (<see cref="ModelSignInWaits"/>), and the short
+/// code they enter there when the flow has one. <see cref="UserCode"/> is shown on the device; it is not a secret.
+/// </summary>
+public sealed record ModelSignInStarted(Guid AttemptId, string Address, string Wait, string? UserCode = null);
 
 /// <summary>Input only: the query string the person's device received from the provider's page. It holds a one-time code.</summary>
 public sealed record FinishModelSignInRequest(string? Query)
@@ -57,6 +60,11 @@ public static class ModelSignInWaits
 
     /// <summary>The person's device receives the browser's return and posts its query string to finish.</summary>
     public const string Return = "return";
+
+    /// <summary>
+    /// The person enters a short code on the provider's page; the client reads progress until they approve.
+    /// </summary>
+    public const string Poll = "poll";
 
     #endregion
 }

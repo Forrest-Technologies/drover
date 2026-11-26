@@ -30,8 +30,16 @@ public interface IModelSignIn
     Task<ModelSignInStep> Begin(ModelSignInAttempt attempt, CancellationToken cancellation);
 
     /// <summary>
+    /// How long to wait before the next poll of a waiting attempt, when <see cref="Begin"/> returned
+    /// <see cref="ModelSignInWait.Poll"/>. The default is five seconds. A provider that was told to slow down
+    /// returns a longer wait.
+    /// </summary>
+    TimeSpan PollWait(ModelSignInAttempt attempt) => TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// Exchanges what the person's device received for a token set. Throws <see cref="ModelSignInRefusedException"/>
-    /// when the answer is a refusal or does not belong to the attempt; nothing is exchanged then.
+    /// when the answer is a refusal or does not belong to the attempt; nothing is exchanged then. For a poll, a
+    /// null return means the person has not approved yet and the caller should wait and ask again.
     /// </summary>
     Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation);
 

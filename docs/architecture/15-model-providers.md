@@ -6,22 +6,23 @@ Facts in this section were read from each provider's own documentation and live 
 
 A **model connection** is data: a kind, an address, a way to authenticate, and what was learned about its models. `IModelClientProvider` turns a `ModelEndpoint` into a Drover-owned `IModelChatClient` and lists/tests the connection. `ModelConnection` remains the space-owned persistence entity, with no credentials in either shape. Embeddings remain future work. One adapter project per kind.
 
-Both providers are wired into the server by `AddDroverModels` (`Drover.Server`), one `AddModelProvider<TProvider>` call each, the compatible transport before Venice, and returned clients are bridged with `ModelChatClientBridge`. Every provider call uses a named HTTP client from `IHttpClientFactory`, and `AddModelProvider` puts `SpaceOutboundHandler` on each client name it is given, so the checked outbound handler of the deployment policy applies to model connections and an adapter cannot be registered without it. An adapter builds its own requests and knows nothing of policy, so the caller wraps the adapter call in `OutboundAttempt.Begin(effectivePolicy)` and `SpaceOutboundHandler` puts the space's `AllowPrivateAddresses` value on each request made inside it; a request made outside any attempt says nothing and is treated as forbidden. When the handler refuses an address, the adapter maps the refusal to a rejected failure that carries its own message, so the connection test says why instead of "could not be reached"; a refusal is one attempt, never retried and never counted toward the circuit breaker. No tenant transaction is held across these provider calls.
+The compiled-in providers are wired into the server by `AddDroverModels` (`Drover.Server`), one `AddModelProvider<TProvider>` call each, the compatible transport first (Venice and Copilot build chat on it), and returned clients are bridged with `ModelChatClientBridge`. Every provider call uses a named HTTP client from `IHttpClientFactory`, and `AddModelProvider` puts `SpaceOutboundHandler` on each client name it is given, so the checked outbound handler of the deployment policy applies to model connections and an adapter cannot be registered without it. An adapter builds its own requests and knows nothing of policy, so the caller wraps the adapter call in `OutboundAttempt.Begin(effectivePolicy)` and `SpaceOutboundHandler` puts the space's `AllowPrivateAddresses` value on each request made inside it; a request made outside any attempt says nothing and is treated as forbidden. When the handler refuses an address, the adapter maps the refusal to a rejected failure that carries its own message, so the connection test says why instead of "could not be reached"; a refusal is one attempt, never retried and never counted toward the circuit breaker. No tenant transaction is held across these provider calls.
 
 ## Provider kinds
 
 A provider is a `Drover.Adapters.*` project compiled into the server and added by one registration call ([ADR 0024](../adr/0024-providers-are-compiled-in-adapters.md)); Drover never loads provider assemblies at run time. `AddModelProvider<TProvider>(addAdapter, httpClients)` runs the adapter's own registration, checks that it registered `TProvider`, and adds `SpaceOutboundHandler` to every named HTTP client in `httpClients`. A new kind is one more call in `AddDroverModels` and a conformance test class.
 
-**The descriptor.** `IModelClientProvider.Descriptor` is a `ModelProviderDescriptor` (`Drover.Domain.Models`): `Kind`, `DisplayName`, `KeyRule` (`Required`, `Optional`, `None`), `AddressRule` (`Fixed`, `Required`), `AddressHint`, `KeyHint`, and `ReportsCapabilities` (true when the provider's model list carries capabilities and prices, as Venice's does; a compatible endpoint's does not). It holds words and rules only: never a key, a header, an address of the provider, or a balance. `FixedAddress` stays a separate member of the provider and never leaves the server. The conformance suite checks that a provider's descriptor names its own kind and matches its behavior: the address rule is `Fixed` exactly when `FixedAddress` is set, and a provider whose key is `Required` refuses a missing key with the invalid-key setup message while one whose key is optional or none answers without one (`A_provider_describes_itself_with_a_kind_a_name_and_rules_that_match_its_behavior`).
+**The descriptor.** `IModelClientProvider.Descriptor` is a `ModelProviderDescriptor` (`Drover.Domain.Models`): `Kind`, `DisplayName`, `KeyRule` (`Required`, `Optional`, `None`), `AddressRule` (`Fixed`, `Required`), `AddressHint`, `KeyHint`, `ReportsCapabilities` (true when the provider's model list carries capabilities and prices, as Venice's does; a compatible endpoint's does not), and `SignIn` (true when each person connects the kind by signing in). It holds words and rules only: never a key, a header, an address of the provider, or a balance. `FixedAddress` stays a separate member of the provider and never leaves the server. The conformance suite checks that a provider's descriptor names its own kind and matches its behavior: the address rule is `Fixed` exactly when `FixedAddress` is set; a sign-in kind refuses a missing credential with a sign-in setup message; a provider whose key is `Required` refuses a missing key with the invalid-key setup message; one whose key is optional or none and is not a sign-in answers without one (`A_provider_describes_itself_with_a_kind_a_name_and_rules_that_match_its_behavior`).
 
-| Kind | Name | Key | Address | Reports capabilities |
-| --- | --- | --- | --- | --- |
-| `openai_compatible` | Compatible endpoint | Optional | Required | No |
-| `venice` | Venice | Required | Fixed | Yes |
+| Kind | Name | Key | Address | Reports capabilities | Sign-in |
+| --- | --- | --- | --- | --- | --- |
+| `openai_compatible` | Compatible endpoint | Optional | Required | No | No |
+| `venice` | Venice | Required | Fixed | Yes | No |
+| `copilot_signin` | GitHub Copilot | None | Fixed | Yes | Yes |
 
 **The catalog.** `ModelProviderCatalog` (`Drover.Engine`, a singleton) holds the registered providers in registration order and answers which are offered. It is built when the server starts (`ModelProviderStartupCheck`): two providers with one kind, or a provider whose descriptor names another kind, stop the server with a sentence that names the kind. Every place that picks a provider for a connection asks it, so the deployment policy applies to a test, a refresh, a run, a screen reader, a summary, an image, and speech alike.
 
-**The route.** `GET /api/model-provider-kinds` answers a signed-in person with the kinds this server offers, in registration order, as `ModelProviderKindResponse` (`Kind`, `DisplayName`, `KeyRule` and `AddressRule` as the words in `ModelKeyRules` and `ModelAddressRules`, the two hints, `ReportsCapabilities`). It is the same for everyone and is not in a space. A signed-out caller gets 401. `DroverApi.ListModelProviderKinds` is the client's call.
+**The route.** `GET /api/model-provider-kinds` answers a signed-in person with the kinds this server offers, in registration order, as `ModelProviderKindResponse` (`Kind`, `DisplayName`, `KeyRule` and `AddressRule` as the words in `ModelKeyRules` and `ModelAddressRules`, the two hints, `ReportsCapabilities`, `SignIn`). It is the same for everyone and is not in a space. A signed-out caller gets 401. `DroverApi.ListModelProviderKinds` is the client's call.
 
 **Which kinds are offered.** The deployment policy rules `ModelProviders` and `AllowedModelProviderKinds` ([16-deployment-policies.md](16-deployment-policies.md)): under `All` every registered kind is offered; under `OperatorList` (the hosted preset, or an operator's choice) only the kinds in the list. A kind that is not registered or not offered cannot be given to a new connection (`POST /api/spaces/{spaceId}/model-connections` answers 400 with "The kind {kind} is not available on this server." or "The operator of this server switched {kind} off."). A connection that already exists keeps being listed, and its next call fails with "The operator of this server switched {kind} off." without reaching the provider. The rule only narrows: no space setting turns a kind back on.
 
@@ -58,7 +59,8 @@ The boundary preserves text, images, reasoning (including opaque protected reaso
 | `venice` | API key | `Drover.Adapters.Venice` | 0 |
 | `anthropic` | API key | `Drover.Adapters.Anthropic` | 1 |
 | `openai_signin` | The user's own ChatGPT plan, self-hosted only | `Drover.Adapters.OpenAISignIn` | 1 |
-| `openrouter_signin`, `huggingface_signin`, `copilot_signin` | OAuth to the user's own account | One adapter each | 2 |
+| `copilot_signin` | The user's own GitHub Copilot plan, self-hosted by default | `Drover.Adapters.OpenAICompatible` (`CopilotPlanProvider`) | 1 |
+| `openrouter_signin`, `huggingface_signin` | OAuth to the user's own account | One adapter each | 2 |
 
 Every adapter must pass the model provider conformance suite: list models, plain reply, streaming, tool call round trip, structured output where claimed, reasoning text where claimed, a rate-limit response mapped to "retry later", an invalid key mapped to a clear setup message.
 
@@ -221,9 +223,9 @@ A run on a sign-in connection whose person has not signed in stops before any mo
 
 | Route | Request | Response |
 | --- | --- | --- |
-| `POST /sign-in` | `{ kind, redirectUri }` | `{ attemptId, address, wait }`. An unknown kind or a return address the kind does not take is 400, and so is none (a device with no listener) until a flow without one exists. A refused kind is 403 with the rule's sentence. |
-| `POST /sign-in/{attemptId}/finish` | `{ query }`: the query string the device received | The connection's summary. A refusal, a return that is not the attempt's, or an attempt that ran out is 400 with a sentence, and the attempt is over. |
-| `GET /sign-in/{attemptId}` | none | `{ status, connection }`: `waiting`, `done`, `refused` or `expired`, and the connection once it is done |
+| `POST /sign-in` | `{ kind, redirectUri }` | `{ attemptId, address, wait, userCode }`. `wait` is `return` or `poll`. `userCode` is the short code a poll asks the person to enter; it is not a secret. An unknown kind or a return address the kind does not take is 400. A poll takes none. A refused kind is 403 with the rule's sentence. |
+| `POST /sign-in/{attemptId}/finish` | `{ query }`: the query string the device received, or empty on a poll | The connection's summary. A refusal, a return that is not the attempt's, or an attempt that ran out is 400 with a sentence, and the attempt is over. A poll that is still waiting stays `waiting`. |
+| `GET /sign-in/{attemptId}` | none | `{ status, connection }`: `waiting`, `done`, `refused` or `expired`, and the connection once it is done. A poll is finished by the server; the client reads this until it is done. |
 | `DELETE /{connectionId}/sign-in` | none | 204. Tells the provider where it can be told, then deletes the token set and the row, with no confirmation. 404 when the caller has no sign-in to it. |
 
 Each waits on the provider, so none sits under the tenant scope filter; the services open short scopes as the caller. `FinishModelSignInRequest` carries a one-time code and prints nothing of it.
@@ -257,9 +259,19 @@ OpenAI documents plan usage for open source and locally hosted apps, including a
 
 On a phone-only setup this sign-in is not possible; the UI says so and offers the key option.
 
+### GitHub Copilot plan, for self-hosted servers
+
+Architecture docs named the official Copilot SDK inside the agent framework as the path. That SDK does not cover personal-plan sign-in for Drover today, so this adapter uses GitHub's device-code flow and Copilot's OpenAI-compatible chat API instead ([ADR 0025](../adr/0025-copilot-device-code-until-sdk.md)). The same `IModelClientProvider` / `IModelSignIn` seams stay, so the SDK can replace the HTTP calls later without a new kind.
+
+The flow and headers follow the approach used by Rakazo (v0.16.0) and the `pi` Copilot provider (MIT), reimplemented in Drover's language. Endpoints: `POST https://github.com/login/device/code`, poll `POST https://github.com/login/oauth/access_token`, exchange `GET https://api.github.com/copilot_internal/v2/token`, chat `POST {api}/chat/completions`, models `GET {api}/models`. The GitHub token is the refresh token; repeating the exchange is the refresh. A 401 or 403 on exchange ends the sign-in (`needs_sign_in`). The API host is read from `proxy-ep` on the session token (`proxy.` → `api.`), falling back to `https://api.individual.githubcopilot.com/`.
+
+Chat and model-list requests send the editor and integration headers Copilot requires (`User-Agent`, `Editor-Version`, `Editor-Plugin-Version`, `Copilot-Integration-Id`), plus `X-Initiator`, `Openai-Intent`, and `Copilot-Vision-Request` on chat, and `X-GitHub-Api-Version` on the model list. Tool JSON schemas get `additionalProperties: false` where Copilot's backends reject open objects. If `/models` cannot be read, a short static catalog is offered so a bot can still be pointed at a known name.
+
+The public VS Code Copilot Chat client id is the default (`Drover:Models:Copilot:ClientId`). It is not a secret. GitHub.com only. Usage bills the signed-in person's Copilot AI credits. The hosted preset refuses this kind as a personal plan.
+
 ### Others
 
-OpenRouter and Hugging Face offer standard OAuth for third-party apps, including hosted ones, and GitHub Copilot does through its SDK. They follow the same pattern as MCP OAuth: per-user credential, tokens in the vault, a reconnect prompt when refresh fails. Phase 2.
+OpenRouter and Hugging Face offer standard OAuth for third-party apps, including hosted ones. They follow the same pattern as MCP OAuth: per-user credential, tokens in the vault, a reconnect prompt when refresh fails. Phase 2. GitHub Copilot's SDK path remains the long-term replacement for the device-code adapter above.
 
 Anthropic and Google prohibit third-party use of consumer plans. Those connections are key-only, and the setup screen says why.
 

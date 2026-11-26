@@ -16,7 +16,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, ModelConnectionKinds.CopilotSignIn);
         kinds.Single(kind => kind.Kind == Venice).Should().Be(new ModelProviderKindResponse(
             Venice,
             "Venice",
@@ -25,6 +25,12 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             null,
             "Made in your Venice account, under API keys.",
             true));
+        var copilot = kinds.Single(kind => kind.Kind == ModelConnectionKinds.CopilotSignIn);
+        copilot.DisplayName.Should().Be("GitHub Copilot");
+        copilot.KeyRule.Should().Be(ModelKeyRules.None);
+        copilot.AddressRule.Should().Be(ModelAddressRules.Fixed);
+        copilot.SignIn.Should().BeTrue();
+        copilot.ReportsCapabilities.Should().BeTrue();
         var compatible = kinds.Single(kind => kind.Kind == ModelConnectionKinds.Compatible);
         compatible.KeyRule.Should().Be(ModelKeyRules.Optional);
         compatible.AddressRule.Should().Be(ModelAddressRules.Required);
@@ -39,7 +45,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
 
         var body = await (await client.Get(Route)).Content.ReadAsStringAsync(Token);
 
-        body.Should().NotContain("venice.ai").And.NotContain("api/v1");
+        body.Should().NotContain("venice.ai").And.NotContain("api/v1").And.NotContain("github.com").And.NotContain("githubcopilot");
     }
 
     [Fact]
@@ -213,7 +219,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice");
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", ModelConnectionKinds.CopilotSignIn);
     }
 
     #endregion

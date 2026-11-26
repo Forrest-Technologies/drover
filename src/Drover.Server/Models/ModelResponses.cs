@@ -44,7 +44,8 @@ public static class ModelResponses
             descriptor.AddressRule is ModelAddressRule.Fixed ? ModelAddressRules.Fixed : ModelAddressRules.Required,
             descriptor.AddressHint,
             descriptor.KeyHint,
-            descriptor.ReportsCapabilities);
+            descriptor.ReportsCapabilities,
+            descriptor.SignIn);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(

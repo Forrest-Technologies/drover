@@ -88,7 +88,7 @@ Subscription sign-in by provider, as verified:
 | OpenAI | Permitted for open source and locally hosted apps, including a user's own remote machine; a paid or remotely hosted app needs separate admission | Sign-in for self-hosted servers; key-only on the hosted service until admitted |
 | OpenRouter | Permitted, OAuth issues a user-owned key | Sign-in supported |
 | Hugging Face | Permitted, OAuth with an inference scope | Sign-in supported |
-| GitHub Copilot | Permitted through its SDK with a GitHub OAuth app, including hosted apps | Sign-in supported |
+| GitHub Copilot | Personal plans sign in today with GitHub's device-code flow ([ADR 0025](../adr/0025-copilot-device-code-until-sdk.md)); the official SDK remains the long-term path | Sign-in supported on self-hosted servers; hosted preset refuses personal plans |
 | Venice | Key only; no sign-in exists | First-party key connection |
 | Anthropic, Google | Prohibited for third-party apps | Key-only |
 | Others | No public mechanism or unclear | Key-only |

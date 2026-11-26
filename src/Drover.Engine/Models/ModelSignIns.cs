@@ -94,6 +94,7 @@ public sealed class ModelSignIns(
         {
             if (earlier.SpaceId == spaceId && earlier.UserId == userId && earlier.Kind == kind)
             {
+                earlier.CancelPoll();
                 attempts.TryRemove(id, out _);
             }
         }
@@ -108,8 +109,19 @@ public sealed class ModelSignIns(
             step = await signIn.Begin(attempt, cancellationToken);
         }
 
-        attempts[attempt.Id] = new Pending(attempt, spaceId, userId, kind, time.GetUtcNow());
+        var pending = new Pending(attempt, spaceId, userId, kind, time.GetUtcNow(), step.Wait)
+        {
+            Interval = step.Interval ?? TimeSpan.FromSeconds(5),
+            Deadline = time.GetUtcNow() + (step.Lifetime ?? AttemptLifetime),
+        };
+        attempts[attempt.Id] = pending;
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} started in space {SpaceId}", attempt.Id, kind, spaceId);
+
+        if (step.Wait is ModelSignInWait.Poll)
+        {
+            _ = Poll(pending, signIn, cancellationToken: CancellationToken.None);
+        }
+
         return new ModelSignInBegun(attempt.Id, step.Address, step.Code, step.Wait, null, 200);
     }
 
@@ -206,7 +218,9 @@ public sealed class ModelSignIns(
 
         if (tokens is null)
         {
-            return Outcome(pending, Cancelled, 400);
+            return pending.Wait is ModelSignInWait.Poll && StateOf(pending) is ModelSignInState.Waiting
+                ? Outcome(pending, null, 200)
+                : Outcome(pending, Cancelled, 400);
         }
 
         // The one-time code is spent: the tokens are kept whatever happens to the request now.
@@ -356,12 +370,62 @@ public sealed class ModelSignIns(
         attempts.TryGetValue(attemptId, out var pending) && pending.SpaceId == spaceId && pending.UserId == userId ? pending : null;
 
     private ModelSignInState StateOf(Pending pending) =>
-        pending.State is ModelSignInState.Waiting && time.GetUtcNow() - pending.StartedAt > AttemptLifetime
+        pending.State is ModelSignInState.Waiting && time.GetUtcNow() > pending.Deadline
             ? ModelSignInState.Expired
             : pending.State;
 
     private ModelSignInOutcome Outcome(Pending pending, string? problem, int status) =>
         new(StateOf(pending), pending.ConnectionId, problem, status);
+
+    /// <summary>
+    /// Asks the provider until the person approves, refuses, or the code runs out. No transaction is open while it
+    /// waits. The HTTP request that started the sign-in does not stay open for this.
+    /// </summary>
+    private async Task Poll(Pending pending, IModelSignIn signIn, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(pending.Poll.Token, cancellationToken);
+
+            while (StateOf(pending) is ModelSignInState.Waiting)
+            {
+                await Task.Delay(pending.Interval, time, linked.Token);
+
+                if (StateOf(pending) is not ModelSignInState.Waiting || !pending.TryStartFinishing())
+                {
+                    return;
+                }
+
+                if (credentials.FindRefusal(signIn) is not null)
+                {
+                    pending.End(ModelSignInState.Refused);
+                    return;
+                }
+
+                var outcome = await Complete(pending.SpaceId, pending.UserId, pending, signIn, string.Empty, linked.Token);
+
+                if (outcome.State is not ModelSignInState.Waiting)
+                {
+                    return;
+                }
+
+                pending.Interval = signIn.PollWait(pending.Attempt);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogTrace("Model sign-in {AttemptId} poll ended", pending.Attempt.Id);
+        }
+        catch (Exception failure)
+        {
+            pending.End(ModelSignInState.Refused);
+            logger.LogWarning(
+                "Model sign-in {AttemptId} to {Kind} stopped polling: {Failure}",
+                pending.Attempt.Id,
+                pending.Kind,
+                failure.GetType().Name);
+        }
+    }
 
     /// <summary>Forgets attempts older than their lifetime, so the ones a person never came back from do not pile up.</summary>
     private void ForgetExpired()
@@ -370,8 +434,9 @@ public sealed class ModelSignIns(
 
         foreach (var (id, pending) in attempts)
         {
-            if (now - pending.StartedAt > AttemptLifetime)
+            if (now > pending.Deadline)
             {
+                pending.CancelPoll();
                 attempts.TryRemove(id, out _);
             }
         }
@@ -386,7 +451,13 @@ public sealed class ModelSignIns(
     private sealed record OwnSignIn(IModelSignIn? SignIn, ModelTokens? Tokens, EffectivePolicy Policy);
 
     /// <summary>One sign-in waiting for the person. Its state changes once, from waiting, under its own lock.</summary>
-    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, DateTimeOffset startedAt)
+    private sealed class Pending(
+        ModelSignInAttempt attempt,
+        Guid spaceId,
+        Guid userId,
+        string kind,
+        DateTimeOffset startedAt,
+        ModelSignInWait wait)
     {
         #region Private Fields
 
@@ -407,6 +478,14 @@ public sealed class ModelSignIns(
         public string Kind => kind;
 
         public DateTimeOffset StartedAt => startedAt;
+
+        public ModelSignInWait Wait => wait;
+
+        public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(5);
+
+        public DateTimeOffset Deadline { get; init; }
+
+        public CancellationTokenSource Poll { get; } = new();
 
         public ModelSignInState State { get; private set; } = ModelSignInState.Waiting;
 
@@ -458,7 +537,11 @@ public sealed class ModelSignIns(
                 ConnectionId = connectionId;
                 State = ModelSignInState.Done;
             }
+
+            CancelPoll();
         }
+
+        public void CancelPoll() => Poll.Cancel();
 
         #endregion
     }

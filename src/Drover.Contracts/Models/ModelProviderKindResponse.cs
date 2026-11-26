@@ -12,7 +12,8 @@ public sealed record ModelProviderKindResponse(
     string AddressRule,
     string? AddressHint,
     string? KeyHint,
-    bool ReportsCapabilities);
+    bool ReportsCapabilities,
+    bool SignIn = false);
 
 /// <summary>The words the server sends for whether a connection of a kind needs a key.</summary>
 public static class ModelKeyRules

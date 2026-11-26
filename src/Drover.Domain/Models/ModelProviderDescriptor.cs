@@ -12,6 +12,7 @@ namespace Drover.Domain.Models;
 /// <param name="AddressHint">One sentence under the address field, or null when the kind has no address field.</param>
 /// <param name="KeyHint">One sentence under the key field, or null when the kind has no key field.</param>
 /// <param name="ReportsCapabilities">True when the provider's model list carries capabilities and prices.</param>
+/// <param name="SignIn">True when each person connects this kind by signing in, not by pasting a key.</param>
 public sealed record ModelProviderDescriptor(
     string Kind,
     string DisplayName,
@@ -19,4 +20,5 @@ public sealed record ModelProviderDescriptor(
     ModelAddressRule AddressRule,
     string? AddressHint,
     string? KeyHint,
-    bool ReportsCapabilities);
+    bool ReportsCapabilities,
+    bool SignIn = false);

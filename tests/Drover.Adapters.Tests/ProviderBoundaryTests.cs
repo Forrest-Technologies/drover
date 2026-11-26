@@ -20,9 +20,9 @@ public sealed class ProviderBoundaryTests
     public void Public_registration_resolves_both_providers_with_the_shared_protocol()
     {
         var services = new ServiceCollection();
-        services.AddOpenAICompatibleProvider().AddVeniceProvider();
+        services.AddOpenAICompatibleProvider().AddVeniceProvider().AddCopilotPlanProvider();
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
-        provider.GetServices<IModelClientProvider>().Select(value => value.Kind).Should().BeEquivalentTo("venice", "openai_compatible");
+        provider.GetServices<IModelClientProvider>().Select(value => value.Kind).Should().BeEquivalentTo("venice", "openai_compatible", ModelConnectionKinds.CopilotSignIn);
     }
 
     [Fact]

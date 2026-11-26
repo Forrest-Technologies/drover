@@ -161,5 +161,49 @@ public sealed partial class DroverApi
         return await response.ReadValue<ModelRefreshResponse>(cancellationToken);
     }
 
+    /// <summary>Starts the caller's own sign-in to a model provider. Tokens stay on the server.</summary>
+    public async Task<ModelSignInStarted> StartModelSignIn(
+        Guid spaceId,
+        StartModelSignInRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync($"api/spaces/{spaceId}/model-connections/sign-in", request, cancellationToken);
+        return await response.ReadValue<ModelSignInStarted>(cancellationToken);
+    }
+
+    /// <summary>Hands the query string the device received to finish a browser-return sign-in.</summary>
+    public async Task<ModelConnectionSummary> FinishModelSignIn(
+        Guid spaceId,
+        Guid attemptId,
+        FinishModelSignInRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync(
+            $"api/spaces/{spaceId}/model-connections/sign-in/{attemptId}/finish",
+            request,
+            cancellationToken);
+        return await response.ReadValue<ModelConnectionSummary>(cancellationToken);
+    }
+
+    /// <summary>Where the caller's own sign-in stands.</summary>
+    public async Task<ModelSignInProgress> ReadModelSignIn(
+        Guid spaceId,
+        Guid attemptId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"api/spaces/{spaceId}/model-connections/sign-in/{attemptId}", cancellationToken);
+        return await response.ReadValue<ModelSignInProgress>(cancellationToken);
+    }
+
+    /// <summary>Signs the caller out of a connection each person signs in to.</summary>
+    public async Task SignOutOfModelConnection(
+        Guid spaceId,
+        Guid connectionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.DeleteAsync($"api/spaces/{spaceId}/model-connections/{connectionId}/sign-in", cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+    }
+
     #endregion
 }

@@ -63,6 +63,18 @@ public sealed class FakeModelSignIn(
 
     public bool IsPersonalPlan => isPersonalPlan;
 
+    /// <summary>How the answer comes back. Tests of the browser return leave this at <see cref="ModelSignInWait.Return"/>.</summary>
+    public ModelSignInWait Wait { get; init; } = ModelSignInWait.Return;
+
+    /// <summary>The short code shown for a poll, or null when the flow has none.</summary>
+    public string? UserCode { get; init; }
+
+    /// <summary>How long to wait between polls when <see cref="Wait"/> is <see cref="ModelSignInWait.Poll"/>.</summary>
+    public TimeSpan PollGap { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>True once the person has approved on the provider's page, for a poll.</summary>
+    public bool DeviceApproved { get; set; }
+
     /// <summary>How the next refreshes are answered.</summary>
     public FakeRefreshAnswer RefreshAnswer { get; set; } = FakeRefreshAnswer.Renewed;
 
@@ -110,11 +122,14 @@ public sealed class FakeModelSignIn(
     #region Interface Implementations
 
     public bool AcceptsRedirect(Uri? redirectUri) =>
-        redirectUri is not null
-        && redirectUri.Scheme == RedirectUri.Scheme
-        && redirectUri.Host == RedirectUri.Host
-        && redirectUri.AbsolutePath == RedirectUri.AbsolutePath
-        && redirectUri.Query.Length == 0;
+        Wait is ModelSignInWait.Poll
+        || (redirectUri is not null
+            && redirectUri.Scheme == RedirectUri.Scheme
+            && redirectUri.Host == RedirectUri.Host
+            && redirectUri.AbsolutePath == RedirectUri.AbsolutePath
+            && redirectUri.Query.Length == 0);
+
+    public TimeSpan PollWait(ModelSignInAttempt attempt) => PollGap;
 
     public Task<ModelSignInStep> Begin(ModelSignInAttempt attempt, CancellationToken cancellation)
     {
@@ -125,11 +140,21 @@ public sealed class FakeModelSignIn(
         {
             Query = $"response_type=code&code_challenge={challenge}&code_challenge_method=S256&state={Uri.EscapeDataString(attempt.State)}&redirect_uri={Uri.EscapeDataString(attempt.RedirectUri?.AbsoluteUri ?? string.Empty)}",
         }.Uri;
-        return Task.FromResult(new ModelSignInStep(address, null, ModelSignInWait.Return));
+        return Task.FromResult(Wait is ModelSignInWait.Poll
+            ? new ModelSignInStep(new Uri("https://github.com/login/device"), UserCode ?? "ABCD-EFGH", ModelSignInWait.Poll)
+            {
+                Interval = PollGap,
+            }
+            : new ModelSignInStep(address, null, ModelSignInWait.Return));
     }
 
     public Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation)
     {
+        if (Wait is ModelSignInWait.Poll)
+        {
+            return Task.FromResult<ModelTokens?>(DeviceApproved ? NewTokens() : null);
+        }
+
         var answer = Read(arrived.Text);
 
         if (answer.ContainsKey("error") || answer.GetValueOrDefault("state") != attempt.State || answer.GetValueOrDefault("code") is not { } code)

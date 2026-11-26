@@ -137,6 +137,46 @@ public sealed class SetupViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sign_in_kind_shows_the_user_code_and_finishes_when_the_server_says_done()
+    {
+        var path = $"{space}/model-connections";
+        var attemptId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000aa");
+        var signedIn = Connection with
+        {
+            Kind = "copilot_signin",
+            Name = "Personal plan",
+            HasKey = false,
+            SignIn = new ModelSignInSummary(ModelSignInStatuses.Active, "sam"),
+        };
+        server.Answer("GET", "/api/model-provider-kinds", new[]
+        {
+            new ModelProviderKindResponse("venice", "Venice", ModelKeyRules.Required, ModelAddressRules.Fixed, null, "Made in your Venice account, under API keys.", true),
+            new ModelProviderKindResponse("copilot_signin", "Personal plan", ModelKeyRules.None, ModelAddressRules.Fixed, null, null, true, true),
+        });
+        server.Answer("POST", $"{path}/sign-in", new ModelSignInStarted(attemptId, "https://example.test/device", ModelSignInWaits.Poll, "ABCD-EFGH"));
+        server.Answer("GET", $"{path}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
+        var model = ConnectionStep();
+        await model.Open();
+        model.ChooseProvider("copilot_signin");
+
+        var starting = model.Test();
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (model.UserCode is null && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        model.UserCode.Should().Be("ABCD-EFGH");
+        model.VerificationAddress.Should().Be("https://example.test/device");
+        model.WaitingForApproval.Should().BeTrue();
+        await starting;
+
+        model.Passed.Should().BeTrue();
+        model.Connection.Should().BeEquivalentTo(signedIn);
+        model.WaitingForApproval.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Choosing_another_provider_clears_the_previous_test()
     {
         var path = $"{space}/model-connections";

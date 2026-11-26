@@ -17,13 +17,23 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Dialog replaceDialog = new();
 
-    private readonly SegmentedControl provider = new() { Label = "Provider", Options = ModelConnectionsViewModel.Providers };
+    private readonly SegmentedControl provider = new() { Label = "Provider" };
 
     private readonly Field nameField;
 
     private readonly Field baseUrlField;
 
     private readonly Field keyField;
+
+    private readonly TextBlock signInLead = Styles.Text(null, "DvTextSecondary");
+
+    private readonly TextBlock userCode = Styles.Text(null, "DvTextMono");
+
+    private readonly CopyButton copyUserCode = new() { Label = "Copy the sign-in code" };
+
+    private readonly Link verification = new() { Text = "Open the verification page" };
+
+    private readonly TextBlock waiting = Styles.Text("Waiting for you to approve in the browser.", "DvTextSecondary");
 
     private readonly Field newKeyField;
 
@@ -55,6 +65,11 @@ public sealed class ModelConnectionsPage : Screen
         keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", KeyHint());
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
+        provider.Options = model.Providers;
+        copyUserCode.Text = () => model.UserCode ?? string.Empty;
+        AutomationProperties.SetName(userCode, "Sign-in code");
+        AutomationProperties.SetLiveSetting(waiting, AutomationLiveSetting.Polite);
+        userCode.IsTextSelectionEnabled = true;
         provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
         {
             model.ChooseProvider(provider.Value ?? model.Kind);
@@ -67,7 +82,17 @@ public sealed class ModelConnectionsPage : Screen
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = PageParts.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy);
+        addSheet.Body = PageParts.SheetBody(
+            provider,
+            nameField,
+            baseUrlField,
+            keyField,
+            signInLead,
+            PageParts.Row(userCode, copyUserCode),
+            verification,
+            waiting,
+            addProblem,
+            addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -120,6 +145,7 @@ public sealed class ModelConnectionsPage : Screen
     protected override async Task Opened(RouteMatch<Type> route)
     {
         await model.Open();
+        provider.Options = model.Providers;
         Refresh();
     }
 
@@ -256,20 +282,45 @@ public sealed class ModelConnectionsPage : Screen
             provider.Value = model.Kind;
         }
 
-        provider.Disabled = busy;
+        if (provider.Options != model.Providers)
+        {
+            provider.Options = model.Providers;
+        }
+
+        provider.Disabled = busy || model.WaitingForApproval;
         nameField.Value = model.Name;
-        nameField.Disabled = busy;
+        nameField.Disabled = busy || model.WaitingForApproval;
+        nameField.Visibility = model.IsSignIn ? Visibility.Collapsed : Visibility.Visible;
         baseUrlField.Value = model.BaseUrl;
         baseUrlField.Disabled = busy;
         keyField.Value = model.ApiKey;
         keyField.Disabled = busy;
         keyField.Hint = KeyHint();
-        baseUrlField.Visibility = model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
+        keyField.Visibility = model.IsSignIn ? Visibility.Collapsed : Visibility.Visible;
+        baseUrlField.Visibility = model.IsSignIn
+            ? Visibility.Collapsed
+            : model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
+        signInLead.Text = model.WaitingForApproval
+            ? "Enter this code on the verification page, then come back here."
+            : $"Continue with {model.SignInName} to sign in with your own plan. Usage bills that plan.";
+        signInLead.Visibility = model.IsSignIn ? Visibility.Visible : Visibility.Collapsed;
+        userCode.Text = model.UserCode ?? string.Empty;
+        userCode.Visibility = string.IsNullOrEmpty(model.UserCode) ? Visibility.Collapsed : Visibility.Visible;
+        copyUserCode.Visibility = string.IsNullOrEmpty(model.UserCode) ? Visibility.Collapsed : Visibility.Visible;
+        verification.Address = model.VerificationAddress;
+        verification.Visibility = string.IsNullOrEmpty(model.VerificationAddress) ? Visibility.Collapsed : Visibility.Visible;
+        waiting.Visibility = model.WaitingForApproval ? Visibility.Visible : Visibility.Collapsed;
         addProblem.Text = model.AddProblem;
-        addBusy.Text = busy ? "Adding the connection." : string.Empty;
+        addBusy.Text = busy ? (model.IsSignIn ? "Starting sign-in." : "Adding the connection.") : string.Empty;
         addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         cancelAdd.IsEnabled = !busy;
-        addButton.IsEnabled = !busy;
+        addButton.IsEnabled = !busy && !model.WaitingForApproval;
+        addButton.Content = new TextBlock
+        {
+            Text = model.IsSignIn ? $"Continue with {model.SignInName}" : "Add and test",
+            TextWrapping = TextWrapping.Wrap,
+        };
+        AutomationProperties.SetName(addButton, model.IsSignIn ? $"Continue with {model.SignInName}" : "Add and test");
     }
 
     private void UpdateReplaceForm()
@@ -312,7 +363,7 @@ public sealed class ModelConnectionsPage : Screen
         var card = new ListCard
         {
             Title = connection.Name,
-            Facts = ModelConnectionsViewModel.Facts(connection),
+            Facts = model.Facts(connection),
             Status = new Badge { Text = status.Words, Kind = status.Kind },
             Trailing = CardMenu(connection),
         };
@@ -373,7 +424,27 @@ public sealed class ModelConnectionsPage : Screen
         if (model.CanEdit)
         {
             menu.Items.Add(PageParts.MenuEntry("Test connection", () => Run(() => model.Test(connection)), enabled));
-            menu.Items.Add(PageParts.MenuEntry("Replace key", () => OpenReplace(connection), enabled));
+
+            if (connection.SignIn is not null)
+            {
+                if (model.NeedsSignIn(connection) || model.IsSignedIn(connection))
+                {
+                    menu.Items.Add(PageParts.MenuEntry("Sign in", () =>
+                    {
+                        OpenAddSheet();
+                        Run(() => model.SignIn(connection));
+                    }, enabled));
+                }
+
+                if (model.IsSignedIn(connection))
+                {
+                    menu.Items.Add(PageParts.MenuEntry("Sign out", () => Run(() => model.SignOut(connection)), enabled));
+                }
+            }
+            else
+            {
+                menu.Items.Add(PageParts.MenuEntry("Replace key", () => OpenReplace(connection), enabled));
+            }
         }
 
         return menu.Items.Count == 0 ? null : menu;

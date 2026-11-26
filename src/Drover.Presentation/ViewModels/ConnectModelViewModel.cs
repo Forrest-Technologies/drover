@@ -5,7 +5,7 @@ public sealed partial class ConnectModelViewModel(
     DroverApi api,
     SessionState session,
     Navigator navigator,
-    ILogger<ConnectModelViewModel> logger) : ObservableObject
+    ILogger<ConnectModelViewModel> logger) : ObservableObject, IDisposable
 {
     #region Private Fields
 
@@ -13,13 +13,21 @@ public sealed partial class ConnectModelViewModel(
 
     public const string CompatibleKind = "openai_compatible";
 
-    public static readonly SegmentOption<string>[] Providers =
+    private static readonly SegmentOption<string>[] defaultProviders =
     [
         new(VeniceKind, "Venice"),
         new(CompatibleKind, "Compatible endpoint"),
     ];
 
+    private IReadOnlyList<ModelProviderKindResponse> offered = [];
+
+    private CancellationTokenSource? poll;
+
     [ObservableProperty]
+    private IReadOnlyList<SegmentOption<string>> providers = defaultProviders;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSignIn), nameof(SignInName), nameof(KeyHint))]
     private string kind = VeniceKind;
 
     [ObservableProperty]
@@ -45,6 +53,15 @@ public sealed partial class ConnectModelViewModel(
     [ObservableProperty]
     private bool busy;
 
+    [ObservableProperty]
+    private string? userCode;
+
+    [ObservableProperty]
+    private string? verificationAddress;
+
+    [ObservableProperty]
+    private bool waitingForApproval;
+
     #endregion
 
     #region Properties
@@ -53,23 +70,60 @@ public sealed partial class ConnectModelViewModel(
 
     public string? Outcome => Problem ?? Result?.Message;
 
+    public bool IsSignIn => offered.FirstOrDefault(candidate => candidate.Kind == Kind)?.SignIn == true;
+
+    public string SignInName => offered.FirstOrDefault(candidate => candidate.Kind == Kind)?.DisplayName ?? Kind;
+
+    public string KeyHint => Kind == CompatibleKind
+        ? "Leave this empty if the server needs no key."
+        : "Made in your Venice account, under API keys.";
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     #endregion
 
     #region Public Methods
 
-    public Task Open() => session.Load();
+    public async Task Open()
+    {
+        await session.Load();
+
+        try
+        {
+            offered = await api.ListModelProviderKinds();
+            Providers = [.. offered.Select(kind => new SegmentOption<string>(kind.Kind, kind.DisplayName))];
+            OnPropertyChanged(nameof(IsSignIn));
+            OnPropertyChanged(nameof(SignInName));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The server did not list model providers on the {Screen} screen", nameof(ConnectModelViewModel));
+        }
+    }
 
     public void ChooseProvider(string chosen)
     {
+        StopWaiting();
         Kind = chosen;
         Result = null;
         Problem = null;
+        UserCode = null;
+        VerificationAddress = null;
     }
 
     [RelayCommand]
-    public async Task Test()
+    public Task Test() => IsSignIn ? StartSignIn() : TestKey();
+
+    [RelayCommand]
+    public void Continue() => navigator.NavigateTo(Addresses.SetupBot);
+
+    public void Dispose() => StopWaiting();
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task TestKey()
     {
         Busy = true;
         Problem = null;
@@ -88,6 +142,80 @@ public sealed partial class ConnectModelViewModel(
         {
             Busy = false;
         }
+    }
+
+    private async Task StartSignIn()
+    {
+        StopWaiting();
+        Busy = true;
+        Problem = null;
+        Result = null;
+        UserCode = null;
+        VerificationAddress = null;
+        try
+        {
+            var started = await api.StartModelSignIn(SpaceId, new(Kind, null));
+            UserCode = started.UserCode;
+            VerificationAddress = started.Address;
+            WaitingForApproval = true;
+            Busy = false;
+            await WaitForApproval(started.AttemptId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ConnectModelViewModel));
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
+            WaitingForApproval = false;
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task WaitForApproval(Guid attemptId)
+    {
+        poll = new CancellationTokenSource();
+        var token = poll.Token;
+
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), token);
+                var progress = await api.ReadModelSignIn(SpaceId, attemptId, token);
+
+                if (progress.Status == ModelSignInStatuses.Done && progress.Connection is { } made)
+                {
+                    Connection = made;
+                    Result = new ConnectionTestResponse(true, "Signed in. Usage bills the signed-in plan.", null, made);
+                    WaitingForApproval = false;
+                    return;
+                }
+
+                if (progress.Status is ModelSignInStatuses.Refused or ModelSignInStatuses.Expired)
+                {
+                    Problem = progress.Status == ModelSignInStatuses.Expired
+                        ? "Sign-in took too long. Start it again."
+                        : "Sign-in was cancelled.";
+                    WaitingForApproval = false;
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogTrace("The sign-in wait on the {Screen} screen ended", nameof(ConnectModelViewModel));
+            WaitingForApproval = false;
+        }
+    }
+
+    private void StopWaiting()
+    {
+        poll?.Cancel();
+        poll?.Dispose();
+        poll = null;
+        WaitingForApproval = false;
     }
 
     // The first test saves the Connection. A later one keeps it and only replaces a changed key,
@@ -129,9 +257,6 @@ public sealed partial class ConnectModelViewModel(
 
     private static string NameFor(string? address) =>
         Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";
-
-    [RelayCommand]
-    public void Continue() => navigator.NavigateTo(Addresses.SetupBot);
 
     #endregion
 }
