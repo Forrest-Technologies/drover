@@ -16,7 +16,15 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI);
+        kinds.Single(kind => kind.Kind == OpenAI).Should().Be(new ModelProviderKindResponse(
+            OpenAI,
+            "OpenAI",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            "Paste an API key from your OpenAI account.",
+            false));
         kinds.Single(kind => kind.Kind == Venice).Should().Be(new ModelProviderKindResponse(
             Venice,
             "Venice",
@@ -39,7 +47,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
 
         var body = await (await client.Get(Route)).Content.ReadAsStringAsync(Token);
 
-        body.Should().NotContain("venice.ai").And.NotContain("api/v1");
+        body.Should().NotContain("venice.ai").And.NotContain("api/v1").And.NotContain("api.openai.com");
     }
 
     [Fact]
@@ -74,6 +82,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     private const string Route = "/api/model-provider-kinds";
 
     private const string Venice = "venice";
+
+    private const string OpenAI = "openai";
 
     #endregion
 
@@ -213,7 +223,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice");
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai");
     }
 
     #endregion

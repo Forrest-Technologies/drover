@@ -52,7 +52,7 @@ public sealed class ModelConnectionsPage : Screen
         nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
         baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url",
             "Any server that speaks the chat completions API.");
-        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", KeyHint());
+        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", model.KeyHint);
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
         provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
@@ -263,7 +263,7 @@ public sealed class ModelConnectionsPage : Screen
         baseUrlField.Disabled = busy;
         keyField.Value = model.ApiKey;
         keyField.Disabled = busy;
-        keyField.Hint = KeyHint();
+        keyField.Hint = model.KeyHint;
         baseUrlField.Visibility = model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
         addProblem.Text = model.AddProblem;
         addBusy.Text = busy ? "Adding the connection." : string.Empty;
@@ -283,10 +283,6 @@ public sealed class ModelConnectionsPage : Screen
         cancelReplace.IsEnabled = !busy;
         saveKey.IsEnabled = !busy && model.Replacing is not null;
     }
-
-    private string KeyHint() => model.Kind is "openai_compatible"
-        ? "Leave this empty if the server needs no key."
-        : "Made in your Venice account, under API keys.";
 
     private Drover.Contracts.Models.ModelConnectionSummary? Replacing() =>
         model.Replacing is { } id ? model.Connections?.FirstOrDefault(connection => connection.Id == id) : null;

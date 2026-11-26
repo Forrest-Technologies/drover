@@ -16,9 +16,12 @@ public sealed partial class ModelConnectionsViewModel(
 
     private const string CompatibleKind = "openai_compatible";
 
+    private const string OpenAIKind = "openai";
+
     public static readonly SegmentOption<string>[] Providers =
     [
         new(VeniceKind, "Venice"),
+        new(OpenAIKind, "OpenAI"),
         new(CompatibleKind, "Compatible endpoint"),
     ];
 
@@ -28,6 +31,7 @@ public sealed partial class ModelConnectionsViewModel(
     private List<ModelConnectionSummary>? connections;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(KeyHint))]
     private string kind = VeniceKind;
 
     [ObservableProperty]
@@ -81,6 +85,14 @@ public sealed partial class ModelConnectionsViewModel(
     #region Properties
 
     public IReadOnlyDictionary<Guid, string> Problems => problems;
+
+    /// <summary>The one sentence under the key field, for the chosen provider.</summary>
+    public string KeyHint => Kind switch
+    {
+        CompatibleKind => "Leave this empty if the server needs no key.",
+        OpenAIKind => "Paste an API key from your OpenAI account.",
+        _ => "Made in your Venice account, under API keys.",
+    };
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -313,8 +325,8 @@ public sealed partial class ModelConnectionsViewModel(
         Notice = words;
     }
 
-    private static string NameFor(string? address) =>
-        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";
+    private string NameFor(string? address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : Providers.First(option => option.Value == Kind).Label;
 
     #endregion
 }

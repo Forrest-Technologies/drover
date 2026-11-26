@@ -137,6 +137,32 @@ public sealed class SetupViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenAI_is_offered_and_connects_with_a_key_and_no_address()
+    {
+        var path = $"{space}/model-connections";
+        var openAI = new Drover.Contracts.Models.ModelConnectionSummary(connectionId, "OpenAI", "openai", null, true, "connected", null, [], null, null);
+        server.Answer("GET", path, Array.Empty<Drover.Contracts.Models.ModelConnectionSummary>());
+        server.Answer("POST", path, openAI, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, openAI));
+        var model = ConnectionStep();
+        await model.Open();
+
+        ConnectModelViewModel.Providers.Should().ContainSingle(option => option.Value == "openai" && option.Label == "OpenAI");
+        model.ChooseProvider("openai");
+        model.BaseUrl = "https://ignored.example.test/v1";
+        model.ApiKey = "sample-key";
+        await model.Test();
+
+        model.KeyHint.Should().Be("Paste an API key from your OpenAI account.");
+        var sent = JsonElement.Parse(server.Sent("POST", path).Single());
+        sent.GetProperty("kind").GetString().Should().Be("openai");
+        sent.GetProperty("name").GetString().Should().Be("OpenAI");
+        sent.GetProperty("baseUrl").ValueKind.Should().Be(JsonValueKind.Null, "the address of this kind is the provider's, never typed");
+        sent.GetProperty("apiKey").GetString().Should().Be("sample-key");
+        model.Passed.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Choosing_another_provider_clears_the_previous_test()
     {
         var path = $"{space}/model-connections";

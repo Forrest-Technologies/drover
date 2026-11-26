@@ -31,9 +31,7 @@ public sealed partial class ConnectModelPage : Screen
     private void Refresh()
     {
         Address.Visibility = Model.Kind == ConnectModelViewModel.CompatibleKind ? Visibility.Visible : Visibility.Collapsed;
-        Key.Hint = Model.Kind == ConnectModelViewModel.CompatibleKind
-            ? "Leave this empty if the server needs no key."
-            : "Made in your Venice account, under API keys.";
+        Key.Hint = Model.KeyHint;
         Outcome.Kind = Model.Passed ? NoteKind.Ok : NoteKind.Danger;
         Outcome.Visibility = Model.Busy ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;

@@ -13,13 +13,17 @@ public sealed partial class ConnectModelViewModel(
 
     public const string CompatibleKind = "openai_compatible";
 
+    private const string OpenAIKind = "openai";
+
     public static readonly SegmentOption<string>[] Providers =
     [
         new(VeniceKind, "Venice"),
+        new(OpenAIKind, "OpenAI"),
         new(CompatibleKind, "Compatible endpoint"),
     ];
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(KeyHint))]
     private string kind = VeniceKind;
 
     [ObservableProperty]
@@ -52,6 +56,14 @@ public sealed partial class ConnectModelViewModel(
     public bool Passed => Problem is null && Result is { Succeeded: true };
 
     public string? Outcome => Problem ?? Result?.Message;
+
+    /// <summary>The one sentence under the key field, for the chosen provider.</summary>
+    public string KeyHint => Kind switch
+    {
+        CompatibleKind => "Leave this empty if the server needs no key.",
+        OpenAIKind => "Paste an API key from your OpenAI account.",
+        _ => "Made in your Venice account, under API keys.",
+    };
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -127,8 +139,8 @@ public sealed partial class ConnectModelViewModel(
         return Connection;
     }
 
-    private static string NameFor(string? address) =>
-        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";
+    private string NameFor(string? address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : Providers.First(option => option.Value == Kind).Label;
 
     [RelayCommand]
     public void Continue() => navigator.NavigateTo(Addresses.SetupBot);

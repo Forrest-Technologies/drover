@@ -4,9 +4,9 @@ Facts in this section were read from each provider's own documentation and live 
 
 ## Shape
 
-A **model connection** is data: a kind, an address, a way to authenticate, and what was learned about its models. `IModelClientProvider` turns a `ModelEndpoint` into a Drover-owned `IModelChatClient` and lists/tests the connection. `ModelConnection` remains the space-owned persistence entity, with no credentials in either shape. Embeddings remain future work. One adapter project per kind.
+A **model connection** is data: a kind, an address, a way to authenticate, and what was learned about its models. `IModelClientProvider` turns a `ModelEndpoint` into a Drover-owned `IModelChatClient` and lists/tests the connection. `ModelConnection` remains the space-owned persistence entity, with no credentials in either shape. Embeddings remain future work. One adapter project per vendor package: a vendor package is referenced by exactly one `Drover.Adapters.*` project (AGENTS.md section 4), so every kind built on the OpenAI package (`openai_compatible`, `openai`, and the sign-in kinds that reuse its clients) lives in `Drover.Adapters.OpenAICompatible`, and a kind with its own package gets its own project.
 
-Both providers are wired into the server by `AddDroverModels` (`Drover.Server`), one `AddModelProvider<TProvider>` call each, the compatible transport before Venice, and returned clients are bridged with `ModelChatClientBridge`. Every provider call uses a named HTTP client from `IHttpClientFactory`, and `AddModelProvider` puts `SpaceOutboundHandler` on each client name it is given, so the checked outbound handler of the deployment policy applies to model connections and an adapter cannot be registered without it. An adapter builds its own requests and knows nothing of policy, so the caller wraps the adapter call in `OutboundAttempt.Begin(effectivePolicy)` and `SpaceOutboundHandler` puts the space's `AllowPrivateAddresses` value on each request made inside it; a request made outside any attempt says nothing and is treated as forbidden. When the handler refuses an address, the adapter maps the refusal to a rejected failure that carries its own message, so the connection test says why instead of "could not be reached"; a refusal is one attempt, never retried and never counted toward the circuit breaker. No tenant transaction is held across these provider calls.
+The providers are wired into the server by `AddDroverModels` (`Drover.Server`), one `AddModelProvider<TProvider>` call each, the compatible transport before Venice, then OpenAI, and returned clients are bridged with `ModelChatClientBridge`. Every provider call uses a named HTTP client from `IHttpClientFactory`, and `AddModelProvider` puts `SpaceOutboundHandler` on each client name it is given, so the checked outbound handler of the deployment policy applies to model connections and an adapter cannot be registered without it. An adapter builds its own requests and knows nothing of policy, so the caller wraps the adapter call in `OutboundAttempt.Begin(effectivePolicy)` and `SpaceOutboundHandler` puts the space's `AllowPrivateAddresses` value on each request made inside it; a request made outside any attempt says nothing and is treated as forbidden. When the handler refuses an address, the adapter maps the refusal to a rejected failure that carries its own message, so the connection test says why instead of "could not be reached"; a refusal is one attempt, never retried and never counted toward the circuit breaker. No tenant transaction is held across these provider calls.
 
 ## Provider kinds
 
@@ -18,6 +18,7 @@ A provider is a `Drover.Adapters.*` project compiled into the server and added b
 | --- | --- | --- | --- | --- |
 | `openai_compatible` | Compatible endpoint | Optional | Required | No |
 | `venice` | Venice | Required | Fixed | Yes |
+| `openai` | OpenAI | Required | Fixed | No |
 
 **The catalog.** `ModelProviderCatalog` (`Drover.Engine`, a singleton) holds the registered providers in registration order and answers which are offered. It is built when the server starts (`ModelProviderStartupCheck`): two providers with one kind, or a provider whose descriptor names another kind, stop the server with a sentence that names the kind. Every place that picks a provider for a connection asks it, so the deployment policy applies to a test, a refresh, a run, a screen reader, a summary, an image, and speech alike.
 
@@ -50,11 +51,12 @@ The boundary preserves text, images, reasoning (including opaque protected reaso
 | --- | --- | --- | --- |
 | `openai_compatible` | API key, or none for local models | `Drover.Adapters.OpenAICompatible` | 0 |
 | `venice` | API key | `Drover.Adapters.Venice` | 0 |
+| `openai` | API key, on the Responses API ([OpenAI](#openai-on-the-responses-api)) | `Drover.Adapters.OpenAICompatible` | 1 |
 | `anthropic` | API key | `Drover.Adapters.Anthropic` | 1 |
-| `openai_signin` | The user's own ChatGPT plan, self-hosted only | `Drover.Adapters.OpenAISignIn` | 1 |
+| `openai_signin` | The user's own ChatGPT plan, self-hosted only | `Drover.Adapters.OpenAICompatible` | 1 |
 | `openrouter_signin`, `huggingface_signin`, `copilot_signin` | OAuth to the user's own account | One adapter each | 2 |
 
-Every adapter must pass the model provider conformance suite: list models, plain reply, streaming, tool call round trip, structured output where claimed, reasoning text where claimed, a rate-limit response mapped to "retry later", an invalid key mapped to a clear setup message.
+Every adapter must pass the model provider conformance suite: list models, plain reply, streaming, tool call round trip, structured output where claimed, reasoning text where claimed, protected reasoning sent back unchanged in a tool loop where claimed, cached input tokens reported where claimed, a rate-limit response mapped to "retry later", an invalid key mapped to a clear setup message. The suite reads the wire through `IChatWire` (`tests/Drover.Adapters.Conformance/ChatWire.cs`), which each adapter's test class gives on its `ProviderUnderTest`: which requests are model calls, the tool names offered, the text sent back for a tool call, the structured output asked for, and the protected reasoning sent back. `ChatCompletionsWire` is the default and serves the compatible and Venice adapters; `ResponsesWire` serves OpenAI. `ConformanceClaims` says which optional features an adapter's test model has: `StructuredOutput`, `ReasoningText`, `ProtectedReasoning` and `CachedUsage`.
 
 Each connection stores a **capability record per model**, in Drover's own shape: context size, maximum output, tool calling, vision, reasoning and its effort levels, structured output, built-in web search, price per million input and output tokens, privacy mode. The bot editor uses it to show only what a model can do, and cost tracking uses its prices. Providers that publish this are read automatically; for a generic compatible endpoint the operator fills in what matters, with sensible defaults.
 
@@ -141,6 +143,30 @@ So a self-hoster with only a Venice key gets chat, memory, search, and later voi
 ### Terms to read before the hosted service
 
 Self-hosting with the user's own key raises no issue in the provider's terms. For a hosted service, the terms require that a product built on the API binds its own users to terms at least as protective, and their general license language speaks of personal use. The owner should read the current terms, and likely contact the provider, before offering Venice on the hosted service. This is listed in [12-risks.md](12-risks.md).
+
+## OpenAI, on the Responses API
+
+The `openai` kind connects OpenAI with an API key and nothing else. `OpenAIProvider` and `ResponsesChatClient` live in `Drover.Adapters.OpenAICompatible`, the one project that references the vendor package. Its address is fixed at `https://api.openai.com/v1/`: a connection carries none, and the connection's own address is never used. It has its own named client, `drover-openai`, with the same resilience rules as the compatible client and `SpaceOutboundHandler` added by `AddModelProvider`. A connection made with the compatible kind and OpenAI's address keeps chat completions; this kind is separate.
+
+| What | How |
+| --- | --- |
+| Calls | `GET /v1/models` to list and test; `POST /v1/responses` for every model call, whole or streamed. The key goes as `Authorization: Bearer` |
+| Nothing stored at the provider | Every request sends `store: false` and never `previous_response_id`: Drover owns the conversation and sends it whole in `input` each time. This is not a setting |
+| Reasoning carried by Drover | With `store: false` each reasoning item comes back with `encrypted_content`, which arrives as `ModelReasoning.ProtectedData` and goes back unchanged as a reasoning item in the next call of the same tool loop. The item's id is not sent, because the provider keeps no item to look it up in. Reasoning held only as words (a stream's summary text, or reasoning text kept in a thread's history) is not sent back. `include` is not sent: a stateless request gets the encrypted content by default, and a model that does not reason refuses the include. Keeping protected reasoning in a thread's history between turns is #536 |
+| Reasoning words | `reasoning.summary: "auto"` on every request, so `ModelReasoning.Text` has words. A model that does not reason accepts it and ignores it. `reasoning.effort` is sent only when the bot or the call sets one, as given: the values each model takes differ, and the provider's own refusal says which |
+| Other settings | `MaxOutputTokens` to `max_output_tokens`, `AllowMultipleToolCalls` to `parallel_tool_calls`, instructions to `instructions`, a schema to `text.format` (`json_schema`), the bot's JSON switch to `text.format` `json_object`. Function tools are flat (`type`, `name`, `description`, `parameters`); a call comes back as `function_call` and its result goes back as `function_call_output`, matched by `call_id` |
+| Files | Pictures go as `input_image` parts. Any other file is refused in words before anything is sent; the engine gives a model other files as text. Native PDF input is a later change |
+| Usage | `InputTokens`, `OutputTokens`, `CachedInputTokens` from `input_tokens_details.cached_tokens`, `ReasoningTokens` from `output_tokens_details.reasoning_tokens`; a count the provider does not send stays null |
+| Endings | `status: "incomplete"` (or a `response.incomplete` event) ends as `length`, or `content_filter` when the provider says the filter cut it. A refusal part is the reply's text and ends as `content_filter`. A `response.failed` or `error` event in a stream is a failure of the call, mapped by its code (`rate_limit_exceeded` to retry later, `insufficient_quota` to out of credit, `context_length_exceeded` to too long, `server_error` to unreachable, anything else rejected); the provider's message is not repeated, since it can quote the input |
+| Failures over HTTP | As for the compatible client: 401 and 403 are an invalid key, 429 is retry later with the provider's `Retry-After`, `context_length_exceeded` is too long |
+
+**Every model starts permissive.** The model list returns `id`, `object`, `created` and `owned_by` and nothing about what a model can do, and it has no type field, so embedding, speech and image models are listed too and are not filtered by name. Every listed model starts with tool calling, streaming, vision, structured output and reasoning (efforts `low`, `medium`, `high`), so a bot can be given a picture and an effort with no admin step. A setting a model does not take comes back as the provider's own sentence on the run. Context size and prices stay unknown: a bot works without them, and an admin can fill them in (#531).
+
+**Test.** Without a key: "Paste an OpenAI API key to finish setup." With one, the model list is read with it, and success is "Connected to OpenAI."
+
+**Per call address and headers.** `ResponsesChatClient` takes a `ResponsesDestination` for each client it builds: the base address, the key or token sent as the bearer credential, and any extra headers. `OpenAIProvider` gives the fixed address, the key and no headers. A sign-in kind on this wire ([Signing in with a subscription](#signing-in-with-a-subscription)) gives its own address, the person's token and the headers its provider asks for, with no other change to the client.
+
+Sources, read 2026-11-26: the create reference (https://developers.openai.com/api/reference/resources/responses/methods/create), the guides on reasoning, function calling, structured outputs and streaming under https://developers.openai.com/api/docs/guides/, and the model list reference (https://developers.openai.com/api/reference/resources/models/methods/list). The wire tests (`OpenAIResponsesWireTests`) and the conformance fixtures under `tests/Drover.Adapters.Tests/Fixtures/openai-responses/` are hand-written from those pages; `OpenAIResponsesLiveTests` is the live check the owner runs with a key.
 
 ## Generic compatible endpoints
 

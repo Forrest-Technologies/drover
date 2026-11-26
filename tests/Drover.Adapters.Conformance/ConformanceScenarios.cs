@@ -22,6 +22,10 @@ public static class ConformanceScenarios
 
     public const string ReasoningText = "reasoning_text";
 
+    public const string ProtectedReasoning = "protected_reasoning";
+
+    public const string CachedUsage = "cached_usage";
+
     public const string RateLimited = "rate_limited";
 
     public const string InvalidKey = "invalid_key";
