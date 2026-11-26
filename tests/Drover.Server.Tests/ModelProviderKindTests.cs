@@ -172,7 +172,7 @@ public sealed class OperatorListedModelProviderKindTests(PostgresServer postgres
     }
 
     [Fact]
-    public async Task A_space_cannot_turn_on_a_kind_the_deployment_turned_off()
+    public async Task A_refused_kind_leaves_no_connection_behind()
     {
         var alice = await SeedPerson("alice");
         var client = NewClient();

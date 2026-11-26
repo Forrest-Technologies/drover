@@ -125,6 +125,11 @@ public sealed class VoiceService(
             return new VoiceProblem(VoiceProblemKind.NotFound, "That model is not marked for speech in this space.");
         }
 
+        if (IsSwitchedOff(found.Call))
+        {
+            return NoAdapter(found.Call);
+        }
+
         if (found.IsLive)
         {
             return new VoiceOutcome<IReadOnlyList<VoiceOption>>(

@@ -24,6 +24,15 @@ public sealed class ModelProviderStartupCheck(
                 kind);
         }
 
+        if (rules.ModelProviders is ModelProviderSet.OperatorList && catalog.Offered.Count == 0)
+        {
+            logger.LogWarning(
+                "{Rule} is {Value} and no kind is offered, so every model connection of this server is switched off and none can be made. Set {Setting} (as :0, :1 and so on) to the kinds to offer",
+                nameof(DeploymentPolicy.ModelProviders),
+                nameof(ModelProviderSet.OperatorList),
+                $"Drover:Policy:Rules:{nameof(DeploymentPolicy.AllowedModelProviderKinds)}");
+        }
+
         logger.LogInformation(
             "This server offers {Count} kinds of model provider: {Kinds}",
             catalog.Offered.Count,

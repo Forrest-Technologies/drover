@@ -31,6 +31,18 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Hosted_without_a_list_warns_at_start_and_names_the_setting_to_fill_in()
+    {
+        var logs = new LogCapture();
+
+        await using var server = await Boot(Hosted(withCertificate: true), logs: logs);
+
+        logs.Entries.Should().Contain(entry => entry.Level == LogLevel.Warning
+            && entry.Category == typeof(Drover.Server.Models.ModelProviderStartupCheck).FullName
+            && entry.Text.Contains("Drover:Policy:Rules:AllowedModelProviderKinds", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Hosted_without_a_list_offers_no_kind_of_model_provider()
     {
         await using var server = await Boot(Hosted(withCertificate: true));

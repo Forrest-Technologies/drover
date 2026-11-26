@@ -212,6 +212,8 @@ Moving is a backup on the old machine and a restore on the new one. Use the same
 
 Check out a newer tag or commit and run the same `docker compose up --build`. Pending database migrations apply before the server starts. Take a backup first. If a release needs a manual step, its notes say so.
 
+Upgrading a server that runs the `hosted` preset, or sets `ModelProviders` to `OperatorList`, to a version that enforces `AllowedModelProviderKinds`: until you list the kinds to offer (`Drover:Policy:Rules:AllowedModelProviderKinds:0`, `:1`, and so on, for example `venice`), no kind is offered, every existing model connection fails with "The operator of this server switched {kind} off.", and no new one can be made. The server logs a warning at start when that is the case. A self-hosted server on the default `All` is not affected.
+
 `docker compose down` keeps your data. `docker compose down --volumes` deletes every volume, including the key ring.
 
 ## Related

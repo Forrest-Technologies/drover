@@ -10,15 +10,31 @@ public sealed class VoiceApiTests(PostgresServer postgres) : VoiceTestBase(postg
 
     private const string Marker = "zebra-crossing-marker-phrase";
 
+    private bool compatibleKindSwitchedOff;
+
     #endregion
 
     #region Overrides
 
-    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    protected override IReadOnlyDictionary<string, string?> Settings
     {
-        ["Drover:Policy:Rules:MaxVoiceRecordingBytes"] = "4096",
-        ["Drover:Policy:Rules:MaxReadAloudCharacters"] = "120",
-    };
+        get
+        {
+            var settings = new Dictionary<string, string?>(base.Settings)
+            {
+                ["Drover:Policy:Rules:MaxVoiceRecordingBytes"] = "4096",
+                ["Drover:Policy:Rules:MaxReadAloudCharacters"] = "120",
+            };
+
+            if (compatibleKindSwitchedOff)
+            {
+                settings["Drover:Policy:Rules:ModelProviders"] = nameof(ModelProviderSet.OperatorList);
+                settings[$"{DroverFactory.AllowedKindsSetting}:0"] = "venice";
+            }
+
+            return settings;
+        }
+    }
 
     #endregion
 
@@ -208,6 +224,33 @@ public sealed class VoiceApiTests(PostgresServer postgres) : VoiceTestBase(postg
         chosen.Content.Headers.ContentType!.MediaType.Should().Be("audio/wav");
         (await chosen.Content.ReadAsStringAsync(Token)).Should().Be("[wav:verse:Good morning.]");
         Speech.Spoken.First().Key.Should().Be("sk-test-speech-key");
+    }
+
+    [Fact]
+    public async Task A_connection_of_a_kind_that_was_switched_off_gives_no_voices_and_no_speech_and_never_reaches_the_provider()
+    {
+        var alice = await SeedPerson("alice");
+        var before = await SignIn(alice.Email, alice.Password);
+        var seeded = await SeedBotWithSpeech(before, alice.SpaceId, alice.UserId);
+        compatibleKindSwitchedOff = true;
+        await RestartServer();
+        var client = await SignIn(alice.Email, alice.Password);
+        var path = $"{Space(alice.SpaceId)}/voice";
+
+        var voices = await client.Get($"{path}/voices?connectionId={seeded.Connection.Id}&model=tts-1");
+        var liveVoices = await client.Get($"{path}/voices?connectionId={seeded.Connection.Id}&model=realtime-1");
+        var spoken = await client.Post($"{path}/speak", new SpeakRequest(Text: "Good morning."));
+        var heard = await client.PostContent($"{path}/transcribe", Audio(new byte[64], "audio/webm;codecs=opus"));
+
+        var sentence = "The operator of this server switched openai_compatible off.";
+        foreach (var response in new[] { voices, liveVoices, spoken, heard })
+        {
+            response.IsSuccessStatusCode.Should().BeFalse();
+            (await Sentence(response)).Should().Be(sentence);
+        }
+
+        Speech.Spoken.Should().BeEmpty();
+        Speech.Transcriptions.Should().BeEmpty();
     }
 
     [Fact]
