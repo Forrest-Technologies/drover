@@ -76,4 +76,42 @@ public sealed class SpeechTextTests
     }
 
     #endregion
+
+    #region Plain Speech
+
+    [Fact]
+    public void Reads_a_formatted_reply_without_its_marks()
+    {
+        const string Reply = """
+            ## Plan
+
+            - **First**, open the [status page](https://example.org/status).
+            - [x] Then run `drover check`.
+
+            ```bash
+            rm -rf build
+            ```
+
+            | Name | State |
+            | --- | --- |
+            | Atlas | *ready* |
+
+            See https://example.org/long/address?x=1 for more.
+            """;
+
+        var heard = SpeechText.Plain(Reply);
+
+        heard.Should().NotContainAny("#", "*", "`", "|", "](", "https://", "rm -rf", "---", "[x]");
+        heard.Should().Contain("Plan").And.Contain("First, open the status page.")
+            .And.Contain("Then run drover check.").And.Contain("(a block of code)")
+            .And.Contain("Atlas , ready").And.Contain("See (a link) for more.");
+    }
+
+    [Theory]
+    [InlineData("2 * 3 * 4 is 24", "2 * 3 * 4 is 24")]
+    [InlineData("snake_case_name stays", "snake_case_name stays")]
+    [InlineData("Plain words.", "Plain words.")]
+    public void Leaves_ordinary_text_alone(string text, string expected) => SpeechText.Plain(text).Should().Be(expected);
+
+    #endregion
 }

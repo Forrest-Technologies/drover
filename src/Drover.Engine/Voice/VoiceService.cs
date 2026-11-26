@@ -438,6 +438,12 @@ public sealed class VoiceService(
                     return new VoiceProblem(VoiceProblemKind.NotReady, "This live model lists no voices. Choose a voice in the voice settings.");
                 }
 
+                // The person's words are written down by the space's listening model when it lives on the same
+                // connection as the live model. Without one the provider decides, and some then send no words.
+                var listener = VoiceChoices.Resolve(VoiceSlot.Listen, loaded.Settings, loaded.Sources, server);
+                var transcriber = listener is { Candidate.ConnectionId: { } listening } && listening == call.Candidate.ConnectionId
+                    ? listener.Candidate.Model
+                    : null;
                 var history = await services.GetRequiredService<MessageRepository>().ListLatestMessages(threadId, CallHistoryMessages, cancellationToken);
                 return new VoiceOutcome<CallPlan>(
                     new CallPlan
@@ -457,6 +463,7 @@ public sealed class VoiceService(
                         Options = new RealtimeVoiceOptions(call.Candidate.Model, voice, SpokenInstructions(bot))
                         {
                             History = [.. history.Select(ToTurn).OfType<RealtimeTurn>()],
+                            TranscriptionModel = transcriber,
                         },
                     },
                     null);
@@ -675,7 +682,7 @@ public sealed class VoiceService(
     /// </summary>
     private static async Task<string?> ReadMessageText(IServiceProvider services, Guid messageId, CancellationToken cancellationToken) =>
         await services.GetRequiredService<MessageRepository>().FindMessage(messageId, cancellationToken) is { } message
-            ? TextOf(message)
+            ? SpeechText.Plain(TextOf(message))
             : null;
 
     private static string TextOf(Message message) =>

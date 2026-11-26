@@ -4,7 +4,7 @@ namespace Drover.Engine.Voice;
 /// Cuts text to read aloud into pieces a speech model takes in one request. A piece ends at the end of a sentence
 /// where it can, at a space where it cannot, and in the middle of a word only when one word is longer than a piece.
 /// </summary>
-public static class SpeechText
+public static partial class SpeechText
 {
     #region Private Fields
 
@@ -25,6 +25,24 @@ public static class SpeechText
 
     public static bool TakesShortPieces(Uri address) =>
         string.Equals(address.IdnHost, ShortPieceHost, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A reply as it should be heard: the marks that format it on a screen are taken out, a link is read by its
+    /// words, a bare address is not read out letter by letter, and a block of code is named instead of recited.
+    /// </summary>
+    public static string Plain(string markdown)
+    {
+        var text = CodeBlock().Replace(markdown, "\n(a block of code)\n");
+        text = Picture().Replace(text, "$1");
+        text = Link().Replace(text, "$1");
+        text = BareAddress().Replace(text, "(a link)");
+        text = LineMark().Replace(text, string.Empty);
+        text = TableRule().Replace(text, string.Empty);
+        text = text.Replace('|', ',');
+        text = Emphasis().Replace(text, "$2");
+        text = text.Replace("`", string.Empty, StringComparison.Ordinal);
+        return BlankLines().Replace(text, "\n\n").Trim();
+    }
 
     /// <summary>The pieces of <paramref name="text"/>, in order, each at most <paramref name="maxCharacters"/> long and none empty.</summary>
     public static IReadOnlyList<string> Split(string text, int maxCharacters)
@@ -101,6 +119,34 @@ public static class SpeechText
 
         return 0;
     }
+
+    #endregion
+
+    #region Patterns
+
+    [GeneratedRegex(@"^[ \t]*(```|~~~).*?^[ \t]*\1[ \t]*$", RegexOptions.Singleline | RegexOptions.Multiline | RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex CodeBlock();
+
+    [GeneratedRegex(@"!\[([^\]\n]*)\]\([^)\n]*\)", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex Picture();
+
+    [GeneratedRegex(@"\[([^\]\n]+)\]\([^)\n]*\)", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex Link();
+
+    [GeneratedRegex(@"https?://[^\s)>\]]+", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex BareAddress();
+
+    [GeneratedRegex(@"^[ \t]*(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+(\[[ xX]\][ \t]+)?)", RegexOptions.Multiline | RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex LineMark();
+
+    [GeneratedRegex(@"^[ \t]*\|?[ \t]*:?-{3,}[-:| \t]*$", RegexOptions.Multiline | RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex TableRule();
+
+    [GeneratedRegex(@"(\*\*\*|\*\*|\*|___|__|~~)(?=\S)(.+?)(?<=\S)\1", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex Emphasis();
+
+    [GeneratedRegex(@"\n{3,}", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex BlankLines();
 
     #endregion
 }
