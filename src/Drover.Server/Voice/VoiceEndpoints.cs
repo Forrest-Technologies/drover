@@ -93,7 +93,7 @@ public static class VoiceEndpoints
             var heard = await voice.Transcribe(access.SpaceId, access.UserId, context.Request.Body, context.Request.ContentType, context.RequestAborted);
             return heard.Value is { } text ? TypedResults.Ok(new TranscriptResponse(text)) : heard.Problem!.ToProblem();
         }
-        catch (BadHttpRequestException tooLarge) when (tooLarge.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException tooLarge) when (tooLarge.StatusCode == StatusCodes.Status413PayloadTooLarge)
         {
             // A body sent without a declared length is cut off by the server itself at the same limit.
             return TypedResults.Problem(
