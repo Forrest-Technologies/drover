@@ -227,6 +227,15 @@ public abstract class ModelProviderConformance
     }
 
     [Fact]
+    public async Task A_context_length_refusal_is_recognized()
+    {
+        var subject = Start("context_length_exceeded");
+        var failure = (await FluentActions.Awaiting(() => subject.CreateChatClient().GetResponse(Prompt(GreetingPrompt)))
+            .Should().ThrowAsync<ModelProviderException>()).Which;
+        failure.Failure.Should().Be(ModelFailure.TooLong);
+    }
+
+    [Fact]
     public async Task Maps_an_invalid_key_to_a_setup_message()
     {
         var subject = Start(ConformanceScenarios.InvalidKey);

@@ -67,14 +67,28 @@ public sealed class ConversationSummarizer(
                 return;
             }
 
-            var response = await Ask(pending, cancellationToken);
-            var text = Read(response, pending);
-            var stored = await tenant.Transact(services => Store(services, run, pending, response, text), CancellationToken.None);
-            logger.LogInformation(
-                "Thread {ThreadId} summary through message {Through}: {Outcome}",
-                run.ThreadId,
-                pending.Plan.ThroughPosition,
-                stored ? "written" : "kept, a newer one was written meanwhile or the model gave none");
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(TimeSpan.FromSeconds(deployment.Value.Rules.MaxConversationSummarySeconds));
+            var remaining = pending.Plan;
+            while (remaining.Covered.Count > 0)
+            {
+                var pass = FitSummary(remaining, pending);
+                var response = await Ask(pending, pass, deadline.Token);
+                var text = Read(response, pending);
+                var stored = await tenant.Transact(services => Store(services, run, pending, pass, response, text), CancellationToken.None);
+                logger.LogInformation("Thread {ThreadId} summary through message {Through}: {Stored}", run.ThreadId, pass.ThroughPosition, stored);
+                if (!stored || pass.Covered.Count == remaining.Covered.Count)
+                {
+                    break;
+                }
+
+                remaining = remaining with
+                {
+                    PreviousSummary = text,
+                    PreviousThrough = pass.ThroughPosition,
+                    Covered = [.. remaining.Covered.Skip(pass.Covered.Count)],
+                };
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -92,13 +106,15 @@ public sealed class ConversationSummarizer(
     /// <see cref="RunOptions.SummaryAfterMessages"/> person and bot messages lie beyond the summary so far. The newest
     /// <see cref="RunOptions.SummaryKeepsRecentMessages"/> of them stay out. Withheld messages count for nothing.
     /// </summary>
-    public static SummaryPlan? Plan(ChatThread thread, IReadOnlyList<Message> conversation, RunOptions options)
+    public static SummaryPlan? Plan(ChatThread thread, IReadOnlyList<Message> conversation, RunOptions options, int? tokenThreshold = null)
     {
         var previous = thread.SummaryThroughPosition ?? 0;
         List<Message> counted = [.. conversation.Where(message => message.Position > previous && IsSpoken(message))];
         var keep = Math.Max(0, options.SummaryKeepsRecentMessages);
 
-        if (!thread.IsMain || counted.Count < Math.Max(1, options.SummaryAfterMessages) || counted.Count <= keep)
+        var dueBySize = tokenThreshold is > 0 && conversation.Where(message => !message.Withheld && message.Position > previous)
+            .Sum(message => 4L + message.Parts.Sum(PartTokens)) >= tokenThreshold.Value;
+        if (!thread.IsMain || counted.Count <= keep || counted.Count < Math.Max(1, options.SummaryAfterMessages) && !dueBySize)
         {
             return null;
         }
@@ -139,8 +155,7 @@ public sealed class ConversationSummarizer(
 
         var conversation = await services.GetRequiredService<MessageRepository>().ListMessages(thread.Id, cancellationToken);
 
-        if (Plan(thread, conversation, options.Value) is not { } plan
-            || await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken) is not { Status: BotStatus.Active } bot)
+        if (await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken) is not { Status: BotStatus.Active } bot)
         {
             return null;
         }
@@ -159,8 +174,15 @@ public sealed class ConversationSummarizer(
             ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
             : null;
         var entry = await connections.FindCatalogEntry(connection.Id, bot.Model, cancellationToken);
+        var context = entry?.Capabilities.ContextTokens;
+        var threshold = bot.MemorySettings.CompactAtTokens ?? (context - (bot.ModelSettings.MaxOutputTokens ?? entry?.Capabilities.MaxOutputTokens ?? 4096)) / 2;
+        if (Plan(thread, conversation, options.Value, threshold) is not { } plan)
+        {
+            return null;
+        }
+
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
-        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, key, entry?.Pricing ?? new ModelPricing(), policy);
+        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, key, entry?.Pricing ?? new ModelPricing(), policy, context);
     }
 
     #endregion
@@ -168,7 +190,7 @@ public sealed class ConversationSummarizer(
     #region Asking
 
     /// <summary>One request, bounded in time by the deployment, under the space's rule on private addresses.</summary>
-    private async Task<ModelChatResponse> Ask(Pending pending, CancellationToken cancellationToken)
+    private async Task<ModelChatResponse> Ask(Pending pending, SummaryPlan pass, CancellationToken cancellationToken)
     {
         if (TenantScope.IsOpenInCurrentFlow)
         {
@@ -182,9 +204,7 @@ public sealed class ConversationSummarizer(
         };
         using var client = pending.Provider.CreateChatClient(endpoint, pending.Key, pending.Model, new ModelSettings { MaxOutputTokens = MaxSummaryTokens });
         using var outbound = OutboundAttempt.Begin(pending.Policy);
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(TimeSpan.FromSeconds(rules.MaxConversationSummarySeconds));
-        return await client.GetResponse(Request(pending.Plan, new Redactor([pending.Key])), limit.Token);
+        return await client.GetResponse(Request(pass, new Redactor([pending.Key])), cancellationToken);
     }
 
     /// <summary>The summary the model wrote, scrubbed of the connection's key and cut to size. Empty when it wrote none.</summary>
@@ -203,7 +223,7 @@ public sealed class ConversationSummarizer(
     /// Records the call's usage against the run and replaces the summary, in one transaction. The summary's text and
     /// reach change in one statement, so a crash leaves the old summary or the new one, never half of each.
     /// </summary>
-    private async Task<bool> Store(IServiceProvider services, Run run, Pending pending, ModelChatResponse response, string text)
+    private async Task<bool> Store(IServiceProvider services, Run run, Pending pending, SummaryPlan pass, ModelChatResponse response, string text)
     {
         if (Usage(response) is { } usage)
         {
@@ -225,9 +245,9 @@ public sealed class ConversationSummarizer(
         return text.Length > 0
             && await services.GetRequiredService<ThreadRepository>().ReplaceSummary(
                 run.ThreadId,
-                pending.Plan.PreviousThrough,
+                pass.PreviousThrough,
                 text,
-                pending.Plan.ThroughPosition,
+                pass.ThroughPosition,
                 time.GetUtcNow(),
                 CancellationToken.None);
     }
@@ -238,6 +258,42 @@ public sealed class ConversationSummarizer(
     #endregion
 
     #region Transcript
+
+    private static long PartTokens(MessagePart part) => part switch
+    {
+        TextPart text => TokenEstimate.Text(text.Text),
+        ReasoningPart reasoning => TokenEstimate.Text(reasoning.Text),
+        ToolCallPart call => TokenEstimate.Text(call.Arguments.GetRawText()),
+        ToolResultPart result => TokenEstimate.Text(result.Result.GetRawText()),
+        ImagePart => 1600,
+        FilePart file => TokenEstimate.Text(file.Preview),
+        _ => 0,
+    };
+
+    private static SummaryPlan FitSummary(SummaryPlan remaining, Pending pending)
+    {
+        if (pending.ContextTokens is not > 0)
+        {
+            return remaining;
+        }
+
+        var limit = Math.Max(1, pending.ContextTokens.Value - MaxSummaryTokens);
+        var redactor = new Redactor([pending.Key]);
+        var pass = remaining;
+        while (TokenEstimate.Request(Request(pass, redactor)) > limit)
+        {
+            if (pass.Covered.Count <= 1)
+            {
+                throw ModelProviderException.FromRefusal("A summary message is too large for the model context.");
+            }
+
+            var count = (pass.Covered.Count + 1) / 2;
+            var covered = pass.Covered.Take(count).ToList();
+            pass = pass with { Covered = covered, ThroughPosition = covered[^1].Position!.Value };
+        }
+
+        return pass;
+    }
 
     private static bool IsSpoken(Message message) =>
         !message.Withheld && message.Role is MessageRole.User or MessageRole.Assistant;
@@ -295,7 +351,8 @@ public sealed class ConversationSummarizer(
         string model,
         string? key,
         ModelPricing pricing,
-        EffectivePolicy policy)
+        EffectivePolicy policy,
+        int? contextTokens)
     {
         #region Properties
 
@@ -314,6 +371,8 @@ public sealed class ConversationSummarizer(
         public ModelPricing Pricing => pricing;
 
         public EffectivePolicy Policy => policy;
+
+        public int? ContextTokens => contextTokens;
 
         #endregion
     }
