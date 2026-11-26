@@ -169,13 +169,18 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
                 await probe.ConnectAsync(IPAddress.Loopback, port).WaitAsync(patience.Token);
                 return;
             }
-            catch (SocketException) when (!patience.IsCancellationRequested)
+            catch (SocketException failure)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(20), patience.Token);
+                if (patience.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"The test tool server did not start listening on port {port}.", failure);
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(20));
             }
-            catch (OperationCanceledException) when (patience.IsCancellationRequested)
+            catch (OperationCanceledException failure)
             {
-                throw new TimeoutException($"The test tool server did not start listening on port {port}.");
+                throw new TimeoutException($"The test tool server did not start listening on port {port}.", failure);
             }
         }
     }
