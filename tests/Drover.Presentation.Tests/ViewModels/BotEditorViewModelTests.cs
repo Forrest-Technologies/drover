@@ -370,7 +370,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         labels.Should().Equal("Model calls", "Tokens", "Handoffs");
         int?[] limits = [options?.MaxSteps, options?.MaxTokens, options?.MaxDelegations];
         limits.Select(LimitsSectionFields.Placeholder).Should().Equal("50", "5,000,000", "49");
-        LimitsSectionFields.Caption.Should().Be("These limits stop a bot before it uses too much model credit. Each counts one piece of work: one message answered, or one task handed to it.");
+        LimitsSectionFields.Caption.Should().Be("These limits stop a bot before it uses too much for one piece of work.");
         LimitsSectionFields.FallbackCaption.Should().Be("Leave a limit empty to use the space's.");
         LimitsSectionFields.StepsHint(options).Should().EndWith("This space allows up to 50.");
         LimitsSectionFields.TokensHint(options).Should().EndWith("This space allows up to 5,000,000.");

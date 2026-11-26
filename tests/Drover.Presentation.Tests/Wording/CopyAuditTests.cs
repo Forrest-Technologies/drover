@@ -2,8 +2,8 @@ namespace Drover.Presentation.Tests.Wording;
 
 /// <summary>
 /// The words #891 retired from the work screens, held so they do not come back into the native client's source.
-/// The Tools sign-in wording was retired by #864. The remaining Tools strings are left to #890, which rewrites
-/// ToolConnectionsPage; only those are exempt in that one file.
+/// The Tools sign-in wording was retired by #864 and is no longer exempt. The remaining Tools strings are left
+/// to #890, which rewrites ToolConnectionsPage; only those are exempt in that one file.
 /// </summary>
 public sealed class CopyAuditTests
 {
@@ -23,6 +23,7 @@ public sealed class CopyAuditTests
             "This space has no bots yet. An owner or admin of the space can create one."),
         ("What the extension is for", "Description"),
         ("Changes here become the form when you go back to it.", "Changes here also change the form."),
+        ("How Drover proves who is calling", "How Drover signs in to this server"),
         ("The words are the same. What the tool accepts as input changed.",
             "The description is the same. The tool's input changed."),
         ("Only the runs that acted for you. An owner or admin sees the whole space.",

@@ -69,7 +69,7 @@ Field names are matched exactly, a number must be a number, a part must name its
 ## What a person does
 
 1. **Choose the file**, or paste its text. The server is never given an address to fetch: a file fetched by address can change between two readings, and fetching is a request the server would make on a stranger's word.
-2. **Review.** `POST /api/spaces/{spaceId}/extensions/preview` reads the file and answers with what it would add. Nothing is stored and nothing outside the server is contacted. The screen shows the bot's name, what it is for, the model it will think with, that it gets only the tools any new bot gets, and its instructions in full.
+2. **Review.** `POST /api/spaces/{spaceId}/extensions/preview` reads the file and answers with what it would add. Nothing is stored and nothing outside the server is contacted. The screen shows the bot's name, what it is for, its model, that it gets only the tools any new bot gets, and its instructions in full.
 3. **Import.** `POST /api/spaces/{spaceId}/extensions` sends the same text again; the server reads it again and makes the bot through `BotService.Create`, the path a person's own new bot takes, so every limit on making a bot applies ([16-deployment-policies.md](16-deployment-policies.md), `MaxBotsPerSpace`). The review has nothing to fill in: there is one decision, yes or no.
 4. **Turn on.** The bot is paused until a person resumes it, with the bot's ordinary resume. Until then it starts no run and uses no tool.
 
