@@ -261,6 +261,7 @@
     <Using Include="Android.Content" />
     <Using Include="Android.Content.PM" />
     <Using Include="Android.Runtime" />
+    <Using Include="System.Buffers.Binary" />
     <Using Include="System.Buffers.Text" />
     <Using Include="System.Runtime.Versioning" />
     <Using Include="System.Security.Cryptography" />
