@@ -175,6 +175,21 @@ public sealed record DeploymentPolicy
 
     public const int SelfHostedMaxTokensPerRun = 5_000_000;
 
+    /// <summary>A recording is held in memory while it is sent on, so even a self-hosted server starts with a bound.</summary>
+    public const int SelfHostedMaxVoiceRecordingBytes = 25 * 1024 * 1024;
+
+    public const int HostedMaxVoiceRecordingBytes = 10 * 1024 * 1024;
+
+    /// <summary>No limit on how much text is read aloud: the space pays its own speech model.</summary>
+    public const int SelfHostedMaxReadAloudCharacters = int.MaxValue;
+
+    public const int HostedMaxReadAloudCharacters = 8000;
+
+    /// <summary>No limit on how long a live call lasts.</summary>
+    public const int SelfHostedMaxCallMinutes = int.MaxValue;
+
+    public const int HostedMaxCallMinutes = 30;
+
     public const int HostedMaxTokensPerRun = 2_000_000;
 
     public const int SelfHostedMaxMemoryNoteCharacters = 1000;
@@ -320,6 +335,18 @@ public sealed record DeploymentPolicy
     /// may only lower it, and a bot may lower it again. It bounds what one run spends whatever its model costs.
     /// </summary>
     public int MaxTokensPerRun { get; init; } = SelfHostedMaxTokensPerRun;
+
+    /// <summary>
+    /// The most bytes of one recording the server takes to write down. The recording is held in memory, never on
+    /// disk, while it is sent to the speech model, so this bounds what one person's recording costs the server.
+    /// </summary>
+    public int MaxVoiceRecordingBytes { get; init; } = SelfHostedMaxVoiceRecordingBytes;
+
+    /// <summary>The most characters of one message, or one sample, the server reads aloud in one request.</summary>
+    public int MaxReadAloudCharacters { get; init; } = SelfHostedMaxReadAloudCharacters;
+
+    /// <summary>How many minutes one live call lasts before the server ends it. A call holds a connection open on both sides.</summary>
+    public int MaxCallMinutes { get; init; } = SelfHostedMaxCallMinutes;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -612,6 +639,21 @@ public sealed record DeploymentPolicy
             policy => policy.MaxTokensPerRun,
             HostedMaxTokensPerRun,
             Enforcement.Now("RunSession, before every model call of a run")),
+        PolicyRule.Limit(
+            nameof(MaxVoiceRecordingBytes),
+            policy => policy.MaxVoiceRecordingBytes,
+            HostedMaxVoiceRecordingBytes,
+            Enforcement.Now("POST .../voice/transcribe: the body limit, and VoiceService while the recording is read")),
+        PolicyRule.Limit(
+            nameof(MaxReadAloudCharacters),
+            policy => policy.MaxReadAloudCharacters,
+            HostedMaxReadAloudCharacters,
+            Enforcement.Now("VoiceService, on every message or sample read aloud")),
+        PolicyRule.Limit(
+            nameof(MaxCallMinutes),
+            policy => policy.MaxCallMinutes,
+            HostedMaxCallMinutes,
+            Enforcement.Now("The live call endpoint, which ends a call at this many minutes")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,

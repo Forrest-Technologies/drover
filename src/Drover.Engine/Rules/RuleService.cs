@@ -230,6 +230,12 @@ public sealed class RuleService(
         };
     }
 
+    /// <summary>
+    /// What is wrong with a rule as it is written, or null. Whether this server takes a written pattern is not
+    /// asked here: that is decided when the rule is added to a bot.
+    /// </summary>
+    public static string? FindProblem(BotRuleBody body) => ReadWords(body).Problem;
+
     /// <summary>The rule as an audit entry keeps it.</summary>
     public static JsonObject Snapshot(BotRule rule) =>
         AuditLog.Snapshot(new
@@ -315,6 +321,15 @@ public sealed class RuleService(
 
     private (ReadRule? Rule, string? Problem) Read(BotRuleBody body)
     {
+        var (rule, problem) = ReadWords(body);
+
+        return rule is not null && !AllowsWrittenPatterns && rule.Conditions.Any(condition => condition.Kind is RuleConditionKind.TextMatches)
+            ? (null, WrittenPatternsOff)
+            : (rule, problem);
+    }
+
+    private static (ReadRule? Rule, string? Problem) ReadWords(BotRuleBody body)
+    {
         if (Words.Read<RuleCheckpoint>(body.Checkpoint) is not { } checkpoint)
         {
             return (null, "Choose when the rule is checked: before_tool, after_tool, before_reply, or message_arrives.");
@@ -326,11 +341,6 @@ public sealed class RuleService(
         }
 
         List<RuleCondition> conditions = [.. (body.Conditions ?? []).Select(condition => condition.ToCondition())];
-
-        if (!AllowsWrittenPatterns && conditions.Any(condition => condition.Kind is RuleConditionKind.TextMatches))
-        {
-            return (null, WrittenPatternsOff);
-        }
 
         return RuleValidator.FindProblem(body.Name, checkpoint, effect, conditions) is { } problem
             ? (null, problem)

@@ -1,8 +1,9 @@
 namespace Drover.Domain.Extensions;
 
 /// <summary>
-/// An extension a space has imported: which one, the file it came from, and what it added. The row is what a later
-/// update is compared with and what removing the extension goes by. A space holds an extension id at most once.
+/// An extension a space has imported: which one, the file it came from, and what a person has set up from it. What
+/// the extension offers (its themes, its rules) is read from the file each time, so removing the row takes it all
+/// away. A space holds an extension id at most once.
 /// </summary>
 public sealed class ExtensionInstall : ISpaceOwned
 {
@@ -25,8 +26,8 @@ public sealed class ExtensionInstall : ISpaceOwned
     /// <summary>The file as it was imported.</summary>
     public JsonElement Package { get; set; }
 
-    /// <summary>The bot the extension added. The bot is the space's own from then on: removing the extension keeps it.</summary>
-    public Guid? BotId { get; set; }
+    /// <summary>The values a person gave the extension's settings, by key. A secret setting is never kept here.</summary>
+    public Dictionary<string, string> Settings { get; set; } = [];
 
     /// <summary>The tool connection made from the file's recipe. Null until a person connects it, and after it is removed.</summary>
     public Guid? ToolConnectionId { get; set; }

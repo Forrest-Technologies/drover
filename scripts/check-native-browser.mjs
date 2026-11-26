@@ -188,6 +188,19 @@ const projectOutsideThread = {
     id: projectOutsideThreadId, botId, title: 'Quarterly planning',
     isShared: false, lastActivityAt: thread.lastActivityAt, activeRunId: null, isMain: false, attention: null, projectId: null,
 };
+// The Tools section's sample tools: a built-in group of one that reads and one that writes, set read only, and a
+// tool server's group whose tools are set one by one.
+const editorTool = (id, name, title, sensitivity, grant, server) => ({
+    toolId: `0196f1a0-0000-7000-8000-0000000007${id}`, name, title, description: 'Sample description.', source: server ? 'connection' : 'builtin',
+    connectionId: server ? connectionId : null, connectionName: server ? 'Sample tools' : null, sensitivity, grant, ceiling: 'allow',
+    ceilingBotName: null, state: 'available', alwaysAsks: false, needsReview: false, definitionHash: `sample-${id}`, reviewed: null,
+});
+const editorTools = [
+    editorTool('01', 'time.now', 'Sample current time', 'read', 'allow', false),
+    editorTool('02', 'files.write', 'Sample file writer', 'write', 'off', false),
+    editorTool('03', 'sample_lookup', 'Sample lookup', 'write', 'ask', true),
+    editorTool('04', 'sample_update', 'Sample update', 'write', 'off', true),
+];
 const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
@@ -195,6 +208,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
@@ -209,10 +223,31 @@ const screens = [
     ['usage-empty', '/usage', 'Usage'],
     ['usage', '/usage?period=30d', 'Usage'],
     ['extensions-empty', '/extensions', 'Extensions'],
-    ['extension-editor-loading', `/extensions/edit?bot=${botId}`, 'Make an extension'],
-    ['extension-editor-failed', `/extensions/edit?bot=${botId}`, 'Make an extension'],
-    ['extension-editor', '/extensions/edit', 'Make an extension'],
+    ['extensions', '/extensions', 'Extensions'],
 ];
+// A sample installed extension, as the server lists one: a tool server not yet connected, a theme, and a rule.
+const sampleExtension = {
+    id: '0196f1a0-0000-7000-8000-0000000000e1',
+    packageId: 'sample.studio',
+    name: 'Sample studio',
+    description: 'Sample description',
+    installedAt: '2026-01-01T00:00:00Z',
+    connection: {
+        name: 'Sample helpdesk', url: 'https://tools.example.test/mcp', host: 'tools.example.test', auth: 'none', headerName: null,
+        isLocal: false, available: true, dependsOnSettings: false, asksForHeader: false,
+        connectionId: null, status: null, problem: null,
+        tools: [{ name: 'lookup', why: 'Sample reason.', toolId: null }],
+    },
+    parts: {
+        settings: [],
+        themes: [{ id: 'sample-dusk', name: 'Sample dusk', intent: 'A sample look.' }],
+        rules: [{
+            name: 'Sample: ask before writing', enabled: true, checkpoint: 'before_tool', effect: 'ask',
+            conditions: [{ kind: 'tool_kind', toolKinds: ['write'] }], position: null,
+        }],
+    },
+    filledSettings: {},
+};
 const nativeProjectScreens = [
     ['projects-empty', '/projects', 'Projects', 'Projects'],
     ['projects-failed', '/projects', 'Projects', 'Projects'],
@@ -221,6 +256,11 @@ const nativeProjectScreens = [
     ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
     ['project-missing', `/projects/${projectId}`, 'Project', 'Project not found'],
     ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
+    // The Voice page, with nothing connected and with a model for each of its three rows. They stand before the
+    // scene that starts the app afresh, so what they taught the app about voice goes with the runtime: no other
+    // scene has a microphone or a speaker button. scripts/check-native-voice.mjs exercises voice itself.
+    ['voice-nothing', '/voice', 'Voice', 'Voice'],
+    ['voice', '/voice?rows=shown', 'Voice', 'Voice'],
     ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
 const errors = [];
@@ -267,7 +307,6 @@ try {
             let panelPreviewBroken = false;
             let completePreview;
             const previewGate = new Promise(resolve => { completePreview = resolve; });
-            let extensionFailures = 0;
             let conversationLoadRequests = 0;
             let unusableRegenerateRequests = 0;
             page.on('console', message => {
@@ -278,16 +317,12 @@ try {
                     && message.text().includes('A file the browser handed over with a paste could not be read')) {
                     return;
                 }
-                // These two intentional API failures exercise the loading-to-failure and retry states.
-                const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (current === 'conversation' && previewRequests === 5
                     && message.location().url.endsWith(`/files/${sampleFile.id}/native-preview`)
                     && message.text().includes('net::ERR_FAILED')) {
                     return;
                 }
-                if (message.location().url === expectedUrl && message.text() === 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)') {
-                    extensionFailures++;
-                } else if (current === 'sign-in' && (
+                if (current === 'sign-in' && (
                     (message.location().url === `${origin}/api/session` && message.text().includes('401 (Unauthorized)'))
                     || (message.location().url === `${origin}/api/setup` && message.text().includes('404 (Not Found)'))
                 )) {
@@ -365,6 +400,22 @@ try {
                     await route.fulfill({ status: 204 });
                     return;
                 }
+                // Nothing can listen or speak in any scene but the Voice page's own, so no other scene has a microphone,
+                // a speaker or a Call button.
+                else if (address.endsWith('/voice/options')) {
+                    const none = { sources: [], selected: null };
+                    const filled = (model, voice = null) => ({
+                        sources: [{ connectionId, connectionName: 'Sample connection', model, isServer: false, isPrivateAddress: false }],
+                        selected: { connectionId, connectionName: 'Sample connection', model, voice, isServer: false, isPrivateAddress: false, automatic: true },
+                    });
+                    body = {
+                        listen: current === 'voice' ? filled('sample-whisper') : none,
+                        speak: current === 'voice' ? filled('sample-tts', 'sample-voice') : none,
+                        live: current === 'voice' ? filled('sample-realtime', 'sample-voice') : none,
+                        limits: { maxRecordingBytes: 26214400, maxReadAloudCharacters: 4000, maxCallMinutes: null },
+                    };
+                }
+                else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
@@ -557,6 +608,7 @@ try {
                     return;
                 }
                 else if (address.endsWith('/files/rules')) { body = { maxFileBytes: 26214400 }; }
+                else if (address.endsWith(`/bots/${botId}/tools`) && current === 'bot-editor-tools') { body = editorTools; }
                 else if (address.endsWith(`/bots/${botId}/tools`)
                     || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
@@ -599,12 +651,9 @@ try {
                 else if (address === `/api/spaces/${spaceId}/projects/${projectId}/files` && method === 'GET') {
                     body = [projectFile];
                 }
-                else if (address.endsWith('/extensions')) { body = []; }
-                else if (address.endsWith(`/extensions/from-bot/${botId}`)) {
-                    if (current === 'extension-editor-loading') { heldRoute = route; return; }
-                    await route.fulfill({ status: 503, json: { title: 'Sample server is unavailable.', status: 503 } });
-                    return;
-                }
+                else if (address.endsWith('/extensions')) { body = current === 'extensions' ? [sampleExtension] : []; }
+                // The themes a space's extensions offer, read when a person signs in and when the appearance choices open.
+                else if (address.endsWith('/themes')) { body = []; }
                 else { await route.fulfill({ status: 404, body: '' }); return; }
                 await route.fulfill({ json: body });
             });
@@ -637,6 +686,15 @@ try {
                 if (name === 'bot-editor') {
                     await editorLoaded;
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
+                }
+                if (name === 'bot-editor-tools') {
+                    await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
+                    await page.getByRole('group', { name: 'Every tool in Built in for Sample bot', exact: true }).waitFor({ state: 'attached' });
+                    await page.getByRole('button', { name: 'Sample tools, 1 of 2 on', exact: true }).dispatchEvent('click');
+                    const serverTools = page.getByRole('group', { name: 'Every tool in Sample tools for Sample bot', exact: true });
+                    await serverTools.waitFor({ state: 'attached' });
+                    await page.getByText('No tool here is known only to read.', { exact: false }).waitFor({ state: 'attached' });
+                    await serverTools.scrollIntoViewIfNeeded();
                 }
                 if (name === 'sandbox-terminal') {
                     await page.getByRole('textbox', { name: 'Shell command', exact: true }).waitFor({ state: 'attached' });
@@ -704,9 +762,10 @@ try {
                     await page.getByRole('button', { name: 'Add a tool server', exact: true }).dispatchEvent('click');
                     await page.getByRole('heading', { name: 'Add a tool server', exact: true }).waitFor({ state: 'attached' });
                 }
-                if (name === 'extension-editor-failed') {
-                    await page.getByRole('heading', { name: 'Drover could not open this bot as an extension', exact: true })
+                if (name === 'extensions') {
+                    await page.getByRole('heading', { name: 'Tool server: Sample helpdesk', exact: true })
                         .waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Remove Sample studio', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                 }
                 if (name === 'projects-empty') {
                     await page.getByRole('heading', { name: 'No project yet', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
@@ -754,6 +813,16 @@ try {
                     });
                     await waitingField.waitFor({ state: 'attached', timeout: 5000 });
                 }
+                if (name === 'voice-nothing') {
+                    await waitForShown(page, 'Voice needs a speech model.');
+                    await page.getByRole('link', { name: 'Connect one', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'voice') {
+                    for (const row of ['Listens with', 'Speaks with', 'Live calls with']) {
+                        await page.getByRole('combobox', { name: row, exact: true }).waitFor({ state: 'attached', timeout: 10000 });
+                    }
+                    await page.getByRole('button', { name: 'Play a sample', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
                 if (name === 'conversation-load-failed') {
@@ -778,21 +847,6 @@ try {
                         description: /^Available when the conversation has loaded\.$/,
                     });
                     assert.equal(await waitingField.count(), 0, 'the field says nothing about waiting once the conversation is read');
-                }
-                if (name === 'extension-editor') {
-                    // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
-                    await page.mouse.move(width / 2, 500);
-                    await page.mouse.wheel(0, 3000);
-                    await page.waitForTimeout(200);
-                    const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-                    const [saved] = await Promise.all([
-                        page.waitForEvent('download', item => item.suggestedFilename() === 'extension.json'),
-                        exportControl.dispatchEvent('click'),
-                    ]);
-                    assert.equal(saved.suggestedFilename(), 'extension.json');
-                    const savedPath = await withDeadline(saved.path(), 10000, 'the extension.json download to complete');
-                    const file = JSON.parse(await fs.readFile(savedPath, 'utf8'));
-                    assert.equal(file.version, 1);
                 }
                 if (name === 'projects' && width === 360) {
                     await checkPhoneNavLayout(page, width);
@@ -939,7 +993,6 @@ try {
                     heldRoute = null;
                 }
             }
-            assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
             current = 'conversation-unusable-tool-request';

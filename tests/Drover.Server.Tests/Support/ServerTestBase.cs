@@ -114,6 +114,9 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
         return new ApiClient(http) { RemoteIp = remoteIp };
     }
 
+    /// <summary>A WebSocket client for the server under test. The caller adds the headers a browser or an app would send.</summary>
+    protected Microsoft.AspNetCore.TestHost.WebSocketClient NewSocketClient() => factory.Server.CreateWebSocketClient();
+
     /// <summary>Creates the first account through the API, with the code from the log.</summary>
     protected async Task<(ApiClient Client, SessionResponse Session, string Password)> SetUpFirstAccount(
         string email = "owner@example.test")

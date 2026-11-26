@@ -568,8 +568,9 @@ public sealed class RunGovernor(
     /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen.
     /// The record names the model that answered, so a call by another model is told apart from the bot's own.
     /// </summary>
-    private async Task Record(ToolModelUsage usage)
+    private async Task Record(ToolModelUsage reported)
     {
+        var usage = NonNegative(reported);
         var cost = Cost(usage);
         session.AddUsage(usage.InputTokens, usage.OutputTokens, cost ?? 0);
         var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);
@@ -599,10 +600,24 @@ public sealed class RunGovernor(
     }
 
     /// <summary>
-    /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
-    /// the price of tokens the call used: an unknown price is never counted as free.
+    /// The usage with nothing below zero. A provider that reports a negative count or cost would otherwise lower the
+    /// run's totals, and with them how close the run is to its limits.
     /// </summary>
-    internal static decimal? Cost(ToolModelUsage usage) => usage switch
+    internal static ToolModelUsage NonNegative(ToolModelUsage usage) => usage with
+    {
+        InputTokens = Math.Max(0, usage.InputTokens),
+        OutputTokens = Math.Max(0, usage.OutputTokens),
+        DirectCost = usage.DirectCost is { } direct ? Math.Max(0, direct) : null,
+    };
+
+    /// <summary>
+    /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
+    /// the price of tokens the call used: an unknown price is never counted as free. Never below zero: a catalog that
+    /// lists a negative price, or a call that reports a negative count or cost, prices at zero.
+    /// </summary>
+    internal static decimal? Cost(ToolModelUsage usage) => Priced(usage) is { } cost ? Math.Max(0, cost) : null;
+
+    private static decimal? Priced(ToolModelUsage usage) => usage switch
     {
         { DirectCost: { } direct } => direct,
         { HasTokenUsage: false } => null,

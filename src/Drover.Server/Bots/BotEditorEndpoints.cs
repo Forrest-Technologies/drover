@@ -8,6 +8,12 @@ namespace Drover.Server.Bots;
 /// </summary>
 public static class BotEditorEndpoints
 {
+    #region Private Fields
+
+    private const string UnknownGrant = "Set a tool to off, ask, or allow.";
+
+    #endregion
+
     #region Public Methods
 
     public static RouteGroupBuilder MapBotEditorEndpoints(this RouteGroupBuilder bots)
@@ -20,6 +26,9 @@ public static class BotEditorEndpoints
         bot.MapPost("/resume", Resume).WithName("ResumeBot");
         bot.MapDelete("/", Remove).WithName("RemoveBot");
         bot.MapGet("/tools", ListTools).WithName("ListBotTools");
+        bot.MapPut("/tools", SetGrants)
+            .WithName("SetBotToolGrants")
+            .WithSummary("Sets several tools at once. Every change is checked before any is made: all of them hold or none does.");
         bot.MapPut("/tools/{toolId:guid}", SetGrant).WithName("SetBotToolGrant");
         bot.MapGet("/schedules", ListSchedules).WithName("ListBotSchedules");
         bot.MapPost("/schedules", CreateSchedule).WithName("CreateBotSchedule");
@@ -137,16 +146,9 @@ public static class BotEditorEndpoints
         HttpContext context,
         GrantService grants)
     {
-        GrantEffect? effect = request.Grant switch
+        if (!TryRead(request.Grant, out var effect))
         {
-            "allow" => GrantEffect.Allow,
-            "ask" => GrantEffect.Ask,
-            _ => null,
-        };
-
-        if (effect is null && request.Grant is not "off")
-        {
-            return TypedResults.Problem(title: "Set a tool to off, ask, or allow.", statusCode: StatusCodes.Status400BadRequest);
+            return TypedResults.Problem(title: UnknownGrant, statusCode: StatusCodes.Status400BadRequest);
         }
 
         var change = await grants.SetGrant(botId, toolId, effect, context.GetSpaceAccess().UserId, context.RequestAborted);
@@ -157,6 +159,51 @@ public static class BotEditorEndpoints
         }
 
         return change.Tool is { } tool ? TypedResults.Ok(tool.ToEntry()) : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<List<BotToolEntry>>, NotFound, ProblemHttpResult>> SetGrants(
+        Guid botId,
+        SetToolGrantsRequest request,
+        HttpContext context,
+        GrantService grants)
+    {
+        List<WantedGrant> wanted = [];
+
+        foreach (var asked in request.Grants ?? [])
+        {
+            if (!TryRead(asked.Grant, out var effect))
+            {
+                return TypedResults.Problem(title: UnknownGrant, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            wanted.Add(new(asked.ToolId, effect));
+        }
+
+        if (wanted.Count == 0 || wanted.DistinctBy(one => one.ToolId).Count() != wanted.Count)
+        {
+            return TypedResults.Problem(title: "Name each tool once, and at least one.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var change = await grants.SetGrants(botId, wanted, context.GetSpaceAccess().UserId, context.RequestAborted);
+
+        if (change.Problem is { } problem)
+        {
+            return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status409Conflict);
+        }
+
+        return change.Tools is { } tools ? TypedResults.Ok(tools.Select(tool => tool.ToEntry()).ToList()) : TypedResults.NotFound();
+    }
+
+    // "off" is no grant. Anything other than the three words is not a grant at all.
+    private static bool TryRead(string? grant, out GrantEffect? effect)
+    {
+        effect = grant switch
+        {
+            "allow" => GrantEffect.Allow,
+            "ask" => GrantEffect.Ask,
+            _ => null,
+        };
+        return effect is not null || grant is "off";
     }
 
     #endregion
@@ -259,7 +306,8 @@ public static class BotEditorEndpoints
         return TypedResults.Ok(new BotRunLimitOptions(
             limits.MaxSteps == int.MaxValue ? null : limits.MaxSteps,
             limits.MaxTokens,
-            limits.MaxDelegations));
+            limits.MaxDelegations,
+            limits.CanRemoveUsageLimit));
     }
 
     #endregion

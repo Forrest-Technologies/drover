@@ -35,5 +35,20 @@ public sealed record ModelCapabilities
 
     public bool ImageGeneration { get; init; }
 
+    /// <summary>Whether the model writes down speech. See <see cref="VoiceSetByOperator"/>.</summary>
+    public bool SpeechToText { get; init; }
+
+    /// <summary>Whether the model reads text aloud. See <see cref="VoiceSetByOperator"/>.</summary>
+    public bool TextToSpeech { get; init; }
+
+    /// <summary>Whether the model holds a live spoken conversation. See <see cref="VoiceSetByOperator"/>.</summary>
+    public bool RealtimeVoice { get; init; }
+
+    /// <summary>
+    /// True when a space admin set the three voice marks by hand. A refresh then keeps them, as it keeps
+    /// <see cref="VisionSetByOperator"/>, because a provider that lists only names cannot say otherwise.
+    /// </summary>
+    public bool VoiceSetByOperator { get; init; }
+
     #endregion
 }

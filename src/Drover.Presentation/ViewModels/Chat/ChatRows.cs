@@ -23,6 +23,7 @@ public enum ChatEntryShape
 public enum FooterPart
 {
     Copy,
+    ReadAloud,
     Usage,
     Regenerate,
     Versions,
@@ -115,8 +116,18 @@ public static class ChatRows
         && (message.FinishesReply || message.EndsReply || message.MayRegenerate || message.Versions is not null);
 
     /// <summary>
-    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, the usage of the reply
-    /// beside it, another reply, then the switch between versions.
+    /// A reply can be read aloud where it can be copied, once the server has stored it: the server reads a message by
+    /// its id. Whether anything can speak is the footer's to ask.
+    /// </summary>
+    public static bool OffersReadAloud(ChatMessage message) =>
+        OffersCopy(message) && !message.UnusableToolRequest && StoredId(message) is not null;
+
+    /// <summary>The id the server keeps a message under, or null for one it has not stored yet.</summary>
+    public static Guid? StoredId(ChatMessage message) => Guid.TryParse(message.Key, out var id) ? id : null;
+
+    /// <summary>
+    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, read aloud, the usage
+    /// of the reply, another reply, then the switch between versions.
     /// </summary>
     public static IReadOnlyList<FooterPart> FooterParts(ChatMessage message, bool canRegenerate, bool canSwitch, bool canReadUsage)
     {
@@ -125,6 +136,11 @@ public static class ChatRows
         if (OffersCopy(message))
         {
             parts.Add(FooterPart.Copy);
+        }
+
+        if (OffersReadAloud(message))
+        {
+            parts.Add(FooterPart.ReadAloud);
         }
 
         if (OffersUsage(message, canReadUsage))

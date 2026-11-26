@@ -97,6 +97,16 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     #region At Rest
 
     [Fact]
+    public async Task The_editor_shows_a_new_space_ceiling_on_a_previously_unlimited_bot()
+    {
+        Server.Answer("GET", $"{bot}/definition", Marshal with { RunLimits = new RunLimitsBody(null, null, null, true) });
+        var editor = await OpenEditor();
+        editor.Draft!.UnlimitedTokens.Should().BeFalse();
+        editor.Dirty.Should().BeFalse();
+        editor.Summary(Limits).Should().Contain("5,000,000 tokens");
+    }
+
+    [Fact]
     public async Task Removing_a_bot_with_bots_beneath_asks_whether_they_go_too_and_sends_the_answer()
     {
         var helper = new BotSummary(Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), "Sample helper", "sample-helper", string.Empty, connectionId, "sample-large", "active", botId);
@@ -352,6 +362,82 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
         editor.ToolsPart.Problem.Should().Contain("Raise it on Sample parent first.");
         editor.Tools!.Single().Grant.Should().Be("allow", "the grant that still holds is shown");
+        editor.ToolsPart.Version.Should().Be(1, "the control is drawn again");
+    }
+
+    [Fact]
+    public async Task A_group_sets_every_tool_at_once_and_shows_the_setting_its_tools_are_at()
+    {
+        var connection = Guid.Parse("0196f1a0-0000-7000-8000-00000000000e");
+        BotToolEntry ServerTool(string id, string name, string sensitivity, string grant, string ceiling = "allow", string state = "available") =>
+            new(Guid.Parse($"0196f1a0-0000-7000-8000-0000000001{id}"), name, name, "Sample description", "connection", connection, "Sample server", sensitivity, grant, ceiling, ceiling == "allow" ? null : "Sample parent", state);
+        var reads = ServerTool("01", "Sample reads", "read", "off");
+        var writes = ServerTool("02", "Sample writes", "write", "allow");
+        var capped = ServerTool("03", "Sample capped", "write", "off", ceiling: "ask");
+        var gone = ServerTool("04", "Sample gone", "write", "off", state: "missing");
+        Server.Answer("GET", $"{space}/tool-connections", (ToolConnectionSummary[])[
+            new(connection, "Sample server", "sample", "https://tools.example.test/mcp", "none", "untrusted", "automatic", "ready", null, null, null)]);
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), reads, writes, capped, gone]);
+        Server.Answer("PUT", $"{bot}/tools", (BotToolEntry[])[reads with { Grant = "allow" }, capped with { Grant = "ask" }]);
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+        var part = editor.ToolsPart;
+        var group = part.Groups.Single(found => found.ConnectionId == connection);
+
+        ToolsSectionViewModel.OffersQuick(part.Groups[0]).Should().BeFalse("one tool is set by its own control");
+        ToolsSectionViewModel.OffersQuick(group).Should().BeTrue();
+        part.QuickGrantLabel(group).Should().Be("Every tool in Sample server for Marshal");
+        ToolsSectionViewModel.QuickOptions(group).Select(option => $"{option.Label} {option.Disabled}").Should().Equal("Off False", "Read only False", "Ask False", "Allow False");
+        ToolsSectionViewModel.QuickValue(group).Should().BeNull("the tools are set in no one way");
+        ToolsSectionViewModel.QuickHint(group).Should().BeNull();
+
+        await part.SetAll(group, "allow");
+
+        Server.Sent("PUT", $"{bot}/tools").Should().ContainSingle().Which.Should()
+            .Contain($"{{\"toolId\":\"{reads.ToolId}\",\"grant\":\"allow\"}}", "each tool is given as much as it asks for")
+            .And.Contain($"{{\"toolId\":\"{capped.ToolId}\",\"grant\":\"ask\"}}", "but never more than its parent holds")
+            .And.NotContain(writes.ToolId.ToString(), "a tool already as it should be is not sent")
+            .And.NotContain(gone.ToolId.ToString(), "a tool its server no longer lists is left alone");
+        part.Announcement.Should().Be("Sample server is set to allow. 2 tools changed.");
+        part.BusyGroup.Should().BeNull();
+        ToolsSectionViewModel.QuickValue(part.Groups.Single(found => found.ConnectionId == connection)).Should().Be("allow",
+            "every tool is as allowed as it may be");
+    }
+
+    [Fact]
+    public async Task Read_only_turns_on_the_tools_that_only_read_and_says_why_it_cannot_when_none_does()
+    {
+        var write = TimeTool("off", "allow", null) with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000201"), Name = "files.write", Title = "Write a file", Sensitivity = "write" };
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), write]);
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+        var builtIn = editor.ToolsPart.Groups[0];
+        var writesOnly = builtIn with { Tools = [write, write with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000202") }] };
+
+        ToolsSectionViewModel.QuickValue(builtIn).Should().Be("read", "the tool that reads is allowed and the one that writes is off");
+        ToolsSectionViewModel.QuickOptions(writesOnly).Single(option => option.Label == "Read only").Disabled.Should().BeTrue("it would be the same as off");
+        ToolsSectionViewModel.QuickHint(writesOnly).Should().Be(ToolsSectionViewModel.NoReadingTools);
+        ToolsSectionViewModel.NoReadingTools.Should().Contain("claim does not count");
+        ToolsSectionViewModel.QuickValue(writesOnly).Should().Be("off");
+
+        await editor.ToolsPart.SetAll(builtIn, "read");
+
+        Server.Sent("PUT", $"{bot}/tools").Should().BeEmpty("nothing differs from read only");
+    }
+
+    [Fact]
+    public async Task A_group_setting_the_server_refuses_changes_nothing_and_is_said_in_its_words()
+    {
+        var other = TimeTool("off", "allow", null) with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000301"), Name = "files.write", Title = "Write a file", Sensitivity = "write" };
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), other]);
+        Server.Refuse("PUT", $"{bot}/tools", HttpStatusCode.Conflict, "Sample parent does not have this tool. Give it to Sample parent first.");
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+
+        await editor.ToolsPart.SetAll(editor.ToolsPart.Groups[0], "ask");
+
+        editor.ToolsPart.Problem.Should().Contain("Give it to Sample parent first.");
+        editor.Tools!.Select(tool => tool.Grant).Should().Equal(["allow", "off"], "every grant that still holds is shown");
         editor.ToolsPart.Version.Should().Be(1, "the control is drawn again");
     }
 
@@ -1676,6 +1762,77 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         Toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be("Rule put back: Sample rule.");
         part.Own.Should().BeEmpty("the section that was left does not gain a rule");
         part.Announcement.Should().Be("Rule removed: Sample rule.");
+    }
+
+    #endregion
+
+    #region Files And Extensions
+
+    [Fact]
+    public async Task Saving_a_bot_as_a_file_asks_the_server_for_its_words_and_hands_the_file_to_the_device()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/export", new BotFile(1, "Sample bot", "Keep notes short.") { SuggestedModel = "sample-large" });
+        var editor = await OpenEditor();
+        (string Name, string Text)? saved = null;
+
+        await editor.SaveAsFile((name, text) =>
+        {
+            saved = (name, text);
+            return Task.FromResult(true);
+        });
+
+        BotEditorViewModel.SaveAsFileLabel.Should().Be("Save as a file");
+        saved!.Value.Name.Should().Be(BotFiles.NameFor(editor.Saved!.Handle)).And.EndWith(".bot.json");
+        saved.Value.Text.Should().Contain("\"instructions\": \"Keep notes short.\"").And.NotContain("grant").And.NotContain("sandbox");
+        Toasts.Toasts.Should().Contain(toast => toast.Message.EndsWith("was handed to this device to save as a file.", StringComparison.Ordinal));
+        editor.ActionProblem.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_save_the_person_cancels_says_nothing_and_one_the_device_refuses_says_so()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/export", new BotFile(1, "Sample bot", "Keep notes short."));
+        var editor = await OpenEditor();
+
+        await editor.SaveAsFile((_, _) => Task.FromResult(false));
+        var toastsAfterCancel = Toasts.Toasts.Count;
+        await editor.SaveAsFile((_, _) => Task.FromException<bool>(new DeviceCallFailedException("Sample: the picker failed.", new InvalidOperationException())));
+
+        toastsAfterCancel.Should().Be(0);
+        editor.ActionProblem.Should().Be("The file could not be saved on this device.");
+    }
+
+    [Fact]
+    public async Task The_rules_an_extension_offers_are_starters_named_for_it_and_added_like_any_other()
+    {
+        var offered = new BotRuleBody("Sample: ask before writing", true, "before_tool", "ask", [new RuleConditionBody("tool_kind") { ToolKinds = ["write"] }]);
+        Server.Answer("GET", $"{space}/extensions", (ExtensionSummary[])
+        [
+            new(Guid.CreateVersion7(), "sample.studio", "Sample studio", string.Empty, DateTimeOffset.UnixEpoch) { Parts = new() { Rules = [offered] } },
+        ]);
+        Server.Answer("POST", $"{space}/bots/{botId}/rules", new BotRuleResponse(Guid.CreateVersion7(), botId, "Sample bot", false, offered.Name!, true, 0, "before_tool", "ask", offered.Conditions!), HttpStatusCode.Created);
+        var editor = await OpenEditor();
+        var part = editor.RulesPart;
+
+        var starter = part.Starters[^1];
+        await part.AddStarter(starter);
+
+        part.Starters.Should().HaveCount(RuleStarters.For("UTC").Count + 1, "Drover's own starters come first, then what the space's extensions offer");
+        part.Starters.Should().BeSameAs(part.Starters, "the screen draws its buttons once");
+        starter.Label.Should().Be("Sample: ask before writing (from Sample studio)");
+        Server.Sent("POST", $"{space}/bots/{botId}/rules").Should().ContainSingle().Which.Should().Contain("\"name\":\"Sample: ask before writing\"");
+        part.Own.Should().ContainSingle(rule => rule.Name == "Sample: ask before writing");
+    }
+
+    [Fact]
+    public async Task An_editor_whose_space_cannot_list_its_extensions_still_opens_with_drovers_own_starters()
+    {
+        Server.Refuse("GET", $"{space}/extensions", HttpStatusCode.InternalServerError, "Sample failure.");
+
+        var editor = await OpenEditor();
+
+        editor.State.Should().Be(BotEditorState.Shown);
+        editor.RulesPart.Starters.Should().HaveCount(RuleStarters.For("UTC").Count);
     }
 
     #endregion

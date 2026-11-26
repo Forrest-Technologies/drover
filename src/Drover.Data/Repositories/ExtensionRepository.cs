@@ -1,8 +1,5 @@
 namespace Drover.Data.Repositories;
 
-/// <summary>An installed extension with the name and status of the bot it added, when the bot is still there.</summary>
-public sealed record InstalledExtension(ExtensionInstall Install, string? BotName, BotStatus? BotStatus);
-
 /// <summary>The extensions a space has imported.</summary>
 public sealed class ExtensionRepository(DroverDbContext db)
 {
@@ -10,10 +7,12 @@ public sealed class ExtensionRepository(DroverDbContext db)
 
     public void Add(ExtensionInstall install) => db.ExtensionInstalls.Add(install);
 
+    public void Remove(ExtensionInstall install) => db.ExtensionInstalls.Remove(install);
+
     public Task<bool> IsInstalled(string packageId, CancellationToken cancellationToken) =>
         db.ExtensionInstalls.AnyAsync(install => install.PackageId == packageId, cancellationToken);
 
-    /// <summary>The tracked row, locked until the transaction ends, so two people connecting one extension take turns.</summary>
+    /// <summary>The tracked row, locked until the transaction ends, so two people changing one extension take turns.</summary>
     public async Task<ExtensionInstall?> GetInstallForUpdate(Guid id, CancellationToken cancellationToken) =>
         (await db.ExtensionInstalls.FromSql($"SELECT * FROM extension_installs WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault();
 
@@ -23,32 +22,16 @@ public sealed class ExtensionRepository(DroverDbContext db)
             .Where(install => install.ToolConnectionId == connectionId)
             .ExecuteUpdateAsync(install => install.SetProperty(row => row.ToolConnectionId, (Guid?)null), cancellationToken);
 
-    /// <summary>The space's extensions, the newest first.</summary>
-    public Task<List<InstalledExtension>> ListInstalled(CancellationToken cancellationToken) =>
-        ListInstalled(null, cancellationToken);
-
-    /// <summary>One installed extension, or null when this space has none by that id.</summary>
-    public async Task<InstalledExtension?> FindInstalled(Guid id, CancellationToken cancellationToken) =>
-        (await ListInstalled(id, cancellationToken)).SingleOrDefault();
-
-    #endregion
-
-    #region Private Methods
-
-    private async Task<List<InstalledExtension>> ListInstalled(Guid? id, CancellationToken cancellationToken)
-    {
-        var rows = await db.ExtensionInstalls.AsNoTracking()
-            .Where(install => id == null || install.Id == id)
-            .GroupJoin(db.Bots.AsNoTracking(), install => install.BotId, bot => bot.Id, (install, bots) => new { install, bots })
-            .SelectMany(found => found.bots.DefaultIfEmpty(), (found, bot) => new { found.install, bot })
-            .OrderByDescending(found => found.install.InstalledAt)
-            .ThenByDescending(found => found.install.Id)
+    /// <summary>The space's extensions, the newest first. A space holds few, and each is at most one small file.</summary>
+    public Task<List<ExtensionInstall>> ListInstalled(CancellationToken cancellationToken) =>
+        db.ExtensionInstalls.AsNoTracking()
+            .OrderByDescending(install => install.InstalledAt)
+            .ThenByDescending(install => install.Id)
             .ToListAsync(cancellationToken);
 
-        return [.. rows.Select(found => found.bot is { Status: not BotStatus.Removed } bot
-            ? new InstalledExtension(found.install, bot.Name, bot.Status)
-            : new InstalledExtension(found.install, null, null))];
-    }
+    /// <summary>One installed extension, or null when this space has none by that id.</summary>
+    public Task<ExtensionInstall?> FindInstalled(Guid id, CancellationToken cancellationToken) =>
+        db.ExtensionInstalls.AsNoTracking().SingleOrDefaultAsync(install => install.Id == id, cancellationToken);
 
     #endregion
 }

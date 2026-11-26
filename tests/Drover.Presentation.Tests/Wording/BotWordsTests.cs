@@ -47,6 +47,20 @@ public sealed class BotWordsTests
     }
 
     [Fact]
+    public void Removing_the_token_budget_requires_explicit_acknowledgment()
+    {
+        var draft = new BotDraft { MaxTokens = "9000", UnlimitedTokens = true };
+        draft.FindProblem().Should().Contain("API spending risk");
+        draft.ToRequest().RunLimits!.UncappedUsageAcknowledged.Should().BeFalse();
+
+        draft.UncappedUsageAcknowledged = true;
+        draft.FindProblem().Should().BeNull();
+        draft.ToRequest().RunLimits.Should().Be(new RunLimitsBody(null, null, null, true));
+        draft.UnlimitedTokens = false;
+        draft.ToRequest().RunLimits.Should().Be(new RunLimitsBody(null, 9000, null));
+    }
+
+    [Fact]
     public void A_handle_follows_the_name_until_someone_chooses_it()
     {
         // A handle read from the server was not chosen in this editor.

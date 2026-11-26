@@ -80,6 +80,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("projects list", ProjectsList);
                 await Step("project back", ProjectBack);
                 await Step("target sizes", TargetSizes);
+                await Step("voice page", VoicePage);
 #if !__IOS__
                 await Step("tool server sheet", ToolServerSheet);
 #endif
@@ -563,6 +564,35 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         navigator.NavigateTo(Addresses.Home);
         await Shown("CrewRow");
         await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// The check server has no speech model. So the Voice page says what voice needs and its link goes to Models, at
+    /// both widths the app must work at, and the conversation shows no control of voice: no microphone and no Call.
+    /// </summary>
+    private async Task VoicePage()
+    {
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Voice);
+            await Shown("VoiceNeedsModel");
+            await Press("VoiceConnectOne");
+            await Until("the models screen", () => navigator.Current == Addresses.Models ? window.Content : null);
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+        await OpenConversation();
+
+        if (Find("ComposerMicrophone") is not null || Find("TalkCall") is not null)
+        {
+            throw new CheckFailedException("a control of voice is shown although nothing can listen or hold a call");
+        }
+
+        await Back();
     }
 
     /// <summary>

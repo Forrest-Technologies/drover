@@ -4,11 +4,12 @@ namespace Drover.Engine.Extensions;
 public sealed record ExtensionConnection(ExtensionState? State, string? Problem);
 
 /// <summary>
-/// Connects the tool server an installed extension names. The address is the file's, as it was imported: nothing in
-/// the request can change it. The connection is made by <see cref="ToolConnectionService"/>, the path a connection
-/// added by hand takes, so the same address rules, deployment rule, vault, and catalog apply, and what the server
-/// returns is never trusted on a file's word. Opens its own tenant scopes and holds none while the server is asked
-/// for its tools.
+/// The steps of an installed extension that reach its tool connection: connecting the server the file names, and
+/// removing the extension with the connection it made. The address is the file's, with the extension's settings
+/// filled in: nothing else in the request can change it. The connection is made by
+/// <see cref="ToolConnectionService"/>, the path a connection added by hand takes, so the same address rules,
+/// deployment rule, vault, and catalog apply, and what the server returns is never trusted on a file's word. Opens
+/// its own tenant scopes and holds none while the server is asked for its tools.
 /// </summary>
 public sealed class ExtensionConnector(
     ExtensionRepository extensions,
@@ -28,16 +29,11 @@ public sealed class ExtensionConnector(
 
     #region Public Methods
 
-    public async Task<ExtensionConnection> Connect(
-        Guid installId,
-        bool acceptLocalAddress,
-        string? headerValue,
-        Guid actorUserId,
-        CancellationToken cancellationToken)
+    public async Task<ExtensionConnection> Connect(Guid installId, ConnectExtensionRequest request, Guid actorUserId, CancellationToken cancellationToken)
     {
-        var (recipe, problem) = await FindRecipe(installId, cancellationToken);
+        var (package, recipe, problem) = await FindRecipe(installId, cancellationToken);
 
-        if (recipe is null)
+        if (package is null || recipe is null)
         {
             return new(null, problem);
         }
@@ -47,17 +43,34 @@ public sealed class ExtensionConnector(
             return new(null, ToolConnectionService.TurnedOff);
         }
 
-        if (ExtensionPackages.IsLocal(new Uri(recipe.Url.Trim())) && !acceptLocalAddress)
+        var (values, valueProblem) = ReadSettings(package, request.Settings);
+
+        if (valueProblem is not null)
+        {
+            return new(null, valueProblem);
+        }
+
+        var kept = package.Settings
+            .Where(setting => setting.Type is not ExtensionSetting.Secret)
+            .ToDictionary(setting => setting.Key, setting => values[setting.Key]);
+        var url = ExtensionPackages.Fill(recipe.Url.Trim(), kept);
+
+        if (ToolConnectionService.FindAddressProblem(recipe.Name, url) is { } addressProblem)
+        {
+            return new(null, $"With these settings the address is not one Drover can connect to. {addressProblem}");
+        }
+
+        if (ExtensionPackages.IsLocal(new Uri(url)) && !request.AcceptLocalAddress)
         {
             return new(null, LocalNeedsYes);
         }
 
         var made = await connections.Create(
-            new NewToolConnection(recipe.Name, recipe.Url)
+            new NewToolConnection(recipe.Name, url)
             {
                 AuthKind = Words.Read<ToolAuthKind>(recipe.Auth) ?? ToolAuthKind.None,
                 HeaderName = recipe.HeaderName,
-                HeaderValue = headerValue,
+                HeaderValue = recipe.HeaderTemplate is { } written ? ExtensionPackages.Fill(written, values) : request.HeaderValue,
             },
             cancellationToken);
 
@@ -66,7 +79,7 @@ public sealed class ExtensionConnector(
             return new(null, made.Problem);
         }
 
-        if (!await Link(installId, connection, actorUserId, cancellationToken))
+        if (!await Link(installId, connection, kept, actorUserId, cancellationToken))
         {
             // Someone connected it in the meantime. Theirs stands, and this one is taken away again.
             await connections.Remove(connection.Id, cancellationToken);
@@ -78,31 +91,94 @@ public sealed class ExtensionConnector(
         return new(await Describe(installId, cancellationToken), null);
     }
 
+    /// <summary>
+    /// Removes the extension: its row, the settings kept on it, and the tool connection it made, with that
+    /// connection's tools, grants, and credentials. Its themes are no longer offered and its rules no longer
+    /// suggested. A rule a person already added to a bot is the bot's own and stays. False when there is no such
+    /// extension.
+    /// </summary>
+    public async Task<bool> Remove(Guid installId, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        Guid? connectionId;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            if (await extensions.FindInstalled(installId, cancellationToken) is not { } found)
+            {
+                return false;
+            }
+
+            connectionId = found.ToolConnectionId;
+        }
+
+        if (connectionId is { } made)
+        {
+            await connections.Remove(made, cancellationToken);
+        }
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            if (await extensions.GetInstallForUpdate(installId, cancellationToken) is not { } install)
+            {
+                return false;
+            }
+
+            extensions.Remove(install);
+            audit.Record(actorUserId, "extension.removed", AuditTargets.Extension, install.Id, ExtensionService.Snapshot(install), null);
+            await work.Commit(cancellationToken);
+            logger.LogInformation("Extension {InstallId} removed", install.Id);
+        }
+
+        return true;
+    }
+
     #endregion
 
     #region Private Methods
 
     private static string AlreadyConnected(ConnectionRecipe recipe) => $"{recipe.Name.Trim()} is already connected.";
 
-    private async Task<(ConnectionRecipe? Recipe, string? Problem)> FindRecipe(Guid installId, CancellationToken cancellationToken)
+    /// <summary>A value for every setting the file declares: what the person gave, or what the file starts it with.</summary>
+    private static (Dictionary<string, string> Values, string? Problem) ReadSettings(ExtensionPackage package, IReadOnlyDictionary<string, string>? given)
+    {
+        Dictionary<string, string> values = [];
+
+        foreach (var setting in package.Settings)
+        {
+            var value = given is not null && given.TryGetValue(setting.Key, out var typed) ? typed : setting.Default;
+
+            if (ExtensionPackages.FindValueProblem(setting, value) is { } problem)
+            {
+                return (values, problem);
+            }
+
+            values[setting.Key] = setting.Type is ExtensionSetting.Secret ? value! : value!.Trim();
+        }
+
+        return (values, null);
+    }
+
+    private async Task<(ExtensionPackage? Package, ConnectionRecipe? Recipe, string? Problem)> FindRecipe(Guid installId, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
 
-        if (await extensions.FindInstalled(installId, cancellationToken) is not { } installed)
+        if (await extensions.FindInstalled(installId, cancellationToken) is not { } install)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
-        return ExtensionService.RecipeOf(installed.Install) switch
+        var package = ExtensionPackages.ReadKept(install.Package);
+
+        return ExtensionService.RecipeOf(package) switch
         {
-            null => (null, "This extension names no tool server."),
-            var recipe when installed.Install.ToolConnectionId is not null => (null, AlreadyConnected(recipe)),
-            var recipe => (recipe, null),
+            null => (null, null, "This extension names no tool server."),
+            var recipe when install.ToolConnectionId is not null => (null, null, AlreadyConnected(recipe)),
+            var recipe => (package, recipe, null),
         };
     }
 
-    /// <summary>Writes the new connection on the extension's row. False when the row already has one.</summary>
-    private async Task<bool> Link(Guid installId, ToolConnection connection, Guid actorUserId, CancellationToken cancellationToken)
+    /// <summary>Writes the new connection and the settings it was made with on the extension's row. False when the row already has a connection.</summary>
+    private async Task<bool> Link(Guid installId, ToolConnection connection, Dictionary<string, string> kept, Guid actorUserId, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
 
@@ -112,6 +188,7 @@ public sealed class ExtensionConnector(
         }
 
         install.ToolConnectionId = connection.Id;
+        install.Settings = kept;
         audit.Record(
             actorUserId,
             "extension.connected",

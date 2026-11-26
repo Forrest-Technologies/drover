@@ -29,8 +29,8 @@ namespace Drover.Agents.History;
 /// <para>
 /// A bot whose compaction is summarization is given, on a main thread that has a summary, the summary as a labeled
 /// first message and then only the messages after it. The summary is Drover's own column on the thread, read fresh
-/// for each model call; nothing is read from the framework's session. Every other compaction setting, and every
-/// side chat, gets the whole conversation.
+/// for each model call; nothing is read from the framework's session. For sliding window, truncation and tool results the framework shortens
+/// the outgoing copy of history once it reaches the configured or catalog token threshold.
 /// </para>
 /// </remarks>
 public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) : ChatHistoryProvider
@@ -92,6 +92,8 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
         List<ChatMessage> given = [.. shown.Select(message => message.ToChatMessage(files))];
 
+        given = await Compact(given, cancellationToken);
+
         if (summary is not null)
         {
             given.Insert(0, ToSummaryMessage(summary));
@@ -114,6 +116,29 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         }
 
         return given;
+    }
+
+    private async Task<List<ChatMessage>> Compact(List<ChatMessage> history, CancellationToken cancellationToken)
+    {
+        var bot = run.Execution.Bot;
+        if (bot.CompactAtTokens is not { } threshold || history.Count == 0 ||
+            bot.Compaction is CompactionStrategy.None or CompactionStrategy.Summarization)
+        {
+            return history;
+        }
+
+        var trigger = FrameworkCompaction.CompactionTriggers.TokensExceed(threshold);
+        var keep = Math.Max(1, bot.KeepRecentMessages ?? 1);
+        FrameworkCompaction.CompactionStrategy strategy = bot.Compaction switch
+        {
+            CompactionStrategy.SlidingWindow => new FrameworkCompaction.SlidingWindowCompactionStrategy(trigger, keep),
+            CompactionStrategy.ToolResults => new FrameworkCompaction.ToolResultCompactionStrategy(trigger, keep)
+            {
+                ToolCallFormatter = _ => "[Drover omitted an earlier tool result.]",
+            },
+            _ => new FrameworkCompaction.TruncationCompactionStrategy(trigger, keep),
+        };
+        return [.. await FrameworkCompaction.CompactionProvider.CompactAsync(strategy, history, logger, cancellationToken)];
     }
 
     protected override async ValueTask StoreChatHistoryAsync(

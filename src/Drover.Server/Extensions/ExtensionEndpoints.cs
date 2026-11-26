@@ -1,8 +1,8 @@
 namespace Drover.Server.Extensions;
 
 /// <summary>
-/// Extensions of a space, under the tenant scope filter. Any member may see what is installed; an admin reads a
-/// file and imports it, because importing makes a bot.
+/// Extensions of a space. Any member may see what is installed and the themes it offers; an admin reads a file,
+/// imports it, connects its tool server, and removes it.
 /// </summary>
 public static class ExtensionEndpoints
 {
@@ -23,15 +23,17 @@ public static class ExtensionEndpoints
         extensions.MapGet("/", ListExtensions).WithName("ListExtensions");
         extensions.MapPost("/preview", PreviewExtension).RequireSpaceRole(MembershipRole.Admin).WithName("PreviewExtension")
             .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
-        extensions.MapPost("/read", ReadExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ReadExtension")
-            .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
-        extensions.MapGet("/from-bot/{botId:guid}", ExportBot).RequireSpaceRole(MembershipRole.Admin).WithName("ExportBotAsExtension");
         extensions.MapPost("/", ImportExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ImportExtension")
             .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
 
-        // Connecting waits on the tool server, so it owns its tenant scopes and holds none across the wait.
+        space.MapGet("/themes", ListThemes).AddEndpointFilter<TenantScopeFilter>().WithName("ListSpaceThemes")
+            .WithSummary("The themes the space's installed extensions offer its members, each as a theme file.");
+
+        // Connecting waits on the tool server, and removing takes its connection away, so both own their tenant scopes.
         space.MapPost("/extensions/{extensionId:guid}/connection", ConnectExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ConnectExtension")
-            .WithSummary("Connects the tool server an installed extension names. A header value goes to the vault and is never returned.");
+            .WithSummary("Connects the tool server an installed extension names. A secret setting or header value goes to the vault and is never returned.");
+        space.MapDelete("/extensions/{extensionId:guid}", RemoveExtension).RequireSpaceRole(MembershipRole.Admin).WithName("RemoveExtension")
+            .WithSummary("Removes an extension, with the tool connection it made. A rule already added to a bot stays.");
         return space;
     }
 
@@ -41,6 +43,9 @@ public static class ExtensionEndpoints
 
     private static async Task<Ok<List<ExtensionSummary>>> ListExtensions(HttpContext context, ExtensionService extensions) =>
         TypedResults.Ok((await extensions.ListInstalled(context.RequestAborted)).Select(installed => installed.ToSummary()).ToList());
+
+    private static async Task<Ok<List<SpaceTheme>>> ListThemes(HttpContext context, ExtensionService extensions) =>
+        TypedResults.Ok(await extensions.ListThemes(context.RequestAborted));
 
     private static async Task<Results<Ok<ExtensionPreview>, ProblemHttpResult>> PreviewExtension(
         ExtensionText request,
@@ -59,7 +64,7 @@ public static class ExtensionEndpoints
         HttpContext context,
         ExtensionConnector connector)
     {
-        var connected = await connector.Connect(extensionId, request.AcceptLocalAddress, request.HeaderValue, context.GetSpaceAccess().UserId, context.RequestAborted);
+        var connected = await connector.Connect(extensionId, request, context.GetSpaceAccess().UserId, context.RequestAborted);
         return connected switch
         {
             { State: { } state } => TypedResults.Ok(state.ToSummary()),
@@ -68,17 +73,9 @@ public static class ExtensionEndpoints
         };
     }
 
-    private static Results<Ok<ExtensionPackage>, ProblemHttpResult> ReadExtension(ExtensionText request)
-    {
-        var read = ExtensionService.Read(request.Package);
-        return read.Value is { } package
-            ? TypedResults.Ok(package)
-            : TypedResults.Problem(title: read.Problem, statusCode: StatusCodes.Status400BadRequest);
-    }
-
-    private static async Task<Results<Ok<ExtensionPackage>, NotFound>> ExportBot(Guid botId, HttpContext context, ExtensionService extensions) =>
-        await extensions.Export(botId, context.RequestAborted) is { } package
-            ? TypedResults.Ok(package)
+    private static async Task<Results<NoContent, NotFound>> RemoveExtension(Guid extensionId, HttpContext context, ExtensionConnector connector) =>
+        await connector.Remove(extensionId, context.GetSpaceAccess().UserId, context.RequestAborted)
+            ? TypedResults.NoContent()
             : TypedResults.NotFound();
 
     private static async Task<Results<Created<ExtensionSummary>, ProblemHttpResult>> ImportExtension(
@@ -89,7 +86,7 @@ public static class ExtensionEndpoints
         var access = context.GetSpaceAccess();
         var imported = await extensions.Import(request.Package, access.UserId, context.RequestAborted);
         return imported.Value is { } installed
-            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/extensions/{installed.Installed.Install.Id}", installed.ToSummary())
+            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/extensions/{installed.Install.Id}", installed.ToSummary())
             : TypedResults.Problem(title: imported.Problem, statusCode: StatusCodes.Status400BadRequest);
     }
 

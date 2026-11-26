@@ -24,10 +24,11 @@ public static partial class AppServices
             .AddSingleton<SessionState>()
             .AddSingleton<ILiveNotifications, NoLiveNotifications>()
             .AddSingleton<ToastService>()
-            .AddSingleton<ExtensionHandoff>()
             .AddSingleton<ThemeModel>()
             .AddSingleton(ShareInbox.Process)
             .AddSingleton<MovedNotifications>()
+            .AddSingleton<SpaceVoice>()
+            .AddSingleton<ReadAloudViewModel>()
             .AddPlatform();
         AddChecks(services);
         return services.BuildServiceProvider();

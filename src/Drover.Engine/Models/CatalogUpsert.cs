@@ -65,14 +65,28 @@ public static class CatalogUpsert
     private static void Refresh(ModelCatalogEntry entry, ModelInfo model, DateTimeOffset now)
     {
         entry.DisplayName = Truncate(model.DisplayName, MaxModelIdLength);
-        entry.Capabilities = entry.Capabilities.VisionSetByOperator
-            ? model.Capabilities with { Vision = true, VisionSetByOperator = true }
-            : model.Capabilities;
+        entry.Capabilities = KeepOperatorMarks(entry.Capabilities, model.Capabilities);
         entry.Pricing = model.Pricing;
         entry.PrivacyMode = model.Privacy is PrivacyMode.Unknown ? null : model.Privacy.ToString().ToLowerInvariant();
         entry.Traits = [.. model.Traits];
         entry.State = AvailabilityState.Available;
         entry.LastSeenAt = now;
+    }
+
+    /// <summary>What an admin marked by hand outlives a refresh: the provider's list cannot contradict it.</summary>
+    private static ModelCapabilities KeepOperatorMarks(ModelCapabilities kept, ModelCapabilities listed)
+    {
+        var merged = kept.VisionSetByOperator ? listed with { Vision = true, VisionSetByOperator = true } : listed;
+
+        return kept.VoiceSetByOperator
+            ? merged with
+            {
+                SpeechToText = kept.SpeechToText,
+                TextToSpeech = kept.TextToSpeech,
+                RealtimeVoice = kept.RealtimeVoice,
+                VoiceSetByOperator = true,
+            }
+            : merged;
     }
 
     private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];

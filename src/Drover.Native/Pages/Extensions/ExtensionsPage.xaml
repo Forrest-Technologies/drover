@@ -9,7 +9,10 @@
 
   <layouts:WorkLayout x:Name="Layout">
     <dv:ScreenHeader Title="{x:Bind vm:ExtensionsViewModel.Title}">
-      <dv:Menu x:Name="AddExtension" Label="Add an extension" TriggerIcon="Plus" ShowTriggerLabel="false" />
+      <dv:IconButton x:Name="ImportExtension"
+                     Icon="Plus"
+                     Label="{x:Bind vm:ExtensionsViewModel.ImportAction}"
+                     AutomationProperties.AutomationId="ImportExtension" />
     </dv:ScreenHeader>
 
     <dv:StatusNote Kind="{x:Bind Model.NoticeKind, Mode=OneWay}" Text="{x:Bind Model.Notice, Mode=OneWay}" />

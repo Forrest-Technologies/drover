@@ -48,7 +48,6 @@ Checked against the code on the trunk. "Block" is `CodeBlock` with `CodeContent.
 | | A routine's custom time | cron | line in machine text, field in the interface face | The field in the machine face (2.14) |
 | | Rules, "Try it" | text, JSON | machine text, no copy, not indented | A block (2.10) |
 | Tool connections | A changed tool | before and after | "Reviewed" and "Now" as text; no schema | A difference, and the input schema as a folded JSON block (2.7) |
-| Extensions | The file as JSON | JSON | `TextArea` with `Machine`, 18 rows, "Copy its text" | Nothing: it is an editor |
 | Usage | Figures | numbers | machine face on the page, interface face in the popover, cost never | One rule for figures (2.14) |
 | Status, About | Facts | text | `checked {time}`, version and platform in machine text | Nothing |
 | Audit log | Entries | events | not built (#590) | The entry's detail as a folded JSON block when #590 builds it (2.6) |
