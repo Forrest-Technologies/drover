@@ -75,7 +75,7 @@ public sealed partial class ExtensionEditorViewModel(
 
     public static string TextHint => "Changes here also change the form.";
 
-    public static string IdHint => "The id names the extension wherever it is installed. Change it to make a fork.";
+    public static string IdHint => "The id names the extension wherever it is installed. Use lower-case letters, digits, dots, and hyphens. Change it to make a fork.";
 
     public static string AuthLabel => "How Drover signs in to this server";
 

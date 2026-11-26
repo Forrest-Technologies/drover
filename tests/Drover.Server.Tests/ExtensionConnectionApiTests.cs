@@ -13,6 +13,15 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
 
     #endregion
 
+    #region Overrides
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        ["Drover:PublicUrl"] = "https://drover.example.test",
+    };
+
+    #endregion
+
     #region Tests
 
     [Fact]
@@ -229,7 +238,7 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
     [Fact]
     public async Task Exporting_a_sign_in_connection_writes_no_private_authentication_state()
     {
-        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless));
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice.Email, alice.Password);
         await AllowPrivateAddresses(alice.SpaceId);
@@ -237,29 +246,30 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
         var space = $"/api/spaces/{alice.SpaceId}";
         var imported = await PostFor<ExtensionSummary>(client, $"{space}/extensions", new ExtensionText(File(server.Url, "oauth", null)));
         var connected = await PostFor<ExtensionSummary>(client, $"{space}/extensions/{imported.Id}/connection", new ConnectExtensionRequest(AcceptLocalAddress: true));
+        var start = await PostFor<ToolSignInStart>(client, $"{space}/tool-connections/{connected.Connection!.ConnectionId}/sign-in", new { });
+        var answer = await server.Approve(new Uri(start.AuthorizationUrl!));
+        var callback = $"/oauth/mcp/callback?code={Uri.EscapeDataString(answer.Code)}&state={Uri.EscapeDataString(answer.State ?? string.Empty)}&iss={Uri.EscapeDataString(answer.Issuer ?? string.Empty)}";
+        var back = await client.Get(callback);
 
         var exported = await client.Get($"{space}/extensions/from-bot/{imported.BotId}");
         var body = await exported.Content.ReadAsStringAsync(Token);
         var package = JsonSerializer.Deserialize<ExtensionPackage>(body, JsonSerializerOptions.Web)!;
         var recipe = package.Contents.OfType<ConnectionRecipe>().Single();
 
-        connected.Connection!.Auth.Should().Be("oauth");
+        start.Step.Should().Be("redirect", start.Problem);
+        back.StatusCode.Should().Be(HttpStatusCode.Redirect, await back.Content.ReadAsStringAsync(Token));
+        server.IssuedSecrets.Should().NotBeEmpty("the sign-in really issued private values");
+        connected.Connection.Auth.Should().Be("oauth");
         recipe.Auth.Should().Be("oauth");
         recipe.HeaderName.Should().BeNull();
-        body.Should().NotContain("token");
-        body.Should().NotContain("secret");
-        body.Should().NotContain("cookie");
-        body.Should().NotContain("session");
+        foreach (var issued in server.IssuedSecrets)
+        {
+            body.Should().NotContain(issued, "a code or token the sign-in issued is never written to a file");
+        }
+
+        body.Should().NotContain($"{connected.Connection.ConnectionId}", "the private connection is not part of the file");
+        body.Should().NotContain(imported.Id.ToString(), "the install is not part of the file");
     }
-
-    #endregion
-
-    #region Overrides
-
-    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
-    {
-        ["Drover:PublicUrl"] = "https://drover.example.test",
-    };
 
     #endregion
 
