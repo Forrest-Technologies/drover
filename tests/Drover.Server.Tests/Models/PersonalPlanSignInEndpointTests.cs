@@ -85,6 +85,7 @@ public sealed class PersonalPlanSignInEndpointTests(PostgresServer postgres) : S
     protected override void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel(), FakeModelSignIn.PlanKind));
         services.AddSingleton<IModelSignIn>(plan);
         services.AddSingleton<IModelSignIn>(open);
     }

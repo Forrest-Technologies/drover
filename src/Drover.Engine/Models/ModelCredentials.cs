@@ -24,6 +24,7 @@ namespace Drover.Engine.Models;
 public sealed class ModelCredentials(
     RunScopes scopes,
     IEnumerable<IModelSignIn> signIns,
+    ModelProviderCatalog catalog,
     ModelCredentialLocks locks,
     IOptions<DeploymentPolicyOptions> deployment,
     IOptions<ModelSignInOptions> options,
@@ -50,11 +51,18 @@ public sealed class ModelCredentials(
     public bool IsSignInKind(string kind) => FindSignIn(kind) is not null;
 
     /// <summary>
-    /// Why this server refuses a sign-in kind, or null when it allows it: a personal plan kind under the hosted
-    /// preset, or a kind the operator switched off.
+    /// Why this server refuses a sign-in kind, or null when it allows it. A sign-in kind is a provider kind too, so
+    /// the provider catalog decides first: a kind with no provider registered through it, or one the deployment does
+    /// not offer, is refused with the catalog's sentence. Then a personal plan kind under the hosted preset, or a kind
+    /// the operator switched off with <c>Drover:Models:SignInOff</c>.
     /// </summary>
     public string? FindRefusal(IModelSignIn signIn)
     {
+        if (catalog.Resolve(signIn.Kind).Refusal is { } notOffered)
+        {
+            return notOffered;
+        }
+
         var switchedOff = options.Value.SignInOff.Contains(signIn.Kind, StringComparer.OrdinalIgnoreCase);
         var plansRefused = deployment.Value.Rules.SubscriptionSignIn is SubscriptionSignInMode.OnlyWithOperatorApproval && signIn.IsPersonalPlan;
         return switchedOff || plansRefused ? NotAvailable : null;

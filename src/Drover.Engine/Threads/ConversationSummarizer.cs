@@ -8,7 +8,7 @@ namespace Drover.Engine.Threads;
 /// it. A failure changes nothing: it is logged, the old summary stays, and a later run tries again.
 /// </summary>
 public sealed class ConversationSummarizer(
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     ModelCredentials credentials,
@@ -173,7 +173,7 @@ public sealed class ConversationSummarizer(
         var connections = services.GetRequiredService<ModelConnectionRepository>();
 
         if (await connections.FindConnection(bot.ModelConnectionId, cancellationToken) is not { } connection
-            || providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind) is not { } provider
+            || catalog.Resolve(connection.Kind).Provider is not { } provider
             || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
         {
             logger.LogInformation("Thread {ThreadId} has no usable model connection for its summary", thread.Id);

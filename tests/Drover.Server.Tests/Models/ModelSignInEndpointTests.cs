@@ -194,6 +194,7 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
     protected override void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel(), FakeModelSignIn.OpenKind));
         services.AddSingleton<IModelSignIn>(plan);
         services.AddSingleton<IModelSignIn>(switchedOff);
     }

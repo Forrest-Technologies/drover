@@ -188,6 +188,31 @@ public sealed class ScreenReaderTests(PostgresServer postgres)
         setup.Reader.Requests.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_reader_of_a_kind_that_was_switched_off_is_an_error_in_the_operators_words_and_never_reaches_the_provider()
+    {
+        var bot = new ScriptedModel([new ToolCallOutput("c1", "computer_screenshot")], [new TextOutput("Off.")]);
+        await using var setup = await ReaderWorld(bot, new ScriptedModel(), vision: true);
+        setup.World.StartHost(replaceServices: services => services.AddSingleton<IOptions<DeploymentPolicyOptions>>(
+            Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = DeploymentPolicy.SelfHosted with
+                {
+                    ModelProviders = ModelProviderSet.OperatorList,
+                    AllowedModelProviderKinds = [ScriptedModelProvider.ConnectionKind],
+                },
+            })));
+
+        var runId = await setup.World.Post(await setup.World.NewThread(), "Look");
+        (await setup.World.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await setup.World.ReadToolCalls(runId)).Single().Result!.Value.GetProperty("error").GetString()
+            .Should().Contain($"The operator of this server switched {ReaderKind} off.");
+        setup.Reader.Requests.Should().BeEmpty();
+        setup.Reader.KeysSeen.Should().BeEmpty();
+        setup.Provider.Created.Should().Be(0);
+    }
+
     #endregion
 
     #region Untrusted Words

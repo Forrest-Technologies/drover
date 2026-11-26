@@ -17,6 +17,40 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Hosted_with_a_list_of_model_provider_kinds_starts_and_keeps_the_list_in_order()
+    {
+        var settings = Hosted(withCertificate: true);
+        settings[$"{DroverFactory.AllowedKindsSetting}:0"] = "venice";
+        settings[$"{DroverFactory.AllowedKindsSetting}:1"] = "openai_compatible";
+
+        await using var server = await Boot(settings);
+
+        var rules = server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        rules.ModelProviders.Should().Be(ModelProviderSet.OperatorList);
+        rules.AllowedModelProviderKinds.Should().Equal("venice", "openai_compatible");
+    }
+
+    [Fact]
+    public async Task Hosted_without_a_list_warns_at_start_and_names_the_setting_to_fill_in()
+    {
+        var logs = new LogCapture();
+
+        await using var server = await Boot(Hosted(withCertificate: true), logs: logs);
+
+        logs.Entries.Should().Contain(entry => entry.Level == LogLevel.Warning
+            && entry.Category == typeof(Drover.Server.Models.ModelProviderStartupCheck).FullName
+            && entry.Text.Contains("Drover:Policy:Rules:AllowedModelProviderKinds", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Hosted_without_a_list_offers_no_kind_of_model_provider()
+    {
+        await using var server = await Boot(Hosted(withCertificate: true));
+
+        server.Services.GetRequiredService<ModelProviderCatalog>().Offered.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Hosted_with_a_key_ring_certificate_starts()
     {
         await using var server = await Boot(Hosted(withCertificate: true));
@@ -31,6 +65,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     [InlineData("KeyRingProtection", "FilePermissions")]
     [InlineData("RequireEmailVerification", "false")]
     [InlineData("SpaceQuotas", "Unlimited")]
+    [InlineData("ModelProviders", "All")]
     public async Task Hosted_with_a_rule_set_looser_than_the_preset_does_not_start_and_names_the_rule(string rule, string setting)
     {
         var settings = Hosted(withCertificate: true);

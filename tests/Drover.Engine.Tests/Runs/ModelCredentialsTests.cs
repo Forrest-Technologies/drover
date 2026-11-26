@@ -171,7 +171,7 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
         var hosted = world.IdleHost(services =>
         {
             services.AddSingleton<IModelSignIn>(signIn);
-            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions { Rules = DeploymentPolicy.Hosted }));
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions { Rules = DeploymentPolicy.Hosted with { AllowedModelProviderKinds = [ScriptedModelProvider.ConnectionKind] } }));
         });
         var switchedOff = world.IdleHost(services =>
         {
@@ -186,6 +186,42 @@ public sealed class ModelCredentialsTests(PostgresServer postgres)
         onHosted.Message.Should().Be(ModelCredentials.NotAvailable);
         offHere.Problem.Should().Be(ModelCredentialProblem.NotAvailable);
         signIn.Refreshes.Should().Be(before, "nothing is sent for a refused kind");
+    }
+
+    [Fact]
+    public async Task A_sign_in_kind_the_provider_catalog_does_not_offer_is_refused_with_its_sentence_before_anything_is_sent()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var signIn = new FakeModelSignIn(ScriptedModelProvider.ConnectionKind) { Lifetime = TimeSpan.FromMinutes(2) };
+        var unregistered = new FakeModelSignIn("test_no_provider");
+        var open = world.IdleHost(services =>
+        {
+            services.AddSingleton<IModelSignIn>(signIn);
+            services.AddSingleton<IModelSignIn>(unregistered);
+        });
+        await SignIn(world, open, signIn, world.UserId);
+        var before = signIn.Refreshes;
+        var listOnly = world.IdleHost(services =>
+        {
+            services.AddSingleton<IModelSignIn>(signIn);
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList, AllowedModelProviderKinds = ["openai_compatible"] },
+            }));
+        });
+
+        var noProvider = await open.Services.GetRequiredService<ModelSignIns>()
+            .Begin(world.SpaceId, world.UserId, unregistered.Kind, FakeModelSignIn.RedirectUri, RunWorld.Token);
+        var notOffered = await listOnly.Services.GetRequiredService<ModelSignIns>()
+            .Begin(world.SpaceId, world.UserId, signIn.Kind, FakeModelSignIn.RedirectUri, RunWorld.Token);
+        var use = await Read(world, listOnly, world.UserId);
+
+        noProvider.Problem.Should().Be("This server has no provider of the kind test_no_provider.");
+        unregistered.Begins.Should().Be(0);
+        notOffered.Problem.Should().Be(ModelProviderCatalog.SwitchedOff(signIn.Kind));
+        use.Problem.Should().Be(ModelCredentialProblem.NotAvailable);
+        use.Message.Should().Be(ModelProviderCatalog.SwitchedOff(signIn.Kind));
+        signIn.Refreshes.Should().Be(before, "nothing is sent for a kind the catalog does not offer");
     }
 
     #endregion

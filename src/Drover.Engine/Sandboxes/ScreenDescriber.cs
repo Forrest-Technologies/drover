@@ -8,7 +8,7 @@ namespace Drover.Engine.Sandboxes;
 /// instruction. The call counts against the run's model calls and its usage is recorded against the run.
 /// </summary>
 public sealed class ScreenDescriber(
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     ModelCredentials credentials,
@@ -158,10 +158,12 @@ public sealed class ScreenDescriber(
             return new Found(null, $"{chosen.Model}, the model set to read this bot's screen, is no longer listed as reading images.");
         }
 
-        if (providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind) is not { } provider
+        var resolution = catalog.Resolve(connection.Kind);
+
+        if (resolution.Provider is not { } provider
             || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
         {
-            return new Found(null, "This server has no adapter for the connection of the model that reads this bot's screen.");
+            return new Found(null, resolution.Refusal ?? "This server has no adapter for the connection of the model that reads this bot's screen.");
         }
 
         var credential = await credentials.Read(services, connection, cancellationToken);

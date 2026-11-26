@@ -30,6 +30,7 @@ public static class EngineServiceExtensions
         services.AddScoped<PasswordService>();
         services.AddScoped<SpaceService>();
         services.AddScoped<StatusService>();
+        services.AddSingleton<ModelProviderCatalog>();
         return services;
     }
 

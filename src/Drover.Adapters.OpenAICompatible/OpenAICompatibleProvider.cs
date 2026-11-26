@@ -30,6 +30,15 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
 
     public string Kind => ConnectionKind;
 
+    public ModelProviderDescriptor Descriptor { get; } = new(
+        ConnectionKind,
+        "Compatible endpoint",
+        ModelKeyRule.Optional,
+        ModelAddressRule.Required,
+        AddressHint: "The address of the server, starting with http:// or https://.",
+        KeyHint: "Leave this empty if the server needs no key.",
+        ReportsCapabilities: false);
+
     #endregion
 
     #region Interface Implementations

@@ -104,6 +104,11 @@ public static class ImageTools
         var prepared = await call.Tenant.Transact(
             services => Prepare(services, call.Tenant.SpaceId, call.BotId, request.Model, cancellationToken),
             cancellationToken);
+        if (!rules.OffersModelProvider(prepared.Connection.Kind))
+        {
+            throw new BuiltinToolException(ModelProviderCatalog.SwitchedOff(prepared.Connection.Kind));
+        }
+
         var generator = generators.FirstOrDefault(candidate => candidate.Kind == prepared.Connection.Kind)
             ?? throw new BuiltinToolException("This server has no image adapter for the bot's model connection.");
         var address = generator.FixedAddress

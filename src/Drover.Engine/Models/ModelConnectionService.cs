@@ -31,7 +31,7 @@ public sealed class ModelConnectionService(
     ModelConnectionCredentialRepository signIns,
     ModelCredentials credentials,
     ISecretVault vault,
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     PolicyService policy,
     TenantScope scope,
     TenantContext tenant,
@@ -110,8 +110,8 @@ public sealed class ModelConnectionService(
             return ConnectionChange.Invalid(SignInKindProblem);
         }
 
-        var provider = providers.FirstOrDefault(candidate => candidate.Kind == kind);
-        var problem = provider is null ? "That kind of connection is not available on this server." : FindProblem(provider, name, baseUrl, apiKey, defaultModel);
+        var provider = catalog.IsOffered(kind) ? catalog.Find(kind) : null;
+        var problem = provider is null ? catalog.NotOffered(kind) : FindProblem(provider, name, baseUrl, apiKey, defaultModel);
 
         if (provider is null || problem is not null)
         {
@@ -368,13 +368,16 @@ public sealed class ModelConnectionService(
 
         var (connection, effective, read) = found;
 
+        // A kind the operator switched off is refused before anything is sent, a renewal included.
+        var resolution = catalog.Resolve(connection.Kind);
+        var provider = resolution.Provider;
+
         // The scope is closed and disposed: a sign-in that runs out soon is renewed now, waiting on the provider.
-        var credential = await credentials.Ready(read, cancellationToken);
-        var provider = providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind);
+        var credential = provider is null ? read : await credentials.Ready(read, cancellationToken);
         var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
         var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
         var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits };
-        return new PreparedCall(connection, provider, endpoint, credential, effective);
+        return new PreparedCall(connection, provider, endpoint, credential, effective, resolution.Refusal);
     }
 
     /// <summary>The connection, the space's rule and the credential as read, in a scope that is over when this returns.</summary>
@@ -405,7 +408,7 @@ public sealed class ModelConnectionService(
     {
         if (call.Provider is null || call.Endpoint is null)
         {
-            return new Answer<T>(default, ModelFailure.Rejected, "This server has no adapter for that connection.");
+            return new Answer<T>(default, ModelFailure.Rejected, call.Refusal ?? "This server has no adapter for that connection.");
         }
 
         if (call.Credential.Problem is { } problem)
@@ -607,7 +610,8 @@ public sealed class ModelConnectionService(
         IModelClientProvider? Provider,
         ModelEndpoint? Endpoint,
         ModelCredential Credential,
-        EffectivePolicy Policy);
+        EffectivePolicy Policy,
+        string? Refusal);
 
     #endregion
 }

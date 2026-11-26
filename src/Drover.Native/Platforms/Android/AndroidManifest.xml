@@ -18,6 +18,8 @@
     </provider>
   </application>
   <queries>
+    <!-- The retired Drover Preview app, which installing this one never replaced: the app asks the person to remove it. -->
+    <package android:name="com.forresttechnologies.drover.preview" />
     <intent>
       <action android:name="org.unifiedpush.android.distributor.REGISTER" />
     </intent>
