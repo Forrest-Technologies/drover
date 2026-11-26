@@ -41,6 +41,7 @@ public sealed partial class NativeInterfaceRuleTests
         ("Session/AboutDrover.cs", "session dialog"),
         ("Session/AccountMenu.cs", "session dialog, install update"),
         ("Session/PushControl.cs", "session dialog, turn on notifications"),
+        ("Session/RetiredAppRequest.cs", "session dialog, uninstall the retired app"),
         ("Pages/Dev/", "gallery samples are not screens"),
         ("Device/ConnectPage.cs", "setup"),
         ("Pages/SignInPage.xaml", "sign-in"),
