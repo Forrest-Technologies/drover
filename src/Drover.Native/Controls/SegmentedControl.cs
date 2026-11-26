@@ -72,10 +72,7 @@ public sealed class SegmentedControl : Grid
         set => SetValue(DisabledProperty, value);
     }
 
-    /// <summary>
-    /// Spans the width it is given, each choice the same width unless one needs more room for its widest word, which it
-    /// then gets, so a label wraps between words and never inside one.
-    /// </summary>
+    /// <summary>Spans the width it is given, each choice the same width, as the provider choice of a setup form does.</summary>
     public bool Fills
     {
         get => (bool)GetValue(FillsProperty);
@@ -131,45 +128,11 @@ public sealed class SegmentedControl : Grid
             Grid.SetColumn(cell, index);
             row.Children.Add(cell);
 
-            if (Fills)
-            {
-                segment.Loaded += (_, _) => KeepWordsWhole(index, option, segment);
-            }
-
             if (chosen && hadFocus)
             {
                 segment.Loaded += (_, _) => segment.TakeFocus();
             }
         }
-    }
-
-    // Equal columns can be narrower than a long word, which would then break inside the word. A column is never
-    // narrower than its widest word, at the heavier weight a chosen segment uses, so a label wraps between words only.
-    private void KeepWordsWhole(int index, SegmentOption<string> option, PlainButton segment)
-    {
-        if (index >= row.ColumnDefinitions.Count)
-        {
-            return;
-        }
-
-        var widest = option.Label
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(word =>
-            {
-                var probe = new TextBlock
-                {
-                    Text = word,
-                    FontFamily = segment.FontFamily,
-                    FontSize = segment.FontSize,
-                    FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"],
-                };
-                probe.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
-                return probe.DesiredSize.Width;
-            })
-            .DefaultIfEmpty(0)
-            .Max();
-
-        row.ColumnDefinitions[index].MinWidth = Math.Ceiling(widest) + segment.Padding.Left + segment.Padding.Right + Tokens.Number("DvBorder");
     }
 
     // A choice that cannot be taken is struck through, so it is not told by color alone.

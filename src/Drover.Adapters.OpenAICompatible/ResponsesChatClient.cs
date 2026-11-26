@@ -22,6 +22,12 @@ internal sealed class ResponsesChatClient(
     /// <summary>What the vendor client calls a refusal content part when it hands it over as an error.</summary>
     private const string RefusalCode = "Refusal";
 
+    /// <summary>
+    /// Set once the provider refused the summary on this client, so the rest of its calls (a run's) leave it out and
+    /// an organization that cannot have summaries pays the extra refusal once per client, not once per call.
+    /// </summary>
+    private volatile bool summaryRefused;
+
     #endregion
 
     #region Interface Implementations
@@ -34,14 +40,17 @@ internal sealed class ResponsesChatClient(
 
         try
         {
+            var askForSummary = !summaryRefused;
+
             try
             {
-                response = await Send(request, headers, askForSummary: true, cancellation);
+                response = await Send(request, headers, askForSummary, cancellation);
             }
             // The provider refused only the summary; the same call is made once without it, and its own failure stands.
 #pragma warning disable DRV0005
-            catch (Exception exception) when (RefusesTheSummary(exception))
+            catch (Exception exception) when (askForSummary && RefusesTheSummary(exception))
             {
+                summaryRefused = true;
                 response = await Send(request, headers, askForSummary: false, cancellation);
             }
 #pragma warning restore DRV0005
@@ -72,7 +81,7 @@ internal sealed class ResponsesChatClient(
         RefuseFilesOtherThanPictures(request);
         var headers = new ProtocolHeaderCapture();
         using var client = CreateClient(headers);
-        var askForSummary = true;
+        var askForSummary = !summaryRefused;
         var updates = Stream(client, request, askForSummary, cancellation);
         var started = false;
         var refused = false;
@@ -93,6 +102,7 @@ internal sealed class ResponsesChatClient(
                 catch (Exception exception) when (!started && askForSummary && RefusesTheSummary(exception))
                 {
                     await updates.DisposeAsync();
+                    summaryRefused = true;
                     askForSummary = false;
                     updates = Stream(client, request, askForSummary, cancellation);
                     continue;

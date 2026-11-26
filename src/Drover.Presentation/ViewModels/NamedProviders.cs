@@ -117,12 +117,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         {
             var kinds = await api.ListModelProviderKinds();
             ownWire = [.. kinds.Where(kind => kind.Kind is not (VeniceKind or CompatibleKind))];
-
-            // A kind with its own wire is the better way to that provider, so a named provider it covers (same id or
-            // same name) is not offered a second time under the same name.
-            presets = [.. (kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [])
-                .Where(preset => !ownWire.Any(kind => kind.Kind == preset.Id
-                    || string.Equals(kind.DisplayName, preset.DisplayName, StringComparison.OrdinalIgnoreCase)))];
+            presets = kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [];
             State = NamedProvidersState.Loaded;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))

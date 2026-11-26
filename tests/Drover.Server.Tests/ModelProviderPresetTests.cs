@@ -13,6 +13,9 @@ public abstract class ModelProviderPresetTests(PostgresServer postgres) : Server
 
     protected static readonly string[] RowFields = ["address", "displayName", "id", "keyPage", "keyRule", "local"];
 
+    /// <summary>The rows this server lists: every row but the one whose own kind (OpenAI's) the server offers.</summary>
+    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id != OpenAIProvider.ConnectionKind);
+
     #endregion
 
     #region Helpers
@@ -57,9 +60,9 @@ public sealed class SelfHostedModelProviderPresetTests(PostgresServer postgres) 
 
         var listed = await Listed(client);
 
-        listed.Select(row => row.Id).Should().Equal(KnownProviders.All.Select(row => row.Id));
+        listed.Select(row => row.Id).Should().Equal(Rows.Select(row => row.Id));
         listed.Should().BeEquivalentTo(
-            KnownProviders.All.Select(row => new ModelProviderPresetResponse(
+            Rows.Select(row => new ModelProviderPresetResponse(
                 row.Id,
                 row.DisplayName,
                 row.Address,
@@ -165,6 +168,7 @@ public sealed class HostedModelProviderPresetTests(PostgresServer postgres) : Mo
 
         listed.Should().NotBeEmpty();
         listed.Should().OnlyContain(row => !row.Local);
+        // This hosted server's operator list does not offer OpenAI's own kind, so its row is listed.
         listed.Select(row => row.Id).Should().Equal(KnownProviders.All.Where(row => !row.Local).Select(row => row.Id));
     }
 
@@ -200,12 +204,35 @@ public sealed class ModelProviderCatalogNamedProviderTests
         offered.Should().Equal(KnownProviders.All.Where(row => !row.Local));
     }
 
+    [Fact]
+    public void A_named_provider_whose_own_kind_is_offered_is_not_listed()
+    {
+        var offered = WithOpenAI(DeploymentPolicy.SelfHosted).Offered.Single(descriptor => descriptor.Kind == ModelConnectionKinds.Compatible);
+
+        offered.NamedProviders.Should().NotContain(row => row.Id == OpenAIProvider.ConnectionKind);
+        offered.NamedProviders.Should().Equal(KnownProviders.All.Where(row => row.Id != OpenAIProvider.ConnectionKind));
+    }
+
+    [Fact]
+    public void A_named_provider_comes_back_when_the_policy_switches_its_own_kind_off()
+    {
+        var rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList, AllowedModelProviderKinds = [ModelConnectionKinds.Compatible] };
+
+        var offered = WithOpenAI(rules).Offered.Single();
+
+        offered.NamedProviders.Should().Contain(row => row.Id == OpenAIProvider.ConnectionKind);
+        offered.NamedProviders.Should().Equal(KnownProviders.All);
+    }
+
     #endregion
 
     #region Private Methods
 
     private static ModelProviderCatalog Catalog(DeploymentPolicy rules) =>
         new([new OpenAICompatibleProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));
+
+    private static ModelProviderCatalog WithOpenAI(DeploymentPolicy rules) =>
+        new([new OpenAICompatibleProvider(new NoNetwork()), new OpenAIProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));
 
     #endregion
 

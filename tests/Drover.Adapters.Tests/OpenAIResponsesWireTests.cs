@@ -326,6 +326,23 @@ public sealed class OpenAIResponsesWireTests
     }
 
     [Fact]
+    public async Task A_client_that_was_refused_the_summary_leaves_it_out_for_the_rest_of_its_calls()
+    {
+        var refusal = new Answer(HttpStatusCode.BadRequest, "application/json", JsonSerializer.Serialize(new { error = new { message = "Your organization must be verified to generate reasoning summaries.", type = "invalid_request_error", param = "reasoning.summary", code = (string?)null } }));
+        var wire = new Wire(refusal, Reply(Message("One.")), Reply(Message("Two.")), Stream(TextDeltas("Three.")), Reply(Message("New client.")));
+        using var client = wire.Client();
+
+        await client.GetResponse(Prompt("Say one."), Token);
+        await client.GetResponse(Prompt("Say two."), Token);
+        await Collect(client.GetStreamingResponse(Prompt("Say three."), Token));
+        await wire.Client().GetResponse(Prompt("Say hello."), Token);
+
+        wire.Requests.Should().HaveCount(5, "the refusal is paid once, by the first call");
+        wire.Requests.Skip(1).Take(3).Select(request => Names(request)).Should().AllSatisfy(names => names.Should().NotContain("reasoning"));
+        wire.Requests[4].Json.GetProperty("reasoning").GetProperty("summary").GetString().Should().Be("auto", "a new client asks again");
+    }
+
+    [Fact]
     public async Task Another_400_is_not_made_again()
     {
         var refusal = new Answer(HttpStatusCode.BadRequest, "application/json", JsonSerializer.Serialize(new { error = new { message = "Unsupported value: 'minimal'.", type = "invalid_request_error", param = "reasoning.effort", code = (string?)null } }));

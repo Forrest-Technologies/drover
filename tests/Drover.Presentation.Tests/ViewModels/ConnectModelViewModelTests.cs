@@ -238,19 +238,6 @@ public sealed class ConnectModelViewModelTests : IDisposable
             .Should().BeEquivalentTo(new CreateModelConnectionRequest("sample_own_wire", "Sample own wire", null, "sample-key", null));
     }
 
-    [Fact]
-    public async Task A_named_provider_that_a_kind_with_its_own_wire_covers_is_not_offered_twice()
-    {
-        server.Answer("GET", PresetsPath, SampleProviders.WithOwnWire(
-            [.. SampleProviders.All, new ModelProviderPresetResponse("sample-twin", "Sample own wire", "https://twin.example.test/v1", "required", null, false)]));
-        var model = Step();
-
-        await model.Open();
-
-        model.Named.Options.Count(option => option.Label == "Sample own wire").Should().Be(1);
-        model.Named.Options.Select(option => option.Value).Should().NotContain("sample-twin");
-    }
-
     #endregion
 
     #region Private Methods
