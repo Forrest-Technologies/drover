@@ -151,7 +151,7 @@ public sealed partial class ModelConnectionsViewModel(
         AddProblem = null;
         Notice = null;
         ApiKey = string.Empty;
-        BaseUrl = Named.Preset?.Address ?? string.Empty;
+        BaseUrl = Named.Selected?.Address ?? string.Empty;
         Name = string.Empty;
     }
 
@@ -160,7 +160,7 @@ public sealed partial class ModelConnectionsViewModel(
         Adding = false;
         AddProblem = null;
         ApiKey = string.Empty;
-        BaseUrl = Named.Preset?.Address ?? string.Empty;
+        BaseUrl = Named.Selected?.Address ?? string.Empty;
         Name = string.Empty;
     }
 

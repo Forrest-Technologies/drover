@@ -54,7 +54,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     /// <summary>The kind the server stores for the choice. A named provider is a compatible server with an address.</summary>
     public string Kind => Choice == VeniceKind ? VeniceKind : CompatibleKind;
 
-    public ModelProviderPresetResponse? Preset => presets.FirstOrDefault(preset => preset.Id == Choice);
+    public ModelProviderPresetResponse? Selected => presets.FirstOrDefault(preset => preset.Id == Choice);
 
     public IReadOnlyList<SegmentOption<string>> Options =>
     [
@@ -63,27 +63,27 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         new(CompatibleKind, "Another compatible server"),
     ];
 
-    public bool ShowsAddress => Kind == CompatibleKind && (Preset is null || AddressRevealed);
+    public bool ShowsAddress => Kind == CompatibleKind && (Selected is null || AddressRevealed);
 
-    public bool OffersAddressChange => Preset is not null && !AddressRevealed;
+    public bool OffersAddressChange => Selected is not null && !AddressRevealed;
 
-    public bool ShowsKey => Preset?.KeyRule != ModelProviderKeyRules.None;
+    public bool ShowsKey => Selected?.KeyRule != ModelProviderKeyRules.None;
 
-    public string KeyLabel => Preset?.KeyRule == ModelProviderKeyRules.Optional ? "Key (optional)" : "Key";
+    public string KeyLabel => Selected?.KeyRule == ModelProviderKeyRules.Optional ? "Key (optional)" : "Key";
 
     public string KeyHint => Kind switch
     {
         VeniceKind => "Made in your Venice account, under API keys.",
-        _ when Preset is null => "Leave this empty if the server needs no key.",
+        _ when Selected is null => "Leave this empty if the server needs no key.",
         _ => "Stored encrypted. It is not shown again.",
     };
 
     /// <summary>The words of the link to where a key is made, drawn as plain text. Null where the provider gave no page.</summary>
-    public string? KeyLinkText => Preset is { KeyPage: not null } preset ? $"Get a key from {preset.DisplayName}" : null;
+    public string? KeyLinkText => Selected is { KeyPage: not null } preset ? $"Get a key from {preset.DisplayName}" : null;
 
-    public string? KeyLinkAddress => Preset?.KeyPage;
+    public string? KeyLinkAddress => Selected?.KeyPage;
 
-    public string? ReachNote => Preset is { Local: true } ? ReachWords : null;
+    public string? ReachNote => Selected is { Local: true } ? ReachWords : null;
 
     public bool ShowsFailure => State == NamedProvidersState.Failed;
 
@@ -111,7 +111,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         }
 
         // A choice the new list no longer holds falls back to the one that always works.
-        if (Choice != VeniceKind && Choice != CompatibleKind && Preset is null)
+        if (Choice != VeniceKind && Choice != CompatibleKind && Selected is null)
         {
             Choice = CompatibleKind;
         }
@@ -125,12 +125,12 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     /// </summary>
     public string? Choose(string chosen)
     {
-        var before = Preset;
+        var before = Selected;
         Choice = chosen;
         AddressRevealed = false;
         Changed?.Invoke();
 
-        return Preset?.Address ?? (before is not null ? string.Empty : null);
+        return Selected?.Address ?? (before is not null ? string.Empty : null);
     }
 
     public void RevealAddress()
@@ -140,7 +140,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     }
 
     /// <summary>The name a new connection gets when a person gave none: the provider's, else the address's host.</summary>
-    public string NameFor(string? address) => Preset?.DisplayName ?? (
+    public string NameFor(string? address) => Selected?.DisplayName ?? (
         Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice");
 
     #endregion
