@@ -55,6 +55,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
         new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
+        new(nameof(DeploymentPolicy.AllowedModelProviderKinds), "None", "None"),
         new(nameof(DeploymentPolicy.OpenRegistration), "false", "false"),
         new(nameof(DeploymentPolicy.RequireEmailVerification), "false", "true"),
         new(nameof(DeploymentPolicy.RequireTermsAcceptance), "false", "true"),

@@ -134,7 +134,7 @@ public sealed class VoiceService(
 
         if (Endpoint(found.Call, speakers.FirstOrDefault(adapter => adapter.Kind == found.Call.Candidate.Kind)) is not var (adapter, endpoint))
         {
-            return NoAdapter;
+            return NoAdapter(found.Call);
         }
 
         try
@@ -175,7 +175,7 @@ public sealed class VoiceService(
 
         if (Endpoint(prepared, listeners.FirstOrDefault(adapter => adapter.Kind == prepared.Candidate.Kind)) is not var (adapter, endpoint))
         {
-            return NoAdapter;
+            return NoAdapter(prepared);
         }
 
         var bounded = new BoundedAudio(audio, Rules.MaxVoiceRecordingBytes);
@@ -280,7 +280,7 @@ public sealed class VoiceService(
 
         if (Endpoint(call, speakers.FirstOrDefault(candidate => candidate.Kind == call.Candidate.Kind)) is not var (adapter, endpoint))
         {
-            return NoAdapter;
+            return NoAdapter(call);
         }
 
         var spoken = string.IsNullOrWhiteSpace(voice) ? call.Voice : voice.Trim();
@@ -428,7 +428,7 @@ public sealed class VoiceService(
 
                 if (Endpoint(call, callers.FirstOrDefault(candidate => candidate.Kind == call.Candidate.Kind)) is not var (adapter, endpoint))
                 {
-                    return NoAdapter;
+                    return NoAdapter(call);
                 }
 
                 var voice = call.Voice ?? (adapter.ListVoices(call.Candidate.Model) is [var first, ..] ? first.Id : null);
@@ -622,13 +622,21 @@ public sealed class VoiceService(
             _ => null,
         };
 
-        return adapter is not null && (fixedAddress ?? call.Candidate.Address) is { } address
+        return adapter is not null && !IsSwitchedOff(call) && (fixedAddress ?? call.Candidate.Address) is { } address
             ? (adapter, new ModelEndpoint(call.Candidate.Kind, address) { Limits = new DiscoveryLimits(Rules.MaxModelListBytes, Rules.MaxModelsPerConnection) })
             : null;
     }
 
-    private static VoiceProblem NoAdapter { get; } =
-        new(VoiceProblemKind.NotReady, "This server has no speech adapter for that connection.");
+    /// <summary>Whether the candidate is a stored connection of a kind the operator switched off.</summary>
+    private bool IsSwitchedOff(PreparedCall call) =>
+        call.Candidate.ConnectionId is not null && !Rules.OffersModelProvider(call.Candidate.Kind);
+
+    private VoiceProblem NoAdapter(PreparedCall call) =>
+        new(
+            VoiceProblemKind.NotReady,
+            IsSwitchedOff(call)
+                ? ModelProviderCatalog.SwitchedOff(call.Candidate.Kind)
+                : "This server has no speech adapter for that connection.");
 
     #endregion
 

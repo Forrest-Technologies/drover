@@ -18,6 +18,21 @@ public static class ModelResponses
             connection.Balance?.ReadAt,
             connection.LastCheckedAt);
 
+    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor) =>
+        new(
+            descriptor.Kind,
+            descriptor.DisplayName,
+            descriptor.KeyRule switch
+            {
+                ModelKeyRule.Required => ModelKeyRules.Required,
+                ModelKeyRule.Optional => ModelKeyRules.Optional,
+                _ => ModelKeyRules.None,
+            },
+            descriptor.AddressRule is ModelAddressRule.Fixed ? ModelAddressRules.Fixed : ModelAddressRules.Required,
+            descriptor.AddressHint,
+            descriptor.KeyHint,
+            descriptor.ReportsCapabilities);
+
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(
             entry.Model,

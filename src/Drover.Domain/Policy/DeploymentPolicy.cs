@@ -72,6 +72,10 @@ public sealed record DeploymentPolicy
         return problems;
     }
 
+    /// <summary>Whether this deployment offers a kind of model provider: every kind under All, the listed ones otherwise.</summary>
+    public bool OffersModelProvider(string kind) =>
+        ModelProviders is ModelProviderSet.All || AllowedModelProviderKinds.Contains(kind, StringComparer.Ordinal);
+
     #endregion
 
     #region Constants
@@ -387,6 +391,13 @@ public sealed record DeploymentPolicy
 
     public ModelProviderSet ModelProviders { get; init; } = ModelProviderSet.All;
 
+    /// <summary>
+    /// The kinds of model provider this server offers when <see cref="ModelProviders"/> is
+    /// <see cref="ModelProviderSet.OperatorList"/>. Empty offers none. Ignored under <see cref="ModelProviderSet.All"/>.
+    /// The operator names them; no preset does.
+    /// </summary>
+    public IReadOnlyList<string> AllowedModelProviderKinds { get; init; } = [];
+
     /// <summary>Anyone may register. Off in both presets; the operator of a hosted service may turn it on.</summary>
     public bool OpenRegistration { get; init; }
 
@@ -665,7 +676,11 @@ public sealed record DeploymentPolicy
         PolicyRule.Choice(
             nameof(ModelProviders),
             policy => policy.ModelProviders,
-            Enforcement.Later("Model providers: provider registration (15-model-providers.md)")),
+            Enforcement.Now("ModelProviderCatalog, which offers a kind only where the rule and the list allow it")),
+        PolicyRule.Names(
+            nameof(AllowedModelProviderKinds),
+            policy => policy.AllowedModelProviderKinds,
+            Enforcement.Now("ModelProviderCatalog, when ModelProviders is OperatorList")),
         PolicyRule.Permission(
             nameof(OpenRegistration),
             policy => policy.OpenRegistration,

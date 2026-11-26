@@ -31,6 +31,9 @@ public sealed record PolicyRule(
     /// <summary>How a limit reads when it is the largest number, which stands for none.</summary>
     public const string NoLimit = "No limit";
 
+    /// <summary>How a list of names reads when it is empty.</summary>
+    public const string NoNames = "None";
+
     #endregion
 
     #region Public Methods
@@ -71,6 +74,16 @@ public sealed record PolicyRule(
             policy => Enum.IsDefined(read(policy)));
 
     /// <summary>
+    /// A list of names the operator sets. It never loosens anything by itself: the rule that decides whether the list
+    /// is read is locked, and an empty list offers nothing, so no value is looser than the preset's.
+    /// </summary>
+    public static PolicyRule Names(
+        string name,
+        Func<DeploymentPolicy, IReadOnlyList<string>> read,
+        Enforcement enforcement) =>
+        new(name, policy => read(policy), _ => 0, enforcement, IsLocked: false);
+
+    /// <summary>
     /// A numeric limit. A higher value is looser; <paramref name="strictest"/> is the value the hosted preset sets,
     /// so it counts as looseness zero. A limit of zero or less is not a value the rule has.
     /// </summary>
@@ -106,6 +119,8 @@ public sealed record PolicyRule(
             true => "true",
             false => "false",
             int.MaxValue when IsLimit => NoLimit,
+            IReadOnlyList<string> { Count: 0 } => NoNames,
+            IReadOnlyList<string> names => string.Join(", ", names),
             var value => value.ToString() ?? string.Empty,
         };
 

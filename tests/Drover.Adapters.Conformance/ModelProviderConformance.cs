@@ -264,6 +264,45 @@ public abstract class ModelProviderConformance
 
     #endregion
 
+    #region Description
+
+    [Fact]
+    public async Task A_provider_describes_itself_with_a_kind_a_name_and_rules_that_match_its_behavior()
+    {
+        var subject = Start(ConformanceScenarios.PlainReply);
+        var provider = subject.Provider;
+        var descriptor = provider.Descriptor;
+
+        descriptor.Kind.Should().Be(provider.Kind).And.NotBeNullOrWhiteSpace();
+        descriptor.DisplayName.Should().NotBeNullOrWhiteSpace();
+        (descriptor.AddressRule is ModelAddressRule.Fixed).Should().Be(provider.FixedAddress is not null, "a fixed address is what makes the rule fixed");
+
+        if (descriptor.AddressRule is ModelAddressRule.Fixed)
+        {
+            descriptor.AddressHint.Should().BeNull("a connection of a fixed kind has no address field");
+        }
+
+        if (descriptor.KeyRule is ModelKeyRule.None)
+        {
+            descriptor.KeyHint.Should().BeNull("a connection of a keyless kind has no key field");
+        }
+
+        var withoutKey = () => provider.CreateChatClient(subject.Connection, null, subject.ModelId, new ModelSettings()).GetResponse(Prompt(GreetingPrompt));
+
+        if (descriptor.KeyRule is ModelKeyRule.Required)
+        {
+            var failure = (await FluentActions.Awaiting(withoutKey).Should().ThrowAsync<ModelProviderException>()).Which;
+            failure.Failure.Should().Be(ModelFailure.InvalidKey);
+            failure.Message.Should().Contain("key");
+        }
+        else
+        {
+            await FluentActions.Awaiting(withoutKey).Should().NotThrowAsync("a provider whose key is optional or absent answers without one");
+        }
+    }
+
+    #endregion
+
     #region Helpers
 
     private static List<WireRequest> ChatRequests(ProviderUnderTest subject) =>
