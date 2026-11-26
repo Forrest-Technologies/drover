@@ -34,6 +34,8 @@ public sealed class VoiceCallSession(
 
     private static readonly TimeSpan closeWait = TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan limitCheck = TimeSpan.FromSeconds(1);
+
     private readonly Channel<Frame> outgoing = Channel.CreateBounded<Frame>(
         new BoundedChannelOptions(MaxQueuedFrames) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
 
@@ -192,10 +194,26 @@ public sealed class VoiceCallSession(
         End(VoiceCallEndReasons.Provider);
     }
 
-    /// <summary>Ends the call at the server's limit, when it has one.</summary>
+    /// <summary>
+    /// Ends the call at the server's limit, when it has one. The clock is read once a second, so the limit follows
+    /// the server's clock and not a timer set when the call began.
+    /// </summary>
     private async Task Limit(CancellationToken cancellationToken)
     {
-        await Task.Delay(plan.MaxMinutes is { } minutes ? TimeSpan.FromMinutes(minutes) : Timeout.InfiniteTimeSpan, time, cancellationToken);
+        if (plan.MaxMinutes is not { } minutes)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return;
+        }
+
+        var began = time.GetUtcNow();
+        using var tick = new PeriodicTimer(limitCheck);
+
+        while (time.GetUtcNow() - began < TimeSpan.FromMinutes(minutes))
+        {
+            await tick.WaitForNextTickAsync(cancellationToken);
+        }
+
         End(VoiceCallEndReasons.TimeLimit);
     }
 
