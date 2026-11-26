@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// Works out the values a screen draws with from a theme file. Nothing derived is stored in the file.

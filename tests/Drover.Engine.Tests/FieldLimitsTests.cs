@@ -20,18 +20,18 @@ public sealed class FieldLimitsTests
     [Fact]
     public void An_extension_id_is_taken_at_its_limit_and_refused_past_it()
     {
-        ReadExtension(Package("id", $"a{new string('b', ExtensionFile.MaxIdLength - 1)}")).Problem.Should().BeNull();
-        ReadExtension(Package("id", $"a{new string('b', ExtensionFile.MaxIdLength)}")).Problem.Should().NotBeNull();
+        ReadExtension(Package("id", $"a{new string('b', ExtensionPackage.MaxIdLength - 1)}")).Problem.Should().BeNull();
+        ReadExtension(Package("id", $"a{new string('b', ExtensionPackage.MaxIdLength)}")).Problem.Should().NotBeNull();
     }
 
     [Theory]
     [InlineData("name", FieldLimits.BotName)]
     [InlineData("description", FieldLimits.BotDescription)]
     [InlineData("suggestedModel", FieldLimits.ModelName)]
-    public void A_bot_field_in_an_extension_is_taken_at_its_limit_and_refused_past_it(string field, int limit)
+    public void A_field_of_a_bot_file_is_taken_at_its_limit_and_refused_past_it(string field, int limit)
     {
-        ReadExtension(PackageWithBot(field, new string('a', limit))).Problem.Should().BeNull();
-        ReadExtension(PackageWithBot(field, new string('a', limit + 1))).Problem.Should().NotBeNull();
+        BotFileReader.Read(JsonSerializer.Serialize(BotFile(field, new string('a', limit)))).Problem.Should().BeNull();
+        BotFileReader.Read(JsonSerializer.Serialize(BotFile(field, new string('a', limit + 1)))).Problem.Should().NotBeNull();
     }
 
     #endregion
@@ -88,23 +88,21 @@ public sealed class FieldLimitsTests
     {
         var package = new Dictionary<string, object>
         {
-            ["version"] = 1,
+            ["version"] = 2,
             ["id"] = "sample.limits",
             ["name"] = "Sample",
             ["description"] = string.Empty,
-            ["contents"] = new object[] { new Dictionary<string, object> { ["kind"] = "bot", ["name"] = "Sample bot", ["instructions"] = string.Empty } },
+            ["contents"] = new object[] { new Dictionary<string, object> { ["kind"] = "mcp_connection", ["name"] = "Helpdesk", ["url"] = "https://tools.example.test/mcp" } },
         };
         package[field] = value;
         return package;
     }
 
-    private static Dictionary<string, object> PackageWithBot(string field, string value)
+    private static Dictionary<string, object> BotFile(string field, string value)
     {
-        var bot = new Dictionary<string, object> { ["kind"] = "bot", ["name"] = "Sample bot", ["instructions"] = string.Empty };
+        var bot = new Dictionary<string, object> { ["version"] = 1, ["name"] = "Sample bot", ["instructions"] = string.Empty };
         bot[field] = value;
-        var package = Package("name", "Sample");
-        package["contents"] = new object[] { bot };
-        return package;
+        return bot;
     }
 
     #endregion

@@ -32,6 +32,8 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
     private Guid? loadingForUser;
 
+    private Guid? themesForSpace;
+
     private long choiceVersion;
 
     private bool loadPending;
@@ -91,11 +93,20 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
     public IReadOnlyList<ThemeOption> Themes =>
         [.. themeNames.Select(name => new ThemeOption(name.Mode, name.Name, theme.Choice.Mode == name.Mode))];
 
+    public static string OfferedLegend => "From this space's extensions";
+
     /// <summary>The themes the app has, the default first.</summary>
     public IReadOnlyList<LookOption> Looks =>
     [
         .. BuiltInThemes.All.Select(look =>
             new LookOption(look.Id, look.Name, look.Intent, look.Id == theme.Chosen.Id)),
+    ];
+
+    /// <summary>The themes the space's extensions offer, each with the extension it comes from. Empty when there are none.</summary>
+    public IReadOnlyList<LookOption> OfferedLooks =>
+    [
+        .. theme.Offered.Select(offered =>
+            new LookOption(offered.Theme.Id, offered.Theme.Name, offered.Theme.Intent, offered.Theme.Id == theme.Chosen.Id) { Source = offered.Source }),
     ];
 
     /// <summary>
@@ -174,11 +185,19 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         if (change.PropertyName is nameof(ThemeModel.AppearanceOpen))
         {
             OnPropertyChanged(nameof(Open));
+
+            // What a space offers changes when an extension is imported or removed, so it is read again when the choices open.
+            if (theme.AppearanceOpen)
+            {
+                _ = LoadSpaceThemes(always: true);
+            }
+
             return;
         }
 
         OnPropertyChanged(nameof(Themes));
         OnPropertyChanged(nameof(Looks));
+        OnPropertyChanged(nameof(OfferedLooks));
         OnPropertyChanged(nameof(AccentChoices));
     }
 
@@ -202,6 +221,7 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         var userId = session.Current?.UserId;
         if (userId is null)
         {
+            themesForSpace = null;
             loadedForUser = null;
             loadPending = false;
             pendingSync = false;
@@ -211,6 +231,8 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
 
         if (loadedForUser == userId)
         {
+            // The same person in another space: what that space offers is read, and the choice is left alone.
+            _ = LoadSpaceThemes(always: false);
             return;
         }
 
@@ -255,6 +277,8 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
         loadingForUser = userId;
         try
         {
+            // First what the space offers, so a choice that names one of its themes is found when it is applied.
+            await LoadSpaceThemes(always: false);
             var setting = await api.GetAppearance();
             if (!disposed && session.Current?.UserId == userId && choiceVersion == version && setting is not null)
             {
@@ -284,6 +308,33 @@ public sealed partial class AppearanceViewModel : ObservableObject, IDisposable
             {
                 loadingForUser = null;
             }
+        }
+    }
+
+    /// <summary>
+    /// Reads the themes the open space offers and hands them to the theme model, which checks each. A space that
+    /// was read already is read again only when asked to. A failure leaves what is offered as it was: the theme in
+    /// use stays drawn from the copy this device keeps.
+    /// </summary>
+    private async Task LoadSpaceThemes(bool always)
+    {
+        if (session.Space?.Id is not { } spaceId || session.Unreachable || (!always && themesForSpace == spaceId))
+        {
+            return;
+        }
+
+        try
+        {
+            var offered = await api.ListSpaceThemes(spaceId);
+            if (!disposed && session.Space?.Id == spaceId)
+            {
+                themesForSpace = spaceId;
+                theme.Offer(offered);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The themes the space offers could not be loaded");
         }
     }
 

@@ -7,6 +7,10 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     private IReadOnlyList<RuleStarter> starters = RuleStarters.For(TimeZone);
 
+    private IReadOnlyList<RuleStarter>? offered;
+
+    private IReadOnlyList<RuleStarter> all = [];
+
     private string tryTool = string.Empty;
 
     private RuleFocus? focus;
@@ -87,7 +91,23 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     public static string WhatWouldBeLeft => "What would be left";
 
-    public IReadOnlyList<RuleStarter> Starters => starters;
+    /// <summary>
+    /// The starters Drover has, then the rules the space's extensions offer. The same list is given back until
+    /// either changes, so the screen draws its buttons once.
+    /// </summary>
+    public IReadOnlyList<RuleStarter> Starters
+    {
+        get
+        {
+            if (!ReferenceEquals(offered, editor.ExtensionStarters))
+            {
+                offered = editor.ExtensionStarters;
+                all = [.. starters, .. offered];
+            }
+
+            return all;
+        }
+    }
 
     public bool Loading => editor.Rules is null;
 
@@ -354,7 +374,7 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
     /// <summary>The section was closed: the rule being written and what the section said go with it, as on the web.</summary>
     public void Reset()
     {
-        starters = RuleStarters.For(TimeZone);
+        (starters, offered) = (RuleStarters.For(TimeZone), null);
         (Draft, EditedId, Busy, Problem, Announcement, focus) = (null, null, false, null, null, null);
         (TryCheckpoint, tryTool, TrySample, Trying, TryProblem, Trial) = (RuleWords.BeforeTool, string.Empty, string.Empty, false, null, null);
     }

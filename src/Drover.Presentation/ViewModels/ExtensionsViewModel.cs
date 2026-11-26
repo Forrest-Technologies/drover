@@ -1,27 +1,25 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The extensions of the space. Its job: bring in a bot someone shared, after reading exactly what it will be told,
-/// and turn it on.
+/// The extensions of the space. Its job: bring in a file that adds things the space can pick up (a tool server,
+/// themes, rules) after reading what it holds, and take one out again.
 /// </summary>
-public sealed partial class ExtensionsViewModel(
-    DroverApi api, SessionState session, ExtensionHandoff handoff, ILogger<ExtensionsViewModel> logger) : ObservableObject
+public sealed partial class ExtensionsViewModel(DroverApi api, SessionState session, ILogger<ExtensionsViewModel> logger) : ObservableObject, IImportFlow
 {
     #region Private Fields
 
+    private static readonly ImportWords words = new("Import an extension", "Extension file", "This file is larger than an extension can be (256 KB).");
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Shows), nameof(ShowsActions), nameof(ShowsImportButton))]
+    [NotifyPropertyChangedFor(nameof(Shows), nameof(ShowsActions))]
     private IReadOnlyList<ExtensionSummary>? extensions;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ImportTitle), nameof(CanImport))]
+    [NotifyPropertyChangedFor(nameof(ImportTitle), nameof(CanImport), nameof(Reviewed))]
     private ExtensionPreview? preview;
 
     [ObservableProperty]
     private string? packageText;
-
-    [ObservableProperty]
-    private Guid? busy;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Shows))]
@@ -38,7 +36,6 @@ public sealed partial class ExtensionsViewModel(
     private bool noticeIsProblem;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowsImportButton))]
     private bool importing;
 
     [ObservableProperty]
@@ -46,7 +43,18 @@ public sealed partial class ExtensionsViewModel(
     private bool importBusy;
 
     [ObservableProperty]
-    private ImportExtensionViewModel form = new(logger);
+    private ImportFileViewModel form = new(logger, words);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RemoveLabel))]
+    private ExtensionSummary? removing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RemoveLabel))]
+    private bool removeBusy;
+
+    [ObservableProperty]
+    private string? removeProblem;
 
     #endregion
 
@@ -63,30 +71,38 @@ public sealed partial class ExtensionsViewModel(
     public static string EmptyTitle => "No extension yet";
 
     public static string EmptyCause =>
-        "An extension is a file someone shares that adds a bot to this space, and can name a tool server for it. You read what it holds before anything is added, and the file can give the bot no tools.";
+        "An extension is a file someone shares that adds to what this space can use: a tool server to connect, themes to choose, rules to give a bot. You read what it holds before anything is added, and it can give no bot a tool.";
 
     public static string EmptyForMember => "This space has no extensions yet. An owner or admin of the space can import one.";
+
+    public static string ImportAction => "Import an extension";
+
+    public static string RemoveAction => "Remove";
+
+    public static string KeepLabel => "Keep it";
 
     public Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
     public bool CanEdit => session.Space?.Role is "owner" or "admin";
 
-    /// <summary>The make and import buttons in the header: for people who can edit, once the list is known.</summary>
+    /// <summary>The import button in the header: for people who can edit, once the list is known.</summary>
     public bool ShowsActions => CanEdit && Extensions is not null;
-
-    public bool ShowsImportButton => Extensions is { Count: > 0 } && !Importing;
 
     public NoteKind NoticeKind => NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok;
 
-    public string ImportTitle => Preview is null ? ImportExtensionViewModel.Title : $"Review {Preview.Name}";
+    public object? Reviewed => Preview;
+
+    public string ImportTitle => Preview is null ? Form.Title : $"Review {Preview.Name}";
 
     public string ReadLabel => ImportBusy ? "Reading the file" : "Read the file";
 
-    public string ImportLabel => ImportBusy ? "Importing" : "Import, paused";
+    public string ImportLabel => ImportBusy ? "Importing" : "Import";
 
-    /// <summary>A file that is new, whose bot (if it has one) has a model to think with, can be imported.</summary>
-    public bool CanImport => Preview is { AlreadyInstalled: false } shown && shown.Bot is null or { Model: not null };
+    public string RemoveLabel => RemoveBusy ? "Removing" : Removing is null ? RemoveAction : $"Remove {Removing.Name}";
+
+    /// <summary>A file that is new to the space can be imported.</summary>
+    public bool CanImport => Preview is { AlreadyInstalled: false };
 
     /// <summary>What fills the screen under the header, in the order the screen decides it.</summary>
     public ExtensionsContent Shows =>
@@ -105,14 +121,6 @@ public sealed partial class ExtensionsViewModel(
         if (await session.Load() is not null)
         {
             await Load();
-
-            // A file handed over by the editor is reviewed here like any other, before anything is added.
-            if (CanEdit && LoadProblem is null && handoff.Take() is { } handed)
-            {
-                StartImporting();
-                Form.Text = handed;
-                await Read(handed);
-            }
         }
     }
 
@@ -135,7 +143,7 @@ public sealed partial class ExtensionsViewModel(
     [RelayCommand]
     public void StartImporting()
     {
-        Form = new(logger);
+        Form = new(logger, words);
         Importing = true;
         Preview = null;
         PackageText = null;
@@ -178,34 +186,42 @@ public sealed partial class ExtensionsViewModel(
         }
     }
 
-    public static BadgeKind StatusKind(ExtensionSummary extension) => extension.BotStatus is "active" ? BadgeKind.Ok : BadgeKind.Neutral;
-
-    public static string SetUpLabel(ExtensionSummary extension) => $"Set up {extension.BotName}";
-
-    /// <summary>A bot that is paused can be turned on, by a person who can edit.</summary>
-    public bool ShowsTurnOn(ExtensionSummary extension) => CanEdit && extension.BotStatus is "paused";
-
-    public string TurnOnLabel(ExtensionSummary extension) => Busy == extension.Id ? "Turning on" : $"Turn on {extension.BotName}";
-
-    public async Task TurnOn(ExtensionSummary extension)
+    /// <summary>Asks whether the extension should go. Nothing is removed until the person says so.</summary>
+    public void AskToRemove(ExtensionSummary extension)
     {
-        Busy = extension.Id;
-        Notice = null;
+        (RemoveProblem, Notice) = (null, null);
+        Removing = extension;
+    }
+
+    [RelayCommand]
+    public void KeepIt() => Removing = null;
+
+    [RelayCommand]
+    public async Task Remove()
+    {
+        if (Removing is not { } going)
+        {
+            return;
+        }
+
+        RemoveBusy = true;
+        RemoveProblem = null;
 
         try
         {
-            var bot = await api.ResumeBot(SpaceId, extension.BotId!.Value);
-            Replace(extension with { BotStatus = bot.Status });
-            (Notice, NoticeIsProblem) = ($"{bot.Name} is on.", false);
+            await api.RemoveExtension(SpaceId, going.Id);
+            Extensions = [.. Extensions!.Where(listed => listed.Id != going.Id)];
+            Removing = null;
+            (Notice, NoticeIsProblem) = (ExtensionWords.Removed(going), false);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionsViewModel));
-            (Notice, NoticeIsProblem) = (Failures.Sentence(exception, "Check that the server is running."), true);
+            RemoveProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
-            Busy = null;
+            RemoveBusy = false;
         }
     }
 

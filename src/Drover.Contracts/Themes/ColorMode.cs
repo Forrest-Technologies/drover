@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// One of the modes every theme has. A theme file holds the dark and the light one; black is the dark one worked out

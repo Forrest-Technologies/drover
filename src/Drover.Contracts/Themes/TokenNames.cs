@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// The names a client gives the tokens of a resolved theme. The native client names a token by dropping the
