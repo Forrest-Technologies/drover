@@ -157,21 +157,31 @@ public static class Conversations
     private static ChatMessage ToChatMessage(MessageView message, List<ToolCard> cards, Func<Guid, string>? fileAddress)
     {
         var fromPerson = message.Role is PersonRole;
-        var shown = new ChatMessage(message.Id.ToString(), fromPerson, Words(message), message.IsStreaming, message.IsPending)
+        var words = Words(message);
+        List<SharedFile> files = fileAddress is null
+            ? []
+            :
+            [
+                .. message.Parts
+                    .Where(part => part.Kind is ImageKind or FileKind && part.File is not null)
+                    .Select(part => FileWords.Shared(part.File!, fileAddress(part.File!.Id), fromBot: !fromPerson)),
+            ];
+        List<SourceLink> sources = fromPerson ? [] : [.. Sources(message)];
+        var unusableToolRequest = !fromPerson
+            && !message.IsStreaming
+            && cards.Count == 0
+            && files.Count == 0
+            && sources.Count == 0
+            && UnusableToolRequests.IsProtocolEnvelope(words);
+
+        var shown = new ChatMessage(message.Id.ToString(), fromPerson, words, message.IsStreaming, message.IsPending)
         {
             SentBy = SentBy(message),
             Reasoning = fromPerson ? null : Reasoning(message),
             Model = fromPerson ? null : message.Model,
-            Files = fileAddress is null
-                ? []
-                :
-                [
-                    .. message.Parts
-                        .Where(part => part.Kind is ImageKind or FileKind && part.File is not null)
-                        .Select(part => FileWords.Shared(part.File!, fileAddress(part.File!.Id), fromBot: !fromPerson)),
-                ],
+            UnusableToolRequest = unusableToolRequest,
         };
-        List<SourceLink> sources = fromPerson ? [] : [.. Sources(message)];
+        shown = files.Count == 0 ? shown : shown with { Files = files };
         shown = sources.Count == 0 ? shown : shown with { Sources = sources };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }
@@ -379,7 +389,7 @@ public static class Conversations
     // The answer a parent was given is the child's last reply, cut to its start. Where the work shows that reply, it is
     // shown once, whole, as the answer.
     private static DelegationItem Answered(DelegationItem item) =>
-        item is { Answer: { Length: > 0 } answer, Work: [.., { FromPerson: false, Tools.Count: 0 } last] }
+        item is { Answer: { Length: > 0 } answer, Work: [.., { FromPerson: false, Tools.Count: 0, UnusableToolRequest: false } last] }
         && last.Text.StartsWith(answer.Trim(), StringComparison.Ordinal)
             ? item with { Answer = last.Text, Work = [.. item.Work.Take(item.Work.Count - 1)] }
             : item;

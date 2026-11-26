@@ -339,6 +339,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
 | `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
 | `MessageVersions` (native only, inside `ChatEntry`) | `ShowVersion`, `OnAct`; `Show(message)` draws the message's `Versions` switch ("2 of 3" between previous and next) and Edit or Write another reply when the message offers it | |
+| `UnusableToolRequestCard` (native only, inside `ChatEntry`) | `MessageKey`, `BotName`, `OriginalResponse`, `CanRetry`; shown when a completed bot reply holds only a raw DSML tool-call protocol envelope (`UnusableToolRequests.IsProtocolEnvelope`), with a plain-word explanation, the existing retry action when available, and a collapsed disclosure of the original response | `Retry` |
 | `ExchangedFiles` | `Bot`, `Version` | |
 | `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
 | `MemoryRail` | `Bot`, `Version` | |
