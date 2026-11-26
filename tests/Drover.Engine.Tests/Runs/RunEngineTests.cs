@@ -503,6 +503,8 @@ public sealed class RunEngineTests(PostgresServer postgres)
         tools.Count("test.write").Should().Be(0, "the gate reads the grant again when the call is made");
         script.Requests[1].Should().Contain(message => message.Role == "tool" && message.Summary.Contains("no grant", StringComparison.Ordinal));
         (await world.ReadToolCalls(runId)).Should().ContainSingle(call => call.Status == ToolCallStatus.Failed && call.IsError);
+        (await world.ReadMessages(run.ThreadId)).SelectMany(message => message.Parts).OfType<ToolResultPart>()
+            .Should().ContainSingle().Which.IsError.Should().BeTrue();
         (await world.ReadEvents(runId)).Where(stored => stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
             .Should().ContainSingle().Which.Outcome.Should().Be("refused");
     }

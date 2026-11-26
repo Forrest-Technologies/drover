@@ -12,7 +12,7 @@ public static class MemorySectionFields
     #region Properties
 
     public static string Note =>
-        "With Remember across conversations on, the bot keeps notes on what it learns about each person it talks to. Summarizes older messages works in a bot's main conversation. The other ways to handle a long conversation, and the two numbers under them, are saved and change nothing yet.";
+        "With Remember across conversations on, the bot keeps notes on what it learns about each person it talks to.";
 
     public static string RememberLabel => "Remember across conversations";
 
@@ -33,7 +33,7 @@ public static class MemorySectionFields
     #region Public Methods
 
     /// <summary>The two numbers mean something only for a way of shortening a conversation.</summary>
-    public static bool NumbersShown(BotDraft draft) => draft.Compaction is not "none";
+    public static bool NumbersShown(BotDraft draft) => draft.Compaction is "sliding_window" or "truncation" or "tool_results";
 
     #endregion
 }

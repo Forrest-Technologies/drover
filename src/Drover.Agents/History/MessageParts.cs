@@ -117,7 +117,7 @@ public static class MessageParts
         TextPart text => new TextContent(text.Text),
         ReasoningPart reasoning => new TextReasoningContent(reasoning.Text),
         ToolCallPart call => new FunctionCallContent(call.CallId, call.ToolName, ToArguments(call.Arguments)),
-        ToolResultPart result => new FunctionResultContent(result.CallId, result.Result),
+        ToolResultPart result => ToolResult(result.CallId, result.Result, result.IsError),
         _ => null,
     };
 
@@ -139,6 +139,9 @@ public static class MessageParts
 
         return joined;
     }
+
+    public static FunctionResultContent ToolResult(string callId, JsonElement result, bool isError) =>
+        new(callId, result) { Exception = isError ? new InvalidOperationException("Tool execution failed.") : null };
 
     private static IEnumerable<MessagePart> ToParts(AIContent content, Guid runId) =>
         content is TextContent text
