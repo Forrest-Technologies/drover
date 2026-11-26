@@ -53,7 +53,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxStepsPerRun), "No limit", "50"),
         new(nameof(DeploymentPolicy.MaxTokensPerRun), "5000000", "2000000"),
         new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
-        new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
+        new(nameof(DeploymentPolicy.SubscriptionSignIn), "Available", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
         new(nameof(DeploymentPolicy.OpenRegistration), "false", "false"),
         new(nameof(DeploymentPolicy.RequireEmailVerification), "false", "true"),

@@ -42,6 +42,7 @@
     <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
     <Compile Include="..\Shared\SdkToolServer.cs" Link="Shared\SdkToolServer.cs" />
     <Compile Include="..\Shared\SignInDesk.cs" Link="Shared\SignInDesk.cs" />
+    <Compile Include="..\Shared\FakeModelSignIn.cs" Link="Shared\FakeModelSignIn.cs" />
   </ItemGroup>
 
 </Project>

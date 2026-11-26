@@ -18,6 +18,7 @@ public sealed partial class RunExecutor(
     UserSignalHub signals,
     PushNotifier push,
     ConversationSummarizer summarizer,
+    ModelCredentials credentials,
     IFileStore fileStore,
     IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
@@ -73,6 +74,7 @@ public sealed partial class RunExecutor(
     /// <summary>Executes a loaded run until it ends or waits. True when it completed.</summary>
     private async Task<bool> ExecuteLoaded(LoadedRun loaded, RunTenant tenant, string workerId, CancellationToken stopping)
     {
+        loaded = await WithReadyCredential(loaded, stopping);
         await using var session = NewSession(loaded, tenant, workerId);
 
         try
@@ -217,7 +219,7 @@ public sealed partial class RunExecutor(
         var connections = services.GetRequiredService<ModelConnectionRepository>();
         var connection = bot is null ? null : await connections.FindConnection(bot.ModelConnectionId, cancellationToken);
         var entry = bot is null ? null : await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
-        var key = await RevealKey(services, connection, cancellationToken);
+        var credential = connection is null ? ModelCredential.None : await credentials.Read(services, connection, cancellationToken);
         var policies = services.GetRequiredService<PolicyService>();
         var policy = await policies.GetEffective(run.SpaceId, cancellationToken);
         var limits = (await policies.GetRuns(run.SpaceId, cancellationToken)).NarrowedBy(bot?.RunLimits ?? new RunLimits());
@@ -296,8 +298,7 @@ public sealed partial class RunExecutor(
             thread,
             bot,
             connection,
-            key.Value,
-            key.Readable,
+            credential,
             policy,
             limits,
             entry?.Pricing ?? new ModelPricing(),
@@ -332,24 +333,13 @@ public sealed partial class RunExecutor(
         return model == bot.Model ? bot : bot.AnsweringWith(model);
     }
 
-    /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
-    private async Task<(string? Value, bool Readable)> RevealKey(IServiceProvider services, ModelConnection? connection, CancellationToken cancellationToken)
-    {
-        if (connection?.SecretId is not { } secretId)
-        {
-            return (null, true);
-        }
-
-        try
-        {
-            return (await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken), true);
-        }
-        catch (Exception unreadable) when (unreadable is CryptographicException or KeyNotFoundException)
-        {
-            logger.LogError(unreadable, "The key of model connection {ConnectionId} could not be read", connection.Id);
-            return (null, false);
-        }
-    }
+    /// <summary>
+    /// The run with the credential it sends, renewed first when it is a sign-in that runs out soon. Called after the
+    /// load's transaction has closed: a renewal waits on the provider. A credential that cannot be had is not an
+    /// error here; the run is refused with its reason before any model call.
+    /// </summary>
+    private async Task<LoadedRun> WithReadyCredential(LoadedRun loaded, CancellationToken cancellationToken) =>
+        loaded with { Credential = await credentials.Ready(loaded.Credential, cancellationToken) };
 
     private static StepState ReadSteps(IReadOnlyList<RunEvent> events)
     {
@@ -482,7 +472,7 @@ public sealed partial class RunExecutor(
             tenant,
             writer,
             tools,
-            new Redactor([loaded.Key]),
+            new Redactor([loaded.Credential.Value]),
             options.Value,
             time,
             loaded.Limits,
@@ -631,7 +621,7 @@ public sealed partial class RunExecutor(
             NewRunFiles(session, loaded),
             new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
-            provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
+            provider.CreateChatClient(endpoint, loaded.Credential.Value, bot.Model, bot.ModelSettings),
             session,
             connection.Id,
             loggers.CreateLogger<MeteredModelClient>(),
@@ -899,12 +889,29 @@ public sealed partial class RunExecutor(
             return Failed("model_unavailable", "The bot's model connection is missing or this server has no adapter for it.");
         }
 
-        if (!loaded.KeyReadable)
-        {
-            return Failed("model_unavailable", "The key of the bot's model connection could not be read. Save the key on the connection again.");
-        }
+        return loaded.Credential.Problem is { } problem ? RefusedCredential(loaded, problem) : null;
+    }
 
-        return null;
+    /// <summary>
+    /// The run's credential cannot be had. A sign-in is the run's own person's, so the sentence speaks to them: no
+    /// other person's sign-in, and no key, is used in its place.
+    /// </summary>
+    private static Refusal RefusedCredential(LoadedRun loaded, ModelCredentialProblem problem)
+    {
+        var bot = loaded.Bot!.Name;
+        var connection = loaded.Connection!.Name;
+        return problem switch
+        {
+            ModelCredentialProblem.SignInMissing => Failed(
+                RunReasons.SignInRequired,
+                $"{bot} answers with {connection}, which each person signs in to with their own account. Sign in with yours to talk to it."),
+            ModelCredentialProblem.SignInEnded => Failed(RunReasons.SignInEnded, $"Your {connection} sign-in has ended. Sign in again to talk to {bot}."),
+            ModelCredentialProblem.Unreachable => Failed(ModelFailure.Unreachable.ToWireName(), loaded.Credential.Message ?? string.Empty),
+            ModelCredentialProblem.NotAvailable => Failed("model_unavailable", loaded.Credential.Message ?? string.Empty),
+            _ when loaded.Connection.SecretId is not null =>
+                Failed("model_unavailable", "The key of the bot's model connection could not be read. Save the key on the connection again."),
+            _ => Failed("model_unavailable", loaded.Credential.Message ?? string.Empty),
+        };
     }
 
     private static string WaitingReason(RunSession session) =>
@@ -1231,8 +1238,7 @@ public sealed partial class RunExecutor(
         ChatThread? Thread,
         Bot? Bot,
         ModelConnection? Connection,
-        string? Key,
-        bool KeyReadable,
+        ModelCredential Credential,
         EffectivePolicy Policy,
         RunCeilings Limits,
         ModelPricing Pricing,

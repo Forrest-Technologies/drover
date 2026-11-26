@@ -603,9 +603,10 @@ public sealed class VoiceService(
         var connection = candidate.ConnectionId is { } id
             ? await services.GetRequiredService<ModelConnectionRepository>().FindConnection(id, cancellationToken)
             : null;
-        var key = connection?.SecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
+        // Speech adapters serve key connections only, so no sign-in reaches this point to be renewed.
+        var key = connection is null
+            ? null
+            : (await services.GetRequiredService<ModelCredentials>().Read(services, connection, cancellationToken)).Value;
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
         return new PreparedCall(candidate, voice, key, policy);
     }

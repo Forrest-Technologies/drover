@@ -56,6 +56,7 @@ public sealed class ContractsCarryNoSecretsTests
         new Drover.Contracts.Extensions.ConnectExtensionRequest(false, "a-header-value") { Settings = new Dictionary<string, string> { ["token"] = "a-setting-value" } }
             .ToString().Should().NotContain("a-header-value").And.NotContain("a-setting-value");
         new Drover.Contracts.Tools.FinishToolSignInRequest("a-ticket-value").ToString().Should().NotContain("a-ticket-value");
+        new Drover.Contracts.Models.FinishModelSignInRequest("code=a-one-time-code&state=s").ToString().Should().NotContain("a-one-time-code");
         new Drover.Contracts.Sandboxes.CreateSandboxSecretRequest("DEPLOY_TOKEN", null, "a-sandbox-secret-value", "brokered", ["api.example.test"], false, false, "space", null, null)
             .ToString().Should().NotContain("a-sandbox-secret-value");
         new Drover.Contracts.Sandboxes.RotateSandboxSecretRequest("a-sandbox-secret-value").ToString().Should().NotContain("a-sandbox-secret-value");

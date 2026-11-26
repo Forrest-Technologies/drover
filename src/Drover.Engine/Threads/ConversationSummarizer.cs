@@ -11,6 +11,7 @@ public sealed class ConversationSummarizer(
     IEnumerable<IModelClientProvider> providers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    ModelCredentials credentials,
     TimeProvider time,
     ILogger<ConversationSummarizer> logger)
 {
@@ -64,6 +65,15 @@ public sealed class ConversationSummarizer(
         {
             if (await tenant.Transact(services => Prepare(services, run, cancellationToken), cancellationToken) is not { } pending)
             {
+                return;
+            }
+
+            // The transaction is closed: a sign-in that runs out soon is renewed here, before the call.
+            pending.Credential = await credentials.Ready(pending.Credential, cancellationToken);
+
+            if (pending.Credential.Problem is { } problem)
+            {
+                logger.LogInformation("The summary of thread {ThreadId} was not written: no credential for its model ({Problem})", run.ThreadId, problem);
                 return;
             }
 
@@ -178,11 +188,9 @@ public sealed class ConversationSummarizer(
             return null;
         }
 
-        var key = connection.SecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
+        var credential = await credentials.Read(services, connection, cancellationToken);
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
-        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, key, entry?.Pricing ?? new ModelPricing(), policy, context);
+        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, credential, entry?.Pricing ?? new ModelPricing(), policy, context);
     }
 
     #endregion
@@ -349,7 +357,7 @@ public sealed class ConversationSummarizer(
         Uri address,
         Guid connectionId,
         string model,
-        string? key,
+        ModelCredential credential,
         ModelPricing pricing,
         EffectivePolicy policy,
         int? contextTokens)
@@ -366,7 +374,10 @@ public sealed class ConversationSummarizer(
 
         public string Model => model;
 
-        public string? Key => key;
+        /// <summary>What the call sends: the connection's key, or the run's person's own sign-in, renewed before the call.</summary>
+        public ModelCredential Credential { get; set; } = credential;
+
+        public string? Key => Credential.Value;
 
         public ModelPricing Pricing => pricing;
 

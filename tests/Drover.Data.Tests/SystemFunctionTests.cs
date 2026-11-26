@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "model_sign_ins_due", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
 
     #endregion
 
@@ -251,6 +251,40 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Model Sign-Ins Due
+
+    [Fact]
+    public async Task Model_sign_ins_due_are_the_active_ones_with_an_end_not_renewed_lately_in_every_space_each_in_turn_as_ids()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        var idleLongest = await SaveModelSignIn(provider, world.SpaceA, world.UserA1, now.AddDays(-20), now.AddHours(1));
+        var idleInSpaceA = await SaveModelSignIn(provider, world.SpaceA, world.UserA2, now.AddDays(-10), now.AddHours(1));
+        var idleInSpaceB = await SaveModelSignIn(provider, world.SpaceB, world.UserB1, now.AddDays(-9), now.AddHours(1));
+        await SaveModelSignIn(provider, world.SpaceA, world.Traveler, now.AddDays(-1), now.AddHours(1));
+        await SaveModelSignIn(provider, world.SpaceB, world.UserB1, now.AddDays(-30), null);
+        await SaveModelSignIn(provider, world.SpaceB, world.Traveler, now.AddDays(-30), now.AddHours(1), ModelSignInStatus.NeedsSignIn);
+        const string Sql = "SELECT space_id, audience_user_id, model_connection_id, credential_id FROM sys.model_sign_ins_due(@renewed, @limit)";
+
+        var due = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("limit", 10));
+        var first = await Query(scratch.AppConnectionString, Sql, ("renewed", now.AddDays(-7).UtcDateTime), ("limit", 1));
+        var shape = await Query(scratch.AppConnectionString, "SELECT * FROM sys.model_sign_ins_due(@renewed, @limit)", ("renewed", now.AddDays(-7).UtcDateTime), ("limit", 1));
+
+        due.Select(row => ((Guid)row[0]!, (Guid)row[1]!, (Guid)row[3]!)).Should().Equal(
+            [
+                (world.SpaceA, world.UserA1, idleLongest),
+                (world.SpaceB, world.UserB1, idleInSpaceB),
+                (world.SpaceA, world.UserA2, idleInSpaceA),
+            ],
+            "not the one renewed yesterday, the one with no end, or the one that has ended; one from each space before a second from any");
+        first.Should().ContainSingle();
+        shape.Single().Should().HaveCount(4, "ids only: nothing that leads to a token");
+    }
+
+    #endregion
+
     #region Sandboxes To Sweep
 
     [Fact]
@@ -366,6 +400,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("memberships_for_user", "SELECT * FROM sys.memberships_for_user()", 2, [("as_user", world.Traveler)]),
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
             ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("renewed", DateTime.UtcNow), ("limit", 10)]),
+            ("model_sign_ins_due", "SELECT * FROM sys.model_sign_ins_due(@renewed, @limit)", 0, [("renewed", DateTime.UtcNow), ("limit", 10)]),
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("clear_project_threads", "SELECT sys.clear_project_threads(@project)", 0, [("as_space", world.SpaceA), ("as_user", world.UserA1), ("project", Guid.CreateVersion7())]),
             ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
@@ -478,6 +513,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("pending_upload_deletions", "SELECT", "id space_id audience_user_id cleanup_claim_until created_at"),
             .. Columns("pending_upload_deletions", "UPDATE", "cleanup_claim_until"),
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
+            .. Columns("model_connection_credentials", "SELECT", "id space_id audience_user_id model_connection_id status expires_at renewed_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
             .. Columns("threads", "SELECT", "id space_id project_id"),
@@ -667,6 +703,32 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         session.Db.ToolConnectionCredentials.Add(credential);
         await session.Commit();
         return (connection.Id, credential.Id, secret.Id);
+    }
+
+    /// <summary>A model connection with one person's sign-in, saved as that person. The secret id leads nowhere: nothing here reads it.</summary>
+    private static async Task<Guid> SaveModelSignIn(
+        IServiceProvider provider,
+        Guid spaceId,
+        Guid userId,
+        DateTimeOffset renewedAt,
+        DateTimeOffset? expiresAt,
+        ModelSignInStatus status = ModelSignInStatus.Active)
+    {
+        await using var session = await TenantSession.Open(provider, spaceId, userId);
+        var connection = CoreRows.NewConnection();
+        var credential = new ModelConnectionCredential
+        {
+            ModelConnectionId = connection.Id,
+            AudienceUserId = userId,
+            SecretId = Guid.CreateVersion7(),
+            RenewedAt = renewedAt,
+            ExpiresAt = expiresAt,
+            Status = status,
+        };
+        session.Db.ModelConnections.Add(connection);
+        session.Db.ModelConnectionCredentials.Add(credential);
+        await session.Commit();
+        return credential.Id;
     }
 
     private static ToolConnection NewToolConnection() => new()

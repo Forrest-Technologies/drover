@@ -36,6 +36,14 @@ public sealed class PolicyMatrixCoverageTests
 /// </summary>
 public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) : ServerTestBase(postgres)
 {
+    #region Private Fields
+
+    private readonly FakeModelSignIn plan = new(FakeModelSignIn.PlanKind);
+
+    private readonly FakeModelSignIn open = new(FakeModelSignIn.OpenKind, isPersonalPlan: false);
+
+    #endregion
+
     #region Properties
 
     protected override IReadOnlyDictionary<string, string?> Settings
@@ -340,12 +348,42 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         crew.Should().OnlyContain(grant => grant == (Setting(nameof(DeploymentPolicy.AllowBotsBuildingBots)) == "true" ? "ask" : "off"));
     }
 
+    [Fact]
+    public async Task SubscriptionSignIn_decides_whether_a_personal_plan_may_be_signed_in_to_and_a_sign_in_open_to_any_app_stays_on()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("planner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+        var path = $"/api/spaces/{spaceId}/model-connections/sign-in";
+
+        var personal = await client.Post(path, new StartModelSignInRequest(plan.Kind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+        var anyApp = await client.Post(path, new StartModelSignInRequest(open.Kind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+
+        anyApp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        if (Setting(nameof(DeploymentPolicy.SubscriptionSignIn)) == nameof(SubscriptionSignInMode.Available))
+        {
+            personal.StatusCode.Should().Be(HttpStatusCode.OK);
+            plan.Begins.Should().Be(1);
+        }
+        else
+        {
+            personal.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await personal.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString().Should().Be(ModelCredentials.NotAvailable);
+            plan.Begins.Should().Be(0, "nothing is sent for a refused kind");
+        }
+    }
+
     #endregion
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services) =>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
         services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+        services.AddSingleton<IModelSignIn>(plan);
+        services.AddSingleton<IModelSignIn>(open);
+    }
 
     #endregion
 
