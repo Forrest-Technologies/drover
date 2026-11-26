@@ -130,7 +130,7 @@ public sealed class ExtensionService(
         }
 
         var installed = await extensions.FindForBot(botId, cancellationToken);
-        var recipe = installed is null ? null : RecipeOf(installed.Install);
+        var recipe = installed is null ? null : RecipeOf(installed);
         List<ExtensionContent> contents =
         [
             new BotTemplate(bot.Name, bot.Instructions) { Description = bot.DescriptionForBots, SuggestedModel = bot.Model },
