@@ -8,7 +8,7 @@ namespace Drover.Adapters.OpenAICompatible;
 /// </summary>
 public sealed class OperatorSpeech(IHttpClientFactory httpClients) : ISpeechToText, ITextToSpeech
 {
-    #region Constants
+    #region Private Fields
 
     public const string ConnectionKind = ModelConnectionKinds.ServerSpeech;
 

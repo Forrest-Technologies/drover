@@ -75,13 +75,13 @@ public sealed class SpeechPlan
 
     public Guid? ConnectionId { get; init; }
 
-    internal required ITextToSpeech Adapter { get; init; }
+    public required ITextToSpeech Adapter { get; init; }
 
-    internal required ModelEndpoint Endpoint { get; init; }
+    public required ModelEndpoint Endpoint { get; init; }
 
     internal string? Key { get; init; }
 
-    internal required EffectivePolicy Policy { get; init; }
+    public required EffectivePolicy Policy { get; init; }
 
     #endregion
 }
@@ -109,15 +109,15 @@ public sealed class CallPlan
 
     public Guid? ConnectionId { get; init; }
 
-    internal required IRealtimeVoice Adapter { get; init; }
+    public required IRealtimeVoice Adapter { get; init; }
 
-    internal required ModelEndpoint Endpoint { get; init; }
+    public required ModelEndpoint Endpoint { get; init; }
 
     internal string? Key { get; init; }
 
-    internal required EffectivePolicy Policy { get; init; }
+    public required EffectivePolicy Policy { get; init; }
 
-    internal required RealtimeVoiceOptions Options { get; init; }
+    public required RealtimeVoiceOptions Options { get; init; }
 
     #endregion
 }

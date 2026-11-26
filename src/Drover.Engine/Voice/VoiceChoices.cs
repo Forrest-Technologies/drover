@@ -66,6 +66,14 @@ public sealed record VoicePick(VoiceCandidate Candidate, string? Voice, bool Aut
 /// </summary>
 public static class VoiceChoices
 {
+    #region Private Fields
+
+    private static readonly string[] localSuffixes = [".local", ".internal", ".lan", ".home.arpa", ".localhost"];
+
+    public const string ServerName = "This server";
+
+    #endregion
+
     #region Public Methods
 
     public static bool Fills(this ModelCapabilities capabilities, VoiceSlot slot) =>
@@ -146,14 +154,6 @@ public static class VoiceChoices
         return !host.Contains('.', StringComparison.Ordinal)
             || localSuffixes.Any(suffix => host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
-
-    #endregion
-
-    #region Private Fields
-
-    private static readonly string[] localSuffixes = [".local", ".internal", ".lan", ".home.arpa", ".localhost"];
-
-    public const string ServerName = "This server";
 
     #endregion
 

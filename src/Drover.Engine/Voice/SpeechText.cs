@@ -6,7 +6,7 @@ namespace Drover.Engine.Voice;
 /// </summary>
 public static class SpeechText
 {
-    #region Constants
+    #region Private Fields
 
     /// <summary>What most speech endpoints take in one request.</summary>
     public const int DefaultPieceCharacters = 4000;
