@@ -34,6 +34,9 @@ public sealed class FakeCapture : IAudioCapture
 
     public bool Listening => heard is not null;
 
+    /// <summary>When set, the device is still asking the person for the microphone until the test completes this.</summary>
+    public TaskCompletionSource? Asking { get; set; }
+
     #endregion
 
     #region Public Methods
@@ -56,15 +59,20 @@ public sealed class FakeCapture : IAudioCapture
         return Task.FromResult<IAudioRecording>(new Recording(this));
     }
 
-    public Task<IAsyncDisposable> Listen(Action<ReadOnlyMemory<byte>> heard, CancellationToken cancellationToken = default)
+    public async Task<IAsyncDisposable> Listen(Action<ReadOnlyMemory<byte>> heard, CancellationToken cancellationToken = default)
     {
         if (Refuses is { } failure)
         {
             throw new AudioCaptureException(failure);
         }
 
+        if (Asking is { } asking)
+        {
+            await asking.Task;
+        }
+
         this.heard = heard;
-        return Task.FromResult<IAsyncDisposable>(new Stopper(() => this.heard = null));
+        return new Stopper(() => this.heard = null);
     }
 
     #endregion

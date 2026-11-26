@@ -290,6 +290,30 @@ public sealed class CallViewModelTests : VoiceTest
     }
 
     [Fact]
+    public async Task Hanging_up_while_the_microphone_is_still_being_asked_for_lets_everything_go()
+    {
+        Capture.Asking = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Offer(live: Filled("sample-realtime"));
+        Server.Answer("GET", callPath, HttpStatusCode.UpgradeRequired);
+        var model = await Opened();
+        var starting = model.Start(bot, threadId);
+        await Until(() => Playback.Output is not null);
+        model.State.Should().Be(CallState.Connecting);
+
+        await model.HangUp();
+
+        model.Active.Should().BeFalse("a call that was never connected leaves nothing to show");
+        line.State.Should().Be(WebSocketState.Closed);
+        Playback.Output!.Disposed.Should().BeTrue();
+
+        // The person answers the device's question after all: the microphone it hands over is let go at once.
+        Capture.Asking.SetResult();
+        await starting;
+        Capture.Listening.Should().BeFalse();
+        model.Active.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task The_words_are_hidden_until_asked_for_and_the_surface_shrinks_to_a_bar()
     {
         var model = await Ready();

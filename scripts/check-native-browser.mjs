@@ -370,7 +370,9 @@ try {
                     await route.fulfill({ status: 204 });
                     return;
                 }
-                else if (address.endsWith('/voice/options') && (current === 'voice' || current === 'voice-nothing')) {
+                // Nothing can listen or speak in any scene but the Voice page's own, so no other scene has a microphone,
+                // a speaker or a Call button.
+                else if (address.endsWith('/voice/options')) {
                     const none = { sources: [], selected: null };
                     const filled = (model, voice = null) => ({
                         sources: [{ connectionId, connectionName: 'Sample connection', model, isServer: false, isPrivateAddress: false }],

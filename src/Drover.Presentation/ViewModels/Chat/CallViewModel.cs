@@ -203,33 +203,57 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
         }
 
         var asked = calling = new();
+        var leaving = asked.Token;
 
         try
         {
-            call = await api.OpenCall(space, thread, connection.Connect, asked.Token);
-            outgoing = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(MostFramesWaiting)
+            // Each step's result is kept only if the person has not hung up while it was on its way.
+            var connected = await api.OpenCall(space, thread, connection.Connect, leaving);
+
+            if (leaving.IsCancellationRequested)
+            {
+                await connected.DisposeAsync();
+                return;
+            }
+
+            call = connected;
+            var speaker = await playback.Open(PcmAudio.SampleRate, leaving);
+
+            if (leaving.IsCancellationRequested)
+            {
+                await speaker.DisposeAsync();
+                return;
+            }
+
+            audio = speaker;
+            speaker.Drained += Drained;
+            var sent = outgoing = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(MostFramesWaiting)
             {
                 FullMode = BoundedChannelFullMode.DropOldest,
                 SingleReader = true,
             });
-            audio = await playback.Open(PcmAudio.SampleRate, asked.Token);
-            audio.Drained += Drained;
+            var listening = await capture.Listen(Heard, leaving);
+
+            if (leaving.IsCancellationRequested)
+            {
+                await listening.DisposeAsync();
+                return;
+            }
+
+            microphone = listening;
             live = true;
-            microphone = await capture.Listen(Heard, asked.Token);
+            reading = Read(connected, leaving);
+            sending = Send(connected, sent.Reader, leaving);
         }
-        catch (OperationCanceledException hungUp) when (asked.IsCancellationRequested)
+        catch (OperationCanceledException hungUp) when (leaving.IsCancellationRequested)
         {
             logger.LogDebug(hungUp, "The call was hung up while it was connecting");
-            await Release();
-            Show(CallState.None);
-            return;
         }
         catch (AudioCaptureException refused)
         {
             logger.LogWarning("The microphone could not be used for a call: {Failure}", refused.Failure);
             await Release();
             Refuse(VoiceWords.CaptureFailed(refused, capture.Head));
-            return;
         }
         catch (Exception failure) when (Failures.IsReportable(failure) || failure is DeviceCallFailedException)
         {
@@ -237,11 +261,7 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
             await Release();
             NeedsModel = !voice.HasLive;
             Refuse(VoiceWords.Sentence(failure));
-            return;
         }
-
-        reading = Read(call, asked.Token);
-        sending = Send(call, outgoing.Reader, asked.Token);
     }
 
     public void ToggleMute()
@@ -270,9 +290,12 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
-        if (call is not { } connected)
+        // Still connecting: whatever step is on its way is told to stop, what is already held is let go, and the
+        // step lets go of its own result when it arrives.
+        if (state is CallState.Connecting || call is not { } connected)
         {
-            await (calling?.CancelAsync() ?? Task.CompletedTask);
+            await Release();
+            Show(CallState.None);
             return;
         }
 
