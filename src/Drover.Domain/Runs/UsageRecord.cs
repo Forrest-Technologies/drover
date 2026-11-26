@@ -1,8 +1,8 @@
 namespace Drover.Domain.Runs;
 
 /// <summary>
-/// Tokens and cost for one model call. Carries the root run so cost rolls up the whole tree. Counts and cost are never
-/// below zero: a negative figure a provider reports is stored as zero.
+/// Tokens and cost for one model call. Carries the root run so cost rolls up the whole tree. Cost is never below zero,
+/// and a negative count a provider reports for a run's own call is stored as zero.
 /// </summary>
 public sealed class UsageRecord : ISpaceOwned
 {

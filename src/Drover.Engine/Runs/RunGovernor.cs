@@ -612,9 +612,12 @@ public sealed class RunGovernor(
 
     /// <summary>
     /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
-    /// the price of tokens the call used: an unknown price is never counted as free.
+    /// the price of tokens the call used: an unknown price is never counted as free. Never below zero: a catalog that
+    /// lists a negative price, or a call that reports a negative count or cost, prices at zero.
     /// </summary>
-    internal static decimal? Cost(ToolModelUsage usage) => usage switch
+    internal static decimal? Cost(ToolModelUsage usage) => Priced(usage) is { } cost ? Math.Max(0, cost) : null;
+
+    private static decimal? Priced(ToolModelUsage usage) => usage switch
     {
         { DirectCost: { } direct } => direct,
         { HasTokenUsage: false } => null,
