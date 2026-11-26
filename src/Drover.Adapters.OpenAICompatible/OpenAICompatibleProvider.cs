@@ -30,6 +30,9 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
 
     public string Kind => ConnectionKind;
 
+    /// <summary>The named providers a person can pick instead of typing an address, in the order offered.</summary>
+    public static IReadOnlyList<ModelProviderPreset> Presets => KnownProviders.All;
+
     #endregion
 
     #region Interface Implementations

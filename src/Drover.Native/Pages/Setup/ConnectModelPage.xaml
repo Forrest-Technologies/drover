@@ -10,9 +10,17 @@
       <dv:SetupSteps Current="2" />
       <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Connect a model" />
       <TextBlock Style="{StaticResource DvTextSecondary}" Text="Connect the model your bots use. The key is stored encrypted on this server and is never shown again." />
-      <dv:SegmentedControl x:Name="Provider" Label="Provider" Fills="True" Value="{x:Bind Model.Kind, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <dv:Select x:Name="Provider" Label="Provider" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <TextBlock x:Name="ProvidersLoading" Style="{StaticResource DvTextSecondary}" AutomationProperties.LiveSetting="Polite" Text="Loading the provider list." />
+      <StackPanel x:Name="ProvidersFailed" Spacing="{StaticResource DvSpace2}">
+        <dv:StatusNote x:Name="ProvidersFailedNote" Kind="Danger" Text="Could not read the provider list." />
+        <dv:Button x:Name="ProvidersRetry" HorizontalAlignment="Left" Content="Try again" Command="{x:Bind Model.RetryProvidersCommand}" />
+      </StackPanel>
+      <TextBlock x:Name="Reach" Style="{StaticResource DvTextSecondary}" Text="Drover's server must be able to reach this address." />
       <dv:Field x:Name="Address" Label="Base address" Type="url" Value="{x:Bind Model.BaseUrl, Mode=TwoWay}" Placeholder="https://" Hint="Any server that speaks the chat completions API, such as one on your own machine." Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <dv:Button x:Name="ChangeAddress" HorizontalAlignment="Left" Content="Change address" Command="{x:Bind Model.ChangeAddressCommand}" />
       <dv:Field x:Name="Key" Label="Key" Type="password" Value="{x:Bind Model.ApiKey, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
+      <dv:Link x:Name="KeyLink" />
       <dv:StatusNote x:Name="Outcome" Text="{x:Bind Model.Outcome, Mode=OneWay}" />
       <TextBlock x:Name="Testing" Style="{StaticResource DvTextSecondary}" AutomationProperties.LiveSetting="Polite" Text="Asking the provider. This can take a few seconds." />
       <Grid x:Name="Actions">

@@ -131,6 +131,60 @@ One base address and an optional key covers most hosted providers and local mode
 
 The operator says more one model at a time, and today the one thing to say is that a model reads pictures. On the Models page a space admin turns on "<model> reads pictures" for a model of a compatible connection (`PUT /api/spaces/{space}/model-connections/{connection}/models/vision`, admin only, in the space's tenant scope; the model is named in the body because a model ID can hold slashes, and turning the switch off clears the mark). The mark is stored in the catalog row's capabilities as `VisionSetByOperator`, beside `Vision`, so it needs no migration. The catalog's `Vision` is the value every other part reads: the attachment hint, the upload check that decides whether a picture is taken as a picture, and the run that hands the model an image part. A catalog refresh replaces the capabilities with what the provider reports, which for a compatible endpoint is nothing, but keeps the mark (`CatalogUpsert`). A provider that reports its own capabilities, such as Venice, keeps its own value, offers no switch, and refuses the request. A person who is not an admin sees which models read pictures but cannot change it. A refresh and a mark each write the whole capabilities value of a catalog row, so each reads the rows it writes with a row lock (`SELECT ... FOR UPDATE`) and the second to arrive waits for the first and reads what it left. A refresh that overlaps a mark keeps the mark, and a mark that overlaps a refresh keeps what the refresh reported (`ModelVisionTests`). A model that is marked reads pictures only as far as the endpoint really does: a mark on a model that cannot read them fails at the provider, not in Drover.
 
+### Named providers
+
+A person who does not want to type an address picks a provider by name. A named provider is a starting point, not a kind: the stored kind stays `openai_compatible` and the connection keeps its `BaseUrl`, so every adapter lookup, the vision and voice marks and the speech and image paths work as they do for a hand-typed address. A provider whose address changes is fixed by editing one row of the connection, and a provider that needs its own wire gets its own kind.
+
+The table is `KnownProviders` in `Drover.Adapters.OpenAICompatible`, one compiled-in list of `ModelProviderPreset` records (`Drover.Domain`): `Id`, `DisplayName`, `Address`, `KeyRule` (`Required`, `Optional`, `None`), `KeyPage` (https only, or null) and `Local` (the address is on the person's own machine or network). Nothing else in code repeats an address, and nothing at run time adds or changes a row: an address a server calls with a person's key is not taken from a file fetched over the network. `GET /api/model-provider-presets` (signed in) returns the rows in table order as `ModelProviderPresetResponse`; where the deployment's `AllowPrivateAddresses` is false it leaves out the `Local` rows. Create is unchanged: the client sends `kind: openai_compatible`, the row's address and the key, and `ModelConnectionService` applies every check it applies to any address. The route goes when #849's descriptor for the compatible kind carries the list.
+
+The order is OpenAI, OpenRouter, Google Gemini, xAI, Groq, DeepSeek, Mistral, the other hosted providers by name, then the local ones. Each row's comment in `KnownProviders.cs` names the documentation page that confirmed its address on 2026-11-26, or says "Unconfirmed" and keeps the value the issue gave. `KnownProvidersLiveTests` lists models on each row whose key is in the environment (`DROVER_TEST_KEY_{ID}`); it settles the unconfirmed ones.
+
+| Id | Name | Address | Key | Where | Address on 2026-11-26 |
+| --- | --- | --- | --- | --- | --- |
+| `openai` | OpenAI | `https://api.openai.com/v1` | required | hosted | unconfirmed |
+| `openrouter` | OpenRouter | `https://openrouter.ai/api/v1` | required | hosted | address confirmed, chat path not shown on the page |
+| `gemini` | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | required | hosted | confirmed |
+| `xai` | xAI | `https://api.x.ai/v1` | required | hosted | unconfirmed |
+| `groq` | Groq | `https://api.groq.com/openai/v1` | required | hosted | confirmed |
+| `deepseek` | DeepSeek | `https://api.deepseek.com` | required | hosted | confirmed |
+| `mistral` | Mistral | `https://api.mistral.ai/v1` | required | hosted | path confirmed, host not shown on the page |
+| `alibaba` | Alibaba | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | required | hosted | unconfirmed |
+| `baseten` | Baseten | `https://inference.baseten.co/v1` | required | hosted | unconfirmed |
+| `cerebras` | Cerebras | `https://api.cerebras.ai/v1` | required | hosted | confirmed |
+| `chutes` | Chutes | `https://llm.chutes.ai/v1` | required | hosted | unconfirmed |
+| `cohere` | Cohere | `https://api.cohere.ai/compatibility/v1` | required | hosted | confirmed |
+| `deepinfra` | Deep Infra | `https://api.deepinfra.com/v1/openai` | required | hosted | confirmed |
+| `digitalocean` | DigitalOcean | `https://inference.do-ai.run/v1` | required | hosted | unconfirmed |
+| `fireworks` | Fireworks AI | `https://api.fireworks.ai/inference/v1` | required | hosted | confirmed |
+| `friendli` | Friendli | `https://api.friendli.ai/serverless/v1` | required | hosted | unconfirmed |
+| `helicone` | Helicone | `https://ai-gateway.helicone.ai/v1` | required | hosted | unconfirmed |
+| `huggingface` | Hugging Face | `https://router.huggingface.co/v1` | required | hosted | unconfirmed |
+| `inception` | Inception | `https://api.inceptionlabs.ai/v1/` | required | hosted | unconfirmed |
+| `moonshot` | Moonshot AI | `https://api.moonshot.ai/v1` | required | hosted | confirmed |
+| `nebius` | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | required | hosted | confirmed |
+| `novita` | Novita AI | `https://api.novita.ai/openai` | required | hosted | unconfirmed |
+| `nvidia` | Nvidia | `https://integrate.api.nvidia.com/v1` | required | hosted | unconfirmed |
+| `ollama-cloud` | Ollama Cloud | `https://ollama.com/v1` | required | hosted | confirmed |
+| `ovhcloud` | OVHcloud AI Endpoints | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | required | hosted | unconfirmed |
+| `poe` | Poe | `https://api.poe.com/v1` | required | hosted | unconfirmed |
+| `requesty` | Requesty | `https://router.requesty.ai/v1` | required | hosted | unconfirmed |
+| `sambanova` | SambaNova | `https://api.sambanova.ai/v1` | required | hosted | unconfirmed |
+| `scaleway` | Scaleway | `https://api.scaleway.ai/v1` | required | hosted | unconfirmed |
+| `siliconflow` | SiliconFlow | `https://api.siliconflow.com/v1` | required | hosted | unconfirmed |
+| `synthetic` | Synthetic | `https://api.synthetic.new/openai/v1` | required | hosted | unconfirmed |
+| `together` | Together AI | `https://api.together.ai/v1` | required | hosted | confirmed |
+| `upstage` | Upstage | `https://api.upstage.ai/v1/solar` | required | hosted | unconfirmed |
+| `vercel` | Vercel AI Gateway | `https://ai-gateway.vercel.sh/v1` | required | hosted | confirmed |
+| `vultr` | Vultr | `https://api.vultrinference.com/v1` | required | hosted | unconfirmed |
+| `zai` | Z.AI | `https://api.z.ai/api/paas/v4` | required | hosted | confirmed |
+| `zai-coding` | Z.AI Coding Plan | `https://api.z.ai/api/coding/paas/v4` | required | hosted | unconfirmed |
+| `lmstudio` | LM Studio | `http://127.0.0.1:1234/v1` | none | local | confirmed |
+| `ollama` | Ollama | `http://localhost:11434/v1` | none | local | confirmed |
+| `vllm` | vLLM | `http://localhost:8000/v1` | optional | local | unconfirmed |
+| `llamacpp` | llama.cpp | `http://localhost:8080/v1` | optional | local | unconfirmed |
+
+Left out: Perplexity (its documentation lists models at `/v1/models` and has moved chat to its own endpoint, so `{address}/models` does not hold), GitHub Models (retired on 2026-07-30), Anthropic (waits for its own kind, #527). The Google Gemini row goes when #529 lands its own kind.
+
 On the hosted service the base address is checked against private address ranges ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Self-hosters can point at a machine on their own network.
 
 ## Voice

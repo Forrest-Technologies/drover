@@ -73,6 +73,14 @@ public sealed partial class DroverApi
 
     #region Model Connections
 
+    /// <summary>The named providers the server offers, in the order to show them.</summary>
+    public async Task<IReadOnlyList<ModelProviderPresetResponse>> ListModelProviderPresets(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync("api/model-provider-presets", cancellationToken);
+        return await response.ReadValue<List<ModelProviderPresetResponse>>(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ModelConnectionSummary>> ListModelConnections(
         Guid spaceId,
         CancellationToken cancellationToken = default)

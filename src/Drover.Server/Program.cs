@@ -110,6 +110,7 @@ api.MapNativeSessionEndpoints(app);
 api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
+api.MapModelProviderPresetEndpoints();
 api.MapPushEndpoints();
 api.MapAppearanceEndpoints();
 api.MapToolSignInFinish();

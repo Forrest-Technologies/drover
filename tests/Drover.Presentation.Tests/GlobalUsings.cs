@@ -23,6 +23,7 @@ global using System.Threading.Channels;
 global using System.Threading.Tasks;
 global using System.Xml.Linq;
 global using AwesomeAssertions;
+global using Drover.Adapters.OpenAICompatible;
 global using Drover.Client;
 global using Drover.Client.Runs;
 global using Drover.Client.Streaming;
