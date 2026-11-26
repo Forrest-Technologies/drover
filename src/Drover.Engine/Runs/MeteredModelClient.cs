@@ -17,9 +17,10 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
 
     public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
-        for (var attempt = 0; ; attempt++)
+        var refusedEstimate = (long?)null;
+        while (true)
         {
-            var (given, estimate, limit) = Prepare(request, attempt);
+            var (given, estimate, limit) = Prepare(request, refusedEstimate);
             var messageId = await BeginStep(estimate, given != request);
             try
             {
@@ -32,10 +33,12 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
             catch (ModelProviderException failure) when (failure.Failure is ModelFailure.TooLong)
             {
                 await session.EndStep();
-                if (attempt > 0)
+                if (refusedEstimate.HasValue)
                 {
                     throw RequestCompaction.TooLong(model, estimate, limit);
                 }
+
+                refusedEstimate = estimate;
             }
         }
     }
@@ -44,9 +47,10 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
         ModelChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellation = default)
     {
-        for (var attempt = 0; ; attempt++)
+        var refusedEstimate = (long?)null;
+        while (true)
         {
-            var (given, estimate, limit) = Prepare(request, attempt);
+            var (given, estimate, limit) = Prepare(request, refusedEstimate);
             var messageId = await BeginStep(estimate, given != request);
             await using var stream = inner.GetStreamingResponse(given, cancellation).GetAsyncEnumerator(cancellation);
             IReadOnlyList<ModelBalance> balances = [];
@@ -61,11 +65,12 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
                 catch (ModelProviderException failure) when (failure.Failure is ModelFailure.TooLong)
                 {
                     await session.EndStep();
-                    if (attempt > 0 || emitted)
+                    if (refusedEstimate.HasValue || emitted)
                     {
                         throw RequestCompaction.TooLong(model, estimate, limit);
                     }
 
+                    refusedEstimate = estimate;
                     break;
                 }
 
@@ -95,16 +100,16 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
 
     #region Private Methods
 
-    private (ModelChatRequest Request, long Estimate, long Limit) Prepare(ModelChatRequest request, int attempt)
+    private (ModelChatRequest Request, long Estimate, long Limit) Prepare(ModelChatRequest request, long? refusedEstimate)
     {
         var estimate = (long)Math.Ceiling(calibration * TokenEstimate.Request(request));
         var limit = capabilities?.ContextTokens ?? 0;
-        if (attempt == 0 && limit <= 0)
+        if (refusedEstimate is null && limit <= 0)
         {
             return (request, estimate, 0);
         }
 
-        var budget = attempt == 0 ? limit : Math.Max(1, (long)(estimate * 0.8));
+        var budget = refusedEstimate is { } refused ? Math.Max(1, (long)(refused * 0.8)) : limit;
         if (limit > 0)
         {
             budget = Math.Min(limit, budget);
