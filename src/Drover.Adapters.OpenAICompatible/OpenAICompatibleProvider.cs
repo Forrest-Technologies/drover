@@ -4,7 +4,8 @@ namespace Drover.Adapters.OpenAICompatible;
 /// Any endpoint that speaks the OpenAI chat protocol: a hosted provider or a local model server.
 /// A key is optional. Capabilities are conservative until the operator says more.
 /// </summary>
-public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : IModelClientProvider, IModelImageGenerator
+public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
+    : IModelClientProvider, IModelImageGenerator, ISpeechToText, ITextToSpeech, IRealtimeVoice
 {
     #region Private Fields
 
@@ -12,8 +13,16 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
     public const string HttpClientName = "drover-openai-compatible";
 
+    /// <summary>
+    /// The client a live call connects through. It has no retry or timeout pipeline: a call is one long connection,
+    /// not a request to send again, and it lasts as long as the people on it want.
+    /// </summary>
+    public const string RealtimeHttpClientName = "drover-openai-compatible-realtime";
+
     // The vendor client insists on a credential. Local servers ignore whatever arrives.
     private const string PlaceholderKey = "none";
+
+    private static readonly Uri placeholderAddress = new("https://compatible.invalid/");
 
     #endregion
 
@@ -46,6 +55,36 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
         CancellationToken cancellationToken) =>
         new ProtocolImageGenerator(httpClients.CreateClient($"drover-{connection.Kind.Replace('_', '-')}"))
             .Generate(connection, apiKey, request, cancellationToken);
+
+    public Task<Transcript> Transcribe(
+        ModelEndpoint connection,
+        string? apiKey,
+        TranscriptionRequest request,
+        CancellationToken cancellationToken) =>
+        new ProtocolSpeech(httpClients.CreateClient(HttpClientName)).Transcribe(connection, apiKey, request, cancellationToken);
+
+    public IAsyncEnumerable<ReadOnlyMemory<byte>> Speak(
+        ModelEndpoint connection,
+        string? apiKey,
+        SpeechRequest request,
+        CancellationToken cancellationToken) =>
+        new ProtocolSpeech(httpClients.CreateClient(HttpClientName)).Speak(connection, apiKey, request, cancellationToken);
+
+    public Task<IReadOnlyList<VoiceOption>> ListVoices(
+        ModelEndpoint connection,
+        string? apiKey,
+        string model,
+        CancellationToken cancellationToken) =>
+        new ProtocolSpeech(httpClients.CreateClient(HttpClientName)).ListVoices(connection, apiKey, model, cancellationToken);
+
+    public IReadOnlyList<VoiceOption> ListVoices(string model) => KnownVoices.For(placeholderAddress, model);
+
+    public Task<IRealtimeVoiceSession> Open(
+        ModelEndpoint connection,
+        string? apiKey,
+        RealtimeVoiceOptions options,
+        CancellationToken cancellationToken) =>
+        ProtocolRealtimeVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, cancellationToken);
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
         ModelEndpoint connection,
@@ -127,7 +166,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
             ? [.. data.EnumerateArray()
                 .Select(model => model.TryGetProperty("id", out var id) ? id.GetString() : null)
                 .OfType<string>()
-                .Select(id => new ModelInfo(id, id, new ModelCapabilities(), []))]
+                .Select(id => new ModelInfo(id, id, KnownVoices.Mark(new ModelCapabilities(), id), []))]
             : [];
 
     #endregion

@@ -24,9 +24,14 @@ public static class ServiceCollectionExtensions
             })
             .SelectPipelineByAuthority();
 
+        services.AddHttpClient(OpenAICompatibleProvider.RealtimeHttpClientName);
+
         services.AddSingleton<OpenAICompatibleProvider>();
         services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
         services.AddSingleton<IModelImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<ISpeechToText>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<ITextToSpeech>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<IRealtimeVoice>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
         services.AddSingleton<CompatibleChatClientBuilder>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().CreateProtocolClient);
         services.AddSingleton<CompatibleImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().GenerateCompatibleImage);
 
