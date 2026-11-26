@@ -502,6 +502,14 @@ public sealed partial class BotEditorViewModel : ObservableObject
             WrittenPatterns = (await api.GetBotRuleOptions(SpaceId, BotId)).WrittenPatterns;
             SandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
             RunLimitOptions = await api.GetBotRunLimitOptions(SpaceId, BotId);
+            if (!RunLimitOptions.CanRemoveTokenLimit && Draft!.UnlimitedTokens)
+            {
+                Draft.UnlimitedTokens = false;
+                Draft.UnlimitedTokensAcknowledged = false;
+                baseline!.UnlimitedTokens = false;
+                baseline.UnlimitedTokensAcknowledged = false;
+            }
+
             Rules = await api.ListBotRules(SpaceId, BotId);
             SandboxStatus = await ReadSandbox();
             Readers = await ListReaders();
