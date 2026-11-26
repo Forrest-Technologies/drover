@@ -66,11 +66,12 @@ public sealed class VoiceCallSession(
     public async Task Run(CancellationToken stopping, CancellationToken cancellationToken)
     {
         var started = time.GetTimestamp();
+        var began = time.GetUtcNow();
         using var running = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Queue(new VoiceCallFrame(VoiceCallMessages.Ready) { Model = plan.Model, Voice = plan.Voice, MaxMinutes = plan.MaxMinutes });
         using var sendStop = new CancellationTokenSource();
         var sending = Send(sendStop.Token);
-        Task[] sides = [Upstream(running.Token), Downstream(running.Token), Limit(running.Token)];
+        Task[] sides = [Upstream(running.Token), Downstream(running.Token), Limit(began, running.Token)];
 
         try
         {
@@ -198,7 +199,7 @@ public sealed class VoiceCallSession(
     /// Ends the call at the server's limit, when it has one. The clock is read once a second, so the limit follows
     /// the server's clock and not a timer set when the call began.
     /// </summary>
-    private async Task Limit(CancellationToken cancellationToken)
+    private async Task Limit(DateTimeOffset began, CancellationToken cancellationToken)
     {
         if (plan.MaxMinutes is not { } minutes)
         {
@@ -206,7 +207,6 @@ public sealed class VoiceCallSession(
             return;
         }
 
-        var began = time.GetUtcNow();
         using var tick = new PeriodicTimer(limitCheck);
 
         while (time.GetUtcNow() - began < TimeSpan.FromMinutes(minutes))
@@ -359,8 +359,12 @@ public sealed class VoiceCallSession(
 
         try
         {
-            var kept = await voice.RecordExchange(plan, Take(ref personWaiting), Take(ref botWaiting), closing.Token);
-            exchanges += kept is CallWrite.Written ? 1 : 0;
+            var (person, bot) = (Take(ref personWaiting), Take(ref botWaiting));
+
+            if ((person ?? bot) is not null && await voice.RecordExchange(plan, person, bot, closing.Token) is CallWrite.Written)
+            {
+                exchanges++;
+            }
 
             if (socket.State is not (WebSocketState.Open or WebSocketState.CloseReceived))
             {
