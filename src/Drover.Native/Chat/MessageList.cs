@@ -501,7 +501,14 @@ public sealed class MessageList : Grid
         return () =>
         {
             column.UpdateLayout();
-            scroller.ChangeView(null, Top(reading) - before, null, disableAnimation: true);
+            if (reading.Parent is not null)
+            {
+                var offset = Top(reading) - before;
+                if (offset - scroller.VerticalOffset is > 0.5 or < -0.5)
+                {
+                    scroller.ChangeView(null, offset, null, disableAnimation: true);
+                }
+            }
         };
     }
 

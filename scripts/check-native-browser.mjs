@@ -1966,7 +1966,9 @@ async function checkApprovalKeepsPosition(page, width, theme) {
         { cause: error });
 
     const first = decided();
-    await approves.first().dispatchEvent('click');
+    const approveBox = await approves.first().boundingBox({ timeout: 5000 });
+    assert.ok(approveBox, 'the visible request has an Approve button in the accessibility tree.');
+    await page.mouse.click(approveBox.x + approveBox.width / 2, approveBox.y + approveBox.height / 2);
     try {
         await first;
     } catch (error) {
