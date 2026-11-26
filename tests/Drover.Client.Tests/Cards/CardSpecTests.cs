@@ -6,12 +6,17 @@ namespace Drover.Client.Tests.Cards;
 /// </summary>
 public sealed class CardSpecTests
 {
+    #region Private Fields
+
+    private static readonly JsonSerializerOptions json = new(JsonSerializerDefaults.Web);
+
+    #endregion
+
     #region Public Methods
 
     [Fact]
     public void Every_kind_round_trips_through_json()
     {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var replies = new RepliesSpec(["Summary", "Numbers"]) { Title = "T", Fallback = "F" };
         var choices = new ChoicesSpec(["One", "Two"], false) { Title = "T", Fallback = "F" };
         var form = new FormSpec([new CardField("when", "Date", "date", true, null, null, null)])
@@ -45,27 +50,25 @@ public sealed class CardSpecTests
 
         foreach (var (card, kind) in cards)
         {
-            var json = JsonSerializer.Serialize(card, options);
-            json.Should().Contain($"\"kind\":\"{kind}\"");
+            var written = JsonSerializer.Serialize(card, json);
+            written.Should().Contain($"\"kind\":\"{kind}\"");
 
-            var read = JsonSerializer.Deserialize<CardSpec>(json, options);
+            var read = JsonSerializer.Deserialize<CardSpec>(written, json);
             read.Should().NotBeNull();
             read!.GetType().Should().Be(card.GetType());
-            JsonSerializer.Serialize(read, options).Should().Be(json);
+            JsonSerializer.Serialize(read, json).Should().Be(written);
         }
     }
 
     [Fact]
     public void An_unknown_kind_reads_as_a_card_with_its_title_and_fallback()
     {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-
         var card = JsonSerializer.Deserialize<CardSpec>(
             """{"kind":"later","title":"Which report?","fallback":"Which report?\n1. Returns\n2. Something else"}""",
-            options);
+            json);
 
         card.Should().NotBeNull();
-        card!.GetType().Should().Be(typeof(CardSpec));
+        card.Should().BeOfType<CardSpec>();
         card.Title.Should().Be("Which report?");
         card.Fallback.Should().Be("Which report?\n1. Returns\n2. Something else");
     }
