@@ -178,11 +178,11 @@ public sealed class ToolCallLedger(RunContext run)
         if (row.Status is ToolCallStatus.PendingApproval or ToolCallStatus.Approved)
         {
             Complete(row, ToolCallStatus.Denied, new ToolOutcome(MessageParts.ToJson(result.Result), true));
-            return result;
+            return MessageParts.ToolResult(result.CallId, MessageParts.ToJson(result.Result), true);
         }
 
         var outcome = SettledOutcome(row)!;
-        return new FunctionResultContent(result.CallId, outcome.Result);
+        return MessageParts.ToolResult(result.CallId, outcome.Result, outcome.IsError);
     }
 
     // A call that started and never finished runs again only when its tool may: it only reads, or it is a delegation,

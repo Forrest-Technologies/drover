@@ -28,6 +28,7 @@ global using Drover.Domain.Threads;
 global using Drover.Domain.Tools;
 global using Drover.ModelTransport;
 global using Microsoft.Agents.AI;
+global using FrameworkCompaction = Microsoft.Agents.AI.Compaction;
 global using Microsoft.Agents.AI.Workflows;
 global using Microsoft.Agents.AI.Workflows.Checkpointing;
 global using Microsoft.Extensions.AI;

@@ -312,6 +312,7 @@ public sealed partial class RunExecutor(
             toolConnections,
             toolModelNames,
             entry?.Capabilities.Vision ?? false,
+            entry?.Capabilities.ContextTokens,
             memory,
             children,
             project);
@@ -776,6 +777,8 @@ public sealed partial class RunExecutor(
             ModelConnectionId = loaded.Bot.ModelConnectionId,
             Model = loaded.Bot.Model,
             Compaction = loaded.Bot.MemorySettings.Compaction,
+            CompactAtTokens = loaded.Bot.MemorySettings.CompactAtTokens ?? loaded.ModelContextTokens,
+            KeepRecentMessages = loaded.Bot.MemorySettings.KeepRecentMessages,
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, loaded, tool))],
         Model = model,
@@ -1241,6 +1244,7 @@ public sealed partial class RunExecutor(
         IReadOnlyList<ToolConnection> ToolConnections,
         IReadOnlyDictionary<Guid, string> ToolModelNames,
         bool ModelSeesImages,
+        int? ModelContextTokens,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
         Project? Project);
