@@ -38,11 +38,14 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     {
         var client = await SignedInClient();
 
-        var body = await (await client.Get(Route)).Content.ReadAsStringAsync(Token);
-        var kinds = (await client.Get(Route)).Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token);
+        var response = await client.Get(Route);
+        var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        body.Should().NotContain("venice.ai");
-        (await kinds)!.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
+        kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
+        var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
+        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai");
+        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible), JsonSerializerOptions.Web)
+            .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
     }
 
     [Fact]
