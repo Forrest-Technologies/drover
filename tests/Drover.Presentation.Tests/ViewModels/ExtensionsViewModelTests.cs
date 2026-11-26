@@ -395,7 +395,7 @@ public sealed class ExtensionsViewModelTests : IDisposable
 
         row.AsksAboutLocal.Should().BeTrue();
         row.LocalLabel.Should().Be("Yes, connect to nas. It is on this server's own network, or is not https.");
-        row.ConnectLead.Should().Be("Nothing. The server asks for no credential.");
+        row.ConnectLead.Should().Be("No credential. The server asks for none.");
         server.Sent("POST", $"{root}/{extensionId}/connection").Should().ContainSingle().Which.Should().Contain("\"acceptLocalAddress\":true");
         row.Problem.Should().Contain("Sample refusal.");
         row.Shows.Should().Be(ServerStep.Connect);
@@ -415,7 +415,7 @@ public sealed class ExtensionsViewModelTests : IDisposable
     [InlineData("header", true, "A header named X-Api-Key. You type its value when you connect, and it is kept secret.")]
     [InlineData("header", false, "A header named X-Api-Key, made from a secret setting you fill in when you connect. It is kept secret.")]
     [InlineData("oauth", false, "A sign-in at the server. Each person signs in as themselves on the Tools screen.")]
-    [InlineData("none", false, "Nothing. The server asks for no credential.")]
+    [InlineData("none", false, "No credential. The server asks for none.")]
     public void How_drover_signs_in_is_said_in_words(string auth, bool asks, string words) =>
         ExtensionWords.Auth(auth, "X-Api-Key", asks).Should().Be(words);
 

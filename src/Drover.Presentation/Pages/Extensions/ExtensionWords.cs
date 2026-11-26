@@ -36,7 +36,7 @@ public static class ExtensionWords
         "header" when asksForValue => $"A header named {headerName}. You type its value when you connect, and it is kept secret.",
         "header" => $"A header named {headerName}, made from a secret setting you fill in when you connect. It is kept secret.",
         "oauth" => "A sign-in at the server. Each person signs in as themselves on the Tools screen.",
-        _ => "Nothing. The server asks for no credential.",
+        _ => "No credential. The server asks for none.",
     };
 
     public static string ConnectionStatus(ExtensionConnectionSummary connection) => connection.Status switch
