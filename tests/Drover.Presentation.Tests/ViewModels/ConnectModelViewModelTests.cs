@@ -80,7 +80,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_provider_with_no_key_shows_no_key_field_and_says_the_server_must_reach_it()
+    public async Task A_provider_with_no_key_shows_no_key_field()
     {
         server.Answer("GET", PresetsPath, SampleProviders.All);
         var model = Step();
@@ -90,6 +90,22 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
         model.Named.ShowsKey.Should().BeFalse();
         model.Named.ReachNote.Should().Be("Drover's server must be able to reach this address.");
+        model.Named.KeyLinkText.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("http://keys.example.test/")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/relative/page")]
+    public async Task A_key_page_that_is_not_an_absolute_https_address_is_not_linked(string page)
+    {
+        server.Answer("GET", PresetsPath, new[] { new ModelProviderPresetResponse("sample-odd", "Sample odd", "https://odd.example.test/v1", "required", page, false) });
+        var model = Step();
+        await model.Open();
+
+        model.ChooseProvider("sample-odd");
+
+        model.Named.KeyLinkAddress.Should().BeNull();
         model.Named.KeyLinkText.Should().BeNull();
     }
 

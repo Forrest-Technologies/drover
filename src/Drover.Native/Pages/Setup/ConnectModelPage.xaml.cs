@@ -8,6 +8,10 @@ public sealed partial class ConnectModelPage : Screen
     public ConnectModelPage()
     {
         InitializeComponent();
+        ProvidersLoading.Text = NamedProviders.LoadingWords;
+        ProvidersFailedNote.Text = NamedProviders.FailedWords;
+        ProvidersRetry.Content = NamedProviders.RetryWords;
+        ChangeAddress.Content = NamedProviders.ChangeAddressWords;
         Provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
         {
             if (Provider.Value.Length > 0 && Provider.Value != Model.Named.Choice)

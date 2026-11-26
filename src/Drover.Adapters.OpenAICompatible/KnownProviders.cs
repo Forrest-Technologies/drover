@@ -8,12 +8,11 @@ namespace Drover.Adapters.OpenAICompatible;
 /// The order is the order a person sees: a short lead of the best-known providers, then the other hosted providers
 /// by name, then the ones on the person's own machine or network.
 ///
-/// Each row names the page that confirmed its address on 2026-11-26. A row marked "unconfirmed" ships with the value
-/// the issue gave: its provider's page could not be read or did not show the address, and the owner's live run
-/// (<c>KnownProvidersLiveTests</c>) is what settles it. Key pages were not fetched and are the providers' own
-/// well-known console addresses. Left out because their documentation says so: Perplexity (the model list is at
-/// <c>/v1/models</c> and chat has moved to its own agent endpoint, so <c>{address}/models</c> does not hold),
-/// GitHub Models (retired on 2026-07-30, https://docs.github.com/en/rest/models/inference).
+/// Each row's comment names the documentation page that confirmed its address on 2026-11-26 (the pages for the rows
+/// confirmed in review are the ones that review named). Key pages are confirmed for Groq, DeepSeek, Cerebras, Nebius and
+/// Together; the others are the providers' well-known console addresses and are unconfirmed, the xAI and Mistral ones
+/// especially. KnownProvidersLiveTests is the owner's run that settles what a page cannot. Left out because their
+/// documentation says so: GitHub Models (retired on 2026-07-30, https://docs.github.com/en/rest/models/inference).
 /// </summary>
 public static class KnownProviders
 {
@@ -22,17 +21,16 @@ public static class KnownProviders
     /// <summary>Every row, in the order offered.</summary>
     public static IReadOnlyList<ModelProviderPreset> All { get; } =
     [
-        // Unconfirmed: the page was not read. The address is the one in docs/architecture/15-model-providers.md.
+        // https://platform.openai.com/docs/api-reference/introduction
         Hosted("openai", "OpenAI", "https://api.openai.com/v1", "https://platform.openai.com/api-keys"),
 
-        // https://openrouter.ai/docs/quickstart serves its API under /api/v1. Chat completions path unconfirmed on the page.
+        // https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion
         Hosted("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "https://openrouter.ai/settings/keys"),
 
         // https://ai.google.dev/gemini-api/docs/openai. #529 removes this row when its own kind lands.
         Hosted("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "https://aistudio.google.com/apikey"),
 
-        // Unconfirmed: the page read (https://docs.x.ai/docs/api-reference) leads with the Responses API. The address is the
-        // one in docs/architecture/15-model-providers.md.
+        // https://docs.x.ai/developers/model-capabilities/legacy/chat-completions
         Hosted("xai", "xAI", "https://api.x.ai/v1", "https://console.x.ai"),
 
         // https://console.groq.com/docs/openai
@@ -41,19 +39,22 @@ public static class KnownProviders
         // https://api-docs.deepseek.com/ (base_url for the OpenAI format).
         Hosted("deepseek", "DeepSeek", "https://api.deepseek.com", "https://platform.deepseek.com/api_keys"),
 
-        // https://docs.mistral.ai/api/endpoint/chat confirms POST /v1/chat/completions. Host unconfirmed on the page.
+        // https://docs.mistral.ai/inference/conversations/chat-completion shows POST /v1/chat/completions with a Bearer key, and
+        // the API reference lists /v1/models. The page also names https://api.mistral.ai/openai/v1 as a preview endpoint for OpenAI
+        // clients; the GA address is kept. Which one answers the compatible protocol is settled by KnownProvidersLiveTests.
         Hosted("mistral", "Mistral", "https://api.mistral.ai/v1", "https://console.mistral.ai/api-keys"),
 
-        // Unconfirmed: the page could not be read.
+        // https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope names this domain as one to migrate from;
+        // the new address is specific to a workspace, so this row is a candidate for slice 2 (a value only the person knows).
         Hosted("alibaba", "Alibaba", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.baseten.co/reference/inference-api/chat-completions
         Hosted("baseten", "Baseten", "https://inference.baseten.co/v1"),
 
-        // https://inference-docs.cerebras.ai/resources/openai
+        // https://inference-docs.cerebras.ai/resources/openai (key page: https://inference-docs.cerebras.ai/console/api-keys)
         Hosted("cerebras", "Cerebras", "https://api.cerebras.ai/v1", "https://cloud.cerebras.ai"),
 
-        // Unconfirmed: the page could not be read.
+        // https://chutes.ai/llms.txt
         Hosted("chutes", "Chutes", "https://llm.chutes.ai/v1"),
 
         // https://docs.cohere.com/docs/compatibility-api
@@ -62,22 +63,23 @@ public static class KnownProviders
         // https://deepinfra.com/docs/openai_api
         Hosted("deepinfra", "Deep Infra", "https://api.deepinfra.com/v1/openai"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.digitalocean.com/products/inference/how-to/si-endpoints/
         Hosted("digitalocean", "DigitalOcean", "https://inference.do-ai.run/v1"),
 
         // https://docs.fireworks.ai/tools-sdks/openai-compatibility (written without the trailing slash there).
         Hosted("fireworks", "Fireworks AI", "https://api.fireworks.ai/inference/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://friendli.ai/docs/guides/serverless_endpoints/openai-compatibility
         Hosted("friendli", "Friendli", "https://api.friendli.ai/serverless/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.helicone.ai/rest/ai-gateway/post-v1-chat-completions
         Hosted("helicone", "Helicone", "https://ai-gateway.helicone.ai/v1"),
 
-        // Unconfirmed: https://huggingface.co/docs/inference-providers/index was read and names the router but not the address.
+        // https://huggingface.co/docs/inference-providers/tasks/chat-completion
         Hosted("huggingface", "Hugging Face", "https://router.huggingface.co/v1", "https://huggingface.co/settings/tokens"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.inceptionlabs.ai/get-started/get-started. The provider's Mercury API is winding down through
+        // 2026-12-28: remove this row after that date.
         Hosted("inception", "Inception", "https://api.inceptionlabs.ai/v1/"),
 
         // https://platform.moonshot.ai/docs/guide/start-using-kimi-api (base_url in the OpenAI example).
@@ -86,66 +88,71 @@ public static class KnownProviders
         // https://docs.tokenfactory.nebius.com/quickstart
         Hosted("nebius", "Nebius Token Factory", "https://api.tokenfactory.nebius.com/v1", "https://tokenfactory.nebius.com"),
 
-        // Unconfirmed: the page could not be read.
+        // https://novita.ai/docs/guides/llm-api
         Hosted("novita", "Novita AI", "https://api.novita.ai/openai"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.api.nvidia.com/nim/reference/llm-apis
         Hosted("nvidia", "Nvidia", "https://integrate.api.nvidia.com/v1"),
 
         // https://docs.ollama.com/api/openai-compatibility ("Direct cloud access").
         Hosted("ollama-cloud", "Ollama Cloud", "https://ollama.com/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-responses-api
         Hosted("ovhcloud", "OVHcloud AI Endpoints", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"),
 
-        // Unconfirmed: the page could not be read.
-        Hosted("poe", "Poe", "https://api.poe.com/v1"),
+        // https://docs.perplexity.ai/docs/orchestrator/quickstart (OpenAI Chat Completions, Bearer key) and
+        // https://docs.perplexity.ai/api-reference/gateway-models-get (GET /models). The older https://api.perplexity.ai has no
+        // model list at {address}/models, so it is not used.
+        Hosted("perplexity", "Perplexity", "https://api.perplexity.ai/orchestrator/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://creator.poe.com/docs/external-applications/openai-compatible-api
+        Hosted("poe", "Poe", "https://api.poe.com/v1", "https://poe.com/api/keys"),
+
+        // https://docs.requesty.ai/quickstart
         Hosted("requesty", "Requesty", "https://router.requesty.ai/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://docs.sambanova.ai/docs/en/get-started/api-keys-urls
         Hosted("sambanova", "SambaNova", "https://api.sambanova.ai/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://www.scaleway.com/en/docs/generative-apis/quickstart/
         Hosted("scaleway", "Scaleway", "https://api.scaleway.ai/v1"),
 
-        // Unconfirmed: the page could not be read.
-        Hosted("siliconflow", "SiliconFlow", "https://api.siliconflow.com/v1"),
+        // https://docs.siliconflow.com/en/userguide/quickstart
+        Hosted("siliconflow", "SiliconFlow", "https://api.siliconflow.com/v1", "https://cloud.siliconflow.com/account/ak"),
 
-        // Unconfirmed: the page could not be read.
+        // https://dev.synthetic.new/docs/api/overview
         Hosted("synthetic", "Synthetic", "https://api.synthetic.new/openai/v1"),
 
-        // https://docs.together.ai/docs/openai-api-compatibility names https://api.together.ai/v1. The issue gave
-        // api.together.xyz; the provider's current page wins.
+        // https://docs.together.ai/docs/inference/openai-compatibility names api.together.ai; the issue gave api.together.xyz and the
+        // provider's current page wins.
         Hosted("together", "Together AI", "https://api.together.ai/v1", "https://api.together.ai/settings/api-keys"),
 
-        // Unconfirmed: the page could not be read.
-        Hosted("upstage", "Upstage", "https://api.upstage.ai/v1/solar"),
+        // https://console.upstage.ai/docs/capabilities/generate/chat and https://console.upstage.ai/api/chat
+        Hosted("upstage", "Upstage", "https://api.upstage.ai/v1"),
 
         // https://vercel.com/docs/ai-gateway/openai-compat (GET /models, POST /chat/completions, Bearer).
         Hosted("vercel", "Vercel AI Gateway", "https://ai-gateway.vercel.sh/v1"),
 
-        // Unconfirmed: the page could not be read.
+        // https://api.vultrinference.com/docs/get-started/sdks
         Hosted("vultr", "Vultr", "https://api.vultrinference.com/v1"),
 
         // https://docs.z.ai/guides/overview/quick-start (POST /api/paas/v4/chat/completions with a Bearer key).
         Hosted("zai", "Z.AI", "https://api.z.ai/api/paas/v4"),
 
-        // Unconfirmed: https://docs.z.ai/devpack/tool/others was read and does not show the address.
+        // https://docs.z.ai/devpack/tool/others
         Hosted("zai-coding", "Z.AI Coding Plan", "https://api.z.ai/api/coding/paas/v4"),
 
-        // https://lmstudio.ai/docs/developer/openai-compat (/v1/models and /v1/chat/completions). The loopback spelling is the issue's.
+        // https://lmstudio.ai/docs/developer/openai-compat (/v1/models and /v1/chat/completions).
         OnThisMachine("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1", ModelProviderKeyRule.None),
 
         // https://docs.ollama.com/api/openai-compatibility ("Local server usage": the key is ignored).
         OnThisMachine("ollama", "Ollama", "http://localhost:11434/v1", ModelProviderKeyRule.None),
 
-        // Unconfirmed: the page was not read. The address is the one in the issue.
+        // https://docs.vllm.ai/en/stable/getting_started/quickstart/
         OnThisMachine("vllm", "vLLM", "http://localhost:8000/v1", ModelProviderKeyRule.Optional),
 
-        // Unconfirmed: the page was not read. The address is the one in the issue.
-        OnThisMachine("llamacpp", "llama.cpp", "http://localhost:8080/v1", ModelProviderKeyRule.Optional),
+        // https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md ("--port PORT ... (default: 9931)").
+        OnThisMachine("llamacpp", "llama.cpp", "http://localhost:9931/v1", ModelProviderKeyRule.Optional),
     ];
 
     #endregion

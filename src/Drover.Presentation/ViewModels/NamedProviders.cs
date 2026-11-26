@@ -75,13 +75,17 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     {
         VeniceKind => "Made in your Venice account, under API keys.",
         _ when Selected is null => "Leave this empty if the server needs no key.",
-        _ => "Stored encrypted. It is not shown again.",
+        _ => string.Empty,
     };
 
     /// <summary>The words of the link to where a key is made, drawn as plain text. Null where the provider gave no page.</summary>
-    public string? KeyLinkText => Selected is { KeyPage: not null } preset ? $"Get a key from {preset.DisplayName}" : null;
+    public string? KeyLinkText => KeyLinkAddress is null ? null : $"Get a key from {Selected!.DisplayName}";
 
-    public string? KeyLinkAddress => Selected?.KeyPage;
+    /// <summary>The page where a key is made, only when it is an absolute https address.</summary>
+    public string? KeyLinkAddress =>
+        Selected?.KeyPage is { } page && Uri.TryCreate(page, UriKind.Absolute, out var address) && address.Scheme == Uri.UriSchemeHttps
+            ? page
+            : null;
 
     public string? ReachNote => Selected is { Local: true } ? ReachWords : null;
 
