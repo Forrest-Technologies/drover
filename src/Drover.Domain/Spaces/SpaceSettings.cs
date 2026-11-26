@@ -38,5 +38,8 @@ public sealed record SpaceSettings
     /// <summary>Ordered models used when a bot has no fallback list of its own.</summary>
     public IReadOnlyList<ModelFallback> ModelFallbacks { get; init; } = [];
 
+    /// <summary>Which models listen, speak and hold live calls for this space. Null lets the server choose each.</summary>
+    public VoiceSettings? Voice { get; init; }
+
     #endregion
 }

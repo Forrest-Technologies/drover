@@ -150,6 +150,35 @@ public sealed class DeploymentPolicyTests
     }
 
     [Fact]
+    public void Voice_is_unbounded_on_a_self_hosted_server_except_for_the_recording_it_holds_in_memory()
+    {
+        DeploymentPolicy.SelfHosted.MaxVoiceRecordingBytes.Should().Be(25 * 1024 * 1024);
+        DeploymentPolicy.SelfHosted.MaxReadAloudCharacters.Should().Be(int.MaxValue);
+        DeploymentPolicy.SelfHosted.MaxCallMinutes.Should().Be(int.MaxValue);
+        DeploymentPolicy.Hosted.MaxVoiceRecordingBytes.Should().Be(10 * 1024 * 1024);
+        DeploymentPolicy.Hosted.MaxReadAloudCharacters.Should().Be(8000);
+        DeploymentPolicy.Hosted.MaxCallMinutes.Should().Be(30);
+        (DeploymentPolicy.SelfHosted with { MaxVoiceRecordingBytes = 100 * 1024 * 1024 })
+            .FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("the recording limit is a default a self-hosted operator may raise");
+        (DeploymentPolicy.Hosted with { MaxCallMinutes = 31 }).FindLoosenedRules(DeploymentPolicy.Hosted)
+            .Should().Equal(nameof(DeploymentPolicy.MaxCallMinutes));
+    }
+
+    [Fact]
+    public void A_limit_at_the_largest_number_reads_as_no_limit_and_any_other_as_its_number()
+    {
+        string Text(string name, DeploymentPolicy policy) => DeploymentPolicy.Rules.Single(rule => rule.Name == name).ReadText(policy);
+
+        Text(nameof(DeploymentPolicy.MaxCallMinutes), DeploymentPolicy.SelfHosted).Should().Be(PolicyRule.NoLimit);
+        Text(nameof(DeploymentPolicy.MaxReadAloudCharacters), DeploymentPolicy.SelfHosted).Should().Be("No limit");
+        Text(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), DeploymentPolicy.SelfHosted).Should().Be("No limit");
+        Text(nameof(DeploymentPolicy.MaxStepsPerRun), DeploymentPolicy.SelfHosted).Should().Be("No limit");
+        Text(nameof(DeploymentPolicy.MaxCallMinutes), DeploymentPolicy.Hosted).Should().Be("30");
+        Text(nameof(DeploymentPolicy.MaxVoiceRecordingBytes), DeploymentPolicy.SelfHosted).Should().Be("26214400");
+    }
+
+    [Fact]
     public void A_limit_looser_than_the_hosted_preset_is_reported_as_loosened()
     {
         var loosened = DeploymentPolicy.Hosted with { MaxModelListBytes = DeploymentPolicy.SelfHostedMaxModelListBytes };

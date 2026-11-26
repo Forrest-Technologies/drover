@@ -40,6 +40,7 @@ public sealed class TalkPage : Screen
         {
             live = null;
             left.Page.ClearValue(ContentProperty);
+            _ = left.View.Leave();
             left.Model.Dispose();
         }
     }
@@ -53,6 +54,7 @@ public sealed class TalkPage : Screen
         {
             live = null;
             stale.Page.ClearValue(ContentProperty);
+            _ = stale.View.Leave();
             stale.Model.Dispose();
         }
 

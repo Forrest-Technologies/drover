@@ -1,8 +1,9 @@
 namespace Drover.Native.Chat;
 
 /// <summary>
-/// One quiet line of icons under a finished reply: copy the reply, the usage of the reply, ask for another, and switch
-/// between its versions. "Usage for this reply" opens a popover of the model that wrote it and what it used
+/// One quiet line of icons under a finished reply: copy the reply, read it aloud, the usage of the reply, ask for
+/// another, and switch between its versions. Read aloud is there only where something can speak; while the reply is
+/// being read it is Stop. "Usage for this reply" opens a popover of the model that wrote it and what it used
 /// (<see cref="UsagePopover"/>); no model, tokens or cost are written under the reply. What a reply used is read only
 /// when that is pressed: a conversation with many replies makes no request until a person opens one.
 /// </summary>
@@ -13,6 +14,17 @@ public sealed class ReplyFooter : Grid
     private readonly FlowPanel line = new() { Gap = Tokens.Number("DvSpace1") };
 
     private readonly CopyButton copy = new() { Label = CopyLabel, Ink = "DvText3", VerticalAlignment = VerticalAlignment.Center };
+
+    private readonly IconButton readAloud = new()
+    {
+        Icon = IconName.Speaker,
+        Label = VoiceWords.ReadAloud,
+        Ink = "DvText3",
+        VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed,
+    };
+
+    private readonly ReadAloudViewModel reader = ((App)Application.Current).Services.GetRequiredService<ReadAloudViewModel>();
 
     private readonly IconButton regenerate = new()
     {
@@ -39,6 +51,8 @@ public sealed class ReplyFooter : Grid
 
     private string copyText = string.Empty;
 
+    private Guid? readable;
+
     #endregion
 
     #region Constructors
@@ -50,6 +64,14 @@ public sealed class ReplyFooter : Grid
         usage.Click += async (_, _) => await popover.Open(usage);
 
         regenerate.Click += async (_, _) => await Regenerate();
+        readAloud.Click += async (_, _) => await Read();
+        AutomationProperties.SetAutomationId(readAloud, "ReplyReadAloud");
+        Loaded += (_, _) =>
+        {
+            reader.PropertyChanged += ReaderChanged;
+            ShowReadAloud();
+        };
+        Unloaded += (_, _) => reader.PropertyChanged -= ReaderChanged;
 
         // The parts stand in the order a footer's parts are named, so the line and its tests agree.
         foreach (var part in Enum.GetValues<FooterPart>())
@@ -80,6 +102,7 @@ public sealed class ReplyFooter : Grid
     /// <summary>True when the line holds anything to use, so the reply shows it.</summary>
     public bool HasAny =>
         copy.Visibility is Visibility.Visible
+        || readAloud.Visibility is Visibility.Visible
         || regenerate.Visibility is Visibility.Visible
         || usage.Visibility is Visibility.Visible
         || versionsSlot.Children.Any(part => part.Visibility is Visibility.Visible);
@@ -100,9 +123,14 @@ public sealed class ReplyFooter : Grid
         }
     }
 
-    /// <summary>Shows the parts of the line the reply has (<see cref="ChatRows.FooterParts"/>), with its words to copy.</summary>
-    public void Show(string replyText, IReadOnlyList<FooterPart> parts)
+    /// <summary>
+    /// Shows the parts of the line the reply has (<see cref="ChatRows.FooterParts"/>), with its words to copy and the
+    /// id the server reads it aloud by.
+    /// </summary>
+    public void Show(string replyText, IReadOnlyList<FooterPart> parts, Guid? messageId = null)
     {
+        readable = parts.Contains(FooterPart.ReadAloud) ? messageId : null;
+        ShowReadAloud();
         copyText = parts.Contains(FooterPart.Copy) ? replyText : string.Empty;
         copy.Visibility = copyText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         regenerate.Visibility = parts.Contains(FooterPart.Regenerate) && OnRegenerate is not null ? Visibility.Visible : Visibility.Collapsed;
@@ -120,10 +148,30 @@ public sealed class ReplyFooter : Grid
     private FrameworkElement PartOf(FooterPart part) => part switch
     {
         FooterPart.Copy => copy,
+        FooterPart.ReadAloud => readAloud,
         FooterPart.Regenerate => regenerate,
         FooterPart.Usage => usage,
         _ => versionsSlot,
     };
+
+    private void ReaderChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change) => ShowReadAloud();
+
+    private void ShowReadAloud()
+    {
+        var offered = readable is not null && reader.Shows;
+        var reading = readable is { } id && reader.IsReading(id);
+        readAloud.Visibility = offered ? Visibility.Visible : Visibility.Collapsed;
+        readAloud.Icon = reading ? IconName.Stop : IconName.Speaker;
+        readAloud.Label = reading ? VoiceWords.StopReading : VoiceWords.ReadAloud;
+    }
+
+    private async Task Read()
+    {
+        if (readable is { } id)
+        {
+            await reader.Press(id);
+        }
+    }
 
     private async Task Regenerate()
     {

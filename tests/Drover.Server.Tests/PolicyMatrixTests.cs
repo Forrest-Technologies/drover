@@ -233,6 +233,16 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void The_voice_rules_bound_one_recording_one_read_aloud_and_one_call()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.MaxVoiceRecordingBytes.Should().Be(Limit(nameof(DeploymentPolicy.MaxVoiceRecordingBytes)));
+        rules.MaxReadAloudCharacters.Should().Be(Limit(nameof(DeploymentPolicy.MaxReadAloudCharacters)));
+        rules.MaxCallMinutes.Should().Be(Limit(nameof(DeploymentPolicy.MaxCallMinutes)));
+    }
+
+    [Fact]
     public async Task MaxBotsPerSpace_is_the_cap_on_a_spaces_bots_where_the_space_sets_none_and_a_space_may_only_lower_it()
     {
         await using var scope = Services.CreateAsyncScope();
@@ -276,7 +286,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
         var ceilings = new DelegationLimits(
             int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationDepth)), CultureInfo.InvariantCulture),
-            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture),
+            Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationTreeCostCents)), CultureInfo.InvariantCulture));
 
         policies.Delegation(new SpaceSettings()).Should().Be(ceilings);
@@ -296,10 +306,9 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         await using var scope = Services.CreateAsyncScope();
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
         var ceilings = new RunCeilings(
-            Setting(nameof(DeploymentPolicy.MaxStepsPerRun)) is "No limit" ? int.MaxValue :
-                int.Parse(Setting(nameof(DeploymentPolicy.MaxStepsPerRun)), CultureInfo.InvariantCulture),
+            Limit(nameof(DeploymentPolicy.MaxStepsPerRun)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            new DelegationLimits(1, int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture), 1).MaxHandoffs);
+            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
         policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
@@ -346,6 +355,10 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     private static int Above(int most) => most is int.MaxValue ? most : most + 1;
 
     private string Setting(string rule) => PolicyMatrix.Setting(rule, preset);
+
+    /// <summary>A limit's number, where the listing's "No limit" is the largest number there is.</summary>
+    private int Limit(string rule) =>
+        Setting(rule) is PolicyRule.NoLimit ? int.MaxValue : int.Parse(Setting(rule), CultureInfo.InvariantCulture);
 
     /// <summary>A signed-in owner of a new space with one bot, and where that bot's schedules are saved.</summary>
     private async Task<(ApiClient Client, string Schedules)> SignedInClientWithBot()

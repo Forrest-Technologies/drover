@@ -2,10 +2,12 @@ namespace Drover.Presentation.ViewModels;
 
 /// <summary>
 /// The model Connections of the space. Its job: see whether each connection works, add one, test it, replace its key.
+/// A change here can change which models listen and speak, so what is known about voice is read again afterwards.
 /// </summary>
 public sealed partial class ModelConnectionsViewModel(
     DroverApi api,
     SessionState session,
+    SpaceVoice voice,
     ILogger<ModelConnectionsViewModel> logger) : ObservableObject
 {
     #region Private Fields
@@ -189,6 +191,7 @@ public sealed partial class ModelConnectionsViewModel(
             var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
             var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
             Connections!.Add(added);
+            voice.Forget();
             Adding = false;
             ApiKey = string.Empty;
             await Test(added);
@@ -281,6 +284,7 @@ public sealed partial class ModelConnectionsViewModel(
         try
         {
             await action();
+            voice.Forget();
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
