@@ -62,8 +62,18 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     public static async Task<SdkToolServer> Start(ToolServerSpec spec)
     {
         var server = new SdkToolServer(spec);
-        await server.Run();
-        return server;
+
+        try
+        {
+            await server.Run();
+            return server;
+        }
+        catch
+        {
+            // The caller never receives the server, so nothing else can close the listener Run opened.
+            await server.DisposeAsync();
+            throw;
+        }
     }
 
     #endregion
@@ -145,14 +155,14 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     /// answer leaves none behind, so the next request opens a connection to the listener that is really there.
     /// The event stream is a GET and stays open, so it is the one answer that is not closed here.
     /// </summary>
-    private static async Task CloseAnswerAfterEachUse(HttpContext context, RequestDelegate next)
+    private static Task CloseAnswerAfterEachUse(HttpContext context, RequestDelegate next)
     {
         if (!HttpMethods.IsGet(context.Request.Method))
         {
             context.Response.Headers["Connection"] = "close";
         }
 
-        await next(context);
+        return next(context);
     }
 
     /// <summary>
@@ -160,27 +170,29 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     /// </summary>
     private async Task WaitUntilListening()
     {
-        using var patience = new CancellationTokenSource(listenPatience);
+        using var timeout = new CancellationTokenSource(listenPatience);
+        var testToken = TestContext.Current.CancellationToken;
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(testToken, timeout.Token);
         while (true)
         {
             try
             {
                 using var probe = new TcpClient();
-                await probe.ConnectAsync(IPAddress.Loopback, port).WaitAsync(patience.Token);
+                await probe.ConnectAsync(IPAddress.Loopback, port, patience.Token);
                 return;
             }
             catch (SocketException failure)
             {
                 if (patience.IsCancellationRequested)
                 {
-                    throw new TimeoutException($"The test tool server did not start listening on port {port}.", failure);
+                    throw new TimeoutException($"Tool server did not start listening on port {port}.", failure);
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(20));
+                await Task.Delay(TimeSpan.FromMilliseconds(20), patience.Token);
             }
             catch (OperationCanceledException failure)
             {
-                throw new TimeoutException($"The test tool server did not start listening on port {port}.", failure);
+                throw new TimeoutException($"Tool server did not start listening on port {port}.", failure);
             }
         }
     }
