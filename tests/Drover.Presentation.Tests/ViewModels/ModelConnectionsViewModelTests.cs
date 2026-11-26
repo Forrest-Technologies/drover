@@ -77,7 +77,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_failed_read_of_the_list_still_offers_another_compatible_server()
+    public async Task A_failed_read_of_the_list_draws_no_form_until_it_is_read_again()
     {
         server.Answer("GET", PresetsPath, HttpStatusCode.InternalServerError);
         var model = Models();
@@ -85,7 +85,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
         await model.Open();
 
         model.Named.State.Should().Be(NamedProvidersState.Failed);
-        model.Named.Options.Select(option => option.Label).Should().Equal("Another compatible server");
+        model.Named.ShowsForm.Should().BeFalse();
         model.Connections.Should().NotBeNull("the connections load without the list");
 
         server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));

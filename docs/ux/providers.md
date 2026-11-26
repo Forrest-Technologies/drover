@@ -66,8 +66,8 @@ The provider choice is drawn from `GET /api/model-provider-kinds`, in the server
 
 | State | Words |
 | --- | --- |
-| Loading the list | `Loading the provider list.` and no choice yet |
-| The list could not be read | `Could not read the provider list.` with `Try again`. `Another compatible server` still works, because it needs nothing from the list |
+| Loading the list | `Asking this server which providers it offers.` in place of the form |
+| The list could not be read | `EmptyState` in place of the form: title `Drover could not load the providers`, the failure sentence, action `Try again` |
 | A server with one kind and no named providers | No choice. `This server uses {kind}.` |
 | A server whose kind is switched off for an existing connection | The Models row shows the `Off` badge and `The operator of this server switched {kind} off.` |
 | A required field is empty and a button is pressed | Under the field: `Enter the base address.` or `Enter the key.` |

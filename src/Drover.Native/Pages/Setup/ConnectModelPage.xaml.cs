@@ -9,8 +9,9 @@ public sealed partial class ConnectModelPage : Screen
     {
         InitializeComponent();
         ProvidersLoading.Text = NamedProviders.LoadingWords;
-        ProvidersFailedNote.Text = NamedProviders.FailedWords;
-        ProvidersRetry.Content = NamedProviders.RetryWords;
+        ProvidersFailed.Title = NamedProviders.FailedTitle;
+        ProvidersFailed.ActionLabel = NamedProviders.RetryWords;
+        ProvidersFailed.Cause = NamedProviders.FailedCause;
         ChangeAddress.Content = NamedProviders.ChangeAddressWords;
         Provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
         {
@@ -77,7 +78,9 @@ public sealed partial class ConnectModelPage : Screen
         Key.Error = Model.KeyProblem;
 
         ProvidersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
+        ProvidersFailed.Cause = providers.FailureWords ?? NamedProviders.FailedCause;
         ProvidersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        Form.Visibility = providers.ShowsForm ? Visibility.Visible : Visibility.Collapsed;
         Reach.Text = providers.ReachNote ?? string.Empty;
         Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
         Address.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
@@ -91,10 +94,11 @@ public sealed partial class ConnectModelPage : Screen
         Outcome.Kind = Model.Passed ? NoteKind.Ok : NoteKind.Danger;
         Outcome.Visibility = Model.Busy ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;
-        Continue.Visibility = Model.Passed ? Visibility.Visible : Visibility.Collapsed;
+        Continue.Visibility = Visibility.Visible;
         Actions.ColumnDefinitions[1].Width = Model.Passed ? new(1, GridUnitType.Star) : GridLength.Auto;
         Actions.ColumnSpacing = Model.Passed ? Tokens.Number("DvSpace2") : 0;
         Continue.IsEnabled = Test.IsEnabled = !Model.Busy;
+        Continue.Kind = Model.Passed ? ButtonKind.Primary : ButtonKind.Quiet;
         Test.Kind = Model.Passed ? ButtonKind.Quiet : ButtonKind.Primary;
         Test.Content = Model.Busy ? "Testing" : Model.Passed ? "Test again" : "Test connection";
     }

@@ -90,6 +90,13 @@ const providerKinds = [
         ],
     },
 ];
+// A server with three kinds and nothing named, so the choice is a segmented control. The third kind is a sample: a
+// required address and an optional key, a kind the client has never heard of.
+const fewProviderKinds = [
+    providerKinds[0],
+    { ...providerKinds[1], namedProviders: [] },
+    { kind: 'sample-third', displayName: 'Sample third', keyRule: 'optional', addressRule: 'required', addressHint: 'Sample address hint.', keyHint: 'Sample key hint.', reportsCapabilities: false, namedProviders: [] },
+];
 const bot = { id: botId, name: 'Sample bot', handle: 'sample-bot', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
 const botDetail = {
     ...bot, avatar: {}, descriptionForBots: 'Sample purpose', modelSettings: { webSearch: 'off' },
@@ -248,6 +255,8 @@ const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
     ['connect-model', '/setup/model', 'Connect a model'],
+    ['connect-model-few-kinds', '/setup/model', 'Connect a model'],
+    ['connect-model-kinds-failed', '/setup/model', 'Connect a model'],
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
@@ -375,6 +384,11 @@ try {
                         || message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`)
                     && message.text().includes('503 (Service Unavailable)')) {
                     return;
+                } else if (current === 'connect-model-kinds-failed'
+                    && message.location().url === `${origin}/api/model-provider-kinds`
+                    && message.text().includes('503 (Service Unavailable)')) {
+                    // The read of the kinds fails on purpose, so the failed state can be checked.
+                    return;
                 } else if (current === 'project-missing'
                     && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
                     && message.text().includes('404 (Not Found)')) {
@@ -459,7 +473,11 @@ try {
                     };
                 }
                 else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
-                else if (address === '/api/model-provider-kinds') { body = providerKinds; }
+                else if (address === '/api/model-provider-kinds' && current === 'connect-model-kinds-failed') {
+                    await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                    return;
+                }
+                else if (address === '/api/model-provider-kinds') { body = current === 'connect-model-few-kinds' ? fewProviderKinds : providerKinds; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {

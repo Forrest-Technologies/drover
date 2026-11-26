@@ -125,7 +125,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_failed_read_of_the_list_still_offers_another_compatible_server()
+    public async Task A_failed_read_of_the_list_draws_no_form_until_it_is_read_again()
     {
         server.Answer("GET", PresetsPath, HttpStatusCode.InternalServerError);
         var model = Step();
@@ -134,19 +134,14 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
         model.Named.State.Should().Be(NamedProvidersState.Failed);
         model.Named.ShowsFailure.Should().BeTrue();
-        NamedProviders.FailedWords.Should().Be("Could not read the provider list.");
-        model.Named.Options.Select(option => option.Label).Should().Equal("Another compatible server");
-
-        model.ChooseProvider("openai_compatible");
-        model.BaseUrl = "https://models.example.test/v1";
-        model.Named.ShowsAddress.Should().BeTrue();
+        model.Named.ShowsForm.Should().BeFalse("the form is not drawn until the kinds are read");
 
         server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         await model.RetryProvidersCommand.ExecuteAsync(null);
 
         model.Named.State.Should().Be(NamedProvidersState.Loaded);
+        model.Named.ShowsForm.Should().BeTrue();
         model.Named.Options.Should().HaveCount(5);
-        model.Named.Choice.Should().Be("openai_compatible");
     }
 
     [Fact]
@@ -325,7 +320,9 @@ public sealed class ConnectModelViewModelTests : IDisposable
         await model.Open();
 
         model.Named.ShowsFailure.Should().BeTrue();
-        NamedProviders.FailedWords.Should().Be("Could not read the provider list.");
+        model.Named.ShowsForm.Should().BeFalse();
+        model.Named.FailureWords.Should().NotBeNullOrWhiteSpace("the failure sentence is drawn under the title");
+        NamedProviders.FailedTitle.Should().Be("Drover could not load the providers");
         NamedProviders.RetryWords.Should().Be("Try again");
         model.Named.OnlyKindWords.Should().BeNull("a list that could not be read does not say the server has one kind");
 
@@ -334,6 +331,41 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
         model.Named.ShowsFailure.Should().BeFalse();
         model.Named.Options.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task Continue_with_no_passing_test_saves_the_connection_untested_and_moves_on()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Venice", "venice", null, true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        var navigator = new Navigator();
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+        await model.Open();
+        model.ApiKey = "sample-key";
+
+        await model.Continue();
+
+        server.Sent("POST", path).Should().ContainSingle();
+        server.Sent("POST", $"{path}/{created.Id}/test").Should().BeEmpty("nothing was tested");
+        navigator.Current.Should().Be(Addresses.SetupBot);
+    }
+
+    [Fact]
+    public async Task Continue_with_a_required_field_empty_says_what_to_enter_and_stays()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        var navigator = new Navigator();
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+        await model.Open();
+
+        await model.Continue();
+
+        model.KeyProblem.Should().Be("Enter the key.");
+        navigator.Current.Should().NotBe(Addresses.SetupBot);
     }
 
     [Fact]

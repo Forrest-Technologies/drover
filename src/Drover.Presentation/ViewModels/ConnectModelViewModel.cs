@@ -90,8 +90,7 @@ public sealed partial class ConnectModelViewModel(
     {
         Problem = null;
         Result = null;
-        (AddressProblem, KeyProblem) = Named.Missing(BaseUrl, ApiKey);
-        if (AddressProblem is not null || KeyProblem is not null || Kind.Length == 0)
+        if (!FormIsFilled())
         {
             return;
         }
@@ -163,8 +162,49 @@ public sealed partial class ConnectModelViewModel(
         return made;
     }
 
+    // Continue with no passing test is allowed: the connection is saved as it is, not tested, and the step moves on.
     [RelayCommand]
-    public void Continue() => navigator.NavigateTo(Addresses.SetupBot);
+    public async Task Continue()
+    {
+        if (!Passed && !await SaveUntested())
+        {
+            return;
+        }
+
+        navigator.NavigateTo(Addresses.SetupBot);
+    }
+
+    private async Task<bool> SaveUntested()
+    {
+        Problem = null;
+        if (!FormIsFilled())
+        {
+            return false;
+        }
+
+        Busy = true;
+        try
+        {
+            Connection = await SaveConnection();
+            return true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ConnectModelViewModel));
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
+            return false;
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private bool FormIsFilled()
+    {
+        (AddressProblem, KeyProblem) = Named.Missing(BaseUrl, ApiKey);
+        return AddressProblem is null && KeyProblem is null && Kind.Length > 0;
+    }
 
     #endregion
 }

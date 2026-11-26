@@ -25,7 +25,7 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly TextBlock providersLoading = PageParts.Waiting(NamedProviders.LoadingWords);
 
-    private readonly StatusNote providersFailed = new() { Kind = NoteKind.Danger, Text = NamedProviders.FailedWords };
+    private readonly EmptyState providersFailed = new() { Title = NamedProviders.FailedTitle, Cause = NamedProviders.FailedCause, ActionLabel = NamedProviders.RetryWords };
 
     private readonly TextBlock reach = Styles.Text(NamedProviders.ReachWords, "DvTextSecondary");
 
@@ -46,8 +46,6 @@ public sealed class ModelConnectionsPage : Screen
     private readonly StatusNote replaceProblem = new() { Kind = NoteKind.Danger };
 
     private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
-
-    private readonly Button retryProviders;
 
     private readonly Button changeAddress;
 
@@ -72,7 +70,7 @@ public sealed class ModelConnectionsPage : Screen
             "Stored encrypted. It is not shown again.");
         provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) => ChooseProvider(provider.Value));
         providerSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => ChooseProvider(providerSegments.Value));
-        retryProviders = PageParts.Action(NamedProviders.RetryWords, async () => { await model.RetryProviders(); UpdateAddForm(); }, UpdateAddForm);
+        providersFailed.Action += async (_, _) => { await model.RetryProviders(); UpdateAddForm(); };
         changeAddress = PageParts.Action(NamedProviders.ChangeAddressWords, () => { model.ChangeAddress(); UpdateAddForm(); return Task.CompletedTask; }, UpdateAddForm);
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
@@ -80,8 +78,8 @@ public sealed class ModelConnectionsPage : Screen
         newKeyField.Submitted += (_, _) => Run(ReplaceKey);
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
-        addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, retryProviders, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
+        addButton = PageParts.Action("Add connection", model.Add, Refresh, kind: ButtonKind.Primary);
+        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -296,8 +294,10 @@ public sealed class ModelConnectionsPage : Screen
         baseUrlField.Error = model.AddressProblem;
         keyField.Error = model.AddKeyProblem;
         providersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
+        providersFailed.Cause = providers.FailureWords ?? NamedProviders.FailedCause;
         providersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
-        retryProviders.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        var form = providers.ShowsForm ? Visibility.Visible : Visibility.Collapsed;
+        nameField.Visibility = form;
         reach.Text = providers.ReachNote ?? string.Empty;
         reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
         changeAddress.Visibility = providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
@@ -318,7 +318,7 @@ public sealed class ModelConnectionsPage : Screen
         addBusy.Text = busy ? "Adding the connection." : string.Empty;
         addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         cancelAdd.IsEnabled = !busy;
-        addButton.IsEnabled = !busy;
+        addButton.IsEnabled = providers.ShowsForm && !busy;
     }
 
     private void UpdateReplaceForm()

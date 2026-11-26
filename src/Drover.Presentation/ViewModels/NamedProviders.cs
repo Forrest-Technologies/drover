@@ -14,7 +14,7 @@ public enum NamedProvidersState
 /// behind "Change address", the key field and its label, the hints, a link to where a key is made, the line about
 /// reach) is decided here from the server's descriptors, so the two forms that connect a model say the same things
 /// and a kind the server gains needs no client release. The one kind the client names is the compatible one, because
-/// it is the kind a named provider is a starting point for and the one that still works when the list cannot be read.
+/// it is the kind a named provider is a starting point for.
 /// </summary>
 public sealed class NamedProviders(DroverApi api, ILogger logger)
 {
@@ -22,11 +22,14 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public const string CompatibleKind = "openai_compatible";
 
-    public const string FailedWords = "Could not read the provider list.";
+    public const string FailedTitle = "Drover could not load the providers";
 
     public const string RetryWords = "Try again";
 
-    public const string LoadingWords = "Loading the provider list.";
+    /// <summary>What the failure note says before the server has given a sentence.</summary>
+    public const string FailedCause = "Check that the server is running.";
+
+    public const string LoadingWords = "Asking this server which providers it offers.";
 
     public const string ChangeAddressWords = "Change address";
 
@@ -75,9 +78,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     /// <summary>The kind the server stores for the choice. A named provider is a compatible server with an address.</summary>
     public string Kind => Descriptor?.Kind ?? Choice;
 
-    public IReadOnlyList<SegmentOption<string>> Options => kinds.Count == 0 && State == NamedProvidersState.Failed
-        ? [new(CompatibleKind, AnotherCompatibleWords)]
-        : [.. kinds.SelectMany(OptionsOf)];
+    public IReadOnlyList<SegmentOption<string>> Options => [.. kinds.SelectMany(OptionsOf)];
 
     /// <summary>Whether the form asks for a provider at all. A server with one kind and nothing named shows no choice.</summary>
     public bool ShowsChoice => Options.Count > 1;
@@ -101,7 +102,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public bool ShowsKey => Selected is { } named
         ? named.KeyRule != ModelProviderKeyRules.None
-        : (Descriptor?.KeyRule ?? ModelKeyRules.Optional) != ModelKeyRules.None;
+        : Kind.Length > 0 && (Descriptor?.KeyRule ?? ModelKeyRules.Optional) != ModelKeyRules.None;
 
     public bool KeyRequired => Selected is { } named
         ? named.KeyRule == ModelProviderKeyRules.Required
@@ -125,6 +126,12 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public bool ShowsFailure => State == NamedProvidersState.Failed;
 
+    /// <summary>The server's sentence for why the kinds could not be read, shown under the failure title.</summary>
+    public string? FailureWords { get; private set; }
+
+    /// <summary>Whether the form is drawn. It is not while the kinds are being read or could not be read.</summary>
+    public bool ShowsForm => State == NamedProvidersState.Loaded;
+
     public bool ShowsLoading => State == NamedProvidersState.Loading;
 
     #endregion
@@ -134,6 +141,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     public async Task Load()
     {
         State = NamedProvidersState.Loading;
+        FailureWords = null;
         Changed?.Invoke();
 
         try
@@ -145,6 +153,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         {
             logger.LogWarning(exception, "The list of provider kinds could not be read");
             kinds = [];
+            FailureWords = Failures.Sentence(exception, "Check that the server is running.");
             State = NamedProvidersState.Failed;
         }
 
@@ -194,16 +203,9 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         new(kind.Kind, kind.Kind == CompatibleKind ? AnotherCompatibleWords : kind.DisplayName),
     ];
 
-    // The first option is chosen at first. A choice the new list no longer holds falls back to the first option, or,
-    // when the list could not be read, to the one kind that still works without it.
+    // The first option is chosen at first. A choice the new list no longer holds falls back to the first option.
     private void KeepChoiceOffered()
     {
-        if (State == NamedProvidersState.Failed)
-        {
-            Choice = CompatibleKind;
-            return;
-        }
-
         var offered = Options;
         if (offered.All(option => option.Value != Choice))
         {

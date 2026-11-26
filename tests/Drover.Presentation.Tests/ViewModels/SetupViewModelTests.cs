@@ -133,7 +133,7 @@ public sealed class SetupViewModelTests : IDisposable
         server.Sent("PUT", $"{path}/{connectionId}/key").Single().Should().Contain("sample-corrected-key");
         model.Passed.Should().BeTrue();
         model.Outcome.Should().Be("Sample connected.");
-        model.Continue();
+        await model.Continue();
         navigator.Current.Should().Be(Addresses.SetupBot);
     }
 
@@ -216,7 +216,7 @@ public sealed class SetupViewModelTests : IDisposable
         await first.Open();
         first.ApiKey = "sample-key";
         await first.Test();
-        first.Continue();
+        await first.Continue();
 
         var again = ConnectionStep();
         await again.Open();
