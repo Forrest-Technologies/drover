@@ -26,6 +26,8 @@ public sealed class ToolCallCardViewModel : ObservableObject
 
     private bool focusForgotten;
 
+    private bool focusWhenAnswered;
+
     #endregion
 
     #region Properties
@@ -193,7 +195,29 @@ public sealed class ToolCallCardViewModel : ObservableObject
         Changed();
         Problem = await Decide(Card.Id, approved);
         Deciding = Problem is null;
+        if (Deciding)
+        {
+            // The run's log replaces this question with what happened. The answer button the person used goes with it,
+            // so the focus needs a place in the card that takes its place.
+            focusWhenAnswered = true;
+        }
+
         Changed();
+    }
+
+    /// <summary>
+    /// True once, after the answered question has been replaced by the card that says what happened. The focus moves
+    /// to that card, instead of falling out of the conversation to a control in the composer.
+    /// </summary>
+    public bool TakeFocusForAnswer()
+    {
+        if (focusWhenAnswered && !IsAsk)
+        {
+            focusWhenAnswered = false;
+            return true;
+        }
+
+        return false;
     }
 
     // The button is replaced by a line saying the note is gone, or that it changed since and so was kept, and the focus

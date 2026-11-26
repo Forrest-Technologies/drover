@@ -164,6 +164,13 @@ public sealed class Disclosure : Grid
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>Puts the focus on the control that opens the section.</summary>
+    public void TakeFocus() => toggle.TakeFocus();
+
+    #endregion
+
     #region Private Methods
 
     private void Show()

@@ -74,10 +74,6 @@ public sealed class MessageList : Grid
 
     private bool atFoot = true;
 
-    // The first message of the page as it was last drawn: when another one stands there, the page grew or let go
-    // above the reader, and what they were reading is put back where it was.
-    private string? firstShown;
-
     private bool extendQueued;
 
     private bool drawQueued;
@@ -297,7 +293,6 @@ public sealed class MessageList : Grid
         var moment = list.TakeMoment();
         var shown = list.Shown;
         var held = moment is null ? Hold(shown) : null;
-        firstShown = shown.Count > 0 ? shown[0].Key : null;
         AutomationProperties.SetName(scroller, list.Name);
         var with = Parameters(list);
 
@@ -478,13 +473,14 @@ public sealed class MessageList : Grid
         }
     }
 
-    // When the page begins with another message than before, messages came or went above the reader. The message
-    // they are reading is held where it is on the screen: what is to do after the draw is handed back, and nothing
-    // is while the reader follows the foot or no message stays on the page. A person who asked for earlier messages
-    // from the action above the page reads on from it, so the action is what is held.
+    // What the reader is looking at is held where it is on the screen while the list is drawn: a page that grows
+    // above them, a question that becomes a card, or the events that follow an answer all move what comes after.
+    // The work is handed back for after the draw, so no frame shows the reader moved. Nothing is held while they
+    // follow the foot, or when no message of the page is in view. A person who asked for earlier messages from the
+    // action above the page reads on from that action, so it is what is held.
     private Action? Hold(IReadOnlyList<ChatMessage> shown)
     {
-        if (atFoot || firstShown is null || shown.Count == 0 || shown[0].Key == firstShown)
+        if (atFoot || shown.Count == 0)
         {
             return null;
         }
