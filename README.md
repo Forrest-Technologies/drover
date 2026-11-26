@@ -232,6 +232,8 @@ More detail: [solution layout](docs/architecture/01-solution-layout.md), [run li
 
 The plan is in [docs/roadmap.md](docs/roadmap.md). Each piece of work is an issue under the [roadmap label](https://github.com/Forrest-Technologies/drover/issues?q=label%3Aroadmap), and the issue holds its status. [ROADMAP.md](ROADMAP.md) has the larger phases.
 
+The shared card contracts are in place: one shape for every kind a bot can send, its limits and its fallback as plain text ([#924](https://github.com/Forrest-Technologies/drover/issues/924)). The tool, answering and drawing are still to come.
+
 A few things people ask about, none of them built yet:
 
 - Bot looks beyond the built-in characters: a picture you upload or a generated head ([#877](https://github.com/Forrest-Technologies/drover/issues/877)), then animated looks made from any face, even a realistic one, with a loop for thinking, running a tool, waiting, and getting bored ([#878](https://github.com/Forrest-Technologies/drover/issues/878)).
