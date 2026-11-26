@@ -294,10 +294,20 @@ public sealed class MarkdownView : StackPanel
     };
 
     // A run of text is one paragraph. A picture cannot sit inside a line of text here, so each stands on its own
-    // under the words it came with.
+    // under the words it came with. A link that stands alone is an anchor like a source link, so a pointer and a
+    // key both open it in the browser; a link among other words stays a hyperlink run in the drawn text.
     private IEnumerable<FrameworkElement> Prose(IReadOnlyList<MarkdownNode> children, string ink)
     {
-        if (children.Any(node => node is not ImageNode && (node is not TextNode { Text: var text } || !string.IsNullOrWhiteSpace(text))))
+        List<MarkdownNode> prose = [.. children.Where(node => node is not ImageNode
+            && (node is not TextNode { Text: var text } || !string.IsNullOrWhiteSpace(text)))];
+
+        if (prose is [LinkNode link] && link.Children is [TextNode { Text: var label }])
+        {
+            var anchor = new Link { Text = label, Address = link.Address };
+            anchor.Click += (_, _) => LinkPressed?.Invoke();
+            yield return anchor;
+        }
+        else if (prose.Count > 0)
         {
             yield return Paragraph(children, ink, "DvText14", heading: false);
         }
