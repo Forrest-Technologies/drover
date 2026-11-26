@@ -12,6 +12,9 @@ internal static class DesktopServices
         services.AddHttpClient("desktop-updates");
         return services
             .AddSingleton<IFileDelivery, DesktopFileDelivery>()
+            .AddSingleton<NoAudio>(_ => new(AudioHead.Desktop))
+            .AddSingleton<IAudioCapture>(provider => provider.GetRequiredService<NoAudio>())
+            .AddSingleton<IAudioPlayback>(provider => provider.GetRequiredService<NoAudio>())
             .AddSingleton<DesktopNotificationSelections>()
             .AddSingleton<DesktopNotificationSink>()
             .AddSingleton<ILiveNotifications, DesktopNotifications>()

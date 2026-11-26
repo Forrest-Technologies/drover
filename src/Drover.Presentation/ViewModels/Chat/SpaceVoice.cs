@@ -47,10 +47,13 @@ public sealed class SpaceVoice(DroverApi api, SessionState session, ILogger<Spac
         return loadedFor == space ? loading ?? Task.CompletedTask : loading = Read(space);
     }
 
-    /// <summary>The space's model connections changed: what is known is out of date, and is read again now.</summary>
+    /// <summary>The space's model connections changed: what is known is out of date, and the next load reads it again.</summary>
+    public void Forget() => loadedFor = null;
+
+    /// <summary>Reads the options again now.</summary>
     public Task Refresh()
     {
-        loadedFor = null;
+        Forget();
         return Load();
     }
 

@@ -568,7 +568,7 @@ public sealed class ChatEntry : ContentControl
             parameters.Regenerate is not null,
             parameters.ShowVersion is not null,
             parameters.LoadUsage is not null);
-        footer.Show(message.Text, parts);
+        footer.Show(message.Text, parts, ChatRows.StoredId(message));
         hasFooter = !message.Streaming && footer.HasAny;
     }
 

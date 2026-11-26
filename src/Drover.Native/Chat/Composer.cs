@@ -48,6 +48,22 @@ public sealed class Composer : Grid
 
     private readonly Button send = new() { Kind = ButtonKind.Primary, VerticalAlignment = VerticalAlignment.Bottom };
 
+    // Saying a message: the microphone, which is Stop while it records, the way to throw the recording away, and
+    // beside them the time recorded or that the words are being written down.
+    private readonly Button microphone = new() { VerticalAlignment = VerticalAlignment.Bottom };
+
+    private readonly Button discard = new() { VerticalAlignment = VerticalAlignment.Bottom };
+
+    private readonly TextBlock voiceStatus = Styles.Text(null, "DvTextLabel");
+
+    private readonly StatusNote voiceProblem = new() { Kind = NoteKind.Danger };
+
+    private readonly SpokenWords spoken = new();
+
+    private readonly VoiceComposerViewModel voice;
+
+    private readonly Icon microphoneMark;
+
     private readonly TextBlock dropNote = Styles.Text("Drop the files to attach them.", "DvTextLabel");
 
     private ComposerViewModel? model;
@@ -72,9 +88,14 @@ public sealed class Composer : Grid
     {
         MaxWidth = Tokens.Number("DvMeasure") + Tokens.Number("DvSpace6");
 
+        voice = Pieces.Make<VoiceComposerViewModel>(this);
         Labelled(attach, IconName.Attach, "Attach");
         IconOnly(stop, IconName.Stop, StopLabel);
         IconOnly(send, IconName.Send, SendLabel);
+        microphoneMark = IconOnly(microphone, IconName.Microphone, VoiceWords.Record);
+        IconOnly(discard, IconName.Close, VoiceWords.DiscardRecording);
+        AutomationProperties.SetAutomationId(microphone, "ComposerMicrophone");
+        AutomationProperties.SetAutomationId(discard, "ComposerDiscardRecording");
         AutomationProperties.SetName(options, "Message options");
         AutomationProperties.SetName(this, "Message composer");
         AutomationProperties.SetName(frame, "Write a message");
@@ -94,6 +115,8 @@ public sealed class Composer : Grid
         column.Children.Add(options);
         column.Children.Add(frame);
         column.Children.Add(dropNote);
+        column.Children.Add(voiceProblem);
+        column.Children.Add(spoken);
         Children.Add(column);
 
         more.Click += (_, _) => model?.ToggleOptions();
@@ -102,9 +125,20 @@ public sealed class Composer : Grid
         stop.Click += async (_, _) => await (model?.Cancel() ?? Task.CompletedTask);
         send.Click += async (_, _) => await Send();
         tray.Remove += async (_, id) => await (model?.Remove(id) ?? Task.CompletedTask);
+        microphone.Click += async (_, _) => await voice.Press();
+        discard.Click += async (_, _) => await voice.Discard();
+        voice.PropertyChanged += Changed;
 
-        Loaded += (_, _) => PlatformPaste.Join(this);
-        Unloaded += (_, _) => PlatformPaste.Leave(this);
+        Loaded += async (_, _) =>
+        {
+            PlatformPaste.Join(this);
+            await voice.Open();
+        };
+        Unloaded += async (_, _) =>
+        {
+            PlatformPaste.Leave(this);
+            await voice.Leave();
+        };
 
         frame.GotFocus += (_, _) => SetWithin(true);
         frame.LostFocus += (_, _) => SetWithin(false);
@@ -131,6 +165,7 @@ public sealed class Composer : Grid
             }
 
             model = value;
+            voice.OnWritten = model is null ? null : model.Dictate;
 
             if (model is not null)
             {
@@ -256,14 +291,26 @@ public sealed class Composer : Grid
     {
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+
+        // After the field: discard, the time recorded, the microphone, Stop, Send.
+        FrameworkElement[] actions = [discard, voiceStatus, microphone, stop, send];
+        foreach (var _ in actions)
+        {
+            row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        }
+
         row.RowDefinitions.Add(new() { Height = GridLength.Auto });
         row.RowDefinitions.Add(new() { Height = GridLength.Auto });
         row.Children.Add(more);
         row.Children.Add(fieldBox);
-        row.Children.Add(stop);
-        row.Children.Add(send);
+        foreach (var action in actions)
+        {
+            row.Children.Add(action);
+        }
+
+        voiceStatus.VerticalAlignment = VerticalAlignment.Bottom;
+        voiceStatus.TextWrapping = TextWrapping.NoWrap;
+        discard.Visibility = microphone.Visibility = voiceStatus.Visibility = Visibility.Collapsed;
 
         var pad = Tokens.Number("DvSpace2");
         frame.Padding = new(pad);
@@ -275,7 +322,7 @@ public sealed class Composer : Grid
     // An icon and the word for what the button does. The icon takes the color the button's words have.
     // Send and Stop are known by their icons. Each keeps its name in words, as its accessible name and its tooltip, and
     // a full touch target whatever the pointer, since it is the composer's main action.
-    private static void IconOnly(Button button, IconName icon, string label)
+    private static Icon IconOnly(Button button, IconName icon, string label)
     {
         var mark = new Icon { NameOfIcon = icon, Size = 20, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
         button.Content = mark;
@@ -284,6 +331,7 @@ public sealed class Composer : Grid
         AutomationProperties.SetName(button, label);
         ToolTipService.SetToolTip(button, label);
         button.RegisterPropertyChangedCallback(Control.ForegroundProperty, (_, _) => mark.Foreground = button.Foreground);
+        return mark;
     }
 
     // Attach keeps its word: it stands in the options list beside the model choice, where a lone icon would read as
@@ -308,6 +356,8 @@ public sealed class Composer : Grid
     private void Show()
     {
         var shown = model;
+
+        ShowVoice(shown);
 
         if (shown is null)
         {
@@ -335,12 +385,33 @@ public sealed class Composer : Grid
         attach.IsEnabled = shown.TakesFiles;
         ShowModels(shown);
         stop.Visibility = shown.ShowsStop ? Visibility.Visible : Visibility.Collapsed;
-        send.Visibility = shown.ShowsSend ? Visibility.Visible : Visibility.Collapsed;
+        send.Visibility = shown.ShowsSend && voice.Phase is VoicePhase.Idle ? Visibility.Visible : Visibility.Collapsed;
         send.IsEnabled = shown.CanSend;
         travel.IsRunning = shown.IsWorking;
         dropNote.Visibility = shown.Dropping ? Visibility.Visible : Visibility.Collapsed;
         Fit();
         Paint();
+    }
+
+    // The microphone exists only where something can listen. While it records it is Stop, with the time beside it
+    // and the way to throw the recording away; while the words are written down, it waits and says so.
+    private void ShowVoice(ComposerViewModel? shown)
+    {
+        var listens = shown is not null && voice.Shows;
+        var busy = listens && voice.Phase is not VoicePhase.Idle;
+        var recording = voice.Phase is VoicePhase.Recording;
+        microphone.Visibility = listens ? Visibility.Visible : Visibility.Collapsed;
+        microphone.IsEnabled = shown is { Disabled: false } && voice.Phase is not VoicePhase.Writing;
+        microphoneMark.NameOfIcon = recording ? IconName.Stop : IconName.Microphone;
+        AutomationProperties.SetName(microphone, voice.ButtonLabel);
+        ToolTipService.SetToolTip(microphone, voice.ButtonLabel);
+        discard.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        voiceStatus.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        voiceStatus.Text = recording ? voice.Elapsed : VoiceWords.WritingItDown;
+        voiceStatus.FontFamily = recording ? Tokens.FontMono : Tokens.FontUi;
+        voiceStatus.Margin = new(0, 0, 0, (Tokens.Number("DvTargetTouch") - voiceStatus.LineHeight) / 2);
+        voiceProblem.Text = listens ? voice.Problem : null;
+        spoken.Say(listens ? voice.Announcement : null);
     }
 
     private void ShowModels(ComposerViewModel shown)
@@ -374,10 +445,12 @@ public sealed class Composer : Grid
         row.RowSpacing = two ? Tokens.Number("DvSpace2") : 0;
         SetColumn(fieldBox, 1);
         SetColumnSpan(fieldBox, two ? row.ColumnDefinitions.Count - 1 : 1);
-        SetColumn(stop, 2);
-        SetRow(stop, two ? 1 : 0);
-        SetColumn(send, 3);
-        SetRow(send, two ? 1 : 0);
+        FrameworkElement[] actions = [discard, voiceStatus, microphone, stop, send];
+        for (var index = 0; index < actions.Length; index++)
+        {
+            SetColumn(actions[index], index + 2);
+            SetRow(actions[index], two ? 1 : 0);
+        }
     }
 
     private void Paint()
@@ -387,7 +460,7 @@ public sealed class Composer : Grid
         field.Foreground = Tokens.Brush(this, model?.Disabled is true ? "DvText3" : "DvText");
         placeholder.Foreground = Tokens.Brush(this, "DvText3");
         focusLine.Background = fieldFocused ? Tokens.Brush(this, "DvEmber") : null;
-        dropNote.Foreground = Tokens.Brush(this, "DvText2");
+        dropNote.Foreground = voiceStatus.Foreground = Tokens.Brush(this, "DvText2");
     }
 
     private void SetFieldFocused(bool value)

@@ -28,6 +28,8 @@ public static partial class AppServices
             .AddSingleton<ThemeModel>()
             .AddSingleton(ShareInbox.Process)
             .AddSingleton<MovedNotifications>()
+            .AddSingleton<SpaceVoice>()
+            .AddSingleton<ReadAloudViewModel>()
             .AddPlatform();
         AddChecks(services);
         return services.BuildServiceProvider();

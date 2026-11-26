@@ -17,6 +17,8 @@ public sealed class ManagementViewModelTests : IDisposable
 
     private readonly SessionState session;
 
+    private readonly SpaceVoice voice;
+
     private readonly Navigator navigator = new();
 
     #endregion
@@ -26,6 +28,7 @@ public sealed class ManagementViewModelTests : IDisposable
     public ManagementViewModelTests()
     {
         session = new(server.CreateApi(), new ShareInbox());
+        voice = new(server.CreateApi(), session, NullLogger<SpaceVoice>.Instance);
         server.Answer("GET", "/api/session", Samples.Session());
     }
 
@@ -122,6 +125,24 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_change_to_a_connection_has_the_voice_options_read_again()
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        server.Answer("GET", $"{space}/voice/options", new VoiceOptionsResponse(new([], null), new([], null), new([], null), new(null, null, null)));
+        server.Answer("POST", $"{space}/model-connections/{Connection.Id}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
+        var model = Models();
+        await model.Open();
+        await voice.Load();
+        await voice.Load();
+        server.Requests.Count(request => request.Path.EndsWith("/voice/options", StringComparison.Ordinal)).Should().Be(1);
+
+        await model.Test(Connection);
+        await voice.Load();
+
+        server.Requests.Count(request => request.Path.EndsWith("/voice/options", StringComparison.Ordinal)).Should().Be(2);
+    }
+
+    [Fact]
     public async Task Replacing_a_key_closes_on_success_and_keeps_the_reason_on_refusal()
     {
         server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
@@ -174,9 +195,11 @@ public sealed class ManagementViewModelTests : IDisposable
     {
         server.Answer("GET", "/api/session", Samples.Session("member"));
         server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var memberSession = new SessionState(server.CreateApi(), new ShareInbox());
         var asMember = new ModelConnectionsViewModel(
             server.CreateApi(),
-            new(server.CreateApi(), new ShareInbox()),
+            memberSession,
+            new(server.CreateApi(), memberSession, NullLogger<SpaceVoice>.Instance),
             NullLogger<ModelConnectionsViewModel>.Instance);
         await asMember.Open();
 
@@ -224,9 +247,11 @@ public sealed class ManagementViewModelTests : IDisposable
         model.CanMarkVision(Connection).Should().BeFalse("a provider that reports its own capabilities keeps its own value");
 
         server.Answer("GET", "/api/session", Samples.Session("member"));
+        var memberSession = new SessionState(server.CreateApi(), new ShareInbox());
         var asMember = new ModelConnectionsViewModel(
             server.CreateApi(),
-            new(server.CreateApi(), new ShareInbox()),
+            memberSession,
+            new(server.CreateApi(), memberSession, NullLogger<SpaceVoice>.Instance),
             NullLogger<ModelConnectionsViewModel>.Instance);
         await asMember.Open();
 
@@ -311,7 +336,7 @@ public sealed class ManagementViewModelTests : IDisposable
 
     private StatusPageViewModel Status() => new(server.CreateApi(), session, NullLogger<StatusPageViewModel>.Instance);
 
-    private ModelConnectionsViewModel Models() => new(server.CreateApi(), session, NullLogger<ModelConnectionsViewModel>.Instance);
+    private ModelConnectionsViewModel Models() => new(server.CreateApi(), session, voice, NullLogger<ModelConnectionsViewModel>.Instance);
 
     #endregion
 }

@@ -62,7 +62,6 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
         ILogger<VoiceComposerViewModel> logger)
     {
         (this.voice, this.api, this.session, this.capture, this.ui, this.time, this.logger) = (voice, api, session, capture, ui, time, logger);
-        voice.Changed += OptionsChanged;
     }
 
     #endregion
@@ -98,8 +97,24 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
 
     #region Public Methods
 
-    /// <summary>Reads what the space can listen with, once.</summary>
-    public Task Open() => voice.Load();
+    /// <summary>The message field is on screen: reads what the space can listen with, once, and follows it.</summary>
+    public Task Open()
+    {
+        gone = false;
+        voice.Changed -= OptionsChanged;
+        voice.Changed += OptionsChanged;
+        return voice.Load();
+    }
+
+    /// <summary>The message field left the screen: a recording under way is thrown away and the microphone let go.</summary>
+    public async Task Leave()
+    {
+        gone = true;
+        voice.Changed -= OptionsChanged;
+        await StopWriting();
+        await Release();
+        Show(VoicePhase.Idle, null);
+    }
 
     /// <summary>The one button: it starts a recording, and stops the one that is running.</summary>
     public Task Press() => phase switch
@@ -121,13 +136,7 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
 
     #region Interface Implementations
 
-    public async ValueTask DisposeAsync()
-    {
-        gone = true;
-        voice.Changed -= OptionsChanged;
-        await StopWriting();
-        await Release();
-    }
+    public async ValueTask DisposeAsync() => await Leave();
 
     #endregion
 
