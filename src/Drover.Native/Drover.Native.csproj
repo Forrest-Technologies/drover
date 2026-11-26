@@ -311,6 +311,20 @@
     <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
   </ItemGroup>
 
+  <!-- The microphone and the loudspeaker of a desktop, through the system's own sound service on Windows, macOS and
+       Linux. Used only by Platforms/Desktop/DesktopAudio.cs, behind the two audio interfaces of Drover.Presentation. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <PackageReference Include="SoundFlow" />
+    <Using Include="System.Buffers.Binary" />
+    <Using Include="SoundFlow.Abstracts" />
+    <Using Include="SoundFlow.Abstracts.Devices" />
+    <Using Include="SoundFlow.Backends.MiniAudio" />
+    <Using Include="SoundFlow.Backends.MiniAudio.Enums" />
+    <Using Include="SoundFlow.Enums" />
+    <Using Include="SoundFlow.Exceptions" />
+    <Using Include="SoundFlow.Structs" />
+  </ItemGroup>
+
   <!-- The SDK adds two packages to every app that are not open source: its packaging helper, under an end-user
        agreement that forbids passing it on, and its account settings tool, which states no license. Neither is
        needed to build, run, or publish Drover, and Drover's license rule admits neither, so both are taken out
