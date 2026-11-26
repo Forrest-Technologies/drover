@@ -92,7 +92,8 @@ public sealed class ContractsCarryNoSecretsTests
     {
         seen ??= [];
 
-        if (!seen.Add(type))
+        // A runtime type's own members (the kind of a JSON element, say) are named by the runtime, not by a contract.
+        if (type.Namespace?.StartsWith("System", StringComparison.Ordinal) is true || !seen.Add(type))
         {
             yield break;
         }
