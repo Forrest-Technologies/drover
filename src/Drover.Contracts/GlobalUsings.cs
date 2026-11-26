@@ -9,6 +9,7 @@ global using System.Text.Encodings.Web;
 global using System.Text.Json;
 global using System.Text.Json.Serialization;
 global using System.Text.RegularExpressions;
+global using Drover.Contracts.Cards;
 global using Drover.Contracts.Files;
 global using Drover.Contracts.Projects;
 global using Drover.Contracts.Rules;

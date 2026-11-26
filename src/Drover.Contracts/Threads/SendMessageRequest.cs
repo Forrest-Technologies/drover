@@ -5,9 +5,14 @@ namespace Drover.Contracts.Threads;
 /// earlier one: <c>steer</c> (the default) hands it to that run at its next step, <c>queue</c> holds it until the
 /// run has ended. Either way the message is stored at once and never refused for arriving early.
 /// <see cref="FileIds"/> are files the sender uploaded to this thread and has not sent yet, in the order they go
-/// with the message; a message with files may have no text.
+/// with the message; a message with files may have no text. <see cref="Answer"/> answers a card, and the server
+/// writes its words from the stored card.
 /// </summary>
-public sealed record SendMessageRequest(string? Text, string? WhenBusy = null, IReadOnlyList<Guid>? FileIds = null);
+public sealed record SendMessageRequest(
+    string? Text,
+    string? WhenBusy = null,
+    IReadOnlyList<Guid>? FileIds = null,
+    CardAnswer? Answer = null);
 
 /// <summary>The values of <see cref="SendMessageRequest.WhenBusy"/>.</summary>
 public static class BusyModes
