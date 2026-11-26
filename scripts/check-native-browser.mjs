@@ -511,7 +511,15 @@ try {
                     }
 
                     body = current === 'conversation-links'
-                        ? [{ ...messages[0], parts: [{ kind: 'text', text: 'Sample reply with a source.' }, { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` }] }]
+                        ? [{
+                            ...messages[0],
+                            parts: [
+                                { kind: 'text', text: `Sample reply with an [inline link](${origin}/sample-inline).` },
+                                { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` },
+                                { kind: 'source', text: 'Sample unsafe source', url: 'javascript:alert(1)' },
+                                { kind: 'text', text: '[Sample unsafe inline](javascript:alert(1))' },
+                            ],
+                        }]
                         : current === 'conversation-search' ? searchMessages : messages;
                 }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
@@ -911,18 +919,59 @@ try {
             current = 'conversation-search';
             await checkConversationSearch(page, width);
             current = 'conversation-links';
-            await page.route(`${origin}/sample-external`, route => route.fulfill({
-                contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',
-            }));
-            await page.goto(`${origin}/talk/${botId}`);
+            for (const [destination, title] of [
+                ['sample-external', 'Sample external destination'],
+                ['sample-inline', 'Sample inline destination'],
+            ]) {
+                await page.route(`${origin}/${destination}`, route => route.fulfill({
+                    contentType: 'text/html', body: `<!DOCTYPE html><title>${title}</title>`,
+                }));
+            }
+
+            // Each link opens by a real pointer click, at the anchor's own box, and by the keyboard's Enter. A synthetic
+            // click would take only the keyboard path and could not find this bug: the runtime makes semantic anchors
+            // pointer-transparent, so a pointer click must reach Uno's invoke handler through the anchor itself.
+            const loadLinks = async () => {
+                await page.goto(`${origin}/talk/${botId}`);
+                await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+            };
+            const openByPointer = async (link, destination, title) => {
+                const box = await link.boundingBox({ timeout: 10000 });
+                assert.ok(box, `${title} has an accessible box to click.`);
+                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                await page.waitForURL(`${origin}/${destination}`, { timeout: 10000 });
+                assert.equal(await page.title(), title);
+            };
             const externalSource = page.getByRole('link', { name: /Sample external source,/ });
+            const inlineLink = page.getByRole('link', { name: /inline link/ });
+            await loadLinks();
             await externalSource.waitFor({ state: 'attached', timeout: 60000 });
             // A popup blocker can return a fake successful window instead of null. Links must not depend on that result.
             await page.evaluate(() => { window.open = () => ({ closed: false }); });
-            await externalSource.dispatchEvent('click');
+            await openByPointer(externalSource, 'sample-external', 'Sample external destination');
+            progress(`source link by pointer ${width} ${theme}`);
+
+            await loadLinks();
+            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
+            await externalSource.focus();
+            await page.keyboard.press('Enter');
             await page.waitForURL(`${origin}/sample-external`, { timeout: 10000 });
             assert.equal(await page.title(), 'Sample external destination');
-            progress(`direct external link ${width} ${theme}`);
+            progress(`source link by keyboard ${width} ${theme}`);
+
+            await loadLinks();
+            await inlineLink.waitFor({ state: 'attached', timeout: 60000 });
+            await openByPointer(inlineLink, 'sample-inline', 'Sample inline destination');
+            progress(`inline markdown link by pointer ${width} ${theme}`);
+
+            await loadLinks();
+            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
+            assert.equal(await page.getByRole('link', { name: /Sample unsafe source/ }).count(), 0,
+                'A source with an unsafe scheme is not a link.');
+            assert.equal(await page.getByRole('link', { name: /Sample unsafe inline/ }).count(), 0,
+                'An inline address with an unsafe scheme is not a link.');
+            assert.equal(page.url(), `${origin}/talk/${botId}`, 'Unsafe schemes do not navigate.');
+            progress(`unsafe schemes refused ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
