@@ -77,6 +77,9 @@ public sealed class RunSession(
     /// <summary>Model calls tools made for this execution, such as reading the screen. They count against the step limit.</summary>
     private int toolModelCalls;
 
+    /// <summary>Model calls of the run, tools' calls included, whose usage was missing or zero.</summary>
+    private int unmeteredModelCalls;
+
     private StepChanged? openStep;
 
     private StepChanged? lastStep;
@@ -268,6 +271,17 @@ public sealed class RunSession(
                 limits.MaxTokens);
         }
 
+        var unmetered = Volatile.Read(ref unmeteredModelCalls);
+        if (unmetered >= limits.MaxUnmeteredModelCalls)
+        {
+            throw new RunLimitException(
+                RunReasons.UnmeteredCallLimit,
+                $"This work stopped after {unmetered} model calls that reported no token use. Set a model-call limit for the bot, or ask the operator to raise this one.",
+                FailureLimits.UnmeteredModelCalls,
+                unmetered,
+                limits.MaxUnmeteredModelCalls);
+        }
+
         var started = new StepChanged(++step, Guid.CreateVersion7(), estimatedInputTokens, shortened);
         openStep = started;
         lastStep = started;
@@ -292,8 +306,16 @@ public sealed class RunSession(
             throw new BuiltinToolException($"This run has made {limits.MaxSteps} model calls, the most one run may make, so no other model is called for it.");
         }
 
+        if (Volatile.Read(ref unmeteredModelCalls) >= limits.MaxUnmeteredModelCalls)
+        {
+            throw new BuiltinToolException($"This run has made {limits.MaxUnmeteredModelCalls} model calls that reported no token use, so no other model is called for it.");
+        }
+
         return Task.CompletedTask;
     }
+
+    /// <summary>Records a model call whose usage was missing or zero, including a call made by a tool.</summary>
+    public void RecordUnmeteredModelCall() => Interlocked.Increment(ref unmeteredModelCalls);
 
     /// <summary>
     /// The model call finished. Its message is stored a moment later, and announced when it is. The runtime stores

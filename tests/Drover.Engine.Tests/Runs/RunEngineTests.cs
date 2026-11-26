@@ -576,6 +576,47 @@ public sealed class RunEngineTests(PostgresServer postgres)
         (await world.ReadEvents(runId))[^1].Type.Should().Be(RunEventTypes.RunFailed);
     }
 
+    [Fact]
+    public async Task A_run_with_missing_or_zero_token_usage_still_stops_at_a_safety_bound()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var turns = Enumerable.Range(1, 200)
+            .Select(index => (IReadOnlyList<ModelOutput>)[new ToolCallOutput($"call-{index}", "test_lookup")])
+            .ToArray();
+        var script = new ScriptedModel([.. turns]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(null, null, null);
+        world.StartHost();
+
+        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Loop"), RunStatus.Failed, RunStatus.Completed);
+
+        run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
+        run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
+        run.Error.Should().Match<RunError>(error =>
+            error.Code == RunReasons.UnmeteredCallLimit
+            && error.Limit == new RunErrorLimit(FailureLimits.UnmeteredModelCalls, 200, 200));
+        run.Error!.Message.Should().Contain("200 model calls that reported no token use");
+        script.Requests.Should().HaveCount(200, "the 201st model call is never made");
+    }
+
+    [Fact]
+    public async Task A_run_that_reports_usage_is_not_counted_as_unmetered()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new TextOutput("Finished.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 2 });
+        world.StartHost();
+
+        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Loop"), RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        script.Requests.Should().HaveCount(3, "calls that report tokens are outside the unmetered count");
+    }
+
     [Theory]
     [InlineData(false, RunStatus.Failed, 1)]
     [InlineData(true, RunStatus.Completed, 2)]

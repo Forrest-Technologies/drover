@@ -308,14 +308,20 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var ceilings = new RunCeilings(
             Limit(nameof(DeploymentPolicy.MaxStepsPerRun)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs);
+            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs,
+            Limit(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)));
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
-        policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
-        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
-        space.Should().Be(new RunCeilings(10, 1000, 3));
+        policies.Runs(new SpaceSettings
+        {
+            MaxStepsPerRun = int.MaxValue,
+            MaxTokensPerRun = ceilings.MaxTokens + 1,
+            MaxUnmeteredModelCallsPerRun = ceilings.MaxUnmeteredModelCalls + 1,
+        }).Should().Be(ceilings);
+        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxUnmeteredModelCallsPerRun = 7 });
+        space.Should().Be(new RunCeilings(10, 1000, 3, 7));
         space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");
-        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0 }).Should().Be(new RunCeilings(2, 500, 0));
+        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0 }).Should().Be(new RunCeilings(2, 500, 0, 7));
     }
 
     [Fact]

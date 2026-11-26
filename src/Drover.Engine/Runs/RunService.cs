@@ -457,6 +457,9 @@ public static class RunReasons
     /// <summary>The run used as many tokens as one run may. It is checked before each model call, so the last call may take it past.</summary>
     public const string TokenLimit = "token_limit";
 
+    /// <summary>The run made as many model calls that reported no token use as one run may.</summary>
+    public const string UnmeteredCallLimit = "unmetered_call_limit";
+
     public const string CancelledByUser = "cancelled_by_user";
 
     public const string LeaseLost = "lease_lost";

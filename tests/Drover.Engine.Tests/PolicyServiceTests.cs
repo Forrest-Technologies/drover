@@ -115,7 +115,11 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         await using var provider = Build(DeploymentPolicy.Hosted);
         await using var scope = provider.CreateAsyncScope();
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
-        var ceilings = new RunCeilings(DeploymentPolicy.HostedMaxStepsPerRun, DeploymentPolicy.HostedMaxTokensPerRun, DeploymentPolicy.HostedMaxRunsPerDelegationTree - 1);
+        var ceilings = new RunCeilings(
+            DeploymentPolicy.HostedMaxStepsPerRun,
+            DeploymentPolicy.HostedMaxTokensPerRun,
+            DeploymentPolicy.HostedMaxRunsPerDelegationTree - 1,
+            DeploymentPolicy.HostedMaxUnmeteredModelCallsPerRun);
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
         policies.Runs(new SpaceSettings { MaxStepsPerRun = 5000, MaxTokensPerRun = int.MaxValue }).Should().Be(ceilings);
@@ -124,6 +128,21 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         ceilings.NarrowedBy(new RunLimits()).Should().Be(ceilings);
         ceilings.NarrowedBy(new RunLimits { MaxSteps = 4, MaxDelegations = 0 }).Should().Be(ceilings with { MaxSteps = 4, MaxDelegations = 0 });
         ceilings.NarrowedBy(new RunLimits { MaxSteps = int.MaxValue, MaxTokens = int.MaxValue, MaxDelegations = 50 }).Should().Be(ceilings);
+    }
+
+    [Fact]
+    public async Task A_space_can_only_lower_the_unmetered_model_call_bound()
+    {
+        await using var provider = Build(DeploymentPolicy.SelfHosted);
+        await using var scope = provider.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+
+        policies.Runs(new SpaceSettings()).MaxUnmeteredModelCalls.Should().Be(200);
+        policies.Runs(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 5000 }).MaxUnmeteredModelCalls
+            .Should().Be(200, "a space cannot raise the deployment's bound");
+        var lowered = policies.Runs(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 20 });
+        lowered.MaxUnmeteredModelCalls.Should().Be(20);
+        lowered.NarrowedBy(new RunLimits()).MaxUnmeteredModelCalls.Should().Be(20, "a bot has no setting for this bound");
     }
 
     #endregion
