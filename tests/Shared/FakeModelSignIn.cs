@@ -72,6 +72,9 @@ public sealed class FakeModelSignIn(
     /// <summary>When set, a refresh waits for it before it answers, so a test can hold two callers at the same moment.</summary>
     public TaskCompletionSource? RefreshGate { get; set; }
 
+    /// <summary>Called each time the provider has handed out a new token set, before the caller has it: a test can cancel the call there.</summary>
+    public Action? AfterTokens { get; set; }
+
     public IReadOnlyList<FakeTokenRequest> Received => [.. received];
 
     public int Refreshes => received.Count(request => request.Grant == "refresh_token");
@@ -186,6 +189,7 @@ public sealed class FakeModelSignIn(
         };
         issued.Enqueue(tokens.AccessToken);
         issued.Enqueue(tokens.RefreshToken);
+        AfterTokens?.Invoke();
         return tokens;
     }
 

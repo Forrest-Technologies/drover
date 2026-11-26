@@ -44,6 +44,7 @@ public sealed record ModelSignInOutcome(ModelSignInState? State, Guid? Connectio
 public sealed class ModelSignIns(
     RunScopes scopes,
     ModelCredentials credentials,
+    ModelCredentialLocks locks,
     TimeProvider time,
     ILogger<ModelSignIns> logger)
 {
@@ -85,7 +86,8 @@ public sealed class ModelSignIns(
         }
 
         ForgetExpired();
-        var attempt = new ModelSignInAttempt(Guid.CreateVersion7(), Random(), Random(), Random(), redirectUri);
+        // A random id, not a time-ordered one: a later return route takes the id as its only secret.
+        var attempt = new ModelSignInAttempt(Guid.NewGuid(), Random(), Random(), Random(), redirectUri);
 
         // One sign-in per person and kind in a space: starting another ends the first.
         foreach (var (id, earlier) in attempts)
@@ -96,7 +98,16 @@ public sealed class ModelSignIns(
             }
         }
 
-        var step = await signIn.Begin(attempt, cancellationToken);
+        var policy = await scopes.For(spaceId, userId).Transact(
+            services => services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken),
+            cancellationToken);
+        ModelSignInStep step;
+
+        using (OutboundAttempt.Begin(policy))
+        {
+            step = await signIn.Begin(attempt, cancellationToken);
+        }
+
         attempts[attempt.Id] = new Pending(attempt, spaceId, userId, kind, time.GetUtcNow());
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} started in space {SpaceId}", attempt.Id, kind, spaceId);
         return new ModelSignInBegun(attempt.Id, step.Address, step.Code, step.Wait, null, 200);
@@ -149,6 +160,17 @@ public sealed class ModelSignIns(
     public async Task<bool> SignOut(Guid spaceId, Guid userId, Guid connectionId, CancellationToken cancellationToken)
     {
         var tenant = scopes.For(spaceId, userId);
+        var credentialId = await tenant.Transact(
+            async services => (await services.GetRequiredService<ModelConnectionCredentialRepository>().GetCredential(connectionId, userId, cancellationToken))?.Id,
+            cancellationToken);
+
+        if (credentialId is not { } id)
+        {
+            return false;
+        }
+
+        // The refresh lock, so no renewal can mint new tokens between the provider being told and the row going.
+        await using var held = await locks.Hold(id, cancellationToken);
         var found = await tenant.Transact(services => FindOwn(services, connectionId, userId, cancellationToken), cancellationToken);
 
         if (found is null)
@@ -161,7 +183,7 @@ public sealed class ModelSignIns(
             await Revoke(signIn, found.Policy!, tokens, connectionId, cancellationToken);
         }
 
-        await tenant.Transact(services => Forget(services, connectionId, userId, cancellationToken), CancellationToken.None);
+        await tenant.Transact(services => Forget(services, connectionId, userId, CancellationToken.None), CancellationToken.None);
         logger.LogInformation("Signed out of model connection {ConnectionId}", connectionId);
         return true;
     }
@@ -187,9 +209,10 @@ public sealed class ModelSignIns(
             return Outcome(pending, Cancelled, 400);
         }
 
-        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, cancellationToken), CancellationToken.None);
-        await ListModels(tenant, connectionId, cancellationToken);
+        // The one-time code is spent: the tokens are kept whatever happens to the request now.
+        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, CancellationToken.None), CancellationToken.None);
         pending.Done(connectionId);
+        await ListModels(tenant, connectionId, cancellationToken);
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} finished for connection {ConnectionId}", pending.Attempt.Id, pending.Kind, connectionId);
         return Outcome(pending, null, 200);
     }
@@ -416,11 +439,15 @@ public sealed class ModelSignIns(
             }
         }
 
+        /// <summary>Ends a sign-in still waiting. One that is done stays done.</summary>
         public void End(ModelSignInState state)
         {
             lock (sync)
             {
-                State = state;
+                if (State is ModelSignInState.Waiting)
+                {
+                    State = state;
+                }
             }
         }
 

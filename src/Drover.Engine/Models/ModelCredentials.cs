@@ -180,7 +180,7 @@ public sealed class ModelCredentials(
         catch (SignInEndedException)
         {
             logger.LogInformation("The sign-in {CredentialId} to model connection {ConnectionId} has ended", handle.CredentialId, handle.ConnectionId);
-            await tenant.Transact(services => MarkEnded(services, handle, stored.SecretId, cancellationToken), CancellationToken.None);
+            await tenant.Transact(services => MarkEnded(services, handle, stored.SecretId, CancellationToken.None), CancellationToken.None);
             return Ended(handle.ConnectionName);
         }
         catch (Exception failure) when (IsTransient(failure, cancellationToken))
@@ -196,7 +196,9 @@ public sealed class ModelCredentials(
                 $"{handle.ConnectionName} could not renew your sign-in just now. Try again shortly.");
         }
 
-        return await tenant.Transact(services => StoreRenewed(services, handle, stored.SecretId, renewed, cancellationToken), CancellationToken.None);
+        // The provider has rotated the tokens and the old refresh token is spent: the new set is kept whatever
+        // happens to the call now, or the next refresh would send a spent token and end the sign-in.
+        return await tenant.Transact(services => StoreRenewed(services, handle, stored.SecretId, renewed, CancellationToken.None), CancellationToken.None);
     }
 
     /// <summary>The token set as it is kept in the vault.</summary>

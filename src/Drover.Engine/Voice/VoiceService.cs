@@ -603,9 +603,16 @@ public sealed class VoiceService(
         var connection = candidate.ConnectionId is { } id
             ? await services.GetRequiredService<ModelConnectionRepository>().FindConnection(id, cancellationToken)
             : null;
-        var credential = connection is null
-            ? ModelCredential.None
-            : await services.GetRequiredService<ModelCredentials>().Read(services, connection, cancellationToken);
+        var credentials = services.GetRequiredService<ModelCredentials>();
+
+        // Speech adapters serve key connections only: a person's sign-in is refused without being read.
+        var credential = connection switch
+        {
+            null => ModelCredential.None,
+            _ when credentials.IsSignInKind(connection.Kind) =>
+                ModelCredential.Refused(ModelCredentialProblem.NotAvailable, "Speech is not available through a sign-in connection."),
+            _ => await credentials.Read(services, connection, cancellationToken),
+        };
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
         return new PreparedCall(candidate, voice, credential, policy);
     }
