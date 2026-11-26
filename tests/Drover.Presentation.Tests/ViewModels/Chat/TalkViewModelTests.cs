@@ -556,7 +556,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Until(() => MainPane.Loading.Should().BeFalse());
         await Until(() => MainPane.List.IsEmpty.Should().BeTrue());
-        MainPane.List.StartHint.Should().Be("Nothing said yet. Write to Marshal below.");
+        MainPane.List.StartHint.Should().Be("No messages yet. Write to Marshal below.");
     }
 
     [Theory]
@@ -1165,9 +1165,9 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Theory]
-    [InlineData("memory", SideView.Memory, "Memory", "What Marshal remembers about you", "Close memory")]
+    [InlineData("memory", SideView.Memory, "Memory", "Marshal's notes about you", "Close memory")]
     [InlineData("files", SideView.Files, "Files", "Files exchanged with Marshal", "Close the files")]
-    [InlineData("activity", SideView.Activity, "Activity", "What Marshal and its crew did in a run", "Close the activity")]
+    [InlineData("activity", SideView.Activity, "Activity", "Activity of Marshal and its crew in a run", "Close the activity")]
     public async Task Each_thing_beside_the_conversation_has_its_title_its_name_and_its_way_to_close(
         string rail, SideView side, string title, string name, string close)
     {
@@ -2523,6 +2523,35 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate").Should().ContainSingle();
         MainPane.Messages.Select(message => message.Text).Should().Equal(["Sample question"], "the earlier reply is kept on the server, not shown");
         MainPane.Messages.Should().OnlyContain(message => !message.MayEdit && !message.MayRegenerate, "nothing new is offered while the bot works");
+    }
+
+    [Fact]
+    public async Task Retrying_an_unusable_tool_request_reply_uses_the_existing_regenerate_flow()
+    {
+        const string RawEnvelope =
+            "<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name=\"sandbox.run\">\n"
+            + "<\uFF5CDSML\uFF5Cparameter name=\"command\" string=\"true\">ls -la</\uFF5CDSML\uFF5Cparameter>\n"
+            + "</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>";
+        var question = Said("user", "List the files");
+        var reply = Said("assistant", RawEnvelope) with { Id = replyId, RunId = failedRunId };
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, reply });
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate", new SendMessageResponse(question, Run("queued")), HttpStatusCode.Accepted);
+        var events = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        var unusable = MainPane.Messages[1];
+        unusable.UnusableToolRequest.Should().BeTrue();
+        unusable.Tools.Should().BeEmpty();
+        ChatRows.OffersUnusableRetry(unusable, canAsk: true).Should().BeTrue();
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question });
+
+        await Do(() => MainPane.List.Regenerate(replyId));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate").Should().ContainSingle();
+        MainPane.Messages.Should().OnlyContain(message => !message.UnusableToolRequest && !message.MayRegenerate);
     }
 
     [Fact]

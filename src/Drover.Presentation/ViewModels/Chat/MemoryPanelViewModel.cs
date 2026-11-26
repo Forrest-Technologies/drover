@@ -62,7 +62,7 @@ public sealed class MemoryPanelViewModel : ObservableObject
     /// <summary>Why the last add or change was not saved. The text stays where it was typed, so nothing is lost.</summary>
     public string? SaveProblem { get; private set; }
 
-    public string LoadingHint => $"Loading what {BotName} remembers.";
+    public string LoadingHint => $"Loading {BotName}'s notes.";
 
     public string FailedCause => Problem ?? "The server did not answer.";
 
@@ -70,13 +70,13 @@ public sealed class MemoryPanelViewModel : ObservableObject
 
     public string TurnOnText => $"Turn memory on in {BotName}'s settings";
 
-    public string AddHint => $"Something {BotName} should know about you from now on.";
+    public string AddHint => $"A fact or preference for {BotName} to keep";
 
     public string? NearlyFullNote => NearlyFull ? MemoryWords.NearlyFull(BotName) : null;
 
     public string EmptyHint => MemoryWords.Empty(BotName);
 
-    public string ListName => $"What {BotName} remembers about you";
+    public string ListName => $"{BotName}'s notes about you";
 
     /// <summary>Removes at once. The caller offers Undo in a toast: a note is small and restoring it is exact.</summary>
     public event Action<Guid>? Remove;

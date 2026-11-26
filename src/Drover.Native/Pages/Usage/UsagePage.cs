@@ -76,11 +76,11 @@ public sealed class UsagePage : Screen
 
         if (model.LoadProblem is { } problem)
         {
-            body.Add(Failed("Drover could not add up what the bots used", problem, model.Load));
+            body.Add(Failed("Drover could not load usage", problem, model.Load));
         }
         else if (model.Crew is null)
         {
-            body.Add(PageParts.Waiting("Adding up what each bot used."));
+            body.Add(PageParts.Waiting("Loading usage."));
         }
         else
         {
@@ -121,7 +121,7 @@ public sealed class UsagePage : Screen
         }
         else if (model.Runs is not { } runs)
         {
-            content.Children.Add(PageParts.Waiting("Finding the runs that cost the most."));
+            content.Children.Add(PageParts.Waiting("Loading the most expensive runs."));
         }
         else
         {

@@ -14,6 +14,8 @@ public sealed class UiLoop : SynchronizationContext, IUiThread, IDisposable
 
     private readonly BlockingCollection<Action> queue = [];
 
+    private readonly object queueLock = new();
+
     private readonly Thread thread;
 
     #endregion
@@ -30,7 +32,13 @@ public sealed class UiLoop : SynchronizationContext, IUiThread, IDisposable
 
     #region Public Methods
 
-    public void Dispose() => queue.CompleteAdding();
+    public void Dispose()
+    {
+        lock (queueLock)
+        {
+            queue.CompleteAdding();
+        }
+    }
 
     public override void Post(SendOrPostCallback d, object? state) => Enqueue(() => d(state));
 
@@ -107,9 +115,12 @@ public sealed class UiLoop : SynchronizationContext, IUiThread, IDisposable
 
     private void Enqueue(Action work)
     {
-        if (!queue.IsAddingCompleted)
+        lock (queueLock)
         {
-            queue.Add(work);
+            if (!queue.IsAddingCompleted)
+            {
+                queue.Add(work);
+            }
         }
     }
 

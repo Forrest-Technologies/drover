@@ -93,12 +93,13 @@ public static class ChatRows
         _ => ChatEntryShape.Bot,
     };
 
-    /// <summary>What a message is, read out before its words: who said it, or that it is what a bot did.</summary>
+    /// <summary>What a message is, read out before its words: who said it, or a bot's activity or reasoning.</summary>
     public static string EntryName(ChatMessage message, string botName, string? asker) => message switch
     {
         { FromPerson: true } => asker is null ? message.SentBy ?? "You said" : $"{asker} asked",
-        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"What {botName} did",
-        { Text.Length: 0 } => $"What {botName} thought",
+        { UnusableToolRequest: true } => UnusableToolRequests.EntryName(botName),
+        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"{botName}'s activity",
+        { Text.Length: 0 } => $"{botName}'s reasoning",
         _ => $"{botName} said",
     };
 
@@ -131,7 +132,7 @@ public static class ChatRows
             parts.Add(FooterPart.Usage);
         }
 
-        if (OffersRegenerate(message, canRegenerate))
+        if (!message.UnusableToolRequest && OffersRegenerate(message, canRegenerate))
         {
             parts.Add(FooterPart.Regenerate);
         }
@@ -150,6 +151,12 @@ public static class ChatRows
     /// </summary>
     public static bool OffersRegenerate(ChatMessage message, bool canAsk) =>
         canAsk && message is { FromPerson: false, Streaming: false, MayRegenerate: true };
+
+    /// <summary>
+    /// True when an unusable tool-request reply may be tried again through the existing regenerate flow.
+    /// </summary>
+    public static bool OffersUnusableRetry(ChatMessage message, bool canAsk) =>
+        message.UnusableToolRequest && OffersRegenerate(message, canAsk);
 
     /// <summary>
     /// The messages of the newest reply, by their keys: the bot's last message and the bot's messages straight before

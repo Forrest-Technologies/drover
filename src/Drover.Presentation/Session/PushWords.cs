@@ -19,7 +19,7 @@ public static class PushWords
     #region Properties
 
     /// <summary>What a notification will and will not show, said wherever a person can turn them on or off.</summary>
-    public static string Contents => "A notification names the bot and what happened. It never shows what was said.";
+    public static string Contents => "A notification names the bot and the event. It never shows message text.";
 
     #endregion
 

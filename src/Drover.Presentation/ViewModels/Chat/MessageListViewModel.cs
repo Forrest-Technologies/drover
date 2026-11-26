@@ -15,6 +15,8 @@ public sealed class MessageListViewModel : ObservableObject
 
     private Guid? announcedFailure;
 
+    private string? announcedUnusable;
+
     private Guid? shownMoment;
 
     private IReadOnlyList<ChatMessage>? newestOf;
@@ -154,7 +156,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// </summary>
     public bool IsEmpty => !Loading && Messages.Count == 0 && !Thinking;
 
-    public string StartHint => $"Nothing said yet. Write to {BotName} below.";
+    public string StartHint => $"No messages yet. Write to {BotName} below.";
 
     /// <summary>What is read out, politely: the newest reply sentence by sentence, each tool call's change, a failure.</summary>
     public string? Spoken { get; private set; }
@@ -251,7 +253,9 @@ public sealed class MessageListViewModel : ObservableObject
     /// </summary>
     public void Update()
     {
-        var sentences = Messages is [.., { FromPerson: false } newest] ? announcer.Next(newest.Key, newest.Text, newest.Streaming) : null;
+        var sentences = Messages is [.., { FromPerson: false, UnusableToolRequest: false } newest]
+            ? announcer.Next(newest.Key, newest.Text, newest.Streaming)
+            : null;
         var changes = tools.Next(Messages.AllTools(BotName));
         Spoken = (sentences, changes) switch
         {
@@ -259,6 +263,12 @@ public sealed class MessageListViewModel : ObservableObject
             ({ } said, { } done) => $"{said} {done}",
             _ => sentences ?? changes,
         };
+
+        if (Messages is [.., { FromPerson: false, UnusableToolRequest: true } unusable] && unusable.Key != announcedUnusable)
+        {
+            announcedUnusable = unusable.Key;
+            Spoken = UnusableToolRequests.Announcement(BotName, ChatRows.OffersUnusableRetry(unusable, OnRegenerate is not null));
+        }
 
         if (Failure is { } failure && failure.RunId != announcedFailure)
         {

@@ -478,6 +478,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
         }
 
         (Saved, Draft, baseline, Models, Tools, Schedules, Rules, Readers) = (null, null, null, null, null, null, null, null);
+        RunLimitOptions = null;
         (LoadProblem, SaveProblem, ActionProblem, NotPermitted, Missing, JustSaved, EditingHandle) = (null, null, null, false, false, false, false);
         foreach (var section in open.ToList())
         {
@@ -821,6 +822,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             Connections = await api.ListModelConnections(SpaceId);
             var bots = await api.ListBots(SpaceId);
             OtherBots = bots;
+            RunLimitOptions = await api.GetBotRunLimitOptions(SpaceId, Guid.Empty);
 
             if (newParentId is { } parent && bots.All(other => other.Id != parent))
             {

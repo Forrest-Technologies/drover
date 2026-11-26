@@ -21,7 +21,11 @@ public static class LimitsSectionFields
 
     #region Public Methods
 
-    public static string StepsHint(BotRunLimitOptions? options) => Allowed("Each time the bot asks its model what to do next.", options?.MaxSteps);
+    public static string StepsHint(BotRunLimitOptions? options) => options is null
+        ? "Each time the bot asks its model what to do next."
+        : options.MaxSteps is { } most && most != BotRunLimitOptions.NoLimit
+            ? Allowed("Each time the bot asks its model what to do next.", most)
+            : "Each time the bot asks its model what to do next. No limit.";
 
     public static string TokensHint(BotRunLimitOptions? options) => Allowed("What the bot reads and writes, added together.", options?.MaxTokens);
 
@@ -30,6 +34,10 @@ public static class LimitsSectionFields
 
     /// <summary>The space's limit, which a bot's own may only lower, as the field's placeholder. Empty until the server has said.</summary>
     public static string Placeholder(int? most) => most is BotRunLimitOptions.NoLimit ? NoLimit : BotSummaries.Count(most);
+
+    public static string StepsPlaceholder(BotRunLimitOptions? options) => options is null
+        ? string.Empty
+        : options.MaxSteps is { } value && value != BotRunLimitOptions.NoLimit ? BotSummaries.Count(value) : NoLimit;
 
     #endregion
 
