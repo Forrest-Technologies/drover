@@ -10,7 +10,7 @@ public sealed class OperatorSpeech(IHttpClientFactory httpClients) : ISpeechToTe
 {
     #region Constants
 
-    public const string ConnectionKind = "server_speech";
+    public const string ConnectionKind = ModelConnectionKinds.ServerSpeech;
 
     public const string HttpClientName = "drover-server-speech";
 
