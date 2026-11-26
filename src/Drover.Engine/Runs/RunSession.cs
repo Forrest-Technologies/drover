@@ -248,7 +248,7 @@ public sealed class RunSession(
         await AnnounceStoredMessage();
 
         var callsMade = step + Volatile.Read(ref toolModelCalls);
-        if (callsMade >= limits.MaxSteps)
+        if (limits.MaxSteps != int.MaxValue && callsMade >= limits.MaxSteps)
         {
             throw new RunLimitException(
                 RunReasons.StepLimit,
@@ -286,7 +286,7 @@ public sealed class RunSession(
             throw new BuiltinToolException($"This run has used {TokensUsed:N0} tokens, and it may use {limits.MaxTokens:N0}, so no other model is called for it.");
         }
 
-        if (step + Interlocked.Increment(ref toolModelCalls) > limits.MaxSteps)
+        if (limits.MaxSteps != int.MaxValue && step + Interlocked.Increment(ref toolModelCalls) > limits.MaxSteps)
         {
             Interlocked.Decrement(ref toolModelCalls);
             throw new BuiltinToolException($"This run has made {limits.MaxSteps} model calls, the most one run may make, so no other model is called for it.");
@@ -521,8 +521,8 @@ public sealed class RunSession(
     public void AddUsage(long inputTokens, long outputTokens, decimal cost) =>
         usage = usage with
         {
-            InputTokens = usage.InputTokens + inputTokens,
-            OutputTokens = usage.OutputTokens + outputTokens,
+            InputTokens = usage.InputTokens + Math.Max(0, inputTokens),
+            OutputTokens = usage.OutputTokens + Math.Max(0, outputTokens),
             Cost = usage.Cost + cost,
         };
 

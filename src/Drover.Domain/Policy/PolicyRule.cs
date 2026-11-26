@@ -98,6 +98,7 @@ public sealed record PolicyRule(
         {
             true => "true",
             false => "false",
+            int.MaxValue when Name == nameof(DeploymentPolicy.MaxStepsPerRun) => "No limit",
             var value => value.ToString() ?? string.Empty,
         };
 
