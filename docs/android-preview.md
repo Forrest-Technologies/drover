@@ -10,7 +10,7 @@ Install and configure a [UnifiedPush distributor](https://unifiedpush.org/users/
 
 Tap an alert to open the conversation. A finished bot reply has a **Reply** action in the Android notification shade on Android 12 or later, when the server supports it. A locked phone asks to be unlocked before the reply is sent. Approval requests open the conversation for review.
 
-If alerts arrive late, open **Notifications arriving late? → Open battery settings**. Android takes you to settings for the distributor, where you can check whether it is allowed to run in the background.
+If alerts arrive late, open **If notifications arrive late → Open battery settings**. Android takes you to settings for the distributor, where you can check whether it is allowed to run in the background.
 
 ## Build and release
 

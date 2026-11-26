@@ -78,6 +78,14 @@
     <Compile Remove="Controls/MultilineInputFocusCheck.cs" />
   </ItemGroup>
 
+  <PropertyGroup Condition="'$(DroverLongConversationCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_LONG_CONVERSATION_CHECK</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DroverLongConversationCheck)' != 'true'">
+    <Compile Remove="Chat/LongConversationCheck.cs" />
+  </ItemGroup>
+
   <!-- The field input check runs only in a build made for CI, never in a shipping app. -->
   <PropertyGroup Condition="'$(DroverFieldCheck)' == 'true'">
     <DefineConstants>$(DefineConstants);DROVER_FIELD_CHECK</DefineConstants>

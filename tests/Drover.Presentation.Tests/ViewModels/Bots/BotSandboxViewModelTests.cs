@@ -226,7 +226,7 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
 
         Page.NoScreenNote.Should().Be("This sandbox has no screen. Turn on Desktop in the Sandbox section of the bot's settings to give it one.");
         Page.NoScreenLinksToSettings.Should().BeTrue();
-        BotSandboxViewModel.SettingsLinkLabel.Should().Be("Open its settings");
+        BotSandboxViewModel.SettingsLinkLabel.Should().Be("Open bot settings");
     }
 
     [Fact]
@@ -577,7 +577,7 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
         await Open();
 
         Page.Shows.Should().Be(BotSandboxContent.Missing);
-        BotSandboxViewModel.MissingTitle.Should().Be("This bot is not here");
+        BotSandboxViewModel.MissingTitle.Should().Be("Bot not found");
     }
 
     #endregion

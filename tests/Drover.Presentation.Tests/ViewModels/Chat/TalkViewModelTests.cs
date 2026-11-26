@@ -84,6 +84,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go("/");
 
         await Until(() => Talk.Notice!.Title.Should().Be("No model is connected"));
+        Talk.Notice!.Cause.Should().Be("A bot needs a model, and this space has none yet.");
         Talk.Notice!.ActionHref.Should().Be("/setup/model");
         Talk.NotReady.Should().Be(WorkspaceState.NoModel, "a phone shows the same words in the list");
         Talk.MainPane.Should().BeNull("there is no field to write in");
@@ -97,6 +98,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go("/");
 
         await Until(() => Talk.Notice!.Title.Should().Be("No bot yet"));
+        Talk.Notice!.ActionLabel.Should().Be("Create your first bot");
         Talk.Notice!.ActionHref.Should().Be("/setup/bot");
     }
 
@@ -753,11 +755,11 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
-    public async Task A_bot_that_is_gone_says_so_and_leads_back_to_the_crew()
+    public async Task A_bot_that_is_gone_says_so_and_leads_back_to_conversations()
     {
         await Go($"/talk/{helperId}");
 
-        await Until(() => Talk.Notice!.Title.Should().Be("This bot is not here"));
+        await Until(() => Talk.Notice!.Title.Should().Be("Bot not found"));
         Talk.Notice!.ActionHref.Should().Be("/");
         Talk.MainPane.Should().BeNull();
     }
@@ -882,7 +884,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Go($"/threads/{gone}");
 
-        await Until(() => Talk.Notice!.Title.Should().Be("This conversation is not here"));
+        await Until(() => Talk.Notice!.Title.Should().Be("Conversation not found"));
         Talk.Notice!.ActionHref.Should().Be("/");
     }
 
@@ -1340,7 +1342,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Go(Addresses.Work(botId, Guid.NewGuid(), workThread));
 
-        await Until(() => Talk.WorkNotice!.Title.Should().Be("This bot is not here"));
+        await Until(() => Talk.WorkNotice!.Title.Should().Be("Bot not found"));
         Talk.WorkNotice!.ActionLabel.Should().Be("Back to Marshal");
         Talk.WorkPane.Should().BeNull();
         Talk.SideTitle.Should().Be("A removed bot's side");
@@ -1427,7 +1429,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go($"/talk/{botId}/side/{sideId}");
 
         await Until(() => SidePane.Missing.Should().BeTrue());
-        SidePane.MissingNotice.Title.Should().Be("This side chat is not here");
+        SidePane.MissingNotice.Title.Should().Be("Side chat not found");
         SidePane.MissingNotice.ActionHref.Should().Be($"/talk/{botId}");
         SidePane.MissingNotice.ActionLabel.Should().Be("Back to Marshal");
     }
@@ -1456,7 +1458,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Until(() => Talk.SidePane!.Missing.Should().BeTrue());
         var gonePane = Talk.SidePane!;
         gonePane.LoadFailed.Should().BeFalse();
-        gonePane.MissingNotice.Title.Should().Be("This side chat is not here");
+        gonePane.MissingNotice.Title.Should().Be("Side chat not found");
         Server.Sent("GET", $"{Space}/threads/{gone}/messages").Should().BeEmpty("a side chat that is gone is not read");
     }
 

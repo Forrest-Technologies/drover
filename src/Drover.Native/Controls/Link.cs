@@ -53,15 +53,16 @@ public sealed class Link : PlainButton
 
     #region Public Methods
 
-    internal static async Task OpenOutside(Uri address)
+    internal static Task OpenOutside(Uri address)
     {
-        var opened = await Launcher.LaunchUriAsync(address);
 #if __WASM__
-        if (!opened && OperatingSystem.IsBrowser())
+        if (OperatingSystem.IsBrowser())
         {
             Browser.OpenOutside(address.AbsoluteUri);
+            return Task.CompletedTask;
         }
 #endif
+        return Launcher.LaunchUriAsync(address).AsTask();
     }
 
     #endregion

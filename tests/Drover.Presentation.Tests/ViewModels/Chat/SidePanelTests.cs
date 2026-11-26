@@ -133,9 +133,9 @@ public sealed class SidePanelTests : IDisposable
     [Theory]
     [InlineData(false, false, "none", false, false, ScreenPanelState.NoProvider, "No sandbox provider is set up", "Open the status page", "/status")]
     [InlineData(true, true, "running", false, false, ScreenPanelState.NoScreenButTerminal, "Marshal has no screen", "Open its terminal", "/bots/0196f1a0-0000-7000-8000-000000000004/sandbox")]
-    [InlineData(true, false, "none", false, false, ScreenPanelState.NoScreen, "Marshal has no screen", "Open its settings", "/bots/0196f1a0-0000-7000-8000-000000000004")]
-    [InlineData(true, false, "none", false, true, ScreenPanelState.NoSandbox, "Marshal has no sandbox", "Open its settings", "/bots/0196f1a0-0000-7000-8000-000000000004")]
-    [InlineData(true, true, "running", false, true, ScreenPanelState.NoScreen, "Marshal has no screen", "Open its settings", "/bots/0196f1a0-0000-7000-8000-000000000004")]
+    [InlineData(true, false, "none", false, false, ScreenPanelState.NoScreen, "Marshal has no screen", "Open bot settings", "/bots/0196f1a0-0000-7000-8000-000000000004")]
+    [InlineData(true, false, "none", false, true, ScreenPanelState.NoSandbox, "Marshal has no sandbox", "Open bot settings", "/bots/0196f1a0-0000-7000-8000-000000000004")]
+    [InlineData(true, true, "running", false, true, ScreenPanelState.NoScreen, "Marshal has no screen", "Open bot settings", "/bots/0196f1a0-0000-7000-8000-000000000004")]
     public async Task A_bot_with_no_screen_to_show_says_why_and_where_the_next_step_is(
         bool available, bool hasSandbox, string state, bool desktop, bool desktopOffered, ScreenPanelState expected, string title, string action, string href)
     {

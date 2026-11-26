@@ -39,7 +39,7 @@ public sealed partial class BotListViewModel(
 
     public static string NoModelTitle => "No model is connected";
 
-    public static string NoModelCause => "A bot needs a model to think with, and this space has none yet.";
+    public static string NoModelCause => "A bot needs a model, and this space has none yet.";
 
     public static string NoModelAction => "Connect a model";
 
@@ -49,7 +49,7 @@ public sealed partial class BotListViewModel(
 
     public static string NoBotCause => "Make one, then give it a name, a purpose, and its tools.";
 
-    public static string NoBotForMember => "This space has no bots yet. An owner or admin of the space can make one.";
+    public static string NoBotForMember => "This space has no bots yet. An owner or admin of the space can create one.";
 
     public static string MemberHint => "Owners and admins of this space change its bots. You can see them and talk to them.";
 

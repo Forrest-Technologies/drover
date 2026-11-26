@@ -240,7 +240,7 @@ internal sealed class ImportExtensionForm : Grid
 
         if (bot.Model is not null)
         {
-            facts.Children.Add(Parts.Fact("Thinks with", Parts.Body($"{bot.Model} on {bot.ModelConnection}. You can change this in the bot's settings.")));
+            facts.Children.Add(Parts.Fact("Model", Parts.Body($"{bot.Model} on {bot.ModelConnection}. You can change this in the bot's settings.")));
         }
 
         facts.Children.Add(Parts.Fact("Tools", Parts.Body("Only what every new bot starts with. The file cannot give it more.")));
@@ -250,7 +250,7 @@ internal sealed class ImportExtensionForm : Grid
         if (bot.Model is null)
         {
             var hint = new FlexPanel { Gap = 0 };
-            hint.Children.Add(Parts.Small("A bot needs a model to think with, and this space has none it can use yet."));
+            hint.Children.Add(Parts.Small("A bot needs a model, and this space has none it can use yet."));
             hint.Children.Add(Links.Plain("Connect a model", Addresses.Models));
             hint.Children.Add(Parts.Small(", then import this."));
             step.Children.Add(hint);
@@ -298,7 +298,7 @@ internal sealed class ImportExtensionForm : Grid
         var facts = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
         facts.Children.Add(Parts.Fact("Called", Parts.Body(connection.Name)));
         facts.Children.Add(Parts.Fact("Full address", Parts.Machine(connection.Url, "DvText12", "DvText3")));
-        facts.Children.Add(Parts.Fact("How Drover proves who is calling", Parts.Body(ExtensionWords.Auth(connection.Auth, connection.HeaderName))));
+        facts.Children.Add(Parts.Fact("How Drover signs in to this server", Parts.Body(ExtensionWords.Auth(connection.Auth, connection.HeaderName))));
 
         if (connection.SuggestedTools.Count > 0)
         {

@@ -16,7 +16,7 @@ public sealed partial class MeetBotPage : Screen
 
     #region Properties
 
-    public override string Title => "Meet your first bot";
+    public override string Title => "Create your first bot";
 
     public MeetBotViewModel Model { get; } = Make<MeetBotViewModel>();
 
@@ -59,13 +59,13 @@ public sealed partial class MeetBotPage : Screen
             result.Children.Add(new Avatar { BotName = bot.Name, Hue = BotIdentity.Hue(bot.Id), Size = (int)Tokens.Number("DvAvatar96") });
             result.Children.Add(Styles.Text(bot.Name, "DvTextH2"));
             result.Children.Add(Styles.Text(bot.Model, "DvTextMono"));
-            result.Children.Add(Styles.Text($"{bot.Name} is ready. It leads your crew: the bots it makes for you, and the ones you add, work beneath it."));
+            result.Children.Add(Styles.Text($"{bot.Name} is ready. It is at the top of your crew. Bots it makes, and bots you add, work beneath it."));
             result.Children.Add(new Link { Text = $"Talk to {bot.Name}", Address = Addresses.Talk(bot.Id) });
             return result;
         }
 
         return Model.Connection is null
-            ? new EmptyState { Title = "No model is connected", Cause = "A bot needs a model to think with, and this space has none yet.", ActionLabel = "Connect a model", ActionHref = Addresses.SetupModel }
+            ? new EmptyState { Title = "No model is connected", Cause = "A bot needs a model, and this space has none yet.", ActionLabel = "Connect a model", ActionHref = Addresses.SetupModel }
             : null;
     }
 

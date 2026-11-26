@@ -560,7 +560,7 @@ public sealed class MarkdownView : StackPanel
         return run;
     }
 
-    // A link opens outside the app, sharing the source links' fallback when a new browser tab is blocked. Only absolute http,
+    // A link opens outside the app, sharing the source links' direct browser navigation. Only absolute http,
     // https, and mailto addresses become links at all; the parser leaves the rest as text.
     private Microsoft.UI.Xaml.Documents.Hyperlink Hyperlink(LinkNode link, InlineStyle style)
     {

@@ -111,6 +111,7 @@ public sealed class BotListViewModelTests : ViewModelTest
 
         list.State.Should().Be(BotListState.NoModel);
         BotListViewModel.NoModelTitle.Should().Be("No model is connected");
+        BotListViewModel.NoModelCause.Should().Be("A bot needs a model, and this space has none yet.");
         BotListViewModel.NoModelAddress.Should().Be(Addresses.SetupModel);
     }
 
@@ -142,7 +143,7 @@ public sealed class BotListViewModelTests : ViewModelTest
         await list.Open();
 
         list.State.Should().Be(BotListState.NoBotForMember);
-        BotListViewModel.NoBotForMember.Should().Be("This space has no bots yet. An owner or admin of the space can make one.");
+        BotListViewModel.NoBotForMember.Should().Be("This space has no bots yet. An owner or admin of the space can create one.");
     }
 
     [Fact]

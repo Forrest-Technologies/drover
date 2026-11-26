@@ -142,7 +142,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Heading.Should().Be("Edit Marshal");
         editor.ShownName.Should().Be("Marshal");
         string[] labels = [BotEditorViewModel.PurposeLabel, BotEditorViewModel.InstructionsLabel];
-        labels.Should().Equal("What this bot is for", "Instructions");
+        labels.Should().Equal("Purpose", "Instructions");
         BotEditorViewModel.Sections.Should().OnlyContain(section => !editor.IsOpen(section));
         BotEditorViewModel.Sections.Select(section => $"{section}, {editor.Summary(section)}").Should().Equal(
             "Model, Sample connection · sample-large",
@@ -948,6 +948,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.OpenUnmade(null);
 
         editor.State.Should().Be(BotEditorState.Failed);
+        BotEditorViewModel.NoModelCause.Should().Be("A bot needs a model, and this space has none yet. Connect a model first.");
         editor.LoadProblem.Should().Be(BotEditorViewModel.NoModelCause);
     }
 
@@ -1696,7 +1697,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task A_bot_that_is_not_there_says_so()
+    public async Task A_missing_bot_says_not_found_and_offers_the_bots_list()
     {
         Server.Answer("GET", $"{bot}/definition", HttpStatusCode.NotFound);
         var editor = Make<BotEditorViewModel>();
@@ -1704,7 +1705,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.Open(botId, null);
 
         editor.State.Should().Be(BotEditorState.Missing);
-        BotEditorViewModel.MissingTitle.Should().Be("This bot is not here");
+        BotEditorViewModel.MissingTitle.Should().Be("Bot not found");
+        BotEditorViewModel.MissingAction.Should().Be("Back to bots");
     }
 
     [Fact]

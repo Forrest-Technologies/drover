@@ -178,17 +178,17 @@ public sealed class TalkViewModel(
     {
         WorkspaceState.Failed => new("Drover could not load this space", spaceProblem!, "Try again", null),
         WorkspaceState.NoModel => new(
-            "No model is connected", "A bot needs a model to think with, and this space has none yet.", "Connect a model", Addresses.SetupModel),
-        WorkspaceState.NoBot => new("No bot yet", "A model is connected, and there is no bot to use it.", "Meet your first bot", Addresses.SetupBot),
+            "No model is connected", "A bot needs a model, and this space has none yet.", "Connect a model", Addresses.SetupModel),
+        WorkspaceState.NoBot => new("No bot yet", "A model is connected, and there is no bot to use it.", "Create your first bot", Addresses.SetupBot),
         WorkspaceState.Loading => null,
-        _ when formerMissing => new("This conversation is not here", "It was removed, or it belongs to someone else.", "Back to the crew", Addresses.Home),
-        _ when Shown is null => new("This bot is not here", "It was removed, or it belongs to another space.", "Back to the crew", Addresses.Home),
+        _ when formerMissing => new("Conversation not found", "It was removed, or it belongs to someone else.", "Back to conversations", Addresses.Home),
+        _ when Shown is null => new("Bot not found", "It was removed, or it belongs to another space.", "Back to conversations", Addresses.Home),
         _ => null,
     };
 
     /// <summary>What the rail says when the bot whose side of handed work was asked for is gone.</summary>
     public EmptyNotice? WorkNotice => Side is SideView.Work && WorkBot is null && Shown is { } shown
-        ? new("This bot is not here", "It was removed, so its side of this work cannot be shown.", $"Back to {shown.Name}", Addresses.Talk(shown.Id))
+        ? new("Bot not found", "It was removed, so its side of this work cannot be shown.", $"Back to {shown.Name}", Addresses.Talk(shown.Id))
         : null;
 
     /// <summary>The address kept from before names a conversation that is not there.</summary>

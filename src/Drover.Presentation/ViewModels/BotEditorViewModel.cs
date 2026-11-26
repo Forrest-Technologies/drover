@@ -180,7 +180,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public const string MadeButNotSet = "The bot was made, but its settings are not saved yet.";
 
-    public static string NoModelCause => "A bot needs a model to think with, and this space has none yet. Connect a model first.";
+    public static string NoModelCause => "A bot needs a model, and this space has none yet. Connect a model first.";
 
     public static string LoadFailedTitle => "Drover could not load this bot";
 
@@ -190,13 +190,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string NotPermittedCause => "Owners and admins of this space change its bots. You can still talk to them.";
 
-    public static string NotPermittedAction => "Back to the crew";
+    public static string NotPermittedAction => "Back to conversations";
 
-    public static string MissingTitle => "This bot is not here";
+    public static string MissingTitle => "Bot not found";
 
     public static string MissingCause => "It was removed, or it belongs to another space.";
 
-    public static string MissingAction => "See the bots";
+    public static string MissingAction => "Back to bots";
 
     public static string NotPermittedAddress => Addresses.Home;
 
@@ -210,7 +210,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string ChangeHandleLabel => "Change the handle";
 
-    public static string PurposeLabel => "What this bot is for";
+    public static string PurposeLabel => "Purpose";
 
     public static string InstructionsLabel => "Instructions";
 
