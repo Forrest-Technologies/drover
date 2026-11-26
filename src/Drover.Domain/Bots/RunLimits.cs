@@ -14,7 +14,7 @@ public sealed record RunLimits
     /// <summary>The most tokens, read and written together, one run of the bot uses.</summary>
     public int? MaxTokens { get; init; }
 
-    public bool UnlimitedTokensAcknowledged { get; init; }
+    public bool UncappedUsageAcknowledged { get; init; }
 
     /// <summary>The most times one run of the bot hands work to a bot beneath it.</summary>
     public int? MaxDelegations { get; init; }

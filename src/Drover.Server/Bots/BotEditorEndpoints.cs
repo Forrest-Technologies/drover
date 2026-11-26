@@ -260,7 +260,7 @@ public static class BotEditorEndpoints
             limits.MaxSteps == int.MaxValue ? null : limits.MaxSteps,
             limits.MaxTokens,
             limits.MaxDelegations,
-            limits.CanRemoveTokenLimit));
+            limits.CanRemoveUsageLimit));
     }
 
     #endregion

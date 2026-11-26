@@ -583,7 +583,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
         var script = new ScriptedModel([new ToolCallOutput("c1", "test_lookup")], [new TextOutput("Finished.")]);
         await using var world = await RunWorld.Create(postgres, script, tools);
         world.Model.UsagePerCall = new ModelTokenUsage(4_999_999, 1, 5_000_000);
-        await world.SetRunLimits(new RunLimits { UnlimitedTokensAcknowledged = acknowledged });
+        await world.SetRunLimits(new RunLimits { UncappedUsageAcknowledged = acknowledged });
         world.StartHost();
 
         var runId = await world.Post(await world.NewThread(), "Continue");

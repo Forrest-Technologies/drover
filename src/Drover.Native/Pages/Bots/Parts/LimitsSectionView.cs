@@ -30,9 +30,9 @@ public sealed class LimitsSectionView : EditorPart
         unlimited = new Switch { Label = "Unlimited tokens" }.OnChanged(Quiet, on => Editor.Edit(draft =>
         {
             draft.UnlimitedTokens = on;
-            draft.UnlimitedTokensAcknowledged = false;
+            draft.UncappedUsageAcknowledged = false;
         }));
-        acknowledge.Changed += on => Editor.Edit(draft => draft.UnlimitedTokensAcknowledged = on);
+        acknowledge.Changed += on => Editor.Edit(draft => draft.UncappedUsageAcknowledged = on);
         var tokenSettings = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
         tokenSettings.Children.Add(tokens);
         tokenSettings.Children.Add(unlimited);
@@ -55,10 +55,10 @@ public sealed class LimitsSectionView : EditorPart
         (tokens.Placeholder, tokens.Hint) = (LimitsSectionFields.Placeholder(options?.MaxTokens), LimitsSectionFields.TokensHint(options));
         (delegations.Placeholder, delegations.Hint) = (LimitsSectionFields.Placeholder(options?.MaxDelegations), LimitsSectionFields.DelegationsHint(options));
         steps.Show(Draft.MaxSteps);
-        unlimited.Shown(options?.CanRemoveTokenLimit is true || Draft.UnlimitedTokens);
+        unlimited.Shown(options?.CanRemoveUsageLimit is true || Draft.UnlimitedTokens);
         unlimited.Show(Draft.UnlimitedTokens);
         acknowledge.Shown(Draft.UnlimitedTokens);
-        acknowledge.Show(Draft.UnlimitedTokensAcknowledged);
+        acknowledge.Show(Draft.UncappedUsageAcknowledged);
         tokens.Shown(!Draft.UnlimitedTokens);
         tokens.Show(Draft.UnlimitedTokens ? string.Empty : Draft.MaxTokens);
         delegations.Show(Draft.MaxDelegations);

@@ -51,9 +51,9 @@ public sealed class BotWordsTests
     {
         var draft = new BotDraft { MaxTokens = "9000", UnlimitedTokens = true };
         draft.FindProblem().Should().Contain("API spending risk");
-        draft.ToRequest().RunLimits!.UnlimitedTokensAcknowledged.Should().BeFalse();
+        draft.ToRequest().RunLimits!.UncappedUsageAcknowledged.Should().BeFalse();
 
-        draft.UnlimitedTokensAcknowledged = true;
+        draft.UncappedUsageAcknowledged = true;
         draft.FindProblem().Should().BeNull();
         draft.ToRequest().RunLimits.Should().Be(new RunLimitsBody(null, null, null, true));
         draft.UnlimitedTokens = false;

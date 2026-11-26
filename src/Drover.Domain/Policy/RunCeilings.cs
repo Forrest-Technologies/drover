@@ -6,7 +6,7 @@ namespace Drover.Domain.Policy;
 /// </summary>
 public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations)
 {
-    public bool CanRemoveTokenLimit { get; init; }
+    public bool CanRemoveUsageLimit { get; init; }
 
     public bool TokensUnlimited { get; init; }
 
@@ -16,7 +16,7 @@ public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations
     public RunCeilings NarrowedBy(RunLimits bot) =>
         new(Lower(bot.MaxSteps, MaxSteps), Lower(bot.MaxTokens, MaxTokens), Lower(bot.MaxDelegations, MaxDelegations))
         {
-            TokensUnlimited = CanRemoveTokenLimit && bot.UnlimitedTokensAcknowledged && bot.MaxTokens is null,
+            TokensUnlimited = CanRemoveUsageLimit && bot.UncappedUsageAcknowledged && bot.MaxTokens is null,
         };
 
     #endregion

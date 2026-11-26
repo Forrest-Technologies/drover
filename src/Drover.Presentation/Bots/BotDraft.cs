@@ -99,7 +99,7 @@ public sealed class BotDraft
 
     public bool UnlimitedTokens { get; set; }
 
-    public bool UnlimitedTokensAcknowledged { get; set; }
+    public bool UncappedUsageAcknowledged { get; set; }
 
     public string MaxDelegations { get; set; } = string.Empty;
 
@@ -145,8 +145,8 @@ public sealed class BotDraft
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
         MaxSteps = Text(bot.RunLimits.MaxSteps),
         MaxTokens = Text(bot.RunLimits.MaxTokens),
-        UnlimitedTokens = bot.RunLimits.UnlimitedTokensAcknowledged,
-        UnlimitedTokensAcknowledged = bot.RunLimits.UnlimitedTokensAcknowledged,
+        UnlimitedTokens = bot.RunLimits.UncappedUsageAcknowledged,
+        UncappedUsageAcknowledged = bot.RunLimits.UncappedUsageAcknowledged,
         MaxDelegations = Text(bot.RunLimits.MaxDelegations),
     };
 
@@ -168,7 +168,7 @@ public sealed class BotDraft
     /// <summary>What a number field holds that is not a number, as a sentence, or null when every one reads.</summary>
     public string? FindProblem()
     {
-        if (UnlimitedTokens && !UnlimitedTokensAcknowledged)
+        if (UnlimitedTokens && !UncappedUsageAcknowledged)
         {
             return "Confirm that you understand the API spending risk before saving.";
         }
@@ -222,7 +222,7 @@ public sealed class BotDraft
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
-            new RunLimitsBody(ReadWhole(MaxSteps), UnlimitedTokens ? null : ReadWhole(MaxTokens), ReadWhole(MaxDelegations), UnlimitedTokens && UnlimitedTokensAcknowledged),
+            new RunLimitsBody(ReadWhole(MaxSteps), UnlimitedTokens ? null : ReadWhole(MaxTokens), ReadWhole(MaxDelegations), UnlimitedTokens && UncappedUsageAcknowledged),
             HandleFollowsName: !HandleChosen);
 
     /// <summary>

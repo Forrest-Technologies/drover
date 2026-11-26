@@ -56,7 +56,7 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
             Lower(space.MaxTokensPerRun, Deployment.MaxTokensPerRun),
             Delegation(space).MaxHandoffs)
         {
-            CanRemoveTokenLimit = Preset == DeploymentPolicy.SelfHostedName && !options.Value.HasConfiguredTokenLimit
+            CanRemoveUsageLimit = Preset == DeploymentPolicy.SelfHostedName && !options.Value.HasConfiguredTokenLimit
                 && Deployment.MaxTokensPerRun == DeploymentPolicy.SelfHostedMaxTokensPerRun && space.MaxTokensPerRun is null,
         };
 

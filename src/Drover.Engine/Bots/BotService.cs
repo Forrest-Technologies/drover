@@ -295,7 +295,7 @@ public sealed class BotService(
             SandboxPolicy = source.SandboxPolicy,
             SandboxSettings = source.SandboxSettings,
             BuildLimits = source.BuildLimits,
-            RunLimits = source.RunLimits with { UnlimitedTokensAcknowledged = false },
+            RunLimits = source.RunLimits with { UncappedUsageAcknowledged = false },
             CreatedByUserId = actorUserId,
         };
         var sharedWith = await bots.ListSandboxShares(id, cancellationToken);
@@ -859,8 +859,8 @@ public sealed class BotService(
     private static string? FindRunLimitProblem(RunLimits limits, RunCeilings space) =>
         limits switch
         {
-            { UnlimitedTokensAcknowledged: true } when !space.CanRemoveTokenLimit => "This space requires a token limit.",
-            { UnlimitedTokensAcknowledged: true, MaxTokens: not null } => "Choose a token limit or unlimited tokens.",
+            { UncappedUsageAcknowledged: true } when !space.CanRemoveUsageLimit => "This space requires a token limit.",
+            { UncappedUsageAcknowledged: true, MaxTokens: not null } => "Choose a token limit or unlimited tokens.",
             { MaxSteps: { } steps } when steps < 1 || steps > space.MaxSteps => space.MaxSteps is int.MaxValue
                 ? "The limit on model calls is a whole number of 1 or more."
                 : $"The limit on model calls is a whole number from 1 to {space.MaxSteps}, the most this space allows.",
