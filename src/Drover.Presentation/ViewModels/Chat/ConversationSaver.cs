@@ -33,7 +33,7 @@ public sealed class ConversationSaver(
 
         if (threadId is not { } thread || session.Space is not { } space)
         {
-            toasts.Show("Nothing has been said in this conversation yet, so there is nothing to save.", ToastKind.Info);
+            toasts.Show("This conversation has no messages yet, so there is nothing to save.", ToastKind.Info);
             return;
         }
 

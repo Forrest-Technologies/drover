@@ -300,10 +300,10 @@ public sealed class TalkViewModel(
     {
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
-        SideView.Activity => $"What {Shown!.Name} and its crew did in a run",
+        SideView.Activity => $"Activity of {Shown!.Name} and its crew in a run",
         SideView.Work => $"{WorkName}'s side of work handed to it",
         SideView.Files => $"Files exchanged with {Shown!.Name}",
-        SideView.Memory => $"What {Shown!.Name} remembers about you",
+        SideView.Memory => $"{Shown!.Name}'s notes about you",
         _ => $"Side chats with {Shown!.Name}",
     };
 

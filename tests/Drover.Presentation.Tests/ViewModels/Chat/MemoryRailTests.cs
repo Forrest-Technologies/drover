@@ -69,7 +69,7 @@ public sealed class MemoryRailTests : IDisposable
 
         rail.State.Should().Be(MemoryPanelState.Ready);
         panel.Notes.Should().HaveCount(3);
-        panel.ListName.Should().Be("What Marshal remembers about you");
+        panel.ListName.Should().Be("Marshal's notes about you");
         panel.Origin(panel.Notes[0]).Should().StartWith("Marshal noted this");
         panel.Notes[0].OriginHref.Should().Be($"/talk/{botId}#message-{messageId}");
         panel.Notes[1].OriginHref.Should().Be($"/talk/{botId}/side/{sideId}#message-{messageId}");
@@ -129,7 +129,7 @@ public sealed class MemoryRailTests : IDisposable
         _ = rail.ParametersSet();
 
         rail.State.Should().Be(MemoryPanelState.Loading);
-        panel.LoadingHint.Should().Be("Loading what Marshal remembers.");
+        panel.LoadingHint.Should().Be("Loading Marshal's notes.");
     }
 
     [Fact]

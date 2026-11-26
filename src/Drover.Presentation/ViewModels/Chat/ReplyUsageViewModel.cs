@@ -34,13 +34,13 @@ public sealed partial class ReplyUsageViewModel(Guid runId, Func<Guid, Task<RunU
     /// <summary>The name of the action on a reply, and the title of what it opens.</summary>
     public static string Label => "Usage for this reply";
 
-    /// <summary>Said, politely, while the server adds it up.</summary>
-    public static string Adding => "Adding it up.";
+    /// <summary>Shown while the server loads the usage.</summary>
+    public static string Adding => "Loading usage.";
 
     public bool IsAdding => Open && Problem is null && Detail is null;
 
     /// <summary>The model that wrote the reply, in words, when the server kept it.</summary>
-    public string? WrittenBy => Model is null ? null : $"Written by {Model}";
+    public string? WrittenBy => Model is null ? null : $"Model: {Model}";
 
     /// <summary>The one or two lines that say what the reply used, once it is known.</summary>
     public IReadOnlyList<string> Lines => Open && Problem is null && Detail is { } read ? UsageWords.Reply(read) : [];

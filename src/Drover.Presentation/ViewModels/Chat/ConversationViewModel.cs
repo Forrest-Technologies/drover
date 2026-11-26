@@ -65,7 +65,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private string? notice;
 
-    // Loading until the first load has run, so the screen never says "Nothing said yet" about a conversation it has
+    // Loading until the first load has run, so the screen never says "No messages yet" about a conversation it has
     // not read. A new side chat, which has nothing to read, stops loading at once.
     private bool loading = true;
 

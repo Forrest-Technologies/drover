@@ -710,7 +710,7 @@ try {
                     await page.getByRole('heading', { name: 'Drover could not load this conversation', exact: true })
                         .waitFor({ state: 'attached', timeout: 5000 });
                     await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    assert.equal(await page.getByText('Nothing said yet.', { exact: false }).count(), 0,
+                    assert.equal(await page.getByText('No messages yet.', { exact: false }).count(), 0,
                         'a conversation that was never read must not say nothing was said');
                     // Uno's hidden text box carries no disabled attribute, so ask the field itself: it takes no text.
                     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });

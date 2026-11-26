@@ -79,7 +79,7 @@ public sealed class ChatViewModelTests : IDisposable
 
         list.Name.Should().Be("Conversation with Sample bot");
         list.IsEmpty.Should().BeTrue();
-        list.StartHint.Should().Be("Nothing said yet. Write to Sample bot below.");
+        list.StartHint.Should().Be("No messages yet. Write to Sample bot below.");
 
         list.Thinking = true;
         list.Update();
@@ -124,7 +124,7 @@ public sealed class ChatViewModelTests : IDisposable
         ChatRows.Shape(said, compact: true).Should().Be(ChatEntryShape.Compact, "inside handed work the card has the bot's head");
         ChatRows.Shape(did, compact: false).Should().Be(ChatEntryShape.Tools);
         ChatRows.EntryName(said, "Sample bot", null).Should().Be("Sample bot said");
-        ChatRows.EntryName(did, "Sample bot", null).Should().Be("What Sample bot did");
+        ChatRows.EntryName(did, "Sample bot", null).Should().Be("Sample bot's activity");
         ChatRows.Pending("Sample bot").Should().Be("Sent. Sample bot reads it at its next step.");
     }
 
@@ -684,7 +684,7 @@ public sealed class ChatViewModelTests : IDisposable
         var named = new ReplyUsageViewModel(Guid.CreateVersion7(), id => Task.FromException<RunUsageDetail>(new InvalidOperationException()), NullLogger.Instance, "sample-stronger");
         var older = new ReplyUsageViewModel(Guid.CreateVersion7(), id => Task.FromException<RunUsageDetail>(new InvalidOperationException()), NullLogger.Instance);
 
-        named.WrittenBy.Should().Be("Written by sample-stronger");
+        named.WrittenBy.Should().Be("Model: sample-stronger");
         older.WrittenBy.Should().BeNull("a reply written before the model was kept names none");
     }
 
