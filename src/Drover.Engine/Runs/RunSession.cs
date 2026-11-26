@@ -188,11 +188,13 @@ public sealed class RunSession(
     /// <summary>
     /// True when a rule asks a person before this tool is used, going by the rule's conditions about the tool alone.
     /// The framework can stop for approval only on tools marked for it when the agent is built, before any argument
-    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask.
+    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask. A rule
+    /// written as a sentence marks no tool yet: until it can pause a tool, a person it would ask is asked by refusing
+    /// the call and saying approval is needed.
     /// </summary>
     public bool RuleAsks(RunTool tool) =>
         RulesAtBuild.Any(rule =>
-            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask }
+            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask, Judged: null }
             && rule.Conditions.All(condition => condition.Kind switch
             {
                 RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
@@ -527,6 +529,45 @@ public sealed class RunSession(
         };
 
     public int CurrentStep => step;
+
+    /// <summary>Counts one rule check by a decision model. It is stored with the run's usage when the check is recorded.</summary>
+    public void CountJudgedCheck() => usage = usage with { JudgedChecks = usage.JudgedChecks + 1 };
+
+    /// <summary>
+    /// Records one model call against the run: the run's own, one a tool made for it, such as reading the screen, or
+    /// a rule check. The record names the model that answered, so a call by another model is told apart from the
+    /// bot's own. It is not a step.
+    /// </summary>
+    public async Task RecordModelUsage(ToolModelUsage reported)
+    {
+        var used = RunGovernor.NonNegative(reported);
+        var cost = RunGovernor.Cost(used);
+        AddUsage(used.InputTokens, used.OutputTokens, cost ?? 0);
+        var recorded = new UsageRecorded(CurrentStep, used.InputTokens, used.OutputTokens, 0, cost, used.Pricing.Currency);
+        await writer.Write(
+            async services =>
+            {
+                var runs = services.GetRequiredService<RunRepository>();
+                runs.Add(new UsageRecord
+                {
+                    RunId = RunId,
+                    RootRunId = RootRunId,
+                    BotId = BotId,
+                    ModelConnectionId = used.ModelConnectionId,
+                    Model = used.Model,
+                    InputTokens = used.InputTokens,
+                    OutputTokens = used.OutputTokens,
+                    Cost = cost,
+                    Currency = used.Pricing.Currency,
+                });
+
+                if (await runs.GetRunForUpdate(RunId, CancellationToken.None) is { } stored)
+                {
+                    stored.Usage = usage;
+                }
+            },
+            [RunEventWriter.Event(RunId, RunEventTypes.UsageRecorded, recorded)]);
+    }
 
     /// <summary>The tokens every model call of this run has read and written so far, earlier executions included.</summary>
     public long TokensUsed => usage.InputTokens + usage.OutputTokens;

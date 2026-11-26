@@ -52,6 +52,7 @@ global using Drover.Data;
 global using Drover.Data.Bootstrap;
 global using Drover.Data.Repositories;
 global using Drover.Data.Tenancy;
+global using Drover.Domain.Decisions;
 global using Drover.Domain.Files;
 global using Drover.Domain.Memory;
 global using Drover.Domain.Models;

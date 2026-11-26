@@ -120,6 +120,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxConversationSummarySeconds = 60;
 
+    public const int SelfHostedMaxJudgedRuleSeconds = 5;
+
+    public const int HostedMaxJudgedRuleSeconds = 3;
+
+    public const int SelfHostedMaxJudgedChecksPerRun = int.MaxValue;
+
+    public const int HostedMaxJudgedChecksPerRun = 200;
+
     public const int SelfHostedMaxBotsPerSpace = 1000;
 
     public const int HostedMaxBotsPerSpace = 100;
@@ -451,6 +459,27 @@ public sealed record DeploymentPolicy
     public int MaxConversationSummarySeconds { get; init; } = SelfHostedMaxConversationSummarySeconds;
 
     /// <summary>
+    /// Whether a bot rule may be written as a sentence that a decision model judges. The model is the space's own,
+    /// and a judged rule only narrows, but a check sends what a bot is about to do and the person's recent messages
+    /// to that provider. On for a self-hosted server; off on the hosted service until the owner has reviewed it. Off,
+    /// such a rule is refused when it is saved, and one saved earlier is never sent: it counts as unsure, so a person
+    /// is asked or the reply is held back.
+    /// </summary>
+    public bool AllowJudgedRules { get; init; } = true;
+
+    /// <summary>
+    /// The most seconds one rule check may take. The check stands between a bot and its next action, so past this it
+    /// counts as unsure and goes to a person.
+    /// </summary>
+    public int MaxJudgedRuleSeconds { get; init; } = SelfHostedMaxJudgedRuleSeconds;
+
+    /// <summary>
+    /// The most rule checks one run may make. A space's settings and a bot's limits may lower it. Past it, every
+    /// judged rule counts as unsure.
+    /// </summary>
+    public int MaxJudgedChecksPerRun { get; init; } = SelfHostedMaxJudgedChecksPerRun;
+
+    /// <summary>
     /// The most characters one note a bot keeps about a person may hold. A bot's own setting may only lower it. Notes
     /// are short on purpose: one fact each, few enough to read in full and to give to every run.
     /// </summary>
@@ -733,6 +762,20 @@ public sealed record DeploymentPolicy
             policy => policy.MaxConversationSummarySeconds,
             HostedMaxConversationSummarySeconds,
             Enforcement.Now("ConversationSummarizer, on every summary's model call")),
+        PolicyRule.Permission(
+            nameof(AllowJudgedRules),
+            policy => policy.AllowJudgedRules,
+            Enforcement.Now("RuleService, when a rule is saved, tried, or read for a run")),
+        PolicyRule.Limit(
+            nameof(MaxJudgedRuleSeconds),
+            policy => policy.MaxJudgedRuleSeconds,
+            HostedMaxJudgedRuleSeconds,
+            Enforcement.Now("JudgedChecks, on every rule check")),
+        PolicyRule.Limit(
+            nameof(MaxJudgedChecksPerRun),
+            policy => policy.MaxJudgedChecksPerRun,
+            HostedMaxJudgedChecksPerRun,
+            Enforcement.Now("RunRules, before every rule check of a run")),
         PolicyRule.Limit(
             nameof(MaxMemoryNoteCharacters),
             policy => policy.MaxMemoryNoteCharacters,

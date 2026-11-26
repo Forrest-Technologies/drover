@@ -33,6 +33,7 @@ public static class DeploymentPolicyExtensions
             .WithServerStatusForTheOperatorOnly()
             .WithoutWrittenRulePatterns()
             .WithBoundedConversationSummaries()
+            .WithoutJudgedRules()
             .WithBoundedMemory()
             .WithoutWebTools()
             .WithoutImageGeneration()
@@ -154,6 +155,14 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
         policy with { MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds };
+
+    public static DeploymentPolicy WithoutJudgedRules(this DeploymentPolicy policy) =>
+        policy with
+        {
+            AllowJudgedRules = false,
+            MaxJudgedRuleSeconds = DeploymentPolicy.HostedMaxJudgedRuleSeconds,
+            MaxJudgedChecksPerRun = DeploymentPolicy.HostedMaxJudgedChecksPerRun,
+        };
 
     public static DeploymentPolicy WithBoundedMemory(this DeploymentPolicy policy) =>
         policy with

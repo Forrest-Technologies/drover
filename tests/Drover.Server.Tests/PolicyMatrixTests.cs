@@ -185,6 +185,29 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task The_judged_rule_rules_decide_whether_a_sentence_may_be_saved_and_bound_every_check()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        var (client, schedules) = await SignedInClientWithBot();
+        var bot = schedules[..schedules.LastIndexOf('/')];
+
+        var saved = await client.Post($"{bot}/rules", new BotRuleBody("Ask before mail", true, "before_tool", "ask", [new("judged") { Statement = "Always ask me before sending an email." }]));
+
+        rules.MaxJudgedRuleSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxJudgedRuleSeconds)));
+        rules.MaxJudgedChecksPerRun.Should().Be(Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)));
+
+        if (Setting(nameof(DeploymentPolicy.AllowJudgedRules)) == "true")
+        {
+            saved.StatusCode.Should().Be(HttpStatusCode.Created, await saved.Content.ReadAsStringAsync(Token));
+        }
+        else
+        {
+            saved.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await saved.Content.ReadAsStringAsync(Token)).Should().Contain(nameof(DeploymentPolicy.AllowJudgedRules), "the message names the rule an operator would change");
+        }
+    }
+
+    [Fact]
     public async Task The_sandbox_rules_decide_what_the_bot_editor_offers_and_what_a_bot_may_save()
     {
         var (email, password, _, spaceId) = await SeedPerson("sandboxrules");
@@ -308,14 +331,17 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var ceilings = new RunCeilings(
             Limit(nameof(DeploymentPolicy.MaxStepsPerRun)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs);
+            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs)
+        {
+            MaxJudgedChecks = Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)),
+        };
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
-        policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
-        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
-        space.Should().Be(new RunCeilings(10, 1000, 3));
-        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");
-        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0 }).Should().Be(new RunCeilings(2, 500, 0));
+        policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1, MaxJudgedChecksPerRun = int.MaxValue }).Should().Be(ceilings);
+        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxJudgedChecksPerRun = 20 });
+        space.Should().Be(new RunCeilings(10, 1000, 3) { MaxJudgedChecks = 20 });
+        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4, MaxJudgedChecks = 21 }).Should().Be(space, "a bot cannot raise what its space allows");
+        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0, MaxJudgedChecks = 5 }).Should().Be(new RunCeilings(2, 500, 0) { MaxJudgedChecks = 5 });
     }
 
     [Fact]

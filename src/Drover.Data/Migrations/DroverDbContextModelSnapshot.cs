@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126044407_ExtensionsWithoutBots";
+    public override string LastMigrationId => "20261126152409_UsageOfRuleChecks";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1886,7 +1886,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("character varying(200)")
                     .HasColumnName("model");
 
-                b.Property<Guid>("ModelConnectionId")
+                b.Property<Guid?>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
 
@@ -3282,7 +3282,6 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasForeignKey("SpaceId", "ModelConnectionId")
                     .HasPrincipalKey("SpaceId", "Id")
                     .OnDelete(DeleteBehavior.Restrict)
-                    .IsRequired()
                     .HasConstraintName("fk_usage_records_model_connections_space_id_model_connection_id");
 
                 b.HasOne("Drover.Domain.Runs.Run", null)

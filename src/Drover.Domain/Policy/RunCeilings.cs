@@ -10,6 +10,9 @@ public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations
 
     public bool TokensUnlimited { get; init; }
 
+    /// <summary>The most rule checks by a decision model one run makes. Past it, every judged rule counts as unsure.</summary>
+    public int MaxJudgedChecks { get; init; } = int.MaxValue;
+
     #region Public Methods
 
     /// <summary>These limits as one bot's runs have them: each the bot's own value where that is lower.</summary>
@@ -17,6 +20,7 @@ public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations
         new(Lower(bot.MaxSteps, MaxSteps), Lower(bot.MaxTokens, MaxTokens), Lower(bot.MaxDelegations, MaxDelegations))
         {
             TokensUnlimited = CanRemoveUsageLimit && bot.UncappedUsageAcknowledged && bot.MaxTokens is null,
+            MaxJudgedChecks = Lower(bot.MaxJudgedChecks, MaxJudgedChecks),
         };
 
     #endregion

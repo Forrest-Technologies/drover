@@ -224,6 +224,7 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
 | `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name. `details`, when the tool adds any: things the person should see beside the arguments, each a name and a redacted text (`crew.add` adds `model` and `beneath`, the new bot's model and the name of the bot it goes beneath) |
 | `rule.fired` | A rule of the bot applied: rule id and name, checkpoint, effect, a sentence saying why, and the tool call id when there is one. Never the text that matched. |
+| `rule.checked` | A decision model checked a rule written as a sentence: rule id, checkpoint, outcome (`applies`, `passes`, `unsure`, `failed`), the probability it applies when there is one, the time taken, and the tool call id when there is one. Never the sentence or anything that was sent. |
 | `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, or the hand-back endpoint for a request for a person at the screen, while the run waits. |
 | `tool.started` | Tool call id |
 | `tool.output` | Tool call id, stream (`stdout` or `stderr`), text. Output a built-in tool streams while it runs (a sandbox command's output), redacted, between the call's `tool.started` and `tool.completed`. One call streams at most `Runs:MaxToolOutputCharacters` (200,000 by default); past it the log says once that the rest is left out. The tool's result is separate and not affected. |
@@ -287,7 +288,7 @@ Not built yet: an approval that nobody answers is meant to expire (default 24 ho
 
 ## Rules
 
-A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) are checked at four points of a run, each time against the rules as they are stored at that moment, by the one evaluator in `Drover.Domain.Rules`. No model is asked whether a rule applies. A rule that applies writes `rule.fired`.
+A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) are checked at four points of a run, each time against the rules as they are stored at that moment, by the one evaluator in `Drover.Domain.Rules`. No model is asked whether a rule applies, with one exception that only narrows: a rule written as a sentence, which the space's decision model judges and code decides ("Rules written as a sentence", below; ADR 0024). A rule that applies writes `rule.fired`.
 
 | Checkpoint | Where | What each effect does |
 | --- | --- | --- |
@@ -323,6 +324,22 @@ With the rule off:
 - "Contains" and the built-in kinds stay. The built-in expressions are Drover's own and always run.
 
 The code that would run a written pattern is still there for the day the rule can be turned on, with what can be read off a pattern refused at save: constructs that need backtracking, a count over 256, a pattern the engine says is too large to build. That is not enough to make it safe, and the documentation of the rule says so. At most 256 written patterns are kept ready, the one used longest ago going first.
+
+**Rules written as a sentence.** A rule may hold one condition of kind `judged`: a sentence a person wrote and how sure the check must be (`min_confidence`, 0.50 to 0.99, 0.80 when left out). Only at `before_tool` and `before_reply`, never with `redact`, and refused at save while the deployment rule `AllowJudgedRules` is off ([16-deployment-policies.md](16-deployment-policies.md)). It is decided in two steps around one network call:
+
+1. `RuleEvaluator.FindJudgmentsDue` evaluates the rules decided by code first. When one of them blocks or stops, nothing is judged: what is refused is never sent. Otherwise it returns the judged rules at this checkpoint whose other conditions hold. Before a tool, a call is also not sent when the bot is paused or its grant as it stands now refuses the call.
+2. `RunRules` asks the space's decision model once for all of them, through `JudgedChecks`, with no tenant scope open (it throws if one is), cut off at `MaxJudgedRuleSeconds`. The request's state has three parts, each redacted by the run's redactor and bounded: `action` (the tool's catalog name, its kind, and its arguments as the rules decided by code left them, at most 8,000 characters; or the reply), `person` (the run's person's own last ten messages, at most 4,000 characters), and `evidence` (the run's last twenty finished tool calls with their results, each cut at 1,000 characters, at most 8,000 in all). Each rule gets two yes or no questions: `applies` (reading the action and the person's words: is the action something this rule is about?) and `met` (reading the evidence: was what the rule requires before the action already done?).
+3. `RuleEvaluator.Evaluate` decides from the verdicts it is handed, by the same rules as for every rule: the strictest effect decides.
+
+| `applies` | `ask` | `block` | `stop` |
+| --- | --- | --- | --- |
+| at or above the rule's number | A person is asked | Runs when `met` is at or above the number too; otherwise refused, and the bot is told the rule's sentence so it can do the missing step and try again | The run ends |
+| at or below one minus the number | Nothing | Nothing | Nothing |
+| between, or no usable answer | A person is asked | A person is asked | A person is asked |
+
+Before a reply, "a person is asked" is the reply held back with a sentence naming the rule. No usable answer is any of: a timeout, a provider error, an answer missing a question or with a probability outside 0 to 1 (outcome `failed`); no decision model connected, the run's checks spent (`MaxJudgedChecksPerRun`, lowered by a space's settings and a bot's run limits, counted on the run's usage so a wait or a restart does not reset it), or `AllowJudgedRules` off (outcome `unsure`; a rule the server does not judge is never sent and writes no `rule.checked`). Until a tool can pause for a judged rule ([issue 1018](https://github.com/Forrest-Technologies/drover/issues/1018), slice 4), a tool is not marked for approval by one, so "a person is asked" before a tool is carried out as for any ask on an unmarked tool: the call is refused and the bot is told approval is needed. No space can connect a decision model yet (slice 3), so the server's `FindDecisionModel` answers none and every judged rule is unsure.
+
+A check is decided once per call, like every rule ("A call is decided once"). A reply's reasoning and its text are ruled on as two pieces, as for every reply rule, so a model call that returns both makes two checks. Each request is a usage record on the run and the root run, with the decision model's name, no model connection, and a cost only when a price is known; it is not a step. Each rule checked writes `rule.checked` with the rule id, the checkpoint, the outcome (`applies`, `passes`, `unsure`, `failed`), the probability that it applies when there is one, the time taken, and the tool call id; never the sentence or anything that was sent. A bot with no enabled judged rule makes no call. Tool results are untrusted: they can sway only `met`, so the worst they can do is keep a rule that only narrows from firing. A judged rule is not a guarantee, and its read-back says so.
 
 **A match that fails.** A match that runs out of the engine's one-second timeout, or of memory, ends the evaluation's budget: nothing more is checked, every rule not yet decided counts as not checked, and a rule that removes text blocks. A reply is never let through as written after a search of it failed.
 

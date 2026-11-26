@@ -53,6 +53,9 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunEventFeed>();
         services.AddSingleton<ConversationSummarizer>();
         services.AddSingleton<RunExecutor>();
+
+        // No space can connect a decision model yet, so none has one: every rule written as a sentence is unsure.
+        services.AddSingleton<FindDecisionModel>(_ => (_, _) => Task.FromResult<SpaceDecisionModel?>(null));
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();
         services.AddScoped<ToolConnectionService>();
