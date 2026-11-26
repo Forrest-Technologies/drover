@@ -383,6 +383,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         LimitsSectionFields.DelegationsHint(options).Should().Contain("0 keeps all work with this bot. This space allows up to 49.");
         LimitsSectionFields.Placeholder(BotRunLimitOptions.NoLimit).Should().Be("No limit");
         LimitsSectionFields.StepsHint(new BotRunLimitOptions(null, 1, 0)).Should().EndWith("No limit.");
+        LimitsSectionFields.DelegationsHint(new BotRunLimitOptions(null, 5_000_000, BotRunLimitOptions.NoLimit))
+            .Should().EndWith("This space sets no limit.");
 
         editor.Edit(draft => draft.MaxSteps = "12");
         editor.Edit(draft => draft.MaxDelegations = "0");

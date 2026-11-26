@@ -535,9 +535,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
     #region Limits And Failures
 
     [Fact]
-
     public async Task Run_has_no_model_call_limit_by_default()
-
     {
         var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
         var turns = Enumerable.Range(1, 60)
@@ -553,6 +551,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
         run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
         script.Requests.Should().HaveCount(61);
     }
+
     [Fact]
     public async Task A_run_that_reaches_the_step_limit_fails_with_step_limit()
     {

@@ -310,8 +310,8 @@ public sealed record DeploymentPolicy
     public int MaxDelegationTreeCostCents { get; init; } = SelfHostedMaxDelegationTreeCostCents;
 
     /// <summary>
-    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. Both presets have no default
-    /// limit; an operator may set a ceiling, which a space may lower and a bot may lower again.
+    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. The hosted preset defaults to
+    /// 50. Self-hosted has no default ceiling; an operator may set one, which a space may lower and a bot may lower again.
     /// </summary>
     public int MaxStepsPerRun { get; init; } = SelfHostedMaxStepsPerRun;
 

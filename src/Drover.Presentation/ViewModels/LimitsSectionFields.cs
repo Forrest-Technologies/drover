@@ -45,6 +45,7 @@ public static class LimitsSectionFields
 
     private static string Allowed(string what, int? most) => most switch
     {
+        BotRunLimitOptions.NoLimit => $"{what} This space sets no limit.",
         { } value => $"{what} This space allows up to {BotSummaries.Count(value)}.",
         _ => what,
     };
