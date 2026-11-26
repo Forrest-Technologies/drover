@@ -2,7 +2,7 @@ namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
 /// Any endpoint that speaks the OpenAI chat protocol: a hosted provider or a local model server.
-/// A key is optional. Capabilities are conservative until the operator says more.
+/// A key is optional. Capabilities are conservative until the server says more or an admin does.
 /// </summary>
 public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
     : IModelClientProvider, IModelImageGenerator, ISpeechToText, ITextToSpeech, IRealtimeVoice
@@ -96,11 +96,18 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
         CancellationToken cancellationToken) =>
         ProtocolRealtimeVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, cancellationToken);
 
+    /// <summary>
+    /// The server's models, with what the list says about each. A server that keeps abilities and context lengths
+    /// apart from its list is then asked for them, one model at a time, with no switch: see <see cref="OllamaProbe"/>.
+    /// </summary>
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
         ModelEndpoint connection,
         string? apiKey,
-        CancellationToken cancellation) =>
-        await ReadModels(connection, apiKey, cancellation) ?? [];
+        CancellationToken cancellation)
+    {
+        var models = await ReadModels(connection, apiKey, cancellation) ?? [];
+        return await OllamaProbe.Fill(httpClients.CreateClient(HttpClientName), connection, apiKey, models, cancellation);
+    }
 
     public async Task<ConnectionTestResult> TestConnection(
         ModelEndpoint connection,
@@ -173,10 +180,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
 
     private static List<ModelInfo> ParseModels(JsonElement root) =>
         root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
-            ? [.. data.EnumerateArray()
-                .Select(model => model.TryGetProperty("id", out var id) ? id.GetString() : null)
-                .OfType<string>()
-                .Select(id => new ModelInfo(id, id, KnownVoices.Mark(new ModelCapabilities(), id), []))]
+            ? [.. data.EnumerateArray().Select(PublishedModelFacts.Read).OfType<ModelInfo>()]
             : [];
 
     #endregion

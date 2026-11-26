@@ -171,12 +171,12 @@ public static class ImageTools
         var entry = catalog.SingleOrDefault(candidate =>
             candidate.Model == model
             && candidate.State == AvailabilityState.Available
-            && candidate.Capabilities.ImageGeneration);
+            && candidate.EffectiveCapabilities.ImageGeneration);
 
         if (entry is null)
         {
             var allowed = catalog
-                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.Capabilities.ImageGeneration)
+                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.EffectiveCapabilities.ImageGeneration)
                 .Select(candidate => candidate.Model)
                 .ToArray();
             throw new BuiltinToolException(
@@ -189,7 +189,7 @@ public static class ImageTools
             ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
             : null;
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
-        return new Prepared(connection, key, entry.Pricing, policy);
+        return new Prepared(connection, key, entry.EffectivePricing, policy);
     }
 
     #endregion

@@ -29,6 +29,9 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
             .OrderBy(entry => entry.DisplayName).ThenBy(entry => entry.Model)
             .ToListAsync(cancellationToken);
 
+    public Task<int> CountCatalog(Guid connectionId, CancellationToken cancellationToken) =>
+        db.ModelCatalog.CountAsync(entry => entry.ModelConnectionId == connectionId, cancellationToken);
+
     /// <summary>Every catalog row of the space that is offered now, across its connections.</summary>
     public Task<List<ModelCatalogEntry>> ListAvailableCatalog(CancellationToken cancellationToken) =>
         db.ModelCatalog.AsNoTracking()

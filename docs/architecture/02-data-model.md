@@ -113,7 +113,7 @@ A bot's instructions are assembled by the engine from an ordered list of instruc
 | Table | Class | Key columns |
 | --- | --- | --- |
 | `model_connections` | Space-owned | `id`, `name`, `kind`, `base_url`, `auth_kind`, `credential_scope`, `secret_id null`, `default_model`, `status`, `balance jsonb`, `last_checked_at` |
-| `model_catalog` | Space-owned | `model_connection_id`, `model`, `display_name`, `capabilities jsonb`, `pricing jsonb`, `privacy_mode`, `traits`, `state`, `last_seen_at` |
+| `model_catalog` | Space-owned | `model_connection_id`, `model`, `display_name`, `capabilities jsonb`, `pricing jsonb`, `operator_capabilities jsonb null`, `operator_pricing jsonb null`, `privacy_mode`, `traits`, `state`, `last_seen_at` |
 | `tool_connections` | Space-owned | `id`, `name`, `slug`, `url`, `transport`, `auth_kind`, `credential_scope`, `oauth jsonb`, `trust`, `status`, `last_listed_at`, `last_error` |
 | `tool_connection_credentials` | Space-owned with an audience | `id`, `tool_connection_id`, `audience_user_id`, `secret_id`, `expires_at`, `status` |
 | `tools` | Space-owned | `id`, `source_kind`, `tool_connection_id null`, `name`, `title`, `description`, `input_schema jsonb`, `annotations jsonb`, `definition_hash`, `sensitivity`, `state`, `first_seen_at`, `last_seen_at` |

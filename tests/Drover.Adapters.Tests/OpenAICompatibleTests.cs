@@ -21,6 +21,110 @@ public sealed class OpenAICompatibleTests
     }
 
     [Fact]
+    public async Task Reads_a_routed_list_by_its_shape_and_a_plain_one_as_before()
+    {
+        var rig = CompatibleRig.Start("list_models_routed");
+
+        var models = await rig.Subject.Provider.ListModels(rig.Subject.Connection, null, TestContext.Current.CancellationToken);
+
+        var vision = models.Single(model => model.Id == "vendor/routed-vision");
+        vision.Capabilities.Should().Match<ModelCapabilities>(can =>
+            can.ContextTokens == 200_000 && can.MaxOutputTokens == 64_000 && can.Vision && can.ToolCalling && can.Reasoning && can.StructuredOutput);
+        vision.Pricing.Should().Be(new ModelPricing { InputPerMillion = 3m, OutputPerMillion = 15m, CachedInputPerMillion = 0.3m });
+        var text = models.Single(model => model.Id == "vendor/routed-text");
+        text.Capabilities.Should().Match<ModelCapabilities>(can => can.ContextTokens == 8192 && can.MaxOutputTokens == null && !can.Vision && !can.ToolCalling);
+        text.Pricing.Should().Be(new ModelPricing(), "a negative price and one that is not a number stay unknown");
+        models.Single(model => model.Id == "served-model").Capabilities.ContextTokens.Should().Be(32_768);
+        models.Single(model => model.Id == "bare-model").Capabilities.Should().Be(new ModelCapabilities());
+    }
+
+    [Fact]
+    public async Task Probes_a_server_that_has_no_model_details_once_and_never_again()
+    {
+        var rig = CompatibleRig.Start("list_models");
+
+        var models = await rig.Subject.Provider.ListModels(rig.Subject.Connection, null, TestContext.Current.CancellationToken);
+
+        models.Should().OnlyContain(model => model.Capabilities == new ModelCapabilities() && model.FactsRead);
+        rig.Handler.Requests.Select(request => $"{request.Method} {request.Uri.AbsolutePath}")
+            .Should().Equal("GET /v1/models", "POST /api/show");
+        rig.Handler.Requests[1].Uri.Should().Be(new Uri("https://models.example.test/api/show"), "the probe goes to the origin, not under /v1");
+    }
+
+    [Fact]
+    public async Task Fills_abilities_and_context_from_a_server_that_answers_model_details()
+    {
+        var rig = CompatibleRig.Start("show_model");
+
+        var models = await rig.Subject.Provider.ListModels(rig.Subject.Connection, null, TestContext.Current.CancellationToken);
+
+        models.Should().HaveCount(3);
+        models.Should().OnlyContain(model =>
+            model.Capabilities.ToolCalling && model.Capabilities.Reasoning && !model.Capabilities.Vision && model.Capabilities.ContextTokens == 131_072);
+        rig.Handler.Requests.Count(request => request.Uri.AbsolutePath == "/api/show").Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Reads_each_model_by_name_and_keeps_the_list_for_a_model_whose_details_fail()
+    {
+        var calls = new ConcurrentBag<string>();
+        var handler = new ScriptedHandler(async (request, _, token) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return ScriptedHandler.Json(
+                    HttpStatusCode.OK,
+                    """{"data":[{"id":"a"},{"id":"b"},{"id":"c"},{"id":"d"},{"id":"e"},{"id":"f"}]}""");
+            }
+
+            var model = await ModelNamed(request, token);
+            calls.Add(model);
+
+            return model switch
+            {
+                "c" => ScriptedHandler.Json(HttpStatusCode.InternalServerError, "{}"),
+                "d" => ScriptedHandler.Json(HttpStatusCode.OK, "not json"),
+                "e" => ScriptedHandler.Json(HttpStatusCode.OK, """{"capabilities":["completion","vision"],"model_info":{"x.context_length":4096}}"""),
+                _ => ScriptedHandler.Json(HttpStatusCode.OK, """{"capabilities":["completion","tools"]}"""),
+            };
+        });
+        var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
+        var endpoint = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address);
+
+        var models = await provider.ListModels(endpoint, null, TestContext.Current.CancellationToken);
+
+        calls.Order().Should().Equal("a", "b", "c", "d", "e", "f");
+        models.Single(model => model.Id == "a").Capabilities.Should().Match<ModelCapabilities>(can => can.ToolCalling && !can.Vision);
+        models.Single(model => model.Id == "e").Capabilities.Should().Match<ModelCapabilities>(can => !can.ToolCalling && can.Vision && can.ContextTokens == 4096);
+        models.Single(model => model.Id == "c").FactsRead.Should().BeFalse("its details did not come, so the stored facts stay");
+        models.Single(model => model.Id == "d").FactsRead.Should().BeFalse();
+        models.Single(model => model.Id == "a").FactsRead.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Asks_for_the_models_whose_facts_are_not_stored_before_the_others()
+    {
+        var order = new ConcurrentQueue<string>();
+        var handler = new ScriptedHandler(async (request, _, token) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return ScriptedHandler.Json(HttpStatusCode.OK, """{"data":[{"id":"stored"},{"id":"new"}]}""");
+            }
+
+            order.Enqueue(await ModelNamed(request, token));
+
+            return ScriptedHandler.Json(HttpStatusCode.OK, """{"capabilities":["completion"]}""");
+        });
+        var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
+        var endpoint = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address) { Filled = new HashSet<string> { "stored" } };
+
+        await provider.ListModels(endpoint, null, TestContext.Current.CancellationToken);
+
+        order.First().Should().Be("new");
+    }
+
+    [Fact]
     public async Task Lists_no_models_when_the_server_has_no_model_list()
     {
         var rig = CompatibleRig.Start("no_model_list");
@@ -55,6 +159,13 @@ public sealed class OpenAICompatibleTests
 
     #endregion
 
+    #region Private Methods
+
+    private static async Task<string> ModelNamed(HttpRequestMessage request, CancellationToken token) =>
+        JsonElement.Parse(await request.Content!.ReadAsStringAsync(token)).GetProperty("model").GetString()!;
+
+    #endregion
+
     #region Keys
 
     [Fact]
@@ -64,7 +175,7 @@ public sealed class OpenAICompatibleTests
 
         await rig.Subject.Provider.ListModels(rig.Subject.Connection, null, TestContext.Current.CancellationToken);
 
-        rig.Handler.Requests.Single().Headers.Should().NotContainKey("Authorization");
+        rig.Handler.Requests.Should().OnlyContain(request => !request.Headers.ContainsKey("Authorization"));
     }
 
     [Fact]

@@ -157,7 +157,7 @@ On Models, each model row has `Edit what this model can do` in its menu (admins 
 
 | Field problem | Words |
 | --- | --- |
-| A size out of range | `Enter a size between 1 and 10,000,000 tokens.` |
+| A size out of range | `Enter a size of 1 token or more.` |
 | A price out of range | `Enter a price of zero or more per million tokens.` |
 | A currency that is not three letters | `Enter a three letter currency code, such as USD.` |
 

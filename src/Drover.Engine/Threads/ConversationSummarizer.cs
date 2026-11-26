@@ -171,8 +171,8 @@ public sealed class ConversationSummarizer(
         }
 
         var entry = await connections.FindCatalogEntry(connection.Id, bot.Model, cancellationToken);
-        var context = entry?.Capabilities.ContextTokens;
-        var threshold = bot.MemorySettings.CompactAtTokens ?? (context - (bot.ModelSettings.MaxOutputTokens ?? entry?.Capabilities.MaxOutputTokens ?? 4096)) / 2;
+        var context = entry?.EffectiveCapabilities.ContextTokens;
+        var threshold = bot.MemorySettings.CompactAtTokens ?? (context - (bot.ModelSettings.MaxOutputTokens ?? entry?.EffectiveCapabilities.MaxOutputTokens ?? 4096)) / 2;
         if (Plan(thread, conversation, options.Value, threshold) is not { } plan)
         {
             return null;
@@ -182,7 +182,7 @@ public sealed class ConversationSummarizer(
             ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
             : null;
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
-        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, key, entry?.Pricing ?? new ModelPricing(), policy, context);
+        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, key, entry?.EffectivePricing ?? new ModelPricing(), policy, context);
     }
 
     #endregion

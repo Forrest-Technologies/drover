@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126044407_ExtensionsWithoutBots";
+    public override string LastMigrationId => "20261126220315_ModelOperatorSettings";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1044,6 +1044,14 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTimeOffset>("LastSeenAt")
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("last_seen_at");
+
+                b.Property<string>("OperatorCapabilities")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_capabilities");
+
+                b.Property<string>("OperatorPricing")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_pricing");
 
                 b.Property<string>("Pricing")
                     .IsRequired()

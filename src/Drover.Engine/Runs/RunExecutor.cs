@@ -300,7 +300,7 @@ public sealed partial class RunExecutor(
             key.Readable,
             policy,
             limits,
-            entry?.Pricing ?? new ModelPricing(),
+            entry?.EffectivePricing ?? new ModelPricing(),
             granted,
             steps,
             openMessage,
@@ -311,7 +311,7 @@ public sealed partial class RunExecutor(
             requested,
             toolConnections,
             toolModelNames,
-            entry?.Capabilities,
+            entry?.EffectiveCapabilities,
             memory,
             children,
             project);

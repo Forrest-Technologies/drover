@@ -43,6 +43,56 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
 
+    private readonly Sheet settingsSheet = new();
+
+    private readonly Dialog clearDialog;
+
+    private readonly TextBlock settingsIntro = Styles.Text(string.Empty, "DvTextSecondary");
+
+    private readonly TextBlock clearBody = Styles.Text(string.Empty);
+
+    private readonly TextBlock effortsLabel = Styles.Text("Effort levels", "DvTextLabel");
+
+    private readonly TextBlock priceHeading = Styles.Text("Price per million tokens", "DvTextLabel");
+
+    private readonly Switch toolsSwitch = new() { Label = "Calls tools" };
+
+    private readonly Switch visionSwitch = new() { Label = "Reads images" };
+
+    private readonly Switch reasoningSwitch = new() { Label = "Thinks before answering" };
+
+    private readonly Switch structuredSwitch = new() { Label = "Answers in a set shape" };
+
+    private readonly Switch imageSwitch = new() { Label = "Makes images" };
+
+    private readonly Dictionary<string, Switch> effortSwitches = ModelSettingsForm.EffortLevels.ToDictionary(level => level, level => new Switch { Label = level });
+
+    private readonly StackPanel efforts = PageParts.Column();
+
+    private readonly Field contextField;
+
+    private readonly Field outputField;
+
+    private readonly Field inputPriceField;
+
+    private readonly Field outputPriceField;
+
+    private readonly Field cachedPriceField;
+
+    private readonly Field currencyField;
+
+    private readonly StatusNote settingsProblem = new() { Kind = NoteKind.Danger };
+
+    private readonly StatusNote settingsBusy = new() { Kind = NoteKind.Info };
+
+    private readonly Button useProvidersValues;
+
+    private readonly Button saveSettings;
+
+    private readonly Button keepThem;
+
+    private readonly Button removeSettings;
+
     private readonly Button retryProviders;
 
     private readonly Button changeAddress;
@@ -116,9 +166,66 @@ public sealed class ModelConnectionsPage : Screen
             }
         });
 
+        contextField = PageParts.Field("Context size (tokens)", string.Empty, value => model.Settings.ContextSize = value, "number");
+        outputField = PageParts.Field("Longest answer (tokens)", string.Empty, value => model.Settings.MaxOutputSize = value, "number");
+        inputPriceField = PageParts.Field("Input", string.Empty, value => model.Settings.InputPrice = value, "number");
+        outputPriceField = PageParts.Field("Output", string.Empty, value => model.Settings.OutputPrice = value, "number");
+        cachedPriceField = PageParts.Field("Cached", string.Empty, value => model.Settings.CachedPrice = value, "number");
+        currencyField = PageParts.Field("Currency", string.Empty, value => model.Settings.Currency = value);
+        currencyField.MaxLength = FieldLimits.CurrencyCode;
+        BindSwitch(toolsSwitch, on => model.Settings.ToolCalling = on);
+        BindSwitch(visionSwitch, on => model.Settings.Vision = on);
+        BindSwitch(reasoningSwitch, on => { model.Settings.Reasoning = on; UpdateSettingsForm(); });
+        BindSwitch(structuredSwitch, on => model.Settings.StructuredOutput = on);
+        BindSwitch(imageSwitch, on => model.Settings.ImageGeneration = on);
+
+        foreach (var (level, toggle) in effortSwitches)
+        {
+            BindSwitch(toggle, on => _ = on ? model.Settings.Efforts.Add(level) : model.Settings.Efforts.Remove(level));
+            efforts.Children.Add(toggle);
+        }
+
+        foreach (var price in (Field[])[inputPriceField, outputPriceField, cachedPriceField, currencyField])
+        {
+            price.MinWidth = Tokens.Number("DvSpace7") * 3;
+        }
+
+        var prices = PageParts.Row(inputPriceField, outputPriceField, cachedPriceField, currencyField);
+        useProvidersValues = PageParts.Action("Use the provider's values", () => { model.AskUseProvidersValues(); return Task.CompletedTask; }, Refresh);
+        saveSettings = PageParts.Action("Save", model.SaveSettings, Refresh, kind: ButtonKind.Primary);
+        settingsSheet.Body = PageParts.SheetBody(
+            settingsIntro, contextField, outputField, toolsSwitch, visionSwitch, reasoningSwitch, effortsLabel, efforts,
+            structuredSwitch, imageSwitch, priceHeading, prices, settingsProblem, settingsBusy);
+        settingsSheet.Actions = PageParts.Row(useProvidersValues, saveSettings);
+        settingsSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (!settingsSheet.Open && model.EditingSettings)
+            {
+                model.CancelSettings();
+                Refresh();
+            }
+        });
+
+        keepThem = PageParts.Action(ModelSettingsForm.KeepThem, () => { model.KeepSettings(); return Task.CompletedTask; }, Refresh);
+        removeSettings = PageParts.Action("Remove", model.UseProvidersValues, Refresh);
+        removeSettings.Kind = ButtonKind.Danger;
+        clearDialog = new Dialog { Title = ModelSettingsForm.UseProviderTitle, InitialFocus = keepThem };
+        clearDialog.Body = PageParts.SheetBody(clearBody);
+        clearDialog.Actions = PageParts.Row(keepThem, removeSettings);
+        clearDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (!clearDialog.Open && model.ConfirmingClear)
+            {
+                model.KeepSettings();
+                Refresh();
+            }
+        });
+
         layout.Body.Add(headerContent);
         layout.Body.Add(addSheet);
         layout.Body.Add(replaceDialog);
+        layout.Body.Add(settingsSheet);
+        layout.Body.Add(clearDialog);
         Unloaded += (_, _) => CloseAll();
         Content = layout;
         Refresh();
@@ -194,8 +301,89 @@ public sealed class ModelConnectionsPage : Screen
 
         UpdateAddForm();
         UpdateReplaceForm();
+        UpdateSettingsForm();
         addSheet.Open = model.Adding;
         replaceDialog.Open = model.Replacing is not null;
+        settingsSheet.Open = model.EditingSettings;
+        clearDialog.Open = model.ConfirmingClear;
+    }
+
+    private static void BindSwitch(Switch toggle, Action<bool> changed) =>
+        toggle.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => changed(toggle.Value));
+
+    private void OpenSettings(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry)
+    {
+        model.OpenSettings(connection, entry);
+        settingsSheet.Title = entry.DisplayName;
+        UpdateSettingsForm();
+        settingsSheet.Open = true;
+        settingsSheet.DispatcherQueue.TryEnqueue(() => contextField.TakeFocus());
+    }
+
+    private void UpdateSettingsForm()
+    {
+        var form = model.Settings;
+        var busy = model.SettingsBusy;
+        settingsIntro.Text = form.Intro;
+        ShowNumber(contextField, form.ContextSize, nameof(ModelSettingsForm.ContextSize), "contextSize", busy);
+        ShowNumber(outputField, form.MaxOutputSize, nameof(ModelSettingsForm.MaxOutputSize), "maxOutputSize", busy);
+        ShowSwitch(toolsSwitch, form.ToolCalling, "toolCalling", busy);
+        ShowSwitch(visionSwitch, form.Vision, "vision", busy);
+        ShowSwitch(reasoningSwitch, form.Reasoning, "reasoning", busy);
+        ShowSwitch(structuredSwitch, form.StructuredOutput, "structuredOutput", busy);
+        ShowSwitch(imageSwitch, form.ImageGeneration, "imageGeneration", busy);
+        var shown = form.ShowsEfforts ? Visibility.Visible : Visibility.Collapsed;
+        effortsLabel.Visibility = shown;
+        efforts.Visibility = shown;
+
+        foreach (var (level, toggle) in effortSwitches)
+        {
+            ShowSwitch(toggle, form.Efforts.Contains(level), "reasoningEfforts", busy);
+        }
+
+        ShowNumber(inputPriceField, form.InputPrice, nameof(ModelSettingsForm.InputPrice), "inputPerMillion", busy);
+        ShowNumber(outputPriceField, form.OutputPrice, nameof(ModelSettingsForm.OutputPrice), "outputPerMillion", busy);
+        ShowNumber(cachedPriceField, form.CachedPrice, nameof(ModelSettingsForm.CachedPrice), "cachedInputPerMillion", busy);
+        currencyField.Disabled = busy;
+        currencyField.Error = form.Problems.GetValueOrDefault(nameof(ModelSettingsForm.Currency));
+
+        if (currencyField.Value != form.Currency)
+        {
+            currencyField.Value = form.Currency;
+        }
+
+        settingsProblem.Text = model.SettingsProblem;
+        settingsBusy.Text = busy ? "Saving what you set." : string.Empty;
+        settingsBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        useProvidersValues.Visibility = form.OffersUseProvidersValues ? Visibility.Visible : Visibility.Collapsed;
+        useProvidersValues.IsEnabled = !busy;
+        saveSettings.IsEnabled = !busy;
+        clearBody.Text = form.UseProvidersValuesBody;
+        keepThem.IsEnabled = !busy;
+        removeSettings.IsEnabled = !busy;
+    }
+
+    private void ShowNumber(Field field, string value, string problem, string member, bool busy)
+    {
+        field.Disabled = busy;
+        field.Error = model.Settings.Problems.GetValueOrDefault(problem);
+        field.Hint = model.Settings.Caption(member);
+
+        if (field.Value != value)
+        {
+            field.Value = value;
+        }
+    }
+
+    private void ShowSwitch(Switch toggle, bool on, string member, bool busy)
+    {
+        toggle.IsEnabled = !busy;
+        toggle.About = model.Settings.Caption(member);
+
+        if (toggle.Value != on)
+        {
+            toggle.Value = on;
+        }
     }
 
     private UIElement Empty()
@@ -422,21 +610,31 @@ public sealed class ModelConnectionsPage : Screen
     {
         var state = entry.State is "available" ? string.Empty : $" ({entry.State})";
         var words = ModelConnectionsViewModel.VisionWords(entry) is { } vision ? $" · {vision}" : string.Empty;
-        var line = Styles.Text($"{entry.DisplayName} · {entry.Model}{state}{(model.CanMarkVision(connection) ? string.Empty : words)}");
+        var line = Styles.Text($"{entry.DisplayName} · {entry.Model}{state}{words}");
+        line.TextWrapping = TextWrapping.Wrap;
 
-        if (!model.CanMarkVision(connection))
+        if (!model.CanEdit)
         {
             return line;
         }
 
-        var reads = new Switch
+        var menu = new Menu
         {
-            Label = ModelConnectionsViewModel.VisionLabel(entry),
-            Value = entry.Capabilities.Vision,
-            IsEnabled = !model.ChangePending,
+            Label = "More",
+            AccessibleLabel = $"More for {entry.DisplayName}",
+            TriggerIcon = IconName.More,
+            ShowTriggerLabel = false,
         };
-        reads.OnChanged(() => model.ChangePending, on => Run(() => model.SetVision(connection, entry, on)));
-        return PageParts.Column(line, reads);
+        menu.Items.Add(PageParts.MenuEntry("Edit what this model can do", () => OpenSettings(connection, entry), !model.ChangePending));
+
+        var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
+        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        line.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(menu, 1);
+        row.Children.Add(line);
+        row.Children.Add(menu);
+        return row;
     }
 
     private void Run(Func<Task> work)

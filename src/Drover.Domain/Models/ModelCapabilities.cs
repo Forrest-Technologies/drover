@@ -16,14 +16,8 @@ public sealed record ModelCapabilities
 
     public bool Streaming { get; init; } = true;
 
-    /// <summary>Whether the model reads pictures. For a model whose provider does not say, see <see cref="VisionSetByOperator"/>.</summary>
+    /// <summary>Whether the model reads pictures. An admin's say lives in <see cref="ModelCapabilityOverrides"/>.</summary>
     public bool Vision { get; init; }
-
-    /// <summary>
-    /// True when a space admin marked the model as reading pictures. A provider that does not know its models'
-    /// capabilities reports none, so a refresh keeps this mark and <see cref="Vision"/> with it.
-    /// </summary>
-    public bool VisionSetByOperator { get; init; }
 
     public bool Reasoning { get; init; }
 
@@ -45,8 +39,8 @@ public sealed record ModelCapabilities
     public bool RealtimeVoice { get; init; }
 
     /// <summary>
-    /// True when a space admin set the three voice marks by hand. A refresh then keeps them, as it keeps
-    /// <see cref="VisionSetByOperator"/>, because a provider that lists only names cannot say otherwise.
+    /// True when a space admin set the three voice marks by hand. A refresh then keeps them, because a provider that
+    /// lists only names cannot say otherwise.
     /// </summary>
     public bool VoiceSetByOperator { get; init; }
 

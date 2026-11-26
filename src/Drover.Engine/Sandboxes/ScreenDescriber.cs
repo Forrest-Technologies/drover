@@ -137,7 +137,7 @@ public sealed class ScreenDescriber(
             return new Found(null, "The model connection of the model set to read this bot's screen no longer exists.");
         }
 
-        if (await connections.FindCatalogEntry(connection.Id, chosen.Model, cancellationToken) is not { Capabilities.Vision: true } entry)
+        if (await connections.FindCatalogEntry(connection.Id, chosen.Model, cancellationToken) is not { EffectiveCapabilities.Vision: true } entry)
         {
             return new Found(null, $"{chosen.Model}, the model set to read this bot's screen, is no longer listed as reading images.");
         }
@@ -157,7 +157,7 @@ public sealed class ScreenDescriber(
 
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(call.Tenant.SpaceId, cancellationToken);
         var address = provider.FixedAddress ?? new Uri(connection.BaseUrl!);
-        return new Found(new Reader(provider, address, connection.Id, entry.Model, entry.DisplayName, key.Value, entry.Pricing, policy), null);
+        return new Found(new Reader(provider, address, connection.Id, entry.Model, entry.DisplayName, key.Value, entry.EffectivePricing, policy), null);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring is a refusal, not a crash.</summary>

@@ -17,6 +17,14 @@ public sealed class ModelCatalogEntry : ISpaceOwned
 
     public ModelPricing Pricing { get; set; } = new();
 
+    /// <summary>
+    /// What a space admin set, over what the provider reported. A refresh never touches it. Null when nothing is set.
+    /// </summary>
+    public ModelCapabilityOverrides? OperatorCapabilities { get; set; }
+
+    /// <summary>Prices a space admin typed, over what the provider reported. Null when nothing is set.</summary>
+    public ModelPricing? OperatorPricing { get; set; }
+
     /// <summary>The provider's own term: private, anonymized, attested.</summary>
     public string? PrivacyMode { get; set; }
 
@@ -25,6 +33,27 @@ public sealed class ModelCatalogEntry : ISpaceOwned
     public AvailabilityState State { get; set; } = AvailabilityState.Available;
 
     public DateTimeOffset LastSeenAt { get; set; }
+
+    /// <summary>
+    /// What the model can do: the admin's value where one is set, the provider's where not. Every reader outside
+    /// the catalog refresh uses this, never <see cref="Capabilities"/>.
+    /// </summary>
+    public ModelCapabilities EffectiveCapabilities => OperatorCapabilities?.ApplyTo(Capabilities) ?? Capabilities;
+
+    /// <summary>
+    /// The price per million tokens, price by price: the admin's where set, the provider's where not. The currency
+    /// is the admin's when the admin set any price.
+    /// </summary>
+    public ModelPricing EffectivePricing =>
+        OperatorPricing is { } set
+            ? new ModelPricing
+            {
+                InputPerMillion = set.InputPerMillion ?? Pricing.InputPerMillion,
+                OutputPerMillion = set.OutputPerMillion ?? Pricing.OutputPerMillion,
+                CachedInputPerMillion = set.CachedInputPerMillion ?? Pricing.CachedInputPerMillion,
+                Currency = set.Currency,
+            }
+            : Pricing;
 
     #endregion
 }
