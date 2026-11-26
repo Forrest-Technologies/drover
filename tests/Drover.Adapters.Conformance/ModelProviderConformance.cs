@@ -280,6 +280,7 @@ public abstract class ModelProviderConformance
         if (descriptor.AddressRule is ModelAddressRule.Fixed)
         {
             descriptor.AddressHint.Should().BeNull("a connection of a fixed kind has no address field");
+            (descriptor.NamedProviders ?? []).Should().BeEmpty("a fixed kind has one address, so there is nothing to pick by name");
         }
 
         if (descriptor.KeyRule is ModelKeyRule.None)

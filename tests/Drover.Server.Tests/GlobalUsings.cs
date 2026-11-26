@@ -29,6 +29,7 @@ global using Drover.Adapters.Conformance.Tools;
 global using Drover.Adapters.DataProtection;
 global using Drover.Adapters.E2B;
 global using Drover.Adapters.LocalFiles;
+global using Drover.Adapters.OpenAICompatible;
 global using Drover.Adapters.SearXng;
 global using Drover.Client;
 global using Drover.Client.Runs;

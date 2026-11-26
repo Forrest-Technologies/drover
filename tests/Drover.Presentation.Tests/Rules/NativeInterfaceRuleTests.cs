@@ -236,6 +236,18 @@ public sealed partial class NativeInterfaceRuleTests
     }
 
     [Fact]
+    public void No_provider_is_named_in_client_source()
+    {
+        var names = KnownProviders.All.SelectMany(row => new[] { row.Id, row.DisplayName }).Distinct().ToList();
+        var found = from file in Repository.NativeFiles(".xaml", ".cs").Concat(Repository.PresentationFiles(".cs"))
+                    from name in names
+                    where file.Text.Contains($"\"{name}\"", StringComparison.Ordinal)
+                    select $"{file.Path}: \"{name}\"";
+
+        found.Should().BeEmpty("the names, addresses and key rules of the named providers come from the server");
+    }
+
+    [Fact]
     public void Every_control_that_draws_itself_as_decoration_is_left_out_of_what_assistive_technology_reads()
     {
         string[] decorations = ["Controls/Icon.cs", "Controls/DroverMark.cs", "Controls/Yard.cs", "Controls/TravelLine.cs", "Controls/LiveLight.cs", "Controls/AvatarCanvas.cs"];
