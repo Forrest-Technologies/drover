@@ -14,19 +14,13 @@ internal sealed class RetiredApp : IRetiredApp
 
     #region Interface Implementations
 
+    // The retired app had a launcher entry, and Android answers null for a package that is not installed.
     public bool Installed
     {
         get
         {
-            try
-            {
-                Android.App.Application.Context.PackageManager?.GetPackageInfo(Package, 0);
-                return true;
-            }
-            catch (Android.Content.PM.PackageManager.NameNotFoundException)
-            {
-                return false;
-            }
+            using var launch = Android.App.Application.Context.PackageManager?.GetLaunchIntentForPackage(Package);
+            return launch is not null;
         }
     }
 
