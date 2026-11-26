@@ -633,7 +633,6 @@ public sealed class RunEngineTests(PostgresServer postgres)
         world.Model.UsagePerCall = new ModelTokenUsage(0, 0, 0);
         await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 3 });
         await world.Grant("test.ask", GrantEffect.Ask);
-        await world.Grant("test.write", GrantEffect.Allow);
         world.StartHost();
         var threadId = await world.NewThread();
 
@@ -683,7 +682,8 @@ public sealed class RunEngineTests(PostgresServer postgres)
         var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
         var tool = (await world.ReadToolCalls(runId)).Single();
 
-        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
+        run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
         tool.Result!.Value.GetProperty("refused").GetBoolean().Should().BeTrue("the fourth tool model call is refused after two unmetered ones");
         tool.Result.Value.GetProperty("reason").GetString().Should().Contain("no token use");
     }
