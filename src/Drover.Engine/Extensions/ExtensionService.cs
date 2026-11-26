@@ -116,17 +116,40 @@ public sealed class ExtensionService(
     }
 
     /// <summary>
-    /// The bot written down as an extension, for the editor to open: its name, what it is for, its instructions, and
-    /// its model as a suggestion. Nothing else of the bot is ever put in a file: not its grants, sandbox, limits,
-    /// schedules, or notes. Null when the bot is not in this space.
+    /// The bot written down as an extension, for the editor to open. A bot made by hand is written as a bot-only
+    /// package. A bot an extension added keeps that file's id, name and description, and its reviewed connection
+    /// recipe: the server address, auth method, header name and suggested tools, never a credential or a grant.
+    /// Nothing else of the bot has a field to be in, so its sandbox, limits, schedules and notes cannot leave.
+    /// Null when the bot is not in this space.
     /// </summary>
-    public async Task<ExtensionPackage?> Export(Guid botId, CancellationToken cancellationToken) =>
-        await bots.FindBot(botId, cancellationToken) is { } bot
-            ? new ExtensionPackage(ExtensionPackage.CurrentVersion, ExtensionFile.IdFrom(bot.Handle), bot.Name)
-            {
-                Contents = [new BotTemplate(bot.Name, bot.Instructions) { Description = bot.DescriptionForBots, SuggestedModel = bot.Model }],
-            }
-            : null;
+    public async Task<ExtensionPackage?> Export(Guid botId, CancellationToken cancellationToken)
+    {
+        if (await bots.FindBot(botId, cancellationToken) is not { } bot)
+        {
+            return null;
+        }
+
+        var installed = await extensions.FindForBot(botId, cancellationToken);
+        var recipe = installed is null ? null : RecipeOf(installed);
+        List<ExtensionContent> contents =
+        [
+            new BotTemplate(bot.Name, bot.Instructions) { Description = bot.DescriptionForBots, SuggestedModel = bot.Model },
+        ];
+
+        if (recipe is not null)
+        {
+            contents.Add(recipe);
+        }
+
+        return new ExtensionPackage(
+            ExtensionPackage.CurrentVersion,
+            installed?.PackageId ?? ExtensionFile.IdFrom(bot.Handle),
+            installed?.Name ?? bot.Name)
+        {
+            Description = installed?.Description ?? string.Empty,
+            Contents = contents,
+        };
+    }
 
     /// <summary>The file as its package, read as strictly as an import reads it, or the sentence that says why not.</summary>
     public static ExtensionChange<ExtensionPackage> Read(string? text)

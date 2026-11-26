@@ -13,6 +13,15 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
 
     #endregion
 
+    #region Overrides
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        ["Drover:PublicUrl"] = "https://drover.example.test",
+    };
+
+    #endregion
+
     #region Tests
 
     [Fact]
@@ -154,6 +163,116 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
         (await Title(connected)).Should().Be("This extension names no tool server.");
     }
 
+    [Fact]
+    public async Task Exporting_an_installed_extension_keeps_its_recipe_and_metadata_without_credentials_or_grants()
+    {
+        var secret = NewPassword();
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless, HeaderName, secret));
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        await CreateBot(client, alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var imported = await PostFor<ExtensionSummary>(client, $"{space}/extensions", new ExtensionText(File(server.Url, "header", HeaderName)));
+        var connected = await PostFor<ExtensionSummary>(client, $"{space}/extensions/{imported.Id}/connection", new ConnectExtensionRequest(AcceptLocalAddress: true, HeaderValue: secret));
+        var echo = connected.Connection!.Tools.Single(tool => tool.Name == "echo");
+        (await client.Put($"{space}/bots/{imported.BotId}/tools/{echo.ToolId}", new SetToolGrantRequest("ask"))).EnsureSuccessStatusCode();
+
+        var exported = await client.Get($"{space}/extensions/from-bot/{imported.BotId}");
+        var body = await exported.Content.ReadAsStringAsync(Token);
+        var package = JsonSerializer.Deserialize<ExtensionPackage>(body, JsonSerializerOptions.Web)!;
+        var read = await client.Post($"{space}/extensions/read", new ExtensionText(body));
+
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        package.Id.Should().Be("sample.helpdesk");
+        package.Name.Should().Be("Sample helpdesk");
+        package.Description.Should().Be("Helps with tickets.");
+        package.Contents.OfType<BotTemplate>().Should().ContainSingle().Which.Should().Match<BotTemplate>(found =>
+            found.Instructions == "Keep notes short." && found.SuggestedModel == "scripted");
+        package.Contents.OfType<ConnectionRecipe>().Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new ConnectionRecipe("Helpdesk", server.Url.ToString())
+            {
+                Auth = "header",
+                HeaderName = HeaderName,
+                SuggestedTools = [new SuggestedTool("echo", "Repeats what it is given."), new SuggestedTool("absent", "Not a tool the server has.")],
+            });
+        body.Should().NotContain(secret, "a header value is never written to a file");
+        body.Should().NotContain("grants", "no grant has a field in the file");
+        body.Should().NotContain("ask", "the grant a person made is not in the file");
+        read.StatusCode.Should().Be(HttpStatusCode.OK, await read.Content.ReadAsStringAsync(Token));
+    }
+
+    [Fact]
+    public async Task An_exported_extension_imports_elsewhere_with_its_recipe_and_no_grants()
+    {
+        var secret = NewPassword();
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless, HeaderName, secret));
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var client = await SignIn(alice.Email, alice.Password);
+        var asBob = await SignIn(bob.Email, bob.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        await AllowPrivateAddresses(bob.SpaceId);
+        await CreateBot(client, alice.SpaceId);
+        await CreateBot(asBob, bob.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var theirs = $"/api/spaces/{bob.SpaceId}";
+        var imported = await PostFor<ExtensionSummary>(client, $"{space}/extensions", new ExtensionText(File(server.Url, "header", HeaderName)));
+        var exported = await client.Get($"{space}/extensions/from-bot/{imported.BotId}");
+        var text = ExtensionFile.Write(JsonSerializer.Deserialize<ExtensionPackage>(await exported.Content.ReadAsStringAsync(Token), JsonSerializerOptions.Web)!);
+        var received = await PostFor<ExtensionSummary>(asBob, $"{theirs}/extensions", new ExtensionText(text));
+        var before = await Connections(asBob, theirs);
+        var connected = await PostFor<ExtensionSummary>(asBob, $"{theirs}/extensions/{received.Id}/connection", new ConnectExtensionRequest(AcceptLocalAddress: true, HeaderValue: secret));
+
+        received.PackageId.Should().Be("sample.helpdesk");
+        received.Description.Should().Be("Helps with tickets.");
+        received.BotStatus.Should().Be("paused");
+        before.Should().BeEmpty("an import starts with no connection");
+        connected.Connection.Should().Match<ExtensionConnectionSummary>(found =>
+            found.Url == server.Url.ToString() && found.Auth == "header" && found.HeaderName == HeaderName && found.Status == "ready");
+        connected.Connection!.Tools.Select(tool => (tool.Name, tool.Why)).Should().Equal(
+            [("echo", "Repeats what it is given."), ("absent", "Not a tool the server has.")]);
+        connected.Connection.Tools.Should().OnlyContain(tool => tool.Grant == "off", "the new space grants nothing");
+    }
+
+    [Fact]
+    public async Task Exporting_a_sign_in_connection_writes_no_private_authentication_state()
+    {
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        await CreateBot(client, alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var imported = await PostFor<ExtensionSummary>(client, $"{space}/extensions", new ExtensionText(File(server.Url, "oauth", null)));
+        var connected = await PostFor<ExtensionSummary>(client, $"{space}/extensions/{imported.Id}/connection", new ConnectExtensionRequest(AcceptLocalAddress: true));
+        var start = await PostFor<ToolSignInStart>(client, $"{space}/tool-connections/{connected.Connection!.ConnectionId}/sign-in", new { });
+        var answer = await server.Approve(new Uri(start.AuthorizationUrl!));
+        var callback = $"/oauth/mcp/callback?code={Uri.EscapeDataString(answer.Code)}&state={Uri.EscapeDataString(answer.State ?? string.Empty)}&iss={Uri.EscapeDataString(answer.Issuer ?? string.Empty)}";
+        var back = await client.Get(callback);
+
+        var exported = await client.Get($"{space}/extensions/from-bot/{imported.BotId}");
+        var body = await exported.Content.ReadAsStringAsync(Token);
+        var package = JsonSerializer.Deserialize<ExtensionPackage>(body, JsonSerializerOptions.Web)!;
+        var recipe = package.Contents.OfType<ConnectionRecipe>().Single();
+        var read = await client.Post($"{space}/extensions/read", new ExtensionText(body));
+
+        start.Step.Should().Be("redirect", start.Problem);
+        back.StatusCode.Should().Be(HttpStatusCode.Redirect, await back.Content.ReadAsStringAsync(Token));
+        server.IssuedSecrets.Should().NotBeEmpty("the sign-in really issued private values");
+        connected.Connection.Auth.Should().Be("oauth");
+        recipe.Auth.Should().Be("oauth");
+        recipe.HeaderName.Should().BeNull();
+        foreach (var issued in server.IssuedSecrets)
+        {
+            body.Should().NotContain(issued, "a code or token the sign-in issued is never written to a file");
+        }
+
+        body.Should().NotContain($"{connected.Connection.ConnectionId}", "the private connection is not part of the file");
+        body.Should().NotContain(imported.Id.ToString(), "the install is not part of the file");
+        read.StatusCode.Should().Be(HttpStatusCode.OK, await read.Content.ReadAsStringAsync(Token));
+    }
+
     #endregion
 
     #region Helpers
@@ -161,6 +280,7 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
     private static string File(Uri address, string auth, string? headerName) =>
         ExtensionFile.Write(new ExtensionPackage(1, "sample.helpdesk", "Sample helpdesk")
         {
+            Description = "Helps with tickets.",
             Contents =
             [
                 new BotTemplate("Sample scribe", "Keep notes short."),

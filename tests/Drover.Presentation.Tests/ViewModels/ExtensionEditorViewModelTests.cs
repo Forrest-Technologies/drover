@@ -214,6 +214,38 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Opened_from_an_installed_bot_the_form_keeps_the_id_description_and_connection()
+    {
+        server.Answer("GET", $"{root}/from-bot/{botId}", Package with
+        {
+            Id = "forrest.forge",
+            Name = "Forge",
+            Description = "Research with a tool server.",
+            Contents =
+            [
+                new BotTemplate("Forge", "Keep notes short.") { SuggestedModel = "sample-model" },
+                new ConnectionRecipe("Microsoft Learn", "https://learn.example.test/mcp")
+                {
+                    SuggestedTools = [new SuggestedTool("search", "Finds pages.")],
+                },
+            ],
+        });
+
+        var editor = await Opened(botId);
+
+        editor.Id.Should().Be("forrest.forge");
+        editor.Description.Should().Be("Research with a tool server.");
+        editor.NamesServer.Should().BeTrue();
+        editor.ServerName.Should().Be("Microsoft Learn");
+        editor.ServerAddress.Should().Be("https://learn.example.test/mcp");
+        editor.ServerAuth.Should().Be("none");
+        editor.SuggestedTools.Should().Be("search: Finds pages.");
+        ExtensionEditorViewModel.IdHint.Should().Contain("fork");
+        editor.Id = "forrest.forge-fork";
+        editor.FileName.Should().Be("forrest.forge-fork.json");
+    }
+
+    [Fact]
     public async Task A_bot_that_cannot_be_opened_says_so_and_can_be_tried_again()
     {
         server.Answer("GET", $"{root}/from-bot/{botId}", HttpStatusCode.ServiceUnavailable);

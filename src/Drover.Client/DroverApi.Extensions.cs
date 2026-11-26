@@ -32,7 +32,8 @@ public sealed partial class DroverApi
 
     /// <summary>
     /// A bot written down as an extension (admin only), for the editor to open: its name, what it is for, its
-    /// instructions, and its model as a suggestion. Nothing else of the bot is in it.
+    /// instructions, and its model as a suggestion. A bot from an installed extension also keeps that file's id,
+    /// description, and non-secret connection recipe.
     /// </summary>
     public Task<ExtensionPackage> ExportBotAsExtension(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<ExtensionPackage>($"{Space(spaceId)}/extensions/from-bot/{botId}", cancellationToken);

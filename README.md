@@ -78,7 +78,7 @@ Use the built-in hosted provider, or any server that speaks the chat completions
 - **Memory.** A bot keeps notes per person. You can read, edit, forget, and restore them from the conversation.
 - **Routines.** A prompt plus a cron schedule and a time zone. Each run starts a new conversation or continues the last one.
 - **Rules.** Per-bot rules that redact text, ask first, block a call, or stop the run. Starters cover "ask before anything that writes", card numbers and keys, and quiet hours. Removing a rule offers Undo, even after you leave the bot editor.
-- **Extensions.** One JSON file that adds a bot, a tool server, or both. You see what's in it before anything is added. It can't grant tools, and its bot starts paused.
+- **Extensions.** One JSON file that adds a bot, a tool server, or both. You see what's in it before anything is added. It can't grant tools, and its bot starts paused. Making one from an installed bot keeps its id, description and connection recipe, with no key or grant; change the id to make a fork.
 
 ### Apps
 
