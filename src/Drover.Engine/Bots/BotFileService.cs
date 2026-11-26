@@ -17,7 +17,7 @@ public sealed class BotFileService(BotService bots, ModelConnectionRepository co
     #region Private Fields
 
     /// <summary>What an import answers with when the space has no model for the bot. The screen says the same and links to it.</summary>
-    public const string NoModel = "A bot needs a model to think with, and this space has none it can use yet. Connect a model, then import this.";
+    public const string NoModel = "A bot needs a model, and this space has none it can use yet. Connect a model, then import this.";
 
     #endregion
 

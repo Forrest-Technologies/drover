@@ -79,7 +79,7 @@ public sealed class BotFileApiTests(PostgresServer postgres) : ServerTestBase(po
         var import = await client.Post($"{Space(alice.SpaceId)}/bots/import", new BotFileText(Sample));
 
         import.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await Title(import)).Should().Be("A bot needs a model to think with, and this space has none it can use yet. Connect a model, then import this.");
+        (await Title(import)).Should().Be("A bot needs a model, and this space has none it can use yet. Connect a model, then import this.");
         (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Should().BeEmpty();
     }
 
