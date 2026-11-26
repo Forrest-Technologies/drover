@@ -621,23 +621,25 @@ public sealed class RunEngineTests(PostgresServer postgres)
     [Fact]
     public async Task The_unmetered_call_bound_counts_calls_made_before_an_approval_wait()
     {
-        var tools = new TestTools().Add("test.write", ToolSensitivity.Write);
+        var tools = new TestTools()
+            .Add("test.ask", ToolSensitivity.Write)
+            .Add("test.write", ToolSensitivity.Read);
         var script = new ScriptedModel(
-            [new ToolCallOutput("c1", "test_write")],
+            [new ToolCallOutput("c1", "test_ask")],
             [new ToolCallOutput("c2", "test_write")],
             [new ToolCallOutput("c3", "test_write")],
             [new TextOutput("Never reached.")]);
         await using var world = await RunWorld.Create(postgres, script, tools);
         world.Model.UsagePerCall = new ModelTokenUsage(0, 0, 0);
         await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 3 });
-        await world.Grant("test.write", GrantEffect.Ask);
+        await world.Grant("test.ask", GrantEffect.Ask);
+        await world.Grant("test.write", GrantEffect.Allow);
         world.StartHost();
         var threadId = await world.NewThread();
 
         var runId = await world.Post(threadId, "Write it");
         await world.WaitForStatus(runId, RunStatus.Waiting);
         var call = (await world.ReadToolCalls(runId)).Single();
-        await world.Grant("test.write", GrantEffect.Allow);
         (await world.Decide(call.Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
         var run = await world.WaitForStatusWithin(runId, TimeSpan.FromMinutes(2), RunStatus.Failed, RunStatus.Completed);
 
@@ -650,6 +652,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
     [Fact]
     public async Task A_tool_model_call_that_reports_no_token_use_counts_toward_the_unmetered_bound()
     {
+        var readerConnection = Guid.Empty;
         var tools = new TestTools().AddWithCall("test.reader", ToolSensitivity.Read, async (call, _) =>
         {
             for (var index = 1; index <= 4; index++)
@@ -657,7 +660,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
                 try
                 {
                     await call.BeginModelCall();
-                    await call.RecordModelUsage(new ToolModelUsage(Guid.Empty, "reader", new ModelPricing(), index is 2 ? 5 : 0, 0)
+                    await call.RecordModelUsage(new ToolModelUsage(readerConnection, "reader", new ModelPricing(), index is 2 ? 5 : 0, 0)
                     {
                         HasTokenUsage = index is not 2,
                     });
@@ -672,6 +675,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
         });
         var script = new ScriptedModel([new ToolCallOutput("c1", "test_reader")], [new TextOutput("Done.")]);
         await using var world = await RunWorld.Create(postgres, script, tools);
+        readerConnection = world.ConnectionId;
         await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 2 });
         world.StartHost();
 
