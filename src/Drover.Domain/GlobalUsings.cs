@@ -34,3 +34,4 @@ global using Drover.Domain.Secrets;
 global using Drover.Domain.Tenancy;
 global using Drover.Domain.Threads;
 global using Drover.Domain.Tools;
+global using Drover.Domain.Voice;

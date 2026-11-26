@@ -37,7 +37,7 @@ internal static class KnownVoices
     public static IReadOnlyList<VoiceOption> For(Uri address, string model)
     {
         var name = model.ToLowerInvariant();
-        var ids = IsGrok(address)
+        var ids = IsGrok(address) || name.StartsWith("grok", StringComparison.Ordinal)
             ? grok
             : name.Contains("kokoro", StringComparison.Ordinal)
                 ? kokoro
