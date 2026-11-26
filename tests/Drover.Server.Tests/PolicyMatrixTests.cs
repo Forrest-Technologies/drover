@@ -233,6 +233,16 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void The_voice_rules_bound_one_recording_one_read_aloud_and_one_call()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.MaxVoiceRecordingBytes.Should().Be(Limit(nameof(DeploymentPolicy.MaxVoiceRecordingBytes)));
+        rules.MaxReadAloudCharacters.Should().Be(Limit(nameof(DeploymentPolicy.MaxReadAloudCharacters)));
+        rules.MaxCallMinutes.Should().Be(Limit(nameof(DeploymentPolicy.MaxCallMinutes)));
+    }
+
+    [Fact]
     public async Task MaxBotsPerSpace_is_the_cap_on_a_spaces_bots_where_the_space_sets_none_and_a_space_may_only_lower_it()
     {
         await using var scope = Services.CreateAsyncScope();
