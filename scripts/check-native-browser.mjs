@@ -188,6 +188,19 @@ const projectOutsideThread = {
     id: projectOutsideThreadId, botId, title: 'Quarterly planning',
     isShared: false, lastActivityAt: thread.lastActivityAt, activeRunId: null, isMain: false, attention: null, projectId: null,
 };
+// The Tools section's sample tools: a built-in group of one that reads and one that writes, set read only, and a
+// tool server's group whose tools are set one by one.
+const editorTool = (id, name, title, sensitivity, grant, server) => ({
+    toolId: `0196f1a0-0000-7000-8000-0000000007${id}`, name, title, description: 'Sample description.', source: server ? 'connection' : 'builtin',
+    connectionId: server ? connectionId : null, connectionName: server ? 'Sample tools' : null, sensitivity, grant, ceiling: 'allow',
+    ceilingBotName: null, state: 'available', alwaysAsks: false, needsReview: false, definitionHash: `sample-${id}`, reviewed: null,
+});
+const editorTools = [
+    editorTool('01', 'time.now', 'Sample current time', 'read', 'allow', false),
+    editorTool('02', 'files.write', 'Sample file writer', 'write', 'off', false),
+    editorTool('03', 'sample_lookup', 'Sample lookup', 'write', 'ask', true),
+    editorTool('04', 'sample_update', 'Sample update', 'write', 'off', true),
+];
 const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
@@ -195,6 +208,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
@@ -594,6 +608,7 @@ try {
                     return;
                 }
                 else if (address.endsWith('/files/rules')) { body = { maxFileBytes: 26214400 }; }
+                else if (address.endsWith(`/bots/${botId}/tools`) && current === 'bot-editor-tools') { body = editorTools; }
                 else if (address.endsWith(`/bots/${botId}/tools`)
                     || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
@@ -671,6 +686,15 @@ try {
                 if (name === 'bot-editor') {
                     await editorLoaded;
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
+                }
+                if (name === 'bot-editor-tools') {
+                    await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
+                    await page.getByRole('group', { name: 'Every tool in Built in for Sample bot', exact: true }).waitFor({ state: 'attached' });
+                    await page.getByRole('button', { name: 'Sample tools, 1 of 2 on', exact: true }).dispatchEvent('click');
+                    const serverTools = page.getByRole('group', { name: 'Every tool in Sample tools for Sample bot', exact: true });
+                    await serverTools.waitFor({ state: 'attached' });
+                    await page.getByText('No tool here is known only to read.', { exact: false }).waitFor({ state: 'attached' });
+                    await serverTools.scrollIntoViewIfNeeded();
                 }
                 if (name === 'sandbox-terminal') {
                     await page.getByRole('textbox', { name: 'Shell command', exact: true }).waitFor({ state: 'attached' });
