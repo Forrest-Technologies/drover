@@ -310,7 +310,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
             new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs);
 
-        policies.Runs(new SpaceSettings()).Should().Be(ceilings);
+        policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
         policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
         var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
         space.Should().Be(new RunCeilings(10, 1000, 3));

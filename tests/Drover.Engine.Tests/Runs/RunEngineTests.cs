@@ -503,6 +503,8 @@ public sealed class RunEngineTests(PostgresServer postgres)
         tools.Count("test.write").Should().Be(0, "the gate reads the grant again when the call is made");
         script.Requests[1].Should().Contain(message => message.Role == "tool" && message.Summary.Contains("no grant", StringComparison.Ordinal));
         (await world.ReadToolCalls(runId)).Should().ContainSingle(call => call.Status == ToolCallStatus.Failed && call.IsError);
+        (await world.ReadMessages(run.ThreadId)).SelectMany(message => message.Parts).OfType<ToolResultPart>()
+            .Should().ContainSingle().Which.IsError.Should().BeTrue();
         (await world.ReadEvents(runId)).Where(stored => stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
             .Should().ContainSingle().Which.Outcome.Should().Be("refused");
     }
@@ -572,6 +574,26 @@ public sealed class RunEngineTests(PostgresServer postgres)
         run.Error!.Message.Should().Contain("2 model calls");
         script.Requests.Should().HaveCount(2, "the third model call is never made");
         (await world.ReadEvents(runId))[^1].Type.Should().Be(RunEventTypes.RunFailed);
+    }
+
+    [Theory]
+    [InlineData(false, RunStatus.Failed, 1)]
+    [InlineData(true, RunStatus.Completed, 2)]
+    public async Task Only_an_acknowledged_unlimited_run_continues_at_five_million_tokens(bool acknowledged, RunStatus expected, int calls)
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_lookup")], [new TextOutput("Finished.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(4_999_999, 1, 5_000_000);
+        await world.SetRunLimits(new RunLimits { UncappedUsageAcknowledged = acknowledged });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Continue");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(expected);
+        run.Usage.InputTokens.Should().Be(4_999_999L * calls);
+        script.Requests.Should().HaveCount(calls);
     }
 
     [Fact]

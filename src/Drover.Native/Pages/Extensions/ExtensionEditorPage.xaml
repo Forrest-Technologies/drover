@@ -43,7 +43,7 @@
                         MaxLength="{x:Bind extensions:ExtensionFile.MaxIdLength}"
                         Value="{x:Bind Model.Id, Mode=TwoWay}"
                         Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                        Hint="Names the extension wherever it is installed. Lower-case letters, digits, dots, and hyphens." />
+                        Hint="{x:Bind vm:ExtensionEditorViewModel.IdHint}" />
               <dv:TextArea Label="Description"
                            MaxLength="{x:Bind contracts:FieldLimits.BotDescription}"
                            Value="{x:Bind Model.Description, Mode=TwoWay}"
