@@ -34,6 +34,9 @@ public static class Addresses
 
     public const string Usage = "/usage";
 
+    /// <summary>Which models listen, speak and hold live calls in the space.</summary>
+    public const string Voice = "/voice";
+
     #endregion
 
     #region Public Methods

@@ -365,6 +365,82 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.ToolsPart.Version.Should().Be(1, "the control is drawn again");
     }
 
+    [Fact]
+    public async Task A_group_sets_every_tool_at_once_and_shows_the_setting_its_tools_are_at()
+    {
+        var connection = Guid.Parse("0196f1a0-0000-7000-8000-00000000000e");
+        BotToolEntry ServerTool(string id, string name, string sensitivity, string grant, string ceiling = "allow", string state = "available") =>
+            new(Guid.Parse($"0196f1a0-0000-7000-8000-0000000001{id}"), name, name, "Sample description", "connection", connection, "Sample server", sensitivity, grant, ceiling, ceiling == "allow" ? null : "Sample parent", state);
+        var reads = ServerTool("01", "Sample reads", "read", "off");
+        var writes = ServerTool("02", "Sample writes", "write", "allow");
+        var capped = ServerTool("03", "Sample capped", "write", "off", ceiling: "ask");
+        var gone = ServerTool("04", "Sample gone", "write", "off", state: "missing");
+        Server.Answer("GET", $"{space}/tool-connections", (ToolConnectionSummary[])[
+            new(connection, "Sample server", "sample", "https://tools.example.test/mcp", "none", "untrusted", "automatic", "ready", null, null, null)]);
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), reads, writes, capped, gone]);
+        Server.Answer("PUT", $"{bot}/tools", (BotToolEntry[])[reads with { Grant = "allow" }, capped with { Grant = "ask" }]);
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+        var part = editor.ToolsPart;
+        var group = part.Groups.Single(found => found.ConnectionId == connection);
+
+        ToolsSectionViewModel.OffersQuick(part.Groups[0]).Should().BeFalse("one tool is set by its own control");
+        ToolsSectionViewModel.OffersQuick(group).Should().BeTrue();
+        part.QuickGrantLabel(group).Should().Be("Every tool in Sample server for Marshal");
+        ToolsSectionViewModel.QuickOptions(group).Select(option => $"{option.Label} {option.Disabled}").Should().Equal("Off False", "Read only False", "Ask False", "Allow False");
+        ToolsSectionViewModel.QuickValue(group).Should().BeNull("the tools are set in no one way");
+        ToolsSectionViewModel.QuickHint(group).Should().BeNull();
+
+        await part.SetAll(group, "allow");
+
+        Server.Sent("PUT", $"{bot}/tools").Should().ContainSingle().Which.Should()
+            .Contain($"{{\"toolId\":\"{reads.ToolId}\",\"grant\":\"allow\"}}", "each tool is given as much as it asks for")
+            .And.Contain($"{{\"toolId\":\"{capped.ToolId}\",\"grant\":\"ask\"}}", "but never more than its parent holds")
+            .And.NotContain(writes.ToolId.ToString(), "a tool already as it should be is not sent")
+            .And.NotContain(gone.ToolId.ToString(), "a tool its server no longer lists is left alone");
+        part.Announcement.Should().Be("Sample server is set to allow. 2 tools changed.");
+        part.BusyGroup.Should().BeNull();
+        ToolsSectionViewModel.QuickValue(part.Groups.Single(found => found.ConnectionId == connection)).Should().Be("allow",
+            "every tool is as allowed as it may be");
+    }
+
+    [Fact]
+    public async Task Read_only_turns_on_the_tools_that_only_read_and_says_why_it_cannot_when_none_does()
+    {
+        var write = TimeTool("off", "allow", null) with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000201"), Name = "files.write", Title = "Write a file", Sensitivity = "write" };
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), write]);
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+        var builtIn = editor.ToolsPart.Groups[0];
+        var writesOnly = builtIn with { Tools = [write, write with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000202") }] };
+
+        ToolsSectionViewModel.QuickValue(builtIn).Should().Be("read", "the tool that reads is allowed and the one that writes is off");
+        ToolsSectionViewModel.QuickOptions(writesOnly).Single(option => option.Label == "Read only").Disabled.Should().BeTrue("it would be the same as off");
+        ToolsSectionViewModel.QuickHint(writesOnly).Should().Be(ToolsSectionViewModel.NoReadingTools);
+        ToolsSectionViewModel.NoReadingTools.Should().Contain("claim does not count");
+        ToolsSectionViewModel.QuickValue(writesOnly).Should().Be("off");
+
+        await editor.ToolsPart.SetAll(builtIn, "read");
+
+        Server.Sent("PUT", $"{bot}/tools").Should().BeEmpty("nothing differs from read only");
+    }
+
+    [Fact]
+    public async Task A_group_setting_the_server_refuses_changes_nothing_and_is_said_in_its_words()
+    {
+        var other = TimeTool("off", "allow", null) with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000301"), Name = "files.write", Title = "Write a file", Sensitivity = "write" };
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), other]);
+        Server.Refuse("PUT", $"{bot}/tools", HttpStatusCode.Conflict, "Sample parent does not have this tool. Give it to Sample parent first.");
+        var editor = await OpenEditor();
+        editor.Toggle(Tools, true);
+
+        await editor.ToolsPart.SetAll(editor.ToolsPart.Groups[0], "ask");
+
+        editor.ToolsPart.Problem.Should().Contain("Give it to Sample parent first.");
+        editor.Tools!.Select(tool => tool.Grant).Should().Equal(["allow", "off"], "every grant that still holds is shown");
+        editor.ToolsPart.Version.Should().Be(1, "the control is drawn again");
+    }
+
     #endregion
 
     #region Limits

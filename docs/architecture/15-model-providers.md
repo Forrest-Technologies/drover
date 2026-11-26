@@ -133,6 +133,46 @@ The operator says more one model at a time, and today the one thing to say is th
 
 On the hosted service the base address is checked against private address ranges ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Self-hosters can point at a machine on their own network.
 
+## Voice
+
+Speech has three jobs, each behind an interface Drover owns in `Drover.Domain/Voice`, and each chosen on its own:
+
+| Interface | Job | Over the wire |
+| --- | --- | --- |
+| `ISpeechToText` | Write down a recording | `POST {base}/audio/transcriptions`, multipart, bounded by `MaxVoiceRecordingBytes` |
+| `ITextToSpeech` | Read text aloud, streamed as it is made, and list a model's voices | `POST {base}/audio/speech`; `GET {base}/audio/voices` where the server has it |
+| `IRealtimeVoice` | Hold a live call with a speech-to-speech model | One WebSocket at `{base}/realtime?model=` |
+
+One adapter serves all three for a compatible connection (`OpenAICompatibleProvider`), so a provider works when its address does. No package was added: the adapter speaks the protocol with `HttpClient` and `ClientWebSocket`, through the same checked outbound handler as every other provider call, with the space's private-address rule on each request.
+
+| Provider | Base address | Listens | Speaks | Live calls |
+| --- | --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | yes | yes | yes |
+| Groq | `https://api.groq.com/openai/v1` | yes | yes: 200 characters a request and WAV only, which Drover handles (below) | no |
+| xAI | `https://api.x.ai/v1` | no | no | yes. Its own speech and transcription endpoints are not this shape |
+| Ollama | `http://host:11434/v1` | where the model does | where the model does | no |
+| Kokoro-FastAPI | `http://host:8880/v1` | no | yes | no |
+| Speaches | `http://host:8000/v1` | yes | yes | no |
+
+Anthropic has no speech API, so a space whose bots answer with its models still names another connection, or the server's own speech service, for voice.
+
+**Which models do what.** A compatible endpoint lists model names and nothing about them, so the adapter marks a model from its name when the catalog is refreshed (`KnownVoices.Mark`): names with `whisper`, `transcribe`, `stt` or `parakeet` listen; names with `tts`, `kokoro` or `orpheus` speak; names with `realtime`, or that begin `grok-voice`, hold live calls. An unknown name gets no mark. A space admin sets or corrects the three marks for one model with `PUT /api/spaces/{space}/model-connections/{connection}/models/voice` (body `{ model, speechToText, textToSpeech, realtimeVoice }`, compatible connections only, admin only). A mark set by hand is kept across refreshes (`VoiceSetByOperator`); all three false clears it.
+
+**Which model a space uses.** `spaces.settings.voice` holds up to three choices, `listen`, `speak` and `live`, each a connection, a model and optionally a voice (`PUT .../voice/settings`, admin only; a connection of another space or a model not marked for the slot is refused with a sentence). A slot left empty is chosen by the server (`VoiceChoices.Resolve`): the first connection by name that has not failed and has an available model with the mark, the first such model by name, and the first voice the adapter lists. If the space has none, the server's own speech service is used. `GET .../voice/options` returns what each slot can use, what it uses now, whether that was chosen automatically, whether its address reads as one on a private network, and the three limits.
+
+**The server's own speech service.** An operator may name a compatible speech endpoint for the whole server: `Drover:Voice:Speech:BaseUrl` (with `:Model`, default `kokoro`, and `:Voice`, default `af_heart`) reads aloud, and `Drover:Voice:Transcription:BaseUrl` (with `:Model`, required) writes down recordings. `compose.voice.yaml` runs a speech container beside Drover and sets the first, so read aloud works with nothing to set up. It appears in every space's options as "This server" with no connection id, is used only when the space has no model of its own for the slot, and holds no live calls. Its adapter (`OperatorSpeech`, kind `server_speech`) is the same protocol on a client of its own that follows no redirect and marks each request as going to an operator-configured address (`OperatorAddressHandler`), exactly as the search service does ([16-deployment-policies.md](16-deployment-policies.md)). No space, person or bot can create a connection of that kind or change where it points. A value that is not an http or https address, or a transcription address with no model, stops the server and names the setting.
+
+**The endpoints** are under `/api/spaces/{space}/voice`, open to members, and sit outside the tenant scope filter because each waits on a provider. `VoiceService` opens short transactions of its own as the person who asked (read the choice, reveal the key, work out the space's outbound rule; close), calls the adapter under `OutboundAttempt.Begin`, and never holds a transaction across the wait.
+
+- `POST /transcribe` takes the recording as the raw body with its `Content-Type` (`audio/webm`, `audio/wav`, `audio/mp4`, `audio/mpeg`, `audio/ogg`) and answers `{ text }`. A body declared larger than `MaxVoiceRecordingBytes` is refused before any of it is read, and one sent without a length is cut off at the same limit while it is read; both answer 413 with a sentence. The audio goes from the request to the provider through memory. It is never written to disk, to the database or to a log, and neither are its words.
+- `POST /speak` takes `{ messageId }` or `{ text }` (a sample of a voice), never both, with an optional `voice` and `format` (`mp3` by default, `wav`, `opus`, `pcm`). A message is read inside a transaction as the caller, so row-level security decides whether they may: a message of another space or of another member's private conversation is 404. Only its text parts are spoken, never reasoning, tool calls or tool results. Text past `MaxReadAloudCharacters` is refused with a sentence. The audio is streamed as the provider makes it, with the format's media type; nothing is sent until the first of it arrives, so a provider that refuses is still answered with a problem.
+- Long text is cut into pieces a provider takes in one request (`SpeechText.Split`): at the end of a sentence where it can, at a space where it cannot. A piece is 4,000 characters, or 200 for `api.groq.com`, and the pieces are asked for in order. Several pieces are asked for as MP3 whatever was requested, because MP3 answers play when put end to end and other containers do not. `api.groq.com` answers only in WAV, so it is always asked for WAV, and its answers are joined (`WavJoin`): the first 44-byte header is kept with both lengths set to `0xFFFFFFFF` (unknown, as a stream's are) and the header of each later answer is dropped.
+- A provider failure (`ModelProviderException`) answers 502 with the adapter's own sentence, never the provider's text. Nothing set up for the slot answers 409 with what to do: "Reading aloud needs a speech model. Connect one under Models."
+
+**Usage is not recorded yet.** Usage rows belong to runs (`runs.usage`), and transcription, read aloud and calls happen outside any run, so today the server logs ids, byte and character counts, durations and a call's token counts, and stores no cost. Recording speech usage needs a place for usage that has no run, which is its own change.
+
+Live calls are described in [03-run-lifecycle.md](03-run-lifecycle.md#live-calls).
+
 ## Signing in with a subscription
 
 Supported only where the provider's terms permit a third-party app to do it.

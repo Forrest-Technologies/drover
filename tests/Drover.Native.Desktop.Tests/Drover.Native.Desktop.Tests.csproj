@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Exercises the desktop credential store and the loopback listener used for tool sign-in.
+  <!-- Exercises the desktop credential store, the loopback listener used for tool sign-in, and the desktop's sound
+       through the sound library's silent device, so its native library is loaded on every system it ships for.
        The desktop workflow runs this project by path with the appropriate system credential store.
        The project stays outside both solutions so other workflows can restore without desktop dependencies. -->
   <PropertyGroup>
@@ -10,13 +11,20 @@
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" />
+    <PackageReference Include="SoundFlow" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopAudio.cs" Link="Desktop/DesktopAudio.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSecrets.cs" Link="Desktop/DesktopSecrets.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSignInReturn.cs" Link="Desktop/DesktopSignInReturn.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/SystemSecrets.cs" Link="Desktop/SystemSecrets.cs" />
+  </ItemGroup>
+
+  <!-- The desktop's microphone and loudspeaker stand behind the audio interfaces of Drover.Presentation. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Drover.Presentation\Drover.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

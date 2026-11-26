@@ -751,6 +751,40 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task Several_tools_are_set_at_once_and_one_the_parent_lacks_keeps_all_of_them_as_they_were()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var atlas = await CreateBot(client, alice.SpaceId, "Atlas");
+        var child = await SeedChild(alice.SpaceId, alice.UserId, atlas.Id, "Scout");
+        var parentTools = $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools";
+        var childTools = $"{Space(alice.SpaceId)}/bots/{child}/tools";
+        var listed = await GetFor<List<BotToolEntry>>(client, parentTools);
+        var (time, crew) = (listed.Single(entry => entry.Name == "time.now"), listed.First(entry => entry.Name.StartsWith("crew.", StringComparison.Ordinal)));
+        await PutFor<BotToolEntry>(client, $"{parentTools}/{crew.ToolId}", new SetToolGrantRequest("off"));
+        var before = await GetFor<List<BotToolEntry>>(client, childTools);
+
+        var refused = await client.Put(childTools, new SetToolGrantsRequest([new(time.ToolId, "off"), new(crew.ToolId, "ask")]));
+        var after = await GetFor<List<BotToolEntry>>(client, childTools);
+        var set = await PutFor<List<BotToolEntry>>(client, parentTools, new SetToolGrantsRequest([new(time.ToolId, "ask"), new(crew.ToolId, "allow")]));
+        var misspelled = await client.Put(parentTools, new SetToolGrantsRequest([new(time.ToolId, "maybe")]));
+        var twice = await client.Put(parentTools, new SetToolGrantsRequest([new(time.ToolId, "off"), new(time.ToolId, "ask")]));
+        var none = await client.Put(parentTools, new SetToolGrantsRequest([]));
+        var unknown = await client.Put(parentTools, new SetToolGrantsRequest([new(time.ToolId, "off"), new(Guid.CreateVersion7(), "off")]));
+        var kept = await GetFor<List<BotToolEntry>>(client, parentTools);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Title(refused)).Should().Be("Atlas does not have this tool. Give it to Atlas first.");
+        after.Select(entry => entry.Grant).Should().Equal(before.Select(entry => entry.Grant), "the change the parent allows is not made either");
+        set.Select(entry => $"{entry.Name} {entry.Grant}").Should().Equal($"time.now ask", $"{crew.Name} allow");
+        misspelled.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        twice.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        none.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        kept.Single(entry => entry.ToolId == time.ToolId).Grant.Should().Be("ask", "a refused request changes nothing");
+    }
+
+    [Fact]
     public async Task A_changed_server_tool_is_listed_with_what_was_reviewed_and_changing_its_grant_does_not_review_it()
     {
         var alice = await SeedPerson("alice");

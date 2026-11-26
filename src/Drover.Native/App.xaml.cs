@@ -129,6 +129,8 @@ public partial class App : Application
             // A browser has no environment to ask: a build made for the check runs it there.
             if (OperatingSystem.IsBrowser() || Environment.GetEnvironmentVariable("DROVER_LONG_CONVERSATION_CHECK") == "1")
             {
+                // The conversation makes view models of its own, for a call and a spoken message, from the app's services.
+                services = AppServices.Build();
                 LongConversationCheck.Start(MainWindow);
                 MainWindow.Activate();
                 return;
@@ -137,6 +139,8 @@ public partial class App : Application
 #if DROVER_MULTILINE_FOCUS_CHECK
             if (Environment.GetEnvironmentVariable("DROVER_MULTILINE_FOCUS_CHECK") == "1")
             {
+                // The message field makes its own view model for a spoken message, from the app's services.
+                services = AppServices.Build();
                 MultilineInputFocusCheck.Start(MainWindow);
                 MainWindow.Activate();
                 return;

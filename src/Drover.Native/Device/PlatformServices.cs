@@ -23,6 +23,7 @@ internal static class PlatformServices
             .AddSingleton<AppRequests>()
             .AddSingleton<IServerChoice, DeviceServerChoice>()
             .AddSingleton(PlatformShell.Incoming)
+            .AddSingleton(provider => new CallConnection(provider.GetRequiredService<AppRequests>().OpenSocket))
             .AddDevice()
             .AddSingleton(provider => new DroverApi(
                 new HttpClient(provider.GetRequiredService<AppRequests>(), disposeHandler: false)

@@ -112,7 +112,7 @@ iOS shows one sentence when the app first asks for a permission. They are in `In
 | --- | --- | --- |
 | Photo library (read) | The person chooses a picture to attach | `Drover reads the pictures you choose so it can attach them to a message.` |
 | Camera | The person chooses to take a picture to attach | `Drover uses the camera when you take a picture to attach to a message.` |
-| Microphone | Not asked. Voice is not built | no entry |
+| Microphone | Not asked on iOS: voice is built for the browser, Android and the desktop, and the iOS app shows none of its controls yet ([voice.md](voice.md)). On Android the system asks the first time the person presses the microphone or Call, never before | no entry on iOS. When the iOS app gets voice: `Drover uses the microphone when you record a message or call a bot.` |
 | Notifications | Not asked until #858 and its app side have landed | `Drover tells you when a bot finishes or is waiting for you.` |
 | Local network | The person connects to a server on their own network | `Drover connects to a server on your network when you give it that address.` |
 

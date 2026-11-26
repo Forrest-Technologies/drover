@@ -26,6 +26,13 @@ public sealed record PolicyRule(
 
     #endregion
 
+    #region Constants
+
+    /// <summary>How a limit reads when it is the largest number, which stands for none.</summary>
+    public const string NoLimit = "No limit";
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>A rule that allows something when true.</summary>
@@ -98,7 +105,7 @@ public sealed record PolicyRule(
         {
             true => "true",
             false => "false",
-            int.MaxValue when Name == nameof(DeploymentPolicy.MaxStepsPerRun) => "No limit",
+            int.MaxValue when IsLimit => NoLimit,
             var value => value.ToString() ?? string.Empty,
         };
 

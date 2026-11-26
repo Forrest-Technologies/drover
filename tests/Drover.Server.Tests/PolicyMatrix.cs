@@ -48,7 +48,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxSpaceFileMegabytes), "10240", "1024"),
         new(nameof(DeploymentPolicy.MaxDocumentPages), "500", "100"),
         new(nameof(DeploymentPolicy.MaxDelegationDepth), "5", "5"),
-        new(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), "2147483647", "50"),
+        new(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), "No limit", "50"),
         new(nameof(DeploymentPolicy.MaxDelegationTreeCostCents), "10000", "1000"),
         new(nameof(DeploymentPolicy.MaxStepsPerRun), "No limit", "50"),
         new(nameof(DeploymentPolicy.MaxTokensPerRun), "5000000", "2000000"),
@@ -78,6 +78,9 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxWebRequestSeconds), "30", "15"),
         new(nameof(DeploymentPolicy.AllowImageGeneration), "true", "false"),
         new(nameof(DeploymentPolicy.MaxPushTestsPerMinute), "5", "3"),
+        new(nameof(DeploymentPolicy.MaxVoiceRecordingBytes), "26214400", "10485760"),
+        new(nameof(DeploymentPolicy.MaxReadAloudCharacters), "No limit", "8000"),
+        new(nameof(DeploymentPolicy.MaxCallMinutes), "No limit", "30"),
     ];
 
     /// <summary>

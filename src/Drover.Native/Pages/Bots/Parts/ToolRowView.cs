@@ -90,7 +90,7 @@ public sealed class ToolRowView : Border
         limit.Shown(ToolsSectionViewModel.Limit(entry) is not null).Show(ToolsSectionViewModel.Limit(entry));
         grant.Label = part.GrantLabel(entry);
         grant.Show(ToolsSectionViewModel.OptionsFor(entry), entry.Grant);
-        grant.Disabled = part.Busy == entry.ToolId;
+        grant.Disabled = part.Busy == entry.ToolId || part.BusyGroup == group.Name;
         review.Shown(entry.NeedsReview);
         reviewWords.Show(part.ReviewWords);
         reviewed.Shown(entry.Reviewed is not null);
