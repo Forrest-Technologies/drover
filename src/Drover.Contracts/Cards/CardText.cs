@@ -67,18 +67,28 @@ public static class CardText
 
     private static string ReplyWords(RepliesSpec card, CardAnswer answer)
     {
-        var index = answer.Choices?.FirstOrDefault() ?? -1;
+        var choices = answer.Choices;
+        var index = choices is not null && choices.Count > 0 ? choices[0] : -1;
         return index >= 0 && index < card.Replies.Count ? card.Replies[index] : string.Empty;
     }
 
     private static string ChoiceWords(ChoicesSpec card, CardAnswer answer)
     {
-        List<string> words =
-        [
-            ..(answer.Choices ?? [])
-                .Where(index => index >= 0 && index < card.Choices.Count)
-                .Select(index => card.Choices[index]),
-        ];
+        List<string> words = [];
+        var choices = answer.Choices;
+
+        if (choices is not null)
+        {
+            for (var index = 0; index < choices.Count; index++)
+            {
+                var choice = choices[index];
+
+                if (choice >= 0 && choice < card.Choices.Count)
+                {
+                    words.Add(card.Choices[choice]);
+                }
+            }
+        }
 
         if (answer.Text is not null)
         {
