@@ -652,7 +652,6 @@ public sealed class RunEngineTests(PostgresServer postgres)
     {
         var tools = new TestTools().AddWithCall("test.reader", ToolSensitivity.Read, async (call, _) =>
         {
-            var refused = 0;
             for (var index = 1; index <= 4; index++)
             {
                 try
@@ -665,11 +664,11 @@ public sealed class RunEngineTests(PostgresServer postgres)
                 }
                 catch (BuiltinToolException error) when (error.Message.Contains("no token use", StringComparison.Ordinal))
                 {
-                    refused++;
+                    return JsonSerializer.SerializeToElement(new { refused = true, reason = error.Message });
                 }
             }
 
-            return JsonSerializer.SerializeToElement(new { refused });
+            return JsonSerializer.SerializeToElement(new { refused = false, reason = string.Empty });
         });
         var script = new ScriptedModel([new ToolCallOutput("c1", "test_reader")], [new TextOutput("Done.")]);
         await using var world = await RunWorld.Create(postgres, script, tools);
@@ -681,7 +680,8 @@ public sealed class RunEngineTests(PostgresServer postgres)
         var tool = (await world.ReadToolCalls(runId)).Single();
 
         run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
-        tool.Result!.Value.GetProperty("refused").GetInt32().Should().Be(1, "the fourth call is refused after two unmetered ones");
+        tool.Result!.Value.GetProperty("refused").GetBoolean().Should().BeTrue("the fourth tool model call is refused after two unmetered ones");
+        tool.Result.Value.GetProperty("reason").GetString().Should().Contain("no token use");
     }
 
     [Theory]
