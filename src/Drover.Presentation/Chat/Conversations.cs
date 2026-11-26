@@ -179,9 +179,9 @@ public static class Conversations
             SentBy = SentBy(message),
             Reasoning = fromPerson ? null : Reasoning(message),
             Model = fromPerson ? null : message.Model,
-            Files = files,
             UnusableToolRequest = unusableToolRequest,
         };
+        shown = files.Count == 0 ? shown : shown with { Files = files };
         shown = sources.Count == 0 ? shown : shown with { Sources = sources };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }
