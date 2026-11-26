@@ -50,12 +50,6 @@ public static class VoiceCallEndpoint
         TimeProvider time,
         ILoggerFactory loggers)
     {
-        if (!context.WebSockets.IsWebSocketRequest)
-        {
-            await TypedResults.Problem(title: "Open a live call as a WebSocket.", statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context);
-            return;
-        }
-
         if (!IsOwnOrigin(context.Request, PublicAddress.Read(configuration)))
         {
             await TypedResults.Problem(title: "A live call can only be opened from Drover itself.", statusCode: StatusCodes.Status403Forbidden)
@@ -69,6 +63,12 @@ public static class VoiceCallEndpoint
         if (prepared.Value is not { } plan)
         {
             await prepared.Problem!.ToProblem().ExecuteAsync(context);
+            return;
+        }
+
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            await TypedResults.Problem(title: "Open a live call as a WebSocket.", statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context);
             return;
         }
 
