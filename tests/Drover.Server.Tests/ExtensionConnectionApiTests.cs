@@ -255,6 +255,7 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
         var body = await exported.Content.ReadAsStringAsync(Token);
         var package = JsonSerializer.Deserialize<ExtensionPackage>(body, JsonSerializerOptions.Web)!;
         var recipe = package.Contents.OfType<ConnectionRecipe>().Single();
+        var read = await client.Post($"{space}/extensions/read", new ExtensionText(body));
 
         start.Step.Should().Be("redirect", start.Problem);
         back.StatusCode.Should().Be(HttpStatusCode.Redirect, await back.Content.ReadAsStringAsync(Token));
@@ -269,6 +270,7 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
 
         body.Should().NotContain($"{connected.Connection.ConnectionId}", "the private connection is not part of the file");
         body.Should().NotContain(imported.Id.ToString(), "the install is not part of the file");
+        read.StatusCode.Should().Be(HttpStatusCode.OK, await read.Content.ReadAsStringAsync(Token));
     }
 
     #endregion
