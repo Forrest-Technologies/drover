@@ -134,6 +134,27 @@ messages[0].parts.push({ kind: 'file', fileId: retryPicture.id, file: retryPictu
 messages[0].parts.push({ kind: 'file', fileId: exhaustedPicture.id, file: exhaustedPicture });
 const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
 const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
+const unusableReplyId = '0196f1a0-0000-7000-8000-000000000204';
+const rawDsmlEnvelope = '<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command" string="true">ls -la</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>';
+const quotedDsmlSample = 'Here is a DSML example:\n\n```xml\n<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command">ls</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>\n```';
+const unusableMessages = [
+    {
+        id: '0196f1a0-0000-7000-8000-000000000201', threadId: thread.id, position: 1, role: 'user',
+        parts: [{ kind: 'text', text: 'Show a DSML example.' }], createdAt: thread.lastActivityAt,
+    },
+    {
+        id: '0196f1a0-0000-7000-8000-000000000202', threadId: thread.id, position: 2, role: 'assistant',
+        parts: [{ kind: 'text', text: quotedDsmlSample }], createdAt: thread.lastActivityAt,
+    },
+    {
+        id: '0196f1a0-0000-7000-8000-000000000203', threadId: thread.id, position: 3, role: 'user',
+        parts: [{ kind: 'text', text: 'List the workspace files.' }], createdAt: thread.lastActivityAt,
+    },
+    {
+        id: unusableReplyId, threadId: thread.id, position: 4, role: 'assistant',
+        parts: [{ kind: 'text', text: rawDsmlEnvelope }], createdAt: thread.lastActivityAt,
+    },
+];
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
     id: `0196f1a0-0000-7000-8000-${String(index + 101).padStart(12, '0')}`,
     threadId: thread.id,
@@ -248,6 +269,7 @@ try {
             const previewGate = new Promise(resolve => { completePreview = resolve; });
             let extensionFailures = 0;
             let conversationLoadRequests = 0;
+            let unusableRegenerateRequests = 0;
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
                 if (message.location().url.startsWith(previewOrigin)) { return; }
@@ -504,6 +526,14 @@ try {
                     await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
                     return;
                 }
+                else if (address.endsWith(`/threads/${thread.id}/messages/${unusableReplyId}/regenerate`) && route.request().method() === 'POST') {
+                    unusableRegenerateRequests++;
+                    await route.fulfill({
+                        status: 202,
+                        json: { message: unusableMessages[2], run: heldRun },
+                    });
+                    return;
+                }
                 else if (address.endsWith('/messages') && route.request().method() === 'GET') {
                     if (current === 'conversation-load-failed' && ++conversationLoadRequests === 1) {
                         await route.fulfill({ status: 500, json: { title: 'Sample: the server is unavailable.', status: 500 } });
@@ -512,7 +542,9 @@ try {
 
                     body = current === 'conversation-links'
                         ? [{ ...messages[0], parts: [{ kind: 'text', text: 'Sample reply with a source.' }, { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` }] }]
-                        : current === 'conversation-search' ? searchMessages : messages;
+                        : current === 'conversation-unusable-tool-request'
+                            ? (unusableRegenerateRequests > 0 ? unusableMessages.slice(0, 3) : unusableMessages)
+                            : current === 'conversation-search' ? searchMessages : messages;
                 }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
@@ -910,6 +942,23 @@ try {
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
+            current = 'conversation-unusable-tool-request';
+            unusableRegenerateRequests = 0;
+            await page.goto(`${origin}/talk/${botId}`);
+            const unusableHeading = page.getByRole('heading', {
+                name: "Sample bot's model returned a tool request that could not be used.",
+                exact: true,
+            });
+            await unusableHeading.waitFor({ state: 'attached', timeout: 60000 });
+            assert.equal(await unusableHeading.count(), 1, 'Only the protocol-only reply should show the unusable tool-request state, not the quoted DSML code sample.');
+            const originalDisclosure = page.getByRole('button', { name: 'Original response', exact: true });
+            await originalDisclosure.waitFor({ state: 'attached', timeout: 10000 });
+            await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
+            await originalDisclosure.dispatchEvent('click');
+            await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
+            await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(unusableRegenerateRequests, 1, 'Try again on an unusable tool-request reply must invoke the existing regenerate flow.');
+            progress(`conversation-unusable-tool-request ${width} ${theme}`);
             current = 'conversation-links';
             await page.route(`${origin}/sample-external`, route => route.fulfill({
                 contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',

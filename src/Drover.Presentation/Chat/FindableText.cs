@@ -54,6 +54,7 @@ public sealed class FindableText
     {
         HashCode hash = new();
         hash.Add(message.Text);
+        hash.Add(message.UnusableToolRequest);
         hash.Add(message.Reasoning);
 
         foreach (var source in message.Sources)
@@ -105,6 +106,10 @@ public sealed class FindableText
         if (message.FromPerson)
         {
             Add(segments, message, new("Said"), message.Text);
+        }
+        else if (message.UnusableToolRequest)
+        {
+            Add(segments, message, new("UnusableToolRequest"), message.Text);
         }
         else
         {

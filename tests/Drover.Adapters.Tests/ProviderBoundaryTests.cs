@@ -162,6 +162,49 @@ public sealed class ProviderBoundaryTests
         call.Exception.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Raw_dsml_protocol_text_stays_plain_text_and_never_becomes_a_tool_call(bool streaming)
+    {
+        const string Envelope =
+            "<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name=\"sandbox.run\">\n"
+            + "<\uFF5CDSML\uFF5Cparameter name=\"command\" string=\"true\">ls -la</\uFF5CDSML\uFF5Cparameter>\n"
+            + "</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>";
+        string[] chunks =
+        [
+            "<\uFF5CDSML\uFF5C",
+            "calls>\n<\uFF5CDSML\uFF5Cinvoke name=\"sandbox.run\">\n<\uFF5CDSML\uFF5Cparameter name=\"command\" string=\"true\">ls ",
+            "-la</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>",
+        ];
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(TextReply(Envelope, chunks, streaming)));
+        using var client = VeniceClient(handler);
+
+        var response = streaming
+            ? (await client.StreamToEnd("list files")).ToChatResponse()
+            : await client.Ask("list files");
+
+        response.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Should().BeEmpty();
+        response.Text.Should().Be(Envelope);
+    }
+
+    [Fact]
+    public async Task Quoted_dsml_example_stays_plain_text_without_tool_calls()
+    {
+        const string Quoted =
+            "Here is a DSML example:\n\n```xml\n<\uFF5CDSML\uFF5Ccalls>\n"
+            + "<\uFF5CDSML\uFF5Cinvoke name=\"sandbox.run\">\n"
+            + "<\uFF5CDSML\uFF5Cparameter name=\"command\">ls</\uFF5CDSML\uFF5Cparameter>\n"
+            + "</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>\n```";
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(TextReply(Quoted, [Quoted], streaming: false)));
+        using var client = VeniceClient(handler);
+
+        var response = await client.Ask("show a DSML example");
+
+        response.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Should().BeEmpty();
+        response.Text.Should().Be(Quoted);
+    }
+
     #endregion
 
     #region Response Isolation
@@ -336,6 +379,54 @@ public sealed class ProviderBoundaryTests
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(stream)))),
+        };
+    }
+
+    private static HttpResponseMessage TextReply(string content, string[] chunks, bool streaming)
+    {
+        if (!streaming)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                id = "c",
+                @object = "chat.completion",
+                created = 1,
+                model = "m",
+                choices = new[]
+                {
+                    new { index = 0, finish_reason = "stop", message = new { role = "assistant", content } },
+                },
+            });
+            return ScriptedHandler.Json(HttpStatusCode.OK, body);
+        }
+
+        var builder = new StringBuilder();
+        for (var index = 0; index < chunks.Length; index++)
+        {
+            var isLast = index == chunks.Length - 1;
+            var chunk = JsonSerializer.Serialize(new
+            {
+                id = "c",
+                @object = "chat.completion.chunk",
+                created = 1,
+                model = "m",
+                choices = new[]
+                {
+                    new
+                    {
+                        index = 0,
+                        finish_reason = isLast ? "stop" : (string?)null,
+                        delta = new { role = index == 0 ? "assistant" : (string?)null, content = chunks[index] },
+                    },
+                },
+            });
+            builder.Append($"data: {chunk}\n\n");
+        }
+
+        builder.Append("data: [DONE]\n\n");
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(builder.ToString())))),
         };
     }
 
