@@ -190,6 +190,10 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
                 await Task.Delay(TimeSpan.FromMilliseconds(20), patience.Token);
             }
+            catch (OperationCanceledException) when (testToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (OperationCanceledException failure)
             {
                 throw new TimeoutException($"Tool server did not start listening on port {port}.", failure);
