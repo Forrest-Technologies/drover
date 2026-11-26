@@ -35,3 +35,4 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Logging;
 // Drover.Domain.Runs.AgentSession is the stored row; in this project the name means the framework session.
 global using AgentSession = Microsoft.Agents.AI.AgentSession;
+global using FrameworkCompaction = Microsoft.Agents.AI.Compaction;

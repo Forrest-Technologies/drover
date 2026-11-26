@@ -328,7 +328,15 @@ The code that would run a written pattern is still there for the day the rule ca
 
 **What a rule cannot rewrite.** A rule that redacts rewrites text: a reply, a message, a string in a tool's input or result. The name of an input, a number, and a flag are examined and never rewritten, because the result would not be the call the tool knows; neither is an object in which two inputs share a name, because writing it out again would keep only one. A redacting rule that matches in one of those, or that could not check its subject for work or for size, blocks, and nothing of the subject is kept in what is stored. A rule that blocks on what stands in the name of an input keeps nothing of the call either.
 
+## Fitting the next model request
+
+Before an agent calls its model, Drover estimates input tokens for the complete request and reserves output space. For a known catalog context size, it can replace old tool results with a labeled omission, drop older reasoning, and remove older exchanges together. System instructions, current work, the summary, and recent messages stay in the outgoing copy. The transcript and cumulative usage stay intact. Step events include the estimated input and whether shortening occurred. The next estimate uses the previous call’s measured input, with a multiplier between 0.5 and 2.
+
+When the model’s context size is unknown the first request goes through unchanged. A compatible provider’s context-length refusal allows one shorter retry before any output has been delivered. An oversized request that cannot fit reports `context_too_long`.
+
 ## Conversation summaries
+
+A summary can also become due by estimated size, including lengthy tool results. The bot’s configured threshold takes precedence over half of its model’s available input. Large summaries use successive bounded requests under one deadline. Each successful pass records its usage and conditionally advances the stored summary before the next call.
 
 A person's main thread with a bot grows without end, so the server keeps a running summary of it on the thread's own row (`summary`, `summary_through_position`, `summary_updated_at`; [02-data-model.md](02-data-model.md)). `ConversationSummarizer` in `Drover.Engine` writes it.
 

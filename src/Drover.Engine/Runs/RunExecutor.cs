@@ -311,7 +311,7 @@ public sealed partial class RunExecutor(
             requested,
             toolConnections,
             toolModelNames,
-            entry?.Capabilities.Vision ?? false,
+            entry?.Capabilities,
             memory,
             children,
             project);
@@ -500,7 +500,7 @@ public sealed partial class RunExecutor(
     /// </summary>
     private RunTool? ToRunTool(GrantedTool granted, LoadedRun loaded)
     {
-        var (bot, toolConnections, modelSeesImages) = (loaded.Bot, loaded.ToolConnections, loaded.ModelSeesImages);
+        var (bot, toolConnections, modelSeesImages) = (loaded.Bot, loaded.ToolConnections, loaded.Capabilities?.Vision ?? false);
 
         if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
         {
@@ -572,7 +572,7 @@ public sealed partial class RunExecutor(
         return new RunFiles(
             session.Tenant,
             loaded.Bot!.Id,
-            loaded.ModelSeesImages,
+            loaded.Capabilities?.Vision ?? false,
             hasSandbox,
             deployment.Value.Rules.MaxDocumentPages,
             fileStore,
@@ -627,14 +627,18 @@ public sealed partial class RunExecutor(
             toolSources.FirstOrDefault(source => source.Kind is ToolSourceKind.Mcp),
             rules,
             loggers.CreateLogger<RunGovernor>(),
-            loaded.ModelSeesImages,
+            loaded.Capabilities?.Vision ?? false,
             NewRunFiles(session, loaded),
             new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
             session,
             connection.Id,
-            loggers.CreateLogger<MeteredModelClient>());
+            loggers.CreateLogger<MeteredModelClient>(),
+            loaded.Capabilities,
+            bot.Model,
+            bot.ModelSettings.MaxOutputTokens,
+            bot.MemorySettings.KeepRecentMessages ?? 6);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stopping, session.Stopped);
 
         // Every outbound request the model adapter makes from here carries the space's rule on private addresses.
@@ -776,6 +780,8 @@ public sealed partial class RunExecutor(
             ModelConnectionId = loaded.Bot.ModelConnectionId,
             Model = loaded.Bot.Model,
             Compaction = loaded.Bot.MemorySettings.Compaction,
+            CompactAtTokens = loaded.Bot.MemorySettings.CompactAtTokens ?? loaded.Capabilities?.ContextTokens,
+            KeepRecentMessages = loaded.Bot.MemorySettings.KeepRecentMessages,
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, loaded, tool))],
         Model = model,
@@ -974,7 +980,7 @@ public sealed partial class RunExecutor(
         if (Find<ModelProviderException>(failure) is { } provider)
         {
             logger.LogWarning("Run {RunId} failed at the model provider: {Failure}", session.RunId, provider.Failure);
-            return (RunStatus.Failed, null, new RunError(provider.Failure.ToWireName(), provider.Message));
+            return (RunStatus.Failed, null, new RunError(provider.Failure is ModelFailure.TooLong ? "context_too_long" : provider.Failure.ToWireName(), provider.Message));
         }
 
         logger.LogError(failure, "Run {RunId} failed", session.RunId);
@@ -1240,7 +1246,7 @@ public sealed partial class RunExecutor(
         IReadOnlyList<Guid> RequestedCalls,
         IReadOnlyList<ToolConnection> ToolConnections,
         IReadOnlyDictionary<Guid, string> ToolModelNames,
-        bool ModelSeesImages,
+        ModelCapabilities? Capabilities,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
         Project? Project);
