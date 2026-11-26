@@ -136,7 +136,7 @@ public sealed class DevicePush : StackPanel
         var body = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
         body.Children.Add(Styles.Text("Check whether Android restricts your notification distributor in the background.", "DvTextSecondary"));
         body.Children.Add(Quiet("Open battery settings", () => _ = settings.OpenBatterySettings()));
-        return new Disclosure { Title = "Notifications arriving late?", Body = body };
+        return new Disclosure { Title = "If notifications arrive late", Body = body };
     }
 
     private Button CheckAgain() => Quiet("Check again", () => _ = model.CheckCommand.ExecuteAsync(null), enabled: !model.Working);

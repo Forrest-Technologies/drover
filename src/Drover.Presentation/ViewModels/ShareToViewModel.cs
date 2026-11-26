@@ -51,7 +51,7 @@ public sealed partial class ShareToViewModel(
 
     public static string NoBotsCause => "There is no bot to share this with yet. Make one first; what you shared waits here.";
 
-    public static string Ask => "Which bot gets this?";
+    public static string Ask => "Choose a bot";
 
     public static string Note => "It opens as a draft in that bot's conversation. Nothing is sent until you send it.";
 

@@ -939,6 +939,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.OpenUnmade(null);
 
         editor.State.Should().Be(BotEditorState.Failed);
+        BotEditorViewModel.NoModelCause.Should().Be("A bot needs a model, and this space has none yet. Connect a model first.");
         editor.LoadProblem.Should().Be(BotEditorViewModel.NoModelCause);
     }
 

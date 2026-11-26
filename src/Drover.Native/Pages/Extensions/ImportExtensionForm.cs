@@ -240,7 +240,7 @@ internal sealed class ImportExtensionForm : Grid
 
         if (bot.Model is not null)
         {
-            facts.Children.Add(Parts.Fact("Thinks with", Parts.Body($"{bot.Model} on {bot.ModelConnection}. You can change this in the bot's settings.")));
+            facts.Children.Add(Parts.Fact("Model", Parts.Body($"{bot.Model} on {bot.ModelConnection}. You can change this in the bot's settings.")));
         }
 
         facts.Children.Add(Parts.Fact("Tools", Parts.Body("Only what every new bot starts with. The file cannot give it more.")));
@@ -250,7 +250,7 @@ internal sealed class ImportExtensionForm : Grid
         if (bot.Model is null)
         {
             var hint = new FlexPanel { Gap = 0 };
-            hint.Children.Add(Parts.Small("A bot needs a model to think with, and this space has none it can use yet."));
+            hint.Children.Add(Parts.Small("A bot needs a model, and this space has none it can use yet."));
             hint.Children.Add(Links.Plain("Connect a model", Addresses.Models));
             hint.Children.Add(Parts.Small(", then import this."));
             step.Children.Add(hint);

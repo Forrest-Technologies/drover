@@ -62,7 +62,7 @@ public sealed partial class ExtensionEditorViewModel(
     public static string MemberNote => "An owner or admin of the space can make an extension.";
 
     public static string Lead =>
-        "Write a bot down so someone else can import it, with the tool server it uses if it has one. The file holds words and an address: no keys, no grants, no notes.";
+        "Save a bot as a file that someone else can import, with the tool server it uses if it has one. The file holds text and an address. It holds no keys, grants or notes.";
 
     public static string TabsLabel => "How the extension is shown";
 

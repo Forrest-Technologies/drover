@@ -335,7 +335,7 @@ One page, sectioned, with progressive disclosure. Never a wall of settings.
 Its job: add a tool server, see whether it is connected, sign in to it, review changed tools, remove it.
 
 - One frame for each server: its name, its address and facts in monospace, and its state in words (Connected, Not connected with the last error, Not checked yet).
-- The add form asks for a name and an address, then how Drover proves who is calling: nothing, a header, or a sign-in. A credential's fields appear only under its choice, and a client id, secret, and sign-in service only when the person says they registered a client. Only what the final choice uses is sent.
+- The add form asks for a name and an address, then how Drover signs in to this server: nothing, a header, or a sign-in. A credential's fields appear only under its choice, and a client id, secret, and sign-in service only when the person says they registered a client. Only what the final choice uses is sent.
 - A secret is typed once and never shown back. A stored header has no field until it is being replaced.
 - A sign-in that is missing or has lapsed is said in a sentence with the one button that fixes it. One sign-in for the whole space is an owner's or admin's to give; a person's own is theirs.
 - The provider's page sends the browser back to the start page, which hands it to this screen; the screen says how the sign-in went.
@@ -348,7 +348,7 @@ Every run in the space, newest first, filterable by bot, status, and "waiting fo
 
 ### 5. Setup and Status
 
-Setup is three steps with one decision each: create your account, connect a model (base address and key, with a "test" button that reports the result in plain words), meet your first bot. Status is a single page of rows, each green, amber, or red with a sentence: database, migrations, each model connection, each tool connection, sandbox provider, push, background workers, key ring backup.
+Setup is three steps with one decision each: create your account, connect a model (base address and key, with a "test" button that reports the result in plain words), create your first bot. Status is a single page of rows, each green, amber, or red with a sentence: database, migrations, each model connection, each tool connection, sandbox provider, push, background workers, key ring backup.
 
 ## Accessibility
 

@@ -84,6 +84,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go("/");
 
         await Until(() => Talk.Notice!.Title.Should().Be("No model is connected"));
+        Talk.Notice!.Cause.Should().Be("A bot needs a model, and this space has none yet.");
         Talk.Notice!.ActionHref.Should().Be("/setup/model");
         Talk.NotReady.Should().Be(WorkspaceState.NoModel, "a phone shows the same words in the list");
         Talk.MainPane.Should().BeNull("there is no field to write in");
@@ -97,6 +98,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go("/");
 
         await Until(() => Talk.Notice!.Title.Should().Be("No bot yet"));
+        Talk.Notice!.ActionLabel.Should().Be("Create your first bot");
         Talk.Notice!.ActionHref.Should().Be("/setup/bot");
     }
 
