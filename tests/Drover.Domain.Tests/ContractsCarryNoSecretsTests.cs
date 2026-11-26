@@ -20,9 +20,9 @@ public sealed class ContractsCarryNoSecretsTests
     // by the card contract; #880 refuses a field label that names a credential, and an answer is the person's message.
     private static readonly (Type Type, string Name)[] cardDisplayValues =
     [
-        (typeof(Drover.Contracts.Cards.CardAnswer), "Values"),
-        (typeof(Drover.Contracts.Cards.CardFigure), "Value"),
-        (typeof(Drover.Contracts.Cards.CardRow), "Value"),
+        (typeof(Drover.Contracts.Cards.CardAnswer), nameof(Drover.Contracts.Cards.CardAnswer.Values)),
+        (typeof(Drover.Contracts.Cards.CardFigure), nameof(Drover.Contracts.Cards.CardFigure.Value)),
+        (typeof(Drover.Contracts.Cards.CardRow), nameof(Drover.Contracts.Cards.CardRow.Value)),
     ];
 
     #endregion

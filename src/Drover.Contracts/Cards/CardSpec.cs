@@ -28,16 +28,20 @@ public record CardSpec
     #endregion
 }
 
+
 /// <summary>A few short answers under a reply. Pressing one sends its own label.</summary>
 public sealed record RepliesSpec([property: JsonPropertyName("replies")] IReadOnlyList<string> Replies) : CardSpec;
+
 
 /// <summary>A question with options and, always, the extra answer a person types.</summary>
 public sealed record ChoicesSpec(
     [property: JsonPropertyName("choices")] IReadOnlyList<string> Choices,
     [property: JsonPropertyName("multiple")] bool Multiple) : CardSpec;
 
+
 /// <summary>A short form of fields, in the order the bot wrote them.</summary>
 public sealed record FormSpec([property: JsonPropertyName("fields")] IReadOnlyList<CardField> Fields) : CardSpec;
+
 
 /// <summary>One field of a form. Its name is the key an answer carries, never a hidden value.</summary>
 public sealed record CardField(
@@ -49,18 +53,22 @@ public sealed record CardField(
     [property: JsonPropertyName("max")] double? Max,
     [property: JsonPropertyName("options")] IReadOnlyList<string>? Options);
 
+
 /// <summary>A read-only checklist the bot sets, one item with one state per row.</summary>
 public sealed record ChecklistSpec([property: JsonPropertyName("items")] IReadOnlyList<CardItem> Items) : CardSpec;
+
 
 /// <summary>One labelled state, used by a checklist item or a board state.</summary>
 public sealed record CardItem(
     [property: JsonPropertyName("label")] string Label,
     [property: JsonPropertyName("state")] string State);
 
+
 /// <summary>A table drawn from its columns and rows of cells.</summary>
 public sealed record TableSpec(
     [property: JsonPropertyName("columns")] IReadOnlyList<string> Columns,
     [property: JsonPropertyName("rows")] IReadOnlyList<IReadOnlyList<string>> Rows) : CardSpec;
+
 
 /// <summary>A board of figures, states and rows that may link outside the app.</summary>
 public sealed record BoardSpec(
@@ -68,11 +76,13 @@ public sealed record BoardSpec(
     [property: JsonPropertyName("states")] IReadOnlyList<CardItem> States,
     [property: JsonPropertyName("rows")] IReadOnlyList<CardRow> Rows) : CardSpec;
 
+
 /// <summary>One figure of a board: a value and its label, with a state when the bot set one.</summary>
 public sealed record CardFigure(
     [property: JsonPropertyName("value")] string Value,
     [property: JsonPropertyName("label")] string Label,
     [property: JsonPropertyName("state")] string? State);
+
 
 /// <summary>One row of a board, with a value and an optional address.</summary>
 public sealed record CardRow(

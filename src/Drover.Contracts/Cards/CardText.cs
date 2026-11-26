@@ -13,7 +13,7 @@ public static class CardText
     {
         List<string> lines = [card.Title];
 
-        if (card.Text is not null)
+        if (!string.IsNullOrEmpty(card.Text))
         {
             lines.Add(card.Text);
         }
@@ -90,7 +90,7 @@ public static class CardText
             }
         }
 
-        if (answer.Text is not null)
+        if (!string.IsNullOrEmpty(answer.Text))
         {
             words.Add(answer.Text);
         }
@@ -98,8 +98,18 @@ public static class CardText
         return string.Join(", ", words);
     }
 
-    private static string FormWords(FormSpec card, CardAnswer answer) =>
-        string.Join('\n', card.Fields.Select(field => $"{field.Label}: {answer.Values?.GetValueOrDefault(field.Name) ?? string.Empty}"));
+    private static string FormWords(FormSpec card, CardAnswer answer)
+    {
+        List<string> lines = [];
+
+        foreach (var field in card.Fields)
+        {
+            var value = answer.Values?.GetValueOrDefault(field.Name) ?? string.Empty;
+            lines.Add($"{field.Label}: {value}");
+        }
+
+        return string.Join('\n', lines);
+    }
 
     private static List<string> TableLines(TableSpec table)
     {

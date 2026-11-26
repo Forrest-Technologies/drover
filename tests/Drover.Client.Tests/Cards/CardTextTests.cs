@@ -20,8 +20,15 @@ public sealed class CardTextTests
             "Which report should I start with?\n1. Sales by region\n2. Returns\n3. Stock levels\n4. Something else");
 
         var withText = card with { Text = "Pick one" };
-        CardText.Plain(withText).Should().Be(
-            "Which report should I start with?\nPick one\n1. Sales by region\n2. Returns\n3. Stock levels\n4. Something else");
+        var expectedWithText = """
+            Which report should I start with?
+            Pick one
+            1. Sales by region
+            2. Returns
+            3. Stock levels
+            4. Something else
+            """;
+        CardText.Plain(withText).Should().Be(expectedWithText);
     }
 
     [Fact]
@@ -29,13 +36,32 @@ public sealed class CardTextTests
     {
         var callId = Guid.CreateVersion7();
         var replies = new RepliesSpec(["The summary", "The full numbers"]) { Title = "T", Fallback = "F" };
-        var choices = new ChoicesSpec(["Sales by region", "Returns", "Stock levels"], true) { Title = "T", Fallback = "F" };
+        var choices = new ChoicesSpec(["Sales by region", "Returns", "Stock levels"], true)
+        {
+            Title = "T",
+            Fallback = "F",
+        };
 
         CardText.Words(replies, new CardAnswer(callId, Choices: [1])).Should().Be("The full numbers");
         CardText.Words(choices, new CardAnswer(callId, Choices: [1])).Should().Be("Returns");
         CardText.Words(choices, new CardAnswer(callId, Choices: [2, 0])).Should().Be("Stock levels, Sales by region");
         CardText.Words(choices, new CardAnswer(callId, Choices: [2, 0], Text: "Everything"))
             .Should().Be("Stock levels, Sales by region, Everything");
+    }
+
+    [Fact]
+    public void Empty_text_adds_no_line_and_no_words()
+    {
+        var card = new ChoicesSpec(["One", "Two"], false)
+        {
+            Title = "T",
+            Text = string.Empty,
+            Fallback = "F",
+        };
+
+        CardText.Plain(card).Should().Be("T\n1. One\n2. Two\n3. Something else");
+        CardText.Words(card, new CardAnswer(Guid.CreateVersion7(), Choices: [0], Text: string.Empty))
+            .Should().Be("One");
     }
 
     [Fact]
