@@ -1933,10 +1933,21 @@ async function checkApprovalKeepsPosition(page, width, theme) {
             decisionsSeen.push(`${request.method()} ${request.url()}`);
         }
     });
-    await page.waitForFunction(() =>
-        [...document.querySelectorAll('[role="button"][aria-label="Approve"]')]
-            .filter(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true').length >= 3,
-    null, { timeout: 15000 });
+    const approvalButtons = () => page.evaluate(() => [...document.querySelectorAll('[role="button"]')]
+        .map(button => ({
+            label: button.getAttribute('aria-label') ?? '',
+            text: (button.textContent ?? '').trim(),
+            disabled: button.disabled === true || button.getAttribute('aria-disabled') === 'true',
+        }))
+        .filter(button => button.label === 'Approve' || button.text === 'Approve'));
+    let ready = await approvalButtons();
+    for (let waited = 0; waited < 15000 && (ready.length < 3 || ready.some(button => button.disabled)); waited += 250) {
+        await page.waitForTimeout(250);
+        ready = await approvalButtons();
+    }
+    if (ready.length < 3 || ready.some(button => button.disabled)) {
+        throw new Error(`The three waiting calls did not offer three enabled Approve buttons: ${JSON.stringify(ready)}.`);
+    }
 
     // The reader is above the foot, looking at the current requests with another waiting below them.
     await page.mouse.move(width / 2, 500);
@@ -1959,10 +1970,8 @@ async function checkApprovalKeepsPosition(page, width, theme) {
         && /\/tool-calls\/[^/]+\/decision$/.test(new URL(response.url()).pathname)
         && response.ok(), { timeout: 15000 });
 
-    const buttons = await page.evaluate(() => [...document.querySelectorAll('[role="button"][aria-label="Approve"]')]
-        .map(button => ({ disabled: button.disabled, aria: button.getAttribute('aria-disabled') })));
     const diagnose = error => new Error(
-        `${error.message}. Decision requests seen: ${JSON.stringify(decisionsSeen)}. Approve buttons: ${JSON.stringify(buttons)}.`,
+        `${error.message}. Decision requests seen: ${JSON.stringify(decisionsSeen)}. Approve buttons: ${JSON.stringify(ready)}.`,
         { cause: error });
 
     const first = decided();
