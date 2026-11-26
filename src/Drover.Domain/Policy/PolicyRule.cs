@@ -74,14 +74,15 @@ public sealed record PolicyRule(
             policy => Enum.IsDefined(read(policy)));
 
     /// <summary>
-    /// A list of names the operator sets. It never loosens anything by itself: the rule that decides whether the list
-    /// is read is locked, and an empty list offers nothing, so no value is looser than the preset's.
+    /// A list of names the operator sets. It never loosens anything by itself, so it counts as the same looseness
+    /// whatever it holds: the rule that decides whether the list is read is the one that is locked and compared,
+    /// and an empty list offers nothing.
     /// </summary>
     public static PolicyRule Names(
         string name,
         Func<DeploymentPolicy, IReadOnlyList<string>> read,
         Enforcement enforcement) =>
-        new(name, policy => read(policy), _ => 0, enforcement, IsLocked: false);
+        new(name, policy => read(policy), _ => 0, enforcement);
 
     /// <summary>
     /// A numeric limit. A higher value is looser; <paramref name="strictest"/> is the value the hosted preset sets,
