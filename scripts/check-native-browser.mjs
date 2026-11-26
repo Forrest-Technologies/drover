@@ -198,7 +198,7 @@ const nativeProjectScreens = [
     ['projects', '/projects', 'Projects', 'Projects'],
     ['project-loading', `/projects/${projectId}`, 'Project', 'Project'],
     ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
-    ['project-missing', `/projects/${projectId}`, 'Project', 'This project is not here'],
+    ['project-missing', `/projects/${projectId}`, 'Project', 'Project not found'],
     ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
     ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
@@ -286,6 +286,8 @@ try {
                     return;
                 } else { errors.push(`${message.location().url}: ${message.text()}`); }
             });
+            // The account already keeps the look this device runs, as a second device would find it.
+            let accountAppearance = { themeId: 'front-office', mode: theme, accent: 'theme' };
             let current;
             let heldRoute;
             let botCreates = 0;
@@ -335,6 +337,12 @@ try {
                 }
                 else if (address === '/api/setup' && current === 'sign-in') { await route.fulfill({ status: 404 }); return; }
                 else if (address === '/api/setup') { body = { requiresCode: true }; }
+                else if (address === '/api/account/appearance' && method === 'GET') { body = accountAppearance; }
+                else if (address === '/api/account/appearance' && method === 'PUT') {
+                    accountAppearance = route.request().postDataJSON();
+                    await route.fulfill({ status: 204 });
+                    return;
+                }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
@@ -502,7 +510,9 @@ try {
                         return;
                     }
 
-                    body = current === 'conversation-search' ? searchMessages : messages;
+                    body = current === 'conversation-links'
+                        ? [{ ...messages[0], parts: [{ kind: 'text', text: 'Sample reply with a source.' }, { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` }] }]
+                        : current === 'conversation-search' ? searchMessages : messages;
                 }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
@@ -528,8 +538,9 @@ try {
                     body = projectMoved ? [{ ...projectOutsideThread, projectId }] : [projectOutsideThread];
                 }
                 else if (address === `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project` && method === 'PUT') {
-                    projectMoved = true;
-                    body = { ...projectOutsideThread, projectId };
+                    const sent = JSON.parse(route.request().postData() ?? '{}');
+                    projectMoved = sent.projectId != null;
+                    body = projectMoved ? { ...projectOutsideThread, projectId } : projectOutsideThread;
                 }
                 else if (address === `/api/spaces/${spaceId}/projects` && method === 'GET') {
                     if (current === 'projects-failed') {
@@ -674,7 +685,9 @@ try {
                 }
                 if (name === 'projects') {
                     await page.getByRole('link', { name: 'Weekly', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    await page.getByRole('textbox', { name: 'Project name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'New project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByRole('textbox', { name: 'Name', exact: true }).count(), 0,
+                        'the projects list must not hold a field until New project is pressed');
                 }
                 if (name === 'project-loading') {
                     await page.getByLabel('Loading the project.', { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
@@ -686,10 +699,12 @@ try {
                     await page.getByRole('link', { name: 'Back to projects', exact: true }).first().waitFor({ state: 'attached', timeout: 5000 });
                 }
                 if (name === 'project' || name === 'project-member') {
-                    await page.getByRole('textbox', { name: 'Name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('heading', { name: 'Instructions', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('heading', { name: 'Conversations', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('heading', { name: 'Files', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                     await page.getByRole('button', { name: 'Download brief.txt', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    await page.getByRole('button', { name: 'Start with Sample bot', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByRole('textbox', { name: 'Name', exact: true }).count(), 0,
+                        'a project reads before it edits, so no field is on the page');
                 }
                 if (name === 'conversation-load-failed') {
                     await page.getByRole('heading', { name: 'Drover could not load this conversation', exact: true })
@@ -701,6 +716,11 @@ try {
                     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
                     await field.press('X');
                     assert.equal(await field.inputValue(), '', 'the field is disabled while the state is shown');
+                    const waitingField = page.getByRole('textbox', {
+                        name: 'Message to Sample bot', exact: true,
+                        description: /^Available when the conversation has loaded\.$/,
+                    });
+                    await waitingField.waitFor({ state: 'attached', timeout: 5000 });
                 }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
@@ -717,6 +737,15 @@ try {
                     await field.press('X');
                     assert.equal(await field.inputValue(), 'X', 'the field takes text once the conversation has been read');
                     await field.fill('');
+                    // The description leaves with the failure. Uno debounces accessibility updates, so wait for it.
+                    await page.waitForFunction(
+                        () => !document.querySelector('[aria-label="Message to Sample bot"]')?.getAttribute('aria-description'),
+                        null, { timeout: 5000 });
+                    const waitingField = page.getByRole('textbox', {
+                        name: 'Message to Sample bot', exact: true,
+                        description: /^Available when the conversation has loaded\.$/,
+                    });
+                    assert.equal(await waitingField.count(), 0, 'the field says nothing about waiting once the conversation is read');
                 }
                 if (name === 'extension-editor') {
                     // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
@@ -737,21 +766,24 @@ try {
                     await checkPhoneNavLayout(page, width);
                 }
                 if (name === 'projects') {
-                    await checkProjectListKeyboard(page);
+                    await checkProjectListKeyboard(page, width, theme);
                 }
                 if (name === 'project') {
                     const cpu = await context.newCDPSession(page);
                     await cpu.send('Emulation.setCPUThrottlingRate', { rate: 4 });
                     try {
-                        await checkProjectDraftsAndKeyboard(page);
+                        await checkProjectDraftsAndKeyboard(page, width, theme);
                     } finally {
                         await cpu.send('Emulation.setCPUThrottlingRate', { rate: 1 });
                         await cpu.detach();
                     }
+                    await checkProjectMoveFlow(page, width, theme);
                 }
                 if (name === 'project-member') {
-                    await page.getByText("Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.", { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-                    assert.equal(await page.getByRole('button', { name: 'Save project', exact: true }).isDisabled(), true);
+                    assert.equal(await page.getByRole('button', { name: 'Edit project', exact: true }).count(), 0,
+                        'a member is not offered the edit action');
+                    assert.equal(await page.getByRole('button', { name: 'More', exact: true }).count(), 0,
+                        'a member is not offered the more menu');
                 }
                 if (name === 'conversation') {
                     await checkComposerBounds(page);
@@ -878,6 +910,19 @@ try {
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
+            current = 'conversation-links';
+            await page.route(`${origin}/sample-external`, route => route.fulfill({
+                contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',
+            }));
+            await page.goto(`${origin}/talk/${botId}`);
+            const externalSource = page.getByRole('link', { name: /Sample external source,/ });
+            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
+            // A popup blocker can return a fake successful window instead of null. Links must not depend on that result.
+            await page.evaluate(() => { window.open = () => ({ closed: false }); });
+            await externalSource.dispatchEvent('click');
+            await page.waitForURL(`${origin}/sample-external`, { timeout: 10000 });
+            assert.equal(await page.title(), 'Sample external destination');
+            progress(`direct external link ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
@@ -1767,20 +1812,42 @@ async function checkPhoneNavLayout(page, width) {
     assert.equal(overflow, false, `Horizontal overflow detected in PhoneNav at ${width}px.`);
 }
 
-async function checkProjectListKeyboard(page) {
-    const field = page.getByRole('textbox', { name: 'Project name', exact: true });
+async function checkProjectListKeyboard(page, width, theme) {
+    const add = page.getByRole('button', { name: 'New project', exact: true });
+    await add.focus();
+    await page.keyboard.press('Enter');
+    const field = page.getByRole('textbox', { name: 'Name', exact: true });
+    await field.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-new-dialog-${width}-${theme}.png`) });
+    await page.getByRole('button', { name: 'Create project', exact: true }).dispatchEvent('click');
+    await waitForShown(page, 'Enter a name for the project.');
+    await page.screenshot({ path: path.join(pictures, `project-new-refusal-${width}-${theme}.png`) });
     await field.focus();
     await page.keyboard.type('Draft');
     await page.waitForTimeout(150);
     assert.equal(await field.inputValue(), 'Draft');
     await page.keyboard.press('Tab');
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
-    assert.equal(activeName, 'New project', `Expected Tab from Project name to land on New project, got ${activeName}`);
+    assert.ok(['Cancel', 'Create project'].includes(activeName),
+        `Expected Tab from Name to stay in the dialog, got ${activeName}`);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).dispatchEvent('click');
+    await field.waitFor({ state: 'detached', timeout: 5000 });
+    await add.dispatchEvent('click');
+    await field.waitFor({ state: 'attached', timeout: 5000 });
+    assert.equal(await field.inputValue(), '', 'Reopening New project must start with an empty Name field');
+    assert.equal(await shown(page, 'Enter a name for the project.').count(), 0,
+        'Reopening New project must clear the previous refusal');
+    await page.keyboard.press('Escape');
+    await field.waitFor({ state: 'detached', timeout: 5000 });
 }
 
-async function checkProjectDraftsAndKeyboard(page) {
+async function checkProjectDraftsAndKeyboard(page, width, theme) {
+    await page.getByRole('button', { name: 'Edit project', exact: true }).dispatchEvent('click');
     const nameField = page.getByRole('textbox', { name: 'Name', exact: true });
     const instructionsField = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    await nameField.waitFor({ state: 'attached', timeout: 5000 });
+    await instructionsField.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-edit-sheet-${width}-${theme}.png`) });
     await nameField.focus();
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.type('Weekly draft');
@@ -1790,15 +1857,9 @@ async function checkProjectDraftsAndKeyboard(page) {
     await page.waitForTimeout(200);
 
     assert.equal(await nameField.inputValue(), 'Weekly draft',
-        'Project name did not take the typed draft before refreshing.');
+        "The sheet's Name did not take the typed draft.");
     assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
         'Project instructions did not take the typed draft before refreshing.');
-
-    await page.getByRole('button', { name: 'Move Quarterly planning into this project', exact: true }).dispatchEvent('click');
-    await page.getByRole('button', { name: 'Move Quarterly planning out of this project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
-
-    assert.equal(await nameField.inputValue(), 'Weekly draft', 'Project name draft was lost after refreshing project details.');
-    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.', 'Project instructions draft was lost after refreshing project details.');
 
     await instructionsField.focus();
     await page.keyboard.press('Home');
@@ -1844,7 +1905,74 @@ async function checkProjectDraftsAndKeyboard(page) {
     await instructionsField.focus();
     await page.keyboard.press('Tab');
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
-    assert.equal(activeName, 'Save project', `Expected Tab from Instructions to reach Save project, got ${activeName}`);
+    assert.ok(['Cancel', 'Save changes'].includes(activeName),
+        `Expected Tab from Instructions to stay in the sheet, got ${activeName}`);
+    await page.keyboard.press('Escape');
+    await page.getByRole('heading', { name: 'Discard changes?', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-discard-dialog-${width}-${theme}.png`) });
+    await page.getByRole('button', { name: 'Keep editing', exact: true }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Discard', exact: true }).dispatchEvent('click');
+    await nameField.waitFor({ state: 'detached', timeout: 5000 });
+}
+
+async function checkProjectMoveFlow(page, width, theme) {
+    const address = `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project`;
+    const write = () => page.waitForResponse(reply => reply.request().method() === 'PUT'
+        && new URL(reply.url()).pathname === address && reply.ok());
+
+    await focusSettled(page);
+    await page.getByRole('button', { name: 'New conversation', exact: true }).dispatchEvent('click');
+    const moveHere = page.getByRole('menuitem', { name: 'Move a conversation here', exact: true });
+    await moveHere.waitFor({ state: 'attached', timeout: 5000 });
+    await moveHere.dispatchEvent('click');
+    const move = page.getByRole('button', { name: 'Move Quarterly planning to this project', exact: true });
+    await move.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-move-dialog-${width}-${theme}.png`) });
+    const movedIn = write();
+    await move.dispatchEvent('click');
+    const inReply = await movedIn;
+    assert.equal(JSON.parse(inReply.request().postData() ?? '{}').projectId, projectId,
+        'Move in must send this project, not the conversation or its bot');
+    await page.getByText('You have no other conversations to move here.', { exact: true })
+        .waitFor({ state: 'attached', timeout: 10000 });
+    await page.screenshot({ path: path.join(pictures, `project-move-empty-${width}-${theme}.png`) });
+    await page.getByRole('button', { name: 'Done', exact: true }).dispatchEvent('click');
+    const conversation = page.getByRole('link', { name: 'Quarterly planning', exact: true });
+    await conversation.waitFor({ state: 'attached', timeout: 5000 });
+
+    const more = page.getByRole('button', { name: 'More for Quarterly planning', exact: true });
+    await more.waitFor({ state: 'attached', timeout: 5000 });
+    await focusSettled(page);
+    await more.dispatchEvent('click');
+    const moveOut = page.getByRole('menuitem', { name: 'Move out of this project', exact: true });
+    await moveOut.waitFor({ state: 'attached', timeout: 5000 });
+    const movedOut = write();
+    await moveOut.dispatchEvent('click');
+    const outReply = await movedOut;
+    assert.equal(JSON.parse(outReply.request().postData() ?? '{}').projectId, null,
+        'Move out must send no project');
+    await conversation.waitFor({ state: 'detached', timeout: 10000 });
+
+    await focusSettled(page);
+    await page.getByRole('button', { name: 'More', exact: true }).dispatchEvent('click');
+    const removeProject = page.getByRole('menuitem', { name: 'Remove project', exact: true });
+    await removeProject.waitFor({ state: 'attached', timeout: 5000 });
+    await removeProject.dispatchEvent('click');
+    const keepProject = page.getByRole('button', { name: 'Keep project', exact: true });
+    await keepProject.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-remove-dialog-${width}-${theme}.png`) });
+    await keepProject.dispatchEvent('click');
+    await keepProject.waitFor({ state: 'detached', timeout: 5000 });
+
+    const removeFile = page.getByRole('button', { name: 'Remove brief.txt', exact: true });
+    await removeFile.waitFor({ state: 'attached', timeout: 5000 });
+    await removeFile.dispatchEvent('click');
+    const keepFile = page.getByRole('button', { name: 'Keep file', exact: true });
+    await keepFile.waitFor({ state: 'attached', timeout: 5000 });
+    await page.screenshot({ path: path.join(pictures, `project-remove-file-dialog-${width}-${theme}.png`) });
+    await keepFile.dispatchEvent('click');
+    await keepFile.waitFor({ state: 'detached', timeout: 5000 });
 }
 
 async function selectNativeTextRange(field, start, end, direction) {

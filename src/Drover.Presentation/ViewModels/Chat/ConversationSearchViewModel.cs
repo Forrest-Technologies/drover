@@ -297,7 +297,7 @@ public sealed class ConversationSearchViewModel(
 
     public const string Label = "Search conversations";
 
-    public const string Placeholder = "Words someone said";
+    public const string Placeholder = "Enter text to search";
 
     public const string SearchingWords = "Searching your conversations.";
 

@@ -314,6 +314,13 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
     #region Tool Server
 
     [Fact]
+    public void The_sign_in_choice_is_named_as_on_tool_connections()
+    {
+        ExtensionEditorViewModel.AuthLabel.Should().Be("How Drover signs in to this server");
+        ExtensionEditorViewModel.AuthKinds.Select(kind => kind.Label).Should().Equal("None", "Header", "Sign-in");
+    }
+
+    [Fact]
     public async Task Naming_a_tool_server_adds_its_fields_and_writes_it_into_the_file_with_no_field_for_a_key()
     {
         var editor = await Opened();
@@ -332,7 +339,7 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
         var named = JsonSerializer.Deserialize<JsonElement>(editor.Text).GetProperty("contents")[1];
         beforeHeader.Should().BeFalse("a header's name is asked for only when the server uses a header");
         editor.UsesHeader.Should().BeTrue();
-        ExtensionEditorViewModel.AuthKinds.Select(kind => kind.Label).Should().Equal("Nothing", "A header", "A sign-in");
+        ExtensionEditorViewModel.AuthKinds.Select(kind => kind.Label).Should().Equal("None", "Header", "Sign-in");
         named.EnumerateObject().Select(field => field.Name).Should().Equal("kind", "name", "url", "auth", "headerName", "suggestedTools");
         named.GetProperty("kind").GetString().Should().Be("mcp_connection");
         named.GetProperty("url").GetString().Should().Be("https://tools.example.test/mcp");

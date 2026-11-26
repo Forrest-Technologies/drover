@@ -141,7 +141,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Heading.Should().Be("Edit Marshal");
         editor.ShownName.Should().Be("Marshal");
         string[] labels = [BotEditorViewModel.PurposeLabel, BotEditorViewModel.InstructionsLabel];
-        labels.Should().Equal("What this bot is for", "Instructions");
+        labels.Should().Equal("Purpose", "Instructions");
         BotEditorViewModel.Sections.Should().OnlyContain(section => !editor.IsOpen(section));
         BotEditorViewModel.Sections.Select(section => $"{section}, {editor.Summary(section)}").Should().Equal(
             "Model, Sample connection · sample-large",
@@ -178,6 +178,18 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.Open(botId, "memory");
 
         BotEditorViewModel.Sections.Where(editor.IsOpen).Should().Equal(BotEditorViewModel.MemorySection);
+    }
+
+    [Fact]
+    public async Task A_link_about_limits_opens_the_editor_with_the_limits_section_open_and_marked_to_scroll()
+    {
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.Open(botId, "limits");
+
+        BotEditorViewModel.Sections.Where(editor.IsOpen).Should().Equal(BotEditorViewModel.LimitsSection);
+        editor.TakeOpenedSection().Should().Be(BotEditorViewModel.LimitsSection);
+        editor.TakeOpenedSection().Should().BeNull("scrolling to the named section happens once");
     }
 
     #endregion
@@ -358,10 +370,13 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         labels.Should().Equal("Model calls", "Tokens", "Handoffs");
         int?[] limits = [options?.MaxSteps, options?.MaxTokens, options?.MaxDelegations];
         limits.Select(LimitsSectionFields.Placeholder).Should().Equal("50", "5,000,000", "49");
-        LimitsSectionFields.Note.Should().Contain("before it spends your model credit").And.Contain("Leave a limit empty to use the space's.");
+        LimitsSectionFields.Caption.Should().Be("These limits stop a bot before it uses too much for one piece of work.");
+        LimitsSectionFields.FallbackCaption.Should().Be("Leave a limit empty to use the space's.");
         LimitsSectionFields.StepsHint(options).Should().EndWith("This space allows up to 50.");
         LimitsSectionFields.TokensHint(options).Should().EndWith("This space allows up to 5,000,000.");
         LimitsSectionFields.DelegationsHint(options).Should().Contain("0 keeps all work with this bot. This space allows up to 49.");
+        LimitsSectionFields.Placeholder(BotRunLimitOptions.NoLimit).Should().Be("No limit");
+        LimitsSectionFields.StepsHint(new BotRunLimitOptions(BotRunLimitOptions.NoLimit, 1, 0)).Should().EndWith("This space sets no limit.");
 
         editor.Edit(draft => draft.MaxSteps = "12");
         editor.Edit(draft => draft.MaxDelegations = "0");
@@ -369,6 +384,17 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
         Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which.Should().Contain("\"runLimits\":{\"maxSteps\":12,\"maxTokens\":null,\"maxDelegations\":0}");
         editor.Summary(Limits).Should().Be("12 model calls · 5,000,000 tokens · 0 handoffs");
+    }
+
+    [Fact]
+    public void The_limits_section_renders_no_info_box_and_keeps_the_fallback_rule_in_a_caption()
+    {
+        var source = Repository.NativeFiles(".cs").Single(file => file.Path == "Pages/Bots/Parts/LimitsSectionView.cs").Text;
+
+        source.Should().NotContain("StatusNote", "the Limits section uses a compact caption line instead of an info box");
+        source.Should().Contain("LimitsSectionFields.Caption").And.Contain("LimitsSectionFields.FallbackCaption").And.Contain("\"DvTextCaption\"");
+        LimitsSectionFields.Caption.Should().NotContain("runs away");
+        LimitsSectionFields.FallbackCaption.Should().Be("Leave a limit empty to use the space's.");
     }
 
     [Fact]
@@ -1661,7 +1687,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task A_bot_that_is_not_there_says_so()
+    public async Task A_missing_bot_says_not_found_and_offers_the_bots_list()
     {
         Server.Answer("GET", $"{bot}/definition", HttpStatusCode.NotFound);
         var editor = Make<BotEditorViewModel>();
@@ -1669,7 +1695,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.Open(botId, null);
 
         editor.State.Should().Be(BotEditorState.Missing);
-        BotEditorViewModel.MissingTitle.Should().Be("This bot is not here");
+        BotEditorViewModel.MissingTitle.Should().Be("Bot not found");
+        BotEditorViewModel.MissingAction.Should().Be("Back to bots");
     }
 
     [Fact]

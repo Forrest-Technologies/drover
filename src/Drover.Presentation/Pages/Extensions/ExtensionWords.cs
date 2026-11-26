@@ -10,7 +10,7 @@ public static class ExtensionWords
         : !extension.AddsBot && extension.Connection is { } connection ? $"Names the tool server {connection.Name}."
         : "The bot it added has been removed.";
 
-    /// <summary>How Drover proves who is calling a tool server, in words a person reads before connecting.</summary>
+    /// <summary>How Drover signs in to a tool server, in words a person reads before connecting.</summary>
     public static string Auth(string auth, string? headerName) => auth switch
     {
         "header" => $"A header named {headerName}. You type its value when you connect, and it is kept secret.",

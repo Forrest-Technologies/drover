@@ -1,12 +1,13 @@
 namespace Drover.Ui.Chat;
 
 /// <summary>
-/// One bot turn, one compact ledger of work. A run writes a message for each step it takes; shown one by one, every
-/// step stood its own head and every call its own card. Here the bot's messages of one run, with nothing from a person
-/// between, are one turn: its first message carries the head and the ledger, the turn's reasoning and calls as one
-/// list of single line rows, and the messages after it hang under it with only their words. A call that waits for a
-/// person, hands work to another bot, asks for the screen, or keeps a note a person may forget stays a card, so
-/// nothing that needs a person hides in a collapsed row.
+/// A bot turn's work, where it happened. A run writes a message for each step it takes; shown one by one, every step
+/// stood its own head and every call its own card. Here the bot's messages of one run, with nothing from a person
+/// between, are one turn: its first message carries the head, and the messages after it hang under it with only their
+/// words. The work between two things the bot said (its reasoning and the calls that fold) is one ledger, standing
+/// between those words, so the conversation reads in the order it happened. A call that waits for a person, hands work
+/// to another bot, asks for the screen, or keeps a note a person may forget stays a card, so nothing that needs a
+/// person hides in a collapsed row.
 /// </summary>
 public static class TurnLedger
 {
@@ -23,7 +24,8 @@ public static class TurnLedger
 
     /// <summary>
     /// The messages with their turns marked: <see cref="ChatMessage.ContinuesTurn"/> on each bot message that goes on
-    /// a turn, and on the first message of each turn with work, <see cref="ChatMessage.Ledger"/>.
+    /// a turn, <see cref="ChatMessage.Ledger"/> on each message with work before its words, and
+    /// <see cref="ChatMessage.LedgerAfter"/> on a turn's last message when work followed its last words.
     /// </summary>
     public static IReadOnlyList<ChatMessage> InTurns(this IReadOnlyList<ChatMessage> messages)
     {
@@ -38,9 +40,9 @@ public static class TurnLedger
                 continue;
             }
 
-            if (!marked[start].FromPerson && marked[start].RunId is not null && Steps(marked[start..index]) is { Count: > 0 } steps)
+            if (!marked[start].FromPerson && marked[start].RunId is not null)
             {
-                marked[start] = marked[start] with { Ledger = steps };
+                PlaceWork(marked, start, index);
             }
 
             start = index;
@@ -77,8 +79,64 @@ public static class TurnLedger
     /// <summary>What the ledger is called for someone who cannot see it: "Work in this reply, 6 steps".</summary>
     public static string ListName(IReadOnlyList<LedgerStep> steps)
     {
-        var count = steps.Sum(step => Math.Max(1, step.Calls.Count));
+        var count = Count(steps);
         return $"Work in this reply, {count.ToString("N0", CultureInfo.InvariantCulture)} {(count == 1 ? "step" : "steps")}";
+    }
+
+    /// <summary>How many steps the ledger holds, each call of a group counted.</summary>
+    public static int Count(IReadOnlyList<LedgerStep> steps) => steps.Sum(step => Math.Max(1, step.Calls.Count));
+
+    /// <summary>
+    /// The ledger in one line, as it reads closed: what was done, in order, a kind done again counted once, as in
+    /// "Searched the web 3 times, read a page". Cut at a readable length.
+    /// </summary>
+    public static string Gist(IReadOnlyList<LedgerStep> steps)
+    {
+        List<(string Label, int Times)> kinds = [];
+        foreach (var label in steps.Select(Label))
+        {
+            if (kinds is [.., var last] && last.Label == label)
+            {
+                kinds[^1] = (label, last.Times + 1);
+            }
+            else
+            {
+                kinds.Add((label, 1));
+            }
+        }
+
+        var parts = kinds.Select((kind, index) =>
+        {
+            var said = kind.Times > 1 ? $"{kind.Label} {kind.Times.ToString(CultureInfo.InvariantCulture)} times" : kind.Label;
+            return index > 0 && said.Length > 1 && char.IsLower(said[1]) ? $"{char.ToLowerInvariant(said[0])}{said[1..]}" : said;
+        });
+        return Shortened(string.Join(", ", parts));
+    }
+
+    /// <summary>
+    /// What stands after the gist: the number of steps, the time they took when the run said, and how many failed,
+    /// as in "4 steps · 12 s · 1 failed". While a step runs it says so instead of the time.
+    /// </summary>
+    public static string Facts(IReadOnlyList<LedgerStep> steps)
+    {
+        var count = Count(steps);
+        List<string> parts = [$"{count.ToString("N0", CultureInfo.InvariantCulture)} {(count == 1 ? "step" : "steps")}"];
+        var total = steps.Sum(TotalMs);
+        if (steps.Any(step => StateOf(step) is LedgerState.Running))
+        {
+            parts.Add(StateWords(LedgerState.Running));
+        }
+        else if (total > 0)
+        {
+            parts.Add(ShortDuration(total));
+        }
+
+        if (steps.Count(step => StateOf(step) is LedgerState.Failed) is > 0 and var failed)
+        {
+            parts.Add($"{failed.ToString(CultureInfo.InvariantCulture)} failed");
+        }
+
+        return string.Join(" · ", parts);
     }
 
     /// <summary>A step's label on its row: the call's label, or for a group, the count in words ("Ran 4 commands").</summary>
@@ -180,6 +238,44 @@ public static class TurnLedger
     #endregion
 
     #region Private Methods
+
+    // Each message's reasoning comes before its words and its calls after them. The work gathered since the last words
+    // stands above the next words, and what is left at the end under the last words. Work before the turn's first words
+    // stands on its first message, under the bot's head, so the turn always opens with who is speaking.
+    private static void PlaceWork(List<ChatMessage> marked, int start, int end)
+    {
+        List<ChatMessage> pending = [];
+        var lastWords = -1;
+
+        for (var index = start; index < end; index++)
+        {
+            var message = marked[index];
+            if (message.Text.Length == 0)
+            {
+                pending.Add(message);
+                continue;
+            }
+
+            var before = WorkBefore(message, pending);
+            var holder = lastWords < 0 ? start : index;
+            marked[holder] = marked[holder] with { Ledger = before.Count > 0 ? before : null };
+            pending = [message with { Reasoning = null }];
+            lastWords = index;
+        }
+
+        if (Steps(pending) is not { Count: > 0 } after)
+        {
+            return;
+        }
+
+        marked[lastWords < 0 ? start : lastWords] = lastWords < 0
+            ? marked[start] with { Ledger = after }
+            : marked[lastWords] with { LedgerAfter = after };
+    }
+
+    // The work since the last words, then this message's reasoning, which came before its own words.
+    private static IReadOnlyList<LedgerStep> WorkBefore(ChatMessage message, List<ChatMessage> earlier) =>
+        Steps([.. earlier, message with { Tools = [] }]);
 
     // The next message goes on the turn: a bot's message of the same run as the bot's message before it.
     private static bool Continues(ChatMessage before, ChatMessage message) =>

@@ -124,6 +124,9 @@ internal sealed partial class DialogSurface
     /// </summary>
     public bool AtOnce { get; set; }
 
+    /// <summary>Called before closing. Returning false keeps the surface open, for a dialog that asks first.</summary>
+    public Func<bool>? Closing { get; set; }
+
     /// <summary>
     /// How the person closed the surface: with the keyboard, or with a pointer or a touch. The keyboard until then.
     /// </summary>
@@ -133,7 +136,7 @@ internal sealed partial class DialogSurface
 
     #region Public Methods
 
-    public void Show(string heading, object? content, object? buttons)
+    public void Show(string heading, object? content, object? buttons, FrameworkElement? initial = null)
     {
         if (owner.XamlRoot is not { } root)
         {
@@ -168,8 +171,10 @@ internal sealed partial class DialogSurface
                 SlideIn(root.Size);
             }
 
-            close.Loaded += FocusClose;
-            close.TakeFocus();
+            var focus = initial ?? close;
+            focus.Loaded -= FocusInitial;
+            focus.Loaded += FocusInitial;
+            MoveFocus(focus);
         }
     }
 
@@ -198,14 +203,34 @@ internal sealed partial class DialogSurface
 
     #region Private Methods
 
-    private void FocusClose(object sender, RoutedEventArgs args)
+    private static void FocusInitial(object sender, RoutedEventArgs args)
     {
-        close.Loaded -= FocusClose;
-        close.TakeFocus();
+        if (sender is FrameworkElement focus)
+        {
+            focus.Loaded -= FocusInitial;
+            MoveFocus(focus);
+        }
+    }
+
+    private static void MoveFocus(FrameworkElement element)
+    {
+        if (element is Field field)
+        {
+            field.TakeFocus();
+        }
+        else
+        {
+            element.Focus(FocusState.Keyboard);
+        }
     }
 
     private void Close(FocusState with)
     {
+        if (Closing?.Invoke() is false)
+        {
+            return;
+        }
+
         ClosedWith = with;
         Closed?.Invoke();
     }

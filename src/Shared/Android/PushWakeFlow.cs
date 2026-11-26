@@ -5,13 +5,13 @@ internal interface IPushNotices
 {
     #region Public Methods
 
-    void Show(PushWakeText wake, AndroidPushSubscription saved, bool canReply);
+    Task Show(PushWakeText wake, bool canReply);
 
     /// <summary>For a wake-up whose words could not be fetched: the person still learns that something
     /// happened.</summary>
-    void ShowChange();
+    Task ShowChange();
 
-    void ShowTest();
+    Task ShowTest();
 
     #endregion
 }
@@ -36,9 +36,7 @@ internal sealed class PushWakeFlow(DroverApi api, ILogger logger)
         IPushNotices notices,
         CancellationToken cancellationToken)
     {
-        var (kind, thread) = Read(clear);
-
-        if (kind.Length == 0)
+        if (Read(clear, saved.UserId) is not { } wakeUp)
         {
             return;
         }
@@ -50,15 +48,28 @@ internal sealed class PushWakeFlow(DroverApi api, ILogger logger)
                 return;
             }
 
-            if (kind == "device.test")
+            if (wakeUp.Kind == "device.test")
             {
-                notices.ShowTest();
+                await notices.ShowTest();
                 return;
             }
 
-            if (await api.ReadPushWake(kind, thread, cancellationToken) is { } wake && await belongsToThisDevice())
+            if ((saved.Reported ?? saved.Endpoint) is not { } endpoint)
             {
-                notices.Show(wake, saved, canReply: kind == "run.finished");
+                return;
+            }
+
+            var wake = await api.ReadPushWake(wakeUp.Kind, wakeUp.Thread, saved.UserId, endpoint, cancellationToken);
+            if (await belongsToThisDevice())
+            {
+                if (wake is { } text && text.ThreadId == wakeUp.Thread)
+                {
+                    await notices.Show(text, canReply: wakeUp.Kind == "run.finished");
+                }
+                else
+                {
+                    await notices.ShowChange();
+                }
             }
         }
         catch (Exception exception) when (IsReportable(exception))
@@ -68,9 +79,9 @@ internal sealed class PushWakeFlow(DroverApi api, ILogger logger)
                 "Drover could not read what a notification is about; the failure was {Failure}",
                 exception.GetType().Name);
 
-            if (await belongsToThisDevice())
+            if (!WasRefused(exception) && await belongsToThisDevice())
             {
-                notices.ShowChange();
+                await notices.ShowChange();
             }
         }
     }
@@ -82,7 +93,17 @@ internal sealed class PushWakeFlow(DroverApi api, ILogger logger)
     private static bool IsReportable(Exception exception) =>
         exception is HttpRequestException or DroverApiException or OperationCanceledException;
 
-    private static (string Kind, Guid Thread) Read(byte[] clear)
+    private static bool WasRefused(Exception exception) => exception switch
+    {
+        DroverApiException apiError => IsIdentityRefusal(apiError.StatusCode),
+        HttpRequestException requestError => IsIdentityRefusal(requestError.StatusCode),
+        _ => false,
+    };
+
+    private static bool IsIdentityRefusal(HttpStatusCode? status) =>
+        status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Conflict;
+
+    private static (string Kind, Guid Thread)? Read(byte[] clear, Guid user)
     {
         using var document = JsonDocument.Parse(clear);
         var root = document.RootElement;
@@ -90,12 +111,15 @@ internal sealed class PushWakeFlow(DroverApi api, ILogger logger)
             && root.TryGetProperty("kind", out var kind) && kind.ValueKind == JsonValueKind.String
             && kind.GetString() is ("device.test" or "run.finished" or "run.failed" or "approval.waiting") and var name
             && root.TryGetProperty("thread", out var thread) && thread.ValueKind == JsonValueKind.String
-            && thread.TryGetGuid(out var id) && (id != Guid.Empty || name == "device.test"))
+            && thread.TryGetGuid(out var id) && (id != Guid.Empty || name == "device.test")
+            && (!root.TryGetProperty("user", out var intended)
+                || (intended.ValueKind == JsonValueKind.String
+                    && intended.TryGetGuid(out var parsed) && parsed == user)))
         {
             return (name, id);
         }
 
-        return (string.Empty, Guid.Empty);
+        return null;
     }
 
     #endregion

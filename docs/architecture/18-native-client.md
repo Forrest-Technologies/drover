@@ -94,7 +94,7 @@ Taking a screenshot of the browser build: serve the published `wwwroot` at the r
 
 Taking a screenshot of the desktop build on a machine with no display: `xvfb-run -a --server-args="-screen 0 1280x800x24"` around a script that starts `bin/Debug/net11.0-desktop/Drover.Native.dll`, waits, and runs `import -window root out.png`. A Debug build started with `DROVER_DEV_GALLERY` set shows the gallery's conversation samples with no server (`Pages/Dev/DevGallery.cs`): some words of a section's title show the sections that hold them, and `pane` shows one sample conversation over its composer and status line, as wide as `DROVER_DEV_WIDTH` says, light or black with `DROVER_DEV_MODE=light` or `black`, thinking or with a turn of two messages with `DROVER_DEV_STATE=thinking` or `turn`. `DROVER_DEV_THEME` names the theme (`front-office`, `night-yard`). None of it is in a Release build.
 
-The appearance choices (theme, mode, accent) are a dialog the shell owns, not the account menu: a choice of theme, accent or the black mode makes the open screen again, and the dialog stays open over it. Whether it is open is `ThemeModel.AppearanceOpen`, which the account menu's "Appearance" item sets; the options are `AppearanceViewModel`. After such a choice `ShellView` makes the dialog again from the new values, opens it over the old one with no fade before the old one goes, and hands the option that had the focus to the new body (`AppearanceChoices.FocusHeld`); when it closes, the focus goes to the account menu's button on the screen now showing, or to the screen, with the ring only when the keyboard closed it (`Dialog.ClosedWith`). A development build started with `DROVER_DEV_APPEARANCE` set opens the dialog over the first screen and presses the buttons named in it, separated by commas, two seconds apart, in a window as wide as `DROVER_DEV_WIDTH` says (`Shell/AppearanceRehearsal.cs`, not in a product build), for a picture with no pointer. `DROVER_DEV_GALLERY=splash` shows the splash alone.
+The appearance choices (theme, mode, accent) are a dialog the shell owns, not the account menu: a choice of theme, accent or the black mode makes the open screen again, and the dialog stays open over it. Whether it is open is `ThemeModel.AppearanceOpen`, which the account menu's "Appearance" item sets; the options are `AppearanceViewModel`. After such a choice `ShellView` makes the dialog again from the new values, opens it over the old one with no fade before the old one goes, and hands the option that had the focus to the new body (`AppearanceChoices.FocusHeld`); when it closes, the focus goes to the account menu's button on the screen now showing, or to the screen, with the ring only when the keyboard closed it (`Dialog.ClosedWith`). A signed-in person's choice is also saved through `/api/account/appearance`. Signing in loads it silently. A missing record leaves the device choice in place. An offline or failed save keeps the local choice, queues the latest value for reconnect and shows one quiet retry sentence in the dialog. Signed-out choices use only `drover.theme`. A development build started with `DROVER_DEV_APPEARANCE` set opens the dialog over the first screen and presses the buttons named in it, separated by commas, two seconds apart, in a window as wide as `DROVER_DEV_WIDTH` says (`Shell/AppearanceRehearsal.cs`, not in a product build), for a picture with no pointer. `DROVER_DEV_GALLERY=splash` shows the splash alone.
 
 The pictures taken for this work are in `docs/screenshots/native-foundation/`, native beside web, at 1280 and 360 pixels, dark and light.
 
@@ -257,7 +257,7 @@ A control that sets colors in code repaints when the theme changes: call `this.W
 
 ## Theme
 
-`ThemeModel` (in `Drover.Presentation`) holds the choice: a `ThemeChoice`, which is a theme id, a mode (`system`, `dark`, `light` or `black`) and an accent ([ADR 0021](../adr/0021-front-office-black-and-accents.md)). The app is Front Office, dark, in the theme's own color, until a person picks otherwise or asks it to follow the device. The choice is kept through `IDeviceSettings` under the name `drover.theme` as one small JSON object, `{"themeId":"front-office","mode":"dark","accent":"theme","version":2}`. In a browser that is the local storage entry the retired web client wrote, so a person's mode carried over; elsewhere it is the platform's settings store. A value written before a person could choose a theme, the one word `dark`, `light` or `system` or the object without a version, keeps its mode and takes the default theme: the theme it named was the only one there was. A value that is none of these reads as a device that has not chosen. A theme id the app does not have draws as the default and is kept as it was written, and an accent the theme does not offer draws as the theme's own color. `ShellView` applies the mode by setting `RequestedTheme` on the root; a window has no black mode, so black is the dark mode with the theme's black colors written into the dark dictionaries (`ThemeTokens.Apply(theme, black)`).
+`ThemeModel` (in `Drover.Presentation`) holds the choice: a `ThemeChoice`, which is a theme id, a mode (`system`, `dark`, `light` or `black`) and an accent ([ADR 0021](../adr/0021-front-office-black-and-accents.md)). The app is Front Office, dark, in the theme's own color, until a person picks otherwise or asks it to follow the device. The choice is kept through `IDeviceSettings` under the name `drover.theme` as one small JSON object, `{"themeId":"front-office","mode":"dark","accent":"theme","version":2}`. In a browser that is the local storage entry the retired web client wrote, so a person's mode carried over; elsewhere it is the platform's settings store. A value written before a person could choose a theme, the one word `dark`, `light` or `system` or the object without a version, keeps its mode and takes the default theme: the theme it named was the only one there was. A value that is none of these reads as a device that has not chosen. A local theme id the app does not have draws as the default and remains in the device cache. A server choice whose theme or accent this app does not have is cached with the default theme or theme accent. `ShellView` applies the mode by setting `RequestedTheme` on the root; a window has no black mode, so black is the dark mode with the theme's black colors written into the dark dictionaries (`ThemeTokens.Apply(theme, black)`).
 
 The black mode and the accents are worked out, never stored in a theme file. `ThemeFile.In(ColorMode.Black)` is the dark mode with a black first surface and each surface above it taking the color of the one below. `Accents.For(theme)` lists the accents a theme offers, its own color first, and `theme.WithAccent(id)` is the theme with `ember` turned to that hue at the theme's own chroma, as close to its lightness as still reads on every surface, with `on-accent` kept where it still reads. An accent is offered only when the theme then passes every gate, so one whose hue lies within 45 degrees of the theme's `ion` or `violet` is not on the list, and neither is one within 20 degrees of the theme's own color. The same theme and accent always give the same object, which is how `ShellView` tells that the look in use changed.
 
@@ -308,7 +308,7 @@ Native only, because the web does these in CSS:
 | --- | --- |
 | `Facet` | The frame, and the only place corners are drawn: `Role` (a control or a larger frame), `Fill`, `Edge`, `Ring`, and `Cut` where a faceted frame needs a size of its own. The theme's corner language decides what it draws: cut corners, rounded corners, or ticks. A panel; what is put in it sits on the surface |
 | `Yard` | The texture behind the working area: dots, lines, a grid, or nothing, as the theme says |
-| `Link` | An anchor: `Text`, `Address`. An in-app address goes through the navigator |
+| `Link` | An anchor: `Text`, `Address`. An in-app address goes through the navigator. External links and markdown links share `OpenOutside`: the browser navigates the current tab directly, since popup blockers can report a successful new window without opening one. Native devices use the platform launcher |
 | `PlainButton` | The base of every pressable control on a plain surface. Colors are token names |
 | `FlowPanel` | A row that wraps: `Gap`, and `FlowPanel.FullRow` on a child |
 | `TravelLine` | Live state: a tool is running |
@@ -352,6 +352,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 - **`ScreenPanel` hosts the sandbox screen.** It makes one `Bots.SandboxScreen` when the bot has a screen to show, keeps it while the sandbox's state is read again, and reads the state again when the screen says the sandbox changed. The gallery puts a labeled box in its place, because the screen's own view model would ask a real server.
 - **A line that takes the place of a button** is a `FocusLine`: it can be given the focus and is not a stop on the way through the page, as an element with a tab index of minus one is on the web.
 - **A status** is a text block with a live setting whose automation peer raises `LiveRegionChanged` when its words change (`Pieces.SayWhenShown`, `StatusNote`). That is the native form of a region marked as a status or an alert.
+- **The message field's accessible description** comes from `ComposerViewModel.FieldDescription`: while the conversation could not be read, the disabled field says it will be available once the conversation has loaded; the description clears once it has.
 - **The gallery reads from a sample server.** The panels that load from the server are shown with their real view models, which ask `Pages/Dev/SampleServer.cs` inside the app. Nothing leaves the app.
 - **Native file previews stay inside native controls.** `FileCard` hosts `NativeFilePreviewControl` (`NativeFilePreviewViewModel`) for files other than bot HTML. The server's `/api/spaces/{spaceId}/files/{fileId}/native-preview` endpoint inspects the stored bytes within tight size, page, and pixel caps and returns bounded Markdown text, a static PNG picture copy, extracted PDF pages, a parsed flowchart node-and-edge model, or a refusal code. Markdown is parsed by `FileMarkdown` with raw HTML disabled, node count and depth capped, and remote images converted into external links whose target address is visible; fenced `flowchart` and `graph` blocks draw as native node-and-edge cards. For PNG, JPEG, GIF and WebP originals up to 25 MiB and 50 million source pixels, the server returns the first frame as a PNG with a longest edge of at most 480 pixels, subject to the decode limits below. The client checks the returned copy against its 1 MiB and 4,000,000-pixel limits before decoding it. PDFs extract up to 10 pages and 16 KiB of text or bounded page images and step through pages with keyboard-focusable Previous page and Next page buttons. Closing a preview or replacing the file clears all decoded bitmaps, pages, and diagram controls and keeps Download available.
 - **Conversation picture copies.** The native preview route opens the original through the caller's normal file authorization before checking a server-side cache keyed by space, file and content hash. A cache miss accepts originals up to 25 MiB. The decoder checks input dimensions before allocating pixels (50 million source pixels, 16 million decoded pixels), strips compressed PNG metadata, and schedules one decode at a time. JPEG input is limited to 64 scans. Progressive and multi-scan sequential JPEGs are limited to 16 million source pixels. The decoder checks a two-second deadline between scanlines and after native calls. At the deadline the caller receives a busy refusal and the scheduling slot opens. A native call already in progress retains a worker until it returns. At most two workers can be live, including overdue calls. The server fits the first picture to a 480-pixel longest edge and returns a static PNG. At most three requests hold original read buffers at once. Each client sends at most two picture reads at once. A member can run two misses concurrently, with up to twelve requests including waiters and up to 200 starts per minute, enough for one full Files panel. A space can run eight concurrently with up to twenty requests including waiters. The server admits up to 32 requests across spaces. A request can wait up to eight seconds for member and space capacity. Hits bypass these budgets. A completed copy stays available even if its requester leaves. Copies expire after ten minutes and share a 16 MiB cache. Download still serves the original bytes. When the ten-second server deadline expires, the preview route returns a busy refusal. The card retries that refusal or its own twelve-second timeout once after the 420 ms retry delay. A permanent refusal or an unsuccessful second attempt shows a message and keeps Download available.
@@ -525,16 +526,18 @@ No screen class derives from `PendingScreen` any more; the class stays for a scr
 written. The last two to move were the bot editor and the share screen.
 
 Projects have a native list and a native project screen (`ProjectListPage`, `ProjectPage`) with view models in
-`Drover.Presentation` and screenshots in `docs/screenshots/issue-328/`. An owner or admin creates, renames, and
-removes a project, edits its instructions, and adds or removes its files. A member sees those controls unavailable and
-can still open a project, start a conversation with a bot, and move a conversation they own. The server still decides
-each request. Editor inputs live in persistent panels so typed drafts and keyboard focus survive list refreshes, uploads,
-and conversation moves. Project file downloads use `DroverApi` through `IFileDelivery` on desktop and Android and fall
-back to `Launcher` only in the browser target. Devices without file delivery do not offer a download action.
+`Drover.Presentation` and screenshots from the browser check in the CI artifact. An owner or admin creates a project
+from a dialog and changes its name and instructions in a sheet. Removal and file removal ask first and are reached from
+icon buttons. A member sees no edit or more action and can still open a project, start a conversation with a bot, and
+move a conversation they own. The server still decides each request. The sheet and dialogs are bound both ways to the
+view model, so a refusal keeps them open with the reason; the named view model tests cover drafts after a failed save.
+Project file downloads use `DroverApi` through `IFileDelivery` on desktop and Android and fall back to `Launcher` only
+in the browser target. Devices without file delivery do not offer a download action.
 Upload size checks read the server's limit from `/files/rules`, and
 movable conversations are fetched in one request for the signed-in owner. The list keeps the existing limit of
 200 non-archived threads, including scheduled and handed work. `scripts/check-native-browser.mjs` checks
-every project state, draft persistence, keyboard focus, and the five-item `PhoneNav` dock at 360 pixels.
+every project state, the new project dialog and Cancel, the edit sheet and Discard, the move in and move out flow,
+keyboard text, and the five-item `PhoneNav` dock at 360 pixels.
 
 The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one process-wide `ShareInbox.Process`, names the
 chosen bot there with `SendTo`, and opens that bot's conversation; the bot's main `ConversationViewModel` takes the
@@ -621,14 +624,8 @@ is kept and told what changed, never made again. A new child is put in at its pl
 moved is taken out, so a child that holds the focus keeps it. The activity timeline keeps its nodes and their open
 details by event the same way, so a node or a control in its details keeps the focus while a live run's events arrive.
 
-**The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
-message that changed is looked at again. That gives what the web client's reversed column gives: the reader at the
-foot stays at the foot while text streams, the reader who scrolled up stays put, a link to a moment can land on any
-message, an open card stays open, and assistive technology has the whole conversation. Measured on the desktop
-build with sample replies (bold, inline code, a list), on a machine whose four cores were loaded two to three times
-over by other builds: 300 messages took 2.2 s to first show and 22 ms for each update of a streaming reply (median
-of 40); 600 messages took 2.8 s and 26 ms. Before unchanged messages were skipped the update took 36 ms at 300. If
-conversations of thousands of messages become common, load the older part on demand; do not recycle elements.
+**The message list shows a page of the conversation, not all of it.** The newest messages are on the page and the
+rest are shown as the reader comes to them; nothing is cut from the conversation. See [Long lists](#long-lists).
 
 A streaming reply is parsed and laid out again for each stretch of text that arrives, as the web client does. The
 list draws at most once in a quarter of the shortest duration, and after what the person is doing, so a reply
@@ -650,6 +647,76 @@ Known differences of this screen from the web client:
 | A bot's name in the header | In a wide header a long name is not cut short with an ellipsis; it is in a wrapped or phone header |
 | The line along the composer | Under the virtual display it was drawn with gaps. It is the shared `TravelLine` |
 | Failure heading | Wraps greedily, as every heading here does |
+
+#### Long lists
+
+**A list that can grow without end shows a page of itself, and keeps all of itself.** Every child of a list is an
+element that is made, measured and drawn, about 60 of them for one message, so what a screen costs follows how
+many are on the page. `ListWindow` (`Drover.Presentation/Components`) is the one way to keep that number small. It
+holds no elements and cuts nothing from the list: it says which run of neighbouring items is on the page, by the
+keys of its two ends, and the view model hands that run to the control (`MessageListViewModel.Shown`, beside
+`Messages`, which stays whole). It is unit tested without a screen (`ListWindowTests`).
+
+| What happens | What the window does |
+| --- | --- |
+| The list is opened | The newest `Page` items (30) are on the page |
+| Items arrive at the end | They are shown while the page ends with the newest; a page that left the end stays where it is |
+| The reader comes within one view of an end | `Step` more items (10) are shown on that side, before the reader gets there |
+| A link lands on an item | Near the page, the page grows to it. Far from it, the page moves to stand around it, so a landing costs the same anywhere in the list |
+| The page passes `Most` items (200) | The end furthest from the reader lets go. Those items are still in the list and come back as the reader does |
+| The person sends | The page ends with the newest again |
+| A group shown as one (a turn) | Is never cut at either end of the page |
+
+The rules for a control that draws such a page, all of them in `MessageList`:
+
+- Draw the page, never the list (test: `The_message_list_draws_its_page_and_never_the_whole_conversation`).
+- When items come or go above the reader, hold the item they are reading where it is on the screen, in the same
+  turn of the interface, so no frame shows it moved.
+- Put an action at each end that has more: "Show earlier messages" above, "Go to newest messages" below. Scrolling
+  does the same without them; they are how a keyboard and a screen reader get there, and while the keyboard is on
+  one the page does not grow by itself there, so the action stays under it.
+- What follows the newest item (the bot thinking, how the run ended) is shown only while the page ends with it.
+- Do not recycle elements. A child is kept by its key for as long as it is on the page (`Keyed.Sync`), so an open
+  card, the focus and a selection outlive every change around them. A child that left the page is made again when
+  the reader comes back, closed.
+
+Every other list kept by `Keyed.Sync` is named in `NativeInterfaceRuleTests.keyedLists` with what keeps it short: a
+message's cards, a turn's steps, a run's moments. A new keyed list fails that test until it is listed with its
+bound or shown through a `ListWindow`. A list of things a person made by hand (bots, projects, connections) is short
+by what it holds; a list a conversation, a run or a log adds to is not.
+
+Measured with `LongConversationCheck` on the Linux desktop build, drawn in software on a virtual display, four
+cores, with sample replies (bold, inline code, a list). "Every message" is the same build with a page large enough
+to hold the whole conversation, which is what the list did before:
+
+| Messages | First show, every message | First show, a page | A scrolling frame, every message | A scrolling frame, a page |
+| --- | --- | --- | --- | --- |
+| 100 | 1.7 s | 0.9 s | 16.5 ms | 16.3 ms |
+| 600 | 5.5 s | 1.1 s | 17.2 ms | 16.3 ms |
+| 2,000 | 16.2 s | 1.1 s | 28.7 ms | 16.5 ms |
+
+First show is the time from starting the app to the newest message laid out at the foot. It rose by about 8 ms
+for each message, and is now the same at any length. A scrolling frame is the median time between two frames
+while the reader moves back a tenth of a view on each; 16.6 ms is the display's own pace. One update of a streaming
+reply was never the cost: 4 to 6 ms (median of 40) at every length, before and now, because a message that did not
+change is not looked at again.
+
+The browser is where the same cost was felt most. The published WebAssembly build in headless Chromium, drawn in
+software, took 25.1 s to first show 600 messages with every message made; with a page it shows 2,000 in 2.8 s. An
+update of a streaming reply took 27 ms then and 24 ms now, and a scrolling frame 71 ms then and 59 ms now: there
+the software drawing of one view sets the frame, not the length of the conversation. Not measured: a browser with
+a graphics card, a phone, and a conversation with pictures or long tool output.
+
+The check runs in CI on the Linux desktop (`native.yml`) with 2,000 messages. It fails when more than a page is
+made to open the conversation, to land on a message in its middle, or to come back to the newest; when a streaming
+reply moves the reader off the foot; when going back hundreds of messages keeps more than the page may; when the
+message being read moves as earlier ones arrive above it; or when the action above the page cannot be pressed
+without a pointer. Its last lines say the three times, so a change that makes the list slower shows in the log.
+
+Known limits. The whole conversation is still read from the server and worked out for each change
+(`ConversationViewModel.Build`); at 2,000 messages that is inside the update time above. Assistive technology
+has the page and the two actions, not every message at once. Search runs on the server, and a link to a moment reaches every
+message, because it is looked up in `Messages`.
 
 #### Needs a manual check: pasting and dropping files
 

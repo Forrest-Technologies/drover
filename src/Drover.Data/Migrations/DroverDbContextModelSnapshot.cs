@@ -252,6 +252,42 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Domain.Appearance.UserAppearance", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Accent")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("theme")
+                        .HasColumnName("accent");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("ThemeId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("theme_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_user_appearance");
+
+                    b.ToTable("user_appearance", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Domain.Audit.AuditLogEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3439,6 +3475,16 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tool_connection_credentials_secrets_space_id_secret_id_audi");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Appearance.UserAppearance", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithOne()
+                        .HasForeignKey("Drover.Domain.Appearance.UserAppearance", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_appearance_users_user_id");
                 });
 
             modelBuilder.Entity("Drover.Data.Identity.User", b =>

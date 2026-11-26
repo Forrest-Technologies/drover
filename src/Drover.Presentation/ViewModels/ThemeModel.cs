@@ -44,6 +44,26 @@ public sealed partial class ThemeModel(IDeviceSettings settings, ILogger<ThemeMo
 
     public void Load() => Choice = ThemeChoice.Parse(Stored(), logger);
 
+    /// <summary>
+    /// Applies an account choice and keeps it on this device without deciding whether to send it again.
+    /// </summary>
+    public void ApplyFromServer(AppearanceSetting setting)
+    {
+        var chosen = BuiltInThemes.Get(setting.ThemeId) ?? BuiltInThemes.Default;
+        var mode = setting.Mode switch
+        {
+            "system" => ThemeMode.System,
+            "light" => ThemeMode.Light,
+            "black" => ThemeMode.Black,
+            _ => ThemeMode.Dark,
+        };
+        var accent = Accents.For(chosen).Any(candidate => candidate.Id == setting.Accent)
+            ? setting.Accent
+            : Accents.ThemeId;
+
+        Choose(new ThemeChoice(chosen.Id, mode, accent));
+    }
+
     /// <summary>Takes another mode of the theme in use.</summary>
     public void Choose(ThemeMode mode) => Choose(Choice with { Mode = mode });
 

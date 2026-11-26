@@ -46,6 +46,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     private string? leavingFor;
 
+    private string? openedSection;
+
     // The bot an unsaved new bot goes beneath, or null for the top of the crew.
     private Guid? newParentId;
 
@@ -188,13 +190,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string NotPermittedCause => "Owners and admins of this space change its bots. You can still talk to them.";
 
-    public static string NotPermittedAction => "Back to the crew";
+    public static string NotPermittedAction => "Back to conversations";
 
-    public static string MissingTitle => "This bot is not here";
+    public static string MissingTitle => "Bot not found";
 
     public static string MissingCause => "It was removed, or it belongs to another space.";
 
-    public static string MissingAction => "See the bots";
+    public static string MissingAction => "Back to bots";
 
     public static string NotPermittedAddress => Addresses.Home;
 
@@ -208,7 +210,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string ChangeHandleLabel => "Change the handle";
 
-    public static string PurposeLabel => "What this bot is for";
+    public static string PurposeLabel => "Purpose";
 
     public static string InstructionsLabel => "Instructions";
 
@@ -351,6 +353,19 @@ public sealed partial class BotEditorViewModel : ObservableObject
             OpenNamedSection(section);
             Notify();
         }
+        else if (shownBotId == BotId && section is not null)
+        {
+            OpenNamedSection(section);
+            Notify();
+        }
+    }
+
+    /// <summary>The section named in the address to scroll into view once drawn, read once.</summary>
+    public string? TakeOpenedSection()
+    {
+        var section = openedSection;
+        openedSection = null;
+        return section;
     }
 
     /// <summary>Runs when the screen is gone, so the navigator no longer asks it.</summary>
@@ -735,6 +750,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
         if (string.Equals(section, MemorySection, StringComparison.OrdinalIgnoreCase))
         {
             open.Add(MemorySection);
+            openedSection = MemorySection;
+        }
+        else if (string.Equals(section, LimitsSection, StringComparison.OrdinalIgnoreCase))
+        {
+            open.Add(LimitsSection);
+            openedSection = LimitsSection;
         }
     }
 

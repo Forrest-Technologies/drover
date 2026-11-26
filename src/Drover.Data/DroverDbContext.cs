@@ -66,6 +66,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
 
+    public DbSet<UserAppearance> UserAppearances => Set<UserAppearance>();
+
     public DbSet<BotPushMute> BotPushMutes => Set<BotPushMute>();
 
     public DbSet<Run> Runs => Set<Run>();

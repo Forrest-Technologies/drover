@@ -223,18 +223,13 @@ public sealed class GalleryPage : Screen
         var arriving = Styles.Text("Text arrives");
         arriving.Loaded += (_, _) => Motion.Arrive(arriving);
 
-        var card = new Grid();
-        var cardText = new StackPanel { Spacing = Tokens.Number("DvSpace1"), Padding = new(Tokens.Number("DvSpace3")) };
+        var card = new Facet { Padding = new(Tokens.Number("DvSpace3")) };
+        var cardText = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
         cardText.Children.Add(Styles.Text("sample_tool", "DvTextCode"));
         cardText.Children.Add(Styles.Text("Running a tool"));
-        var cardBox = new Border { Child = cardText, BorderThickness = new(Tokens.Number("DvBorder")), CornerRadius = new(Tokens.Number("DvRadiusCard")) };
-        cardBox.WhenShownOrRethemed(() =>
-        {
-            cardBox.Background = Tokens.Brush(cardBox, "DvBg2");
-            cardBox.BorderBrush = Tokens.Brush(cardBox, "DvLine");
-        });
-        card.Children.Add(cardBox);
-        card.Children.Add(new TravelLine { IsRunning = true });
+        card.WhenShownOrRethemed(() => card.Fill = Tokens.Brush(card, "DvBg2"));
+        card.Children.Add(cardText);
+        card.Children.Add(new TravelLine { IsRunning = true, Margin = TravelLine.Over(card.Padding) });
 
         var line = new LiveLight { State = LiveState.Passing, Width = Tokens.Number("DvSpace7"), Height = Tokens.Number("DvFocusWidth") };
 

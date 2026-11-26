@@ -79,9 +79,12 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("back", Back);
                 await Step("projects list", ProjectsList);
                 await Step("project back", ProjectBack);
+                await Step("target sizes", TargetSizes);
 #if !__IOS__
                 await Step("tool server sheet", ToolServerSheet);
 #endif
+                await Step("project create", ProjectCreate);
+                await Step("project edit", ProjectEdit);
                 await Step("switch the theme", SwitchTheme);
             }
 
@@ -485,6 +488,61 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     }
 
     /// <summary>
+    /// Every pressable control on Bots and Status is at least a pointer's height with a pointer, or a finger's
+    /// height on a device. The card's row carries the height of the link inside its name, so the link itself is not
+    /// measured.
+    /// </summary>
+    private async Task TargetSizes()
+    {
+        var minimum = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() ? 44d : 32d;
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+
+        navigator.NavigateTo(Addresses.Bots);
+        await Shown("NewBot");
+        CheckHeights("Bots", minimum);
+
+        navigator.NavigateTo(Addresses.Status);
+        await Until("the status report", () => WindowSays("This server") ? window.Content : null);
+        CheckHeights("Status", minimum);
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    private void CheckHeights(string screen, double minimum)
+    {
+        if (window.Content is not FrameworkElement root)
+        {
+            throw new CheckFailedException($"{screen} has no content to measure");
+        }
+
+        var pressables = Descendants(root).Prepend(root)
+            .OfType<FrameworkElement>()
+            .Where(IsShown)
+            .Where(element => element is Pressable or ToggleButton)
+            .Where(element => element is not RowLink)
+            .ToList();
+
+        if (pressables.Count == 0)
+        {
+            throw new CheckFailedException($"{screen} has no pressable controls to measure");
+        }
+
+        var small = pressables
+            .Where(element => element.ActualHeight < minimum - 0.5)
+            .Select(element =>
+                $"{element.GetType().Name} {AutomationProperties.GetName(element)}: {element.ActualHeight:0.#}px")
+            .ToList();
+
+        if (small.Count > 0)
+        {
+            throw new CheckFailedException(
+                $"{screen} has pressable controls below {minimum:0}px: {string.Join("; ", small)}");
+        }
+    }
+
+    /// <summary>
     /// The projects screen draws each project as a card whose name opens it, at both widths the app must work at.
     /// The check server makes one project and passes its address to the app.
     /// </summary>
@@ -559,6 +617,73 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         await Until("the sheet to close", () => Find("ToolServerName") is null ? window.Content : null);
         await Until("the focus to return to AddToolServer", () => IsFocused(add) ? add : null);
+    }
+
+    /// <summary>
+    /// A new project is made from the header's plus button, at both widths the app must work at. The name is typed
+    /// into the dialog's field and Enter makes the project and opens its page.
+    /// </summary>
+    private async Task ProjectCreate()
+    {
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        const string Name = "Project from the dialog";
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Projects);
+            await Press("NewProject");
+            await Type("NewProjectName", Name);
+            await PressEnter("NewProjectName");
+            await Until($"the project named {Name}", () =>
+            {
+                var address = navigator.Current.ToString();
+                return WindowSays(Name) && address.StartsWith($"{Addresses.Projects}/", StringComparison.Ordinal)
+                    ? window.Content
+                    : null;
+            });
+        }
+
+        navigator.NavigateTo(Addresses.Home);
+        await Shown("CrewRow");
+        await AtWidth(PhoneWidth);
+    }
+
+    /// <summary>
+    /// A project reads before it edits: no text field is on the page until the header's Edit button opens the sheet,
+    /// and Escape closes it again, at both widths the app must work at.
+    /// </summary>
+    private async Task ProjectEdit()
+    {
+        var project = settings.ProjectId ?? throw new CheckFailedException("no project was named for the screen checks");
+        var navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
+        foreach (var width in requiredWidths)
+        {
+            await AtWidth(width);
+            navigator.NavigateTo(Addresses.Project(project));
+            await Shown("ScreenBack");
+            var edit = await Shown("EditProject");
+            await Until("EditProject to take focus", () =>
+            {
+                edit.Focus(FocusState.Keyboard);
+                return IsFocused(edit) ? edit : null;
+            });
+            if (VisibleEditor() is { } shown)
+            {
+                throw new CheckFailedException($"the project showed a text field before Edit: {shown.GetType().Name}");
+            }
+
+            await Press("EditProject");
+            await Shown("ProjectNameField");
+            var sheet = Roots()
+                .SelectMany(root => Descendants(root).Prepend(root))
+                .OfType<Sheet>()
+                .FirstOrDefault(element => element.Open)
+                ?? throw new CheckFailedException("the edit sheet is not open");
+            sheet.CloseFromKeyboardForCheck();
+
+            await Until("the edit sheet to close", () => Find("ProjectNameField") is null ? window.Content : null);
+            await Until("the focus to return to EditProject", () => IsFocused(edit) ? edit : null);
+        }
 
         navigator.NavigateTo(Addresses.Home);
         await Shown("CrewRow");
@@ -639,6 +764,23 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         invoker.Invoke();
     }
 
+    /// <summary>Submits the field the way Enter does, which is the path the key takes.</summary>
+    private async Task PressEnter(string id)
+    {
+        if (await Shown(id) is not Field field)
+        {
+            throw new CheckFailedException($"{id} is not a field that Enter can submit");
+        }
+
+        field.SubmitFromKeyboard();
+    }
+
+    /// <summary>The first text editor actually drawn on the screen, including an open dialog or sheet.</summary>
+    private FrameworkElement? VisibleEditor() => Roots()
+        .SelectMany(root => Descendants(root).Prepend(root))
+        .OfType<FrameworkElement>()
+        .FirstOrDefault(element => IsShown(element) && IsEditor(element));
+
     private bool IsFocused(FrameworkElement element)
     {
         if (window.Content?.XamlRoot is not { } root)
@@ -656,7 +798,6 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         return false;
     }
-
     // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.
     private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)
         where T : class

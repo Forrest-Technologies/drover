@@ -21,11 +21,35 @@ public sealed class MessageListViewModel : ObservableObject
 
     private IReadOnlySet<string>? newest;
 
+    // A turn is shown as one, so the page never starts or ends inside one.
+    private readonly ListWindow<ChatMessage> window = new(message => message.Key, message => !message.ContinuesTurn);
+
+    private IReadOnlyList<ChatMessage>? windowOf;
+
     #endregion
 
     #region Properties
 
+    /// <summary>Everything said in the conversation. What is read out, searched, and linked to is all of it.</summary>
     public IReadOnlyList<ChatMessage> Messages { get; set; } = [];
+
+    /// <summary>
+    /// The messages on the page: the newest ones, and from there wherever the reader went. A long conversation costs
+    /// what its page holds; the rest of <see cref="Messages"/> is shown as the reader comes to it.
+    /// </summary>
+    public IReadOnlyList<ChatMessage> Shown => Window().Shown;
+
+    /// <summary>How many messages come before the ones on the page.</summary>
+    public int Earlier => Window().Earlier;
+
+    /// <summary>How many messages come after the ones on the page. None while the page ends with the newest.</summary>
+    public int Later => Window().Later;
+
+    /// <summary>The action that stands above the page while messages come before it.</summary>
+    public static string EarlierLabel => "Show earlier messages";
+
+    /// <summary>The action that stands below the page while it does not end with the newest message.</summary>
+    public static string NewestLabel => "Go to newest messages";
 
     public string BotName { get; set; } = string.Empty;
 
@@ -41,7 +65,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// The bot is thinking and no reply of its says so: a reply whose reasoning is arriving shows the bot thinking
     /// itself, so the list does not show it twice.
     /// </summary>
-    public bool ShowsThinking => Thinking && !Messages.Any(message => message.Thinking);
+    public bool ShowsThinking => Thinking && Later == 0 && !Messages.Any(message => message.Thinking);
 
     /// <summary>Why the last reply failed and what to do, when it did.</summary>
     public string? Problem { get; set; }
@@ -106,6 +130,9 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>The bot's memory beside the conversation, where a note that changed since its card can be seen.</summary>
     public string? MemoryHref { get; set; }
 
+    /// <summary>The bot's Limits settings, for a person who can edit the bot; null for everyone else.</summary>
+    public string? LimitsHref { get; set; }
+
     /// <summary>Reads a text file's whole content for "Show all".</summary>
     public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
 
@@ -135,6 +162,15 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>The cause of the failure, as the line that ends the conversation says it.</summary>
     public FailureCause? FailureCause => Failure is { } failure ? AttentionWords.CauseOf(failure.Cause) : null;
 
+    /// <summary>The first line of the failure card, naming the limit and its numbers when the server reported one.</summary>
+    public string? FailureSentence => Failure is { } failure ? AttentionWords.Failure(failure, BotName) : null;
+
+    /// <summary>Where the failure card's limits action goes: set for a limit stop when the person can edit the bot.</summary>
+    public string? FailureLimitsHref => Failure?.Cause is FailureCauses.BudgetReached ? LimitsHref : null;
+
+    /// <summary>The label of the failure card's limits action, or null when no limits action is offered.</summary>
+    public string? FailureLimitsLabel => FailureLimitsHref is not null ? AttentionWords.OpenLimitsLabel : null;
+
     /// <summary>
     /// Raised to bring the newest message into view. For when the person sends: they want to see what they wrote,
     /// wherever they had scrolled to. Replies do not raise this, so reading further up is never interrupted.
@@ -145,7 +181,33 @@ public sealed class MessageListViewModel : ObservableObject
 
     #region Public Methods
 
-    public void ShowNewest() => NewestRequested?.Invoke();
+    public void ShowNewest()
+    {
+        if (Window().ShowNewest())
+        {
+            OnPropertyChanged(string.Empty);
+        }
+
+        NewestRequested?.Invoke();
+    }
+
+    /// <summary>Puts a step more of what was said before on the page, for a reader going back.</summary>
+    public void ShowEarlier()
+    {
+        if (Window().ShowEarlier())
+        {
+            OnPropertyChanged(string.Empty);
+        }
+    }
+
+    /// <summary>Puts a step more of what was said after on the page, for a reader coming forward.</summary>
+    public void ShowLater()
+    {
+        if (Window().ShowLater())
+        {
+            OnPropertyChanged(string.Empty);
+        }
+    }
 
     /// <summary>Tries the failed run again. While that is being asked for, a second press does nothing.</summary>
     public Task Retry() => Retrying ? Task.CompletedTask : OnRetry?.Invoke() ?? Task.CompletedTask;
@@ -201,7 +263,7 @@ public sealed class MessageListViewModel : ObservableObject
         if (Failure is { } failure && failure.RunId != announcedFailure)
         {
             announcedFailure = failure.RunId;
-            Spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
+            Spoken = AttentionWords.Failure(failure, BotName);
         }
 
         Status.Show(new(Messages, Working || Thinking, Thinking, Waiting, Model, ModelIsChosen), LoadUsage, Logger);
@@ -225,7 +287,25 @@ public sealed class MessageListViewModel : ObservableObject
         }
 
         shownMoment = moment;
+        Window().Reach(moment.ToString());
         return moment;
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // The page over the messages as they are now. A conversation is worked out anew each time it changes, so the
+    // page is taken again whenever the list is another one.
+    private ListWindow<ChatMessage> Window()
+    {
+        if (!ReferenceEquals(windowOf, Messages))
+        {
+            windowOf = Messages;
+            window.Show(Messages);
+        }
+
+        return window;
     }
 
     #endregion

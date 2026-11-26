@@ -132,7 +132,10 @@ The image is built on the self-hoster's machine, so the build must fit a modest 
 
 ### Principle
 
-A push is a wake-up. Its payload is `{ "kind": "...", "thread": "<id>" }` and nothing else. The app wakes, calls the user's own server with its own credentials, and fetches what to show. No relay or push service ever sees message text, bot names, or titles. A chat channel is a different boundary: the messaging app does see the messages sent through it, so only the bot's words and a working line cross, never a tool card or an approval ([19-chat-channels.md](19-chat-channels.md)).
+A push is a wake-up. Its payload contains the event kind, thread identifier, and intended user identifier when
+available. The app wakes and asks the person's own server what to show. Message text, bot names, and conversation
+titles stay out of the payload. A chat channel crosses a separate boundary. The messaging app sees the messages sent
+through it, so only the bot's words and a working line cross. See [Chat channels](19-chat-channels.md).
 
 ### Interface
 
@@ -189,12 +192,45 @@ The VAPID key pair belongs to the whole server, not to a space: a browser holds 
 | Signing out turns the device off first, so the next person on that browser is never woken for the last one's bots. Turning a device on when the browser already holds a subscription that is not this person's ends it and makes a new one: the old address stops working, and its push service reports it gone, which deletes the other person's row. One address belongs to one person at a time without any lookup across people. | `AccountMenu`, `DevicePush` |
 | Push requests use the checked outbound client and never follow a redirect. They never say they may reach a private address, so one is refused in every deployment. | `PushServiceExtensions` |
 
-The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","thread":"<id>","user":"<id>"}`, encrypted to the device: only its service worker reads it, and `user` is the person whose subscription it was sent to. The service worker (`src/Shared/Web/push-worker.js`, loaded by the published worker of the browser client at `/`) asks `GET /api/push/wake?kind=&thread=&user=` with the person's own cookie and its own subscription address in the `Push-Endpoint` header (a header, so an address anyone holding it may push to is not in a URL or a log line). The server first checks that the signed-in person holds a subscription for that address (`PushService.IsOn`, under the user-owned row policy; 403 otherwise), and only then that they are the person the wake was sent for (409 otherwise, and 409 too when a browser's wake names nobody). The order matters: when the last person's subscription is still installed and the next person signs in, the missing subscription is reported, so the worker ends it and the browser is not woken for the last person again. Then it looks for the thread in each of the person's spaces, as that person, and answers the bot's name and a sentence. So a browser left subscribed by one person and then used by another is told nothing of the first person's bots, and neither is the next person when a wake for the first was already queued as the browser changed hands: that wake names the first person, and the next person's own subscription does not change that. On a 403 the worker ends that subscription in the browser and shows nothing; on a 409 it shows nothing and keeps the signed-in person's own subscription. The next person turns notifications on to subscribe afresh. With no subscription, or when a push names nobody (one queued before the person was added to the payload: nothing says it was for the person signed in), a push shows nothing and asks nothing. A thread the person cannot see, or a request without a sign-in, gets nothing from the server, and the worker then shows only "Something changed. Open Drover to see it." A browser may make a notice of its own when a page shows none for a push; it names no bot and no thread, and it cannot be checked in the headless test browser. The Android app and the desktop's live signal ask without an address or a person: the app checks that the signed-in account is the one its registration belongs to before it asks, and the desktop shows only for the account whose stream it follows. On Android a failure or a time-out of either request (the session check or the wake read, within the receiver's 8 seconds) still shows "Something changed. Open Drover to see it." while the registration is this device's, since the wake-up was acknowledged to the distributor and is not delivered again; the log line names the exception type only (`PushWakeFlow`). A copy of the worker cached from before this check keeps asking without the header, and is answered as before, until the browser updates the worker (when the app loads and when a push arrives); a wake queued before the server was updated carries no person, and an updated worker shows nothing for it.
+The wake-up is encrypted to the device. It carries `kind`, `thread`, and `user`, where `user` identifies the
+person whose subscription received it. The browser worker (`src/Shared/Web/push-worker.js`) reads
+`GET /api/push/wake?kind=&thread=&user=` with the person's own cookie and sends its subscription address in the
+`Push-Endpoint` header. Keeping the address in a header keeps it out of request URLs.
+
+The server checks that the signed-in person holds that subscription first (`PushService.IsOn`, 403 on failure).
+It then checks that they are the intended recipient (409 for another or missing person). The server searches only
+spaces the person belongs to and reads the conversation under that person's access. The response uses
+`Cache-Control: no-store`. The browser worker uses the generic sentence from the response. On 403 it removes the
+subscription and shows nothing. On 409 it keeps the subscription and shows nothing. With no subscription or no
+recipient in the wake, the worker makes no request. If the wake text is unavailable, the worker shows only
+"Something changed. Open Drover to see it." The browser can show its own notice with no bot or thread details.
+A cached worker that sends no subscription header still gets the generic sentence.
+
+The desktop's live signal follows the signed-in account and asks without a subscription address. Android sends the
+subscription header and checks the wake recipient against the locally registered account. A legacy Android wake
+without a recipient is bound to that local account. A network failure or timeout of the session check or wake read
+still shows "Something changed. Open Drover to see it." while the registration is current. A refused session,
+subscription, or recipient shows nothing. The log names only the exception type (`PushWakeFlow`).
 
 ### Android client
 
 The Android client receives encrypted wake-ups through a UnifiedPush distributor: one the person installed, or the one embedded in the app over the phone's platform push service (path 2 below). It never relies on a connection of its own surviving in the background: the live streams close when the app leaves the screen (`StreamPresence` in `Drover.Client`), because the server sends no push while the person has a live stream open (`PushNotifier`), and open again, from where they were, when it comes back. Every wake-up is sent with high urgency, because a phone in deep idle holds a normal one until its next maintenance window. It uses the signed-in account for wake text and inline replies, and only offers replies to finished runs. The test action sends a wake-up to the current account’s registered endpoint through the same outbound policy as a run notification. The app opens Android settings for troubleshooting and leaves the battery setting to the user.
 
+
+For a finished run, the authenticated wake read checks the signed-in person and their subscription before it returns
+the bot's name, the conversation title, and a bounded preview of the latest visible reply. The encrypted push payload
+carries only the event kind and identifiers. A wake request without a subscription receives the generic sentence.
+
+Android uses an expandable conversation notification. While it is in the shade, updates replace it in place and
+keep the last five messages, oldest first. When several conversations have updates, they share a group summary.
+A tap opens the conversation in its own space. On Android 12 or later, quick reply requires an unlocked device and
+the current user, registration, and session. A confirmed send joins the stack. If the send cannot be confirmed,
+the stack keeps the draft with a message to check the conversation. An open conversation refreshes when its
+messages change, including after the app reconnects.
+
+**Show message text on the lock screen** is under **Notifications** and defaults to off. With it off, Android receives
+a private notification and a public version with only the bot name and "New reply". With it on, Android can show the
+conversation text on the lock screen according to the device's settings.
 
 Registration and its upkeep, on the device (`AndroidPushRegistration`):
 

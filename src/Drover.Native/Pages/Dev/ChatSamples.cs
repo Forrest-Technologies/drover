@@ -68,6 +68,10 @@ internal static class ChatSamples
         [
             Tall(new MessageList { Model = Conversation(writing: true) }),
         ]),
+        new("A long conversation", "The newest messages are on the page, and the rest are shown as the reader scrolls back to them. With the keyboard, \"Show earlier messages\" above the page does the same.", () =>
+        [
+            Tall(new MessageList { Model = Conversation(writing: false, exchanges: 60) }),
+        ]),
         new("Older replies and the newest", "The newest reply keeps its actions in view. An older reply shows its own after a press on its words or its name, or while the keyboard's focus is in it.", () =>
         [
             Tall(new MessageList { Model = Finished() }),
@@ -102,7 +106,7 @@ internal static class ChatSamples
         [
             Wide(new FailureLine { Cause = FailureCause.ModelUnreachable, BotName = "Sample lead bot", Reported = "sample_error: A sample report from the server." }),
         ]),
-        new("Composer", "Enter sends. While a bot works, Stop stands where Send was and a line travels the top edge.", () =>
+        new("Composer", "Enter sends. While a bot works, Stop stands where Send was and a line travels around the composer.", () =>
         [
             Wide(new Composer { Model = new() { BotName = "Sample lead bot" } }),
             Wide(new Composer { Model = new() { BotName = "Sample lead bot", Running = true } }),

@@ -2,9 +2,9 @@ namespace Drover.Server.Policy;
 
 /// <summary>
 /// Builds <see cref="DeploymentPolicyOptions"/> from configuration and checks them once, at start. The preset comes
-/// from <c>DROVER_POLICY</c> (or <c>Drover:Policy:Preset</c>); <c>Drover:Policy:Rules:*</c> tightens single rules; a
-/// rule set looser than the preset, a key that names no rule, or a rule the server cannot meet stops the server and
-/// names the rule.
+/// from <c>DROVER_POLICY</c> (or <c>Drover:Policy:Preset</c>); <c>Drover:Policy:Rules:*</c> tightens single rules,
+/// and under the self-hosted preset may also raise a limit; a rule set looser than the preset allows, a key that names
+/// no rule, or a rule the server cannot meet stops the server and names the rule.
 /// </summary>
 public sealed class DeploymentPolicySetup(IConfiguration configuration)
     : IConfigureOptions<DeploymentPolicyOptions>, IValidateOptions<DeploymentPolicyOptions>

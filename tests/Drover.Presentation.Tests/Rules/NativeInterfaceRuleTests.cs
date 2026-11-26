@@ -15,10 +15,66 @@ public sealed partial class NativeInterfaceRuleTests
     // The card methods, including the helpers a card draws a tool or a catalog row with.
     private static readonly string[] cardMethodMarkers = ["Connection(Drover.", "ToolReview(", "CatalogRow("];
 
+    // Each dock entry opens the screen whose own icon it shows.
+    private static readonly Dictionary<string, string> dockIcons = new()
+    {
+        ["Chats"] = "Conversation",
+        ["Projects"] = "Project",
+        ["Bots"] = "Crew",
+        ["Tools"] = "Tool",
+    };
+
+    // Bars keep a finger's height because they are not controls; the two chat files move in #735.
+    private static readonly (string Path, string Reason)[] touchHeightExceptions =
+    [
+        ("Layouts/WorkLayout.cs", "the top bar and its home link are a bar, not a control"),
+        ("Layouts/NavLink.cs", "the links of the top bar are a bar, not controls"),
+        ("Session/AccountMenu.cs", "the account menu trigger belongs to the top bar"),
+        ("Chat/NativeFilePreviewControl.cs", "conversation previews move to Targets.Minimum in #735"),
+    ];
+
+    // Only forms, editors and the screen's one decision may carry a primary button.
+    private static readonly (string Path, string Reason)[] primaryFiles =
+    [
+        ("Controls/Button.cs", "the control paints its own primary kind"),
+        ("Controls/EmptyState.cs", "the empty state action is the screen's one primary"),
+        ("Session/AboutDrover.cs", "session dialog"),
+        ("Session/AccountMenu.cs", "session dialog, install update"),
+        ("Session/PushControl.cs", "session dialog, turn on notifications"),
+        ("Pages/Dev/", "gallery samples are not screens"),
+        ("Device/ConnectPage.cs", "setup"),
+        ("Pages/SignInPage.xaml", "sign-in"),
+        ("Pages/Setup/", "setup"),
+        ("Pages/Projects/ProjectListPage.cs", "Projects create form"),
+        ("Pages/Projects/ProjectPage.cs", "Projects save bar"),
+        ("Pages/Models/ModelConnectionsPage.cs", "Models sheets"),
+        ("Pages/Tools/ToolConnectionsPage.cs", "Tools sheets and dialogs"),
+        ("Pages/Extensions/ImportExtensionForm.cs", "extension import form"),
+        ("Pages/Extensions/ExtensionEditorPage.xaml", "extension editor"),
+        ("Pages/Bots/BotEditorPage.xaml.cs", "bot editor save bar"),
+        ("Pages/Bots/Parts/RuleForm.cs", "bot editor rule form"),
+        ("Pages/Bots/Parts/RoutinesSectionView.cs", "bot editor routine form"),
+        ("Pages/Bots/Parts/RoutineForm.cs", "bot editor routine form"),
+        ("Pages/Bots/Parts/SandboxSectionView.cs", "bot editor sandbox form, #682"),
+        ("Pages/Bots/BotSandboxPage.cs", "sandbox page run form"),
+        ("Bots/SandboxScreen.cs", "sandbox screen run form, #682"),
+        ("Chat/", "conversation pieces and composer, #682 and #735"),
+    ];
+
     // The only places a clock ticks or an animation repeats: the four live states and the motion they share.
     private static readonly string[] liveStateFiles =
     [
         "Theme/Motion.cs", "Controls/AvatarCanvas.cs", "Controls/TravelLine.cs", "Controls/LiveLight.cs",
+    ];
+
+    // Every list kept in step with a keyed collection, and what keeps the number of its children small. A list that
+    // can grow without end is shown through ListWindow instead of being listed here with a wish.
+    private static readonly (string Path, string Bound)[] keyedLists =
+    [
+        ("Chat/MessageList.cs", "the page of a ListWindow: MessageListViewModel.Shown"),
+        ("Chat/ChatEntry.cs", "one message's tool cards and files, and the work of one delegation"),
+        ("Chat/WorkLedger.cs", "the steps of one turn"),
+        ("Controls/Timeline.cs", "the moments of one run"),
     ];
 
     private static readonly string[] sizeAttributes =
@@ -30,6 +86,47 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Public Methods
+
+    [Fact]
+    public void Every_keyed_list_says_what_bounds_it()
+    {
+        var found = from file in Repository.NativeFiles(".cs")
+                    where file.Path != "Chat/Keyed.cs" && file.Text.Contains("Keyed.Sync(", StringComparison.Ordinal)
+                    select file.Path;
+
+        found.Should().BeEquivalentTo(
+            keyedLists.Select(list => list.Path),
+            "every child of a keyed list is made and laid out, so a list is short by what it holds or is shown through ListWindow (docs/architecture/18-native-client.md, Long lists)");
+        keyedLists.Should().OnlyContain(list => list.Bound.Length > 0);
+    }
+
+    [Fact]
+    public void The_message_list_draws_its_page_and_never_the_whole_conversation()
+    {
+        var list = Repository.NativeFiles(".cs").Single(file => file.Path == "Chat/MessageList.cs").Text;
+
+        list.Should().Contain("list.Shown");
+        list.Should().NotContain("list.Messages", "the whole conversation is the view model's; the page is what is drawn");
+    }
+
+    [Fact]
+    public void Shipping_builds_omit_the_long_conversation_check_and_ci_runs_it()
+    {
+        var nativeRoot = Path.Combine(Repository.Root, "src", "Drover.Native");
+        var project = File.ReadAllText(Path.Combine(nativeRoot, "Drover.Native.csproj"));
+        var app = File.ReadAllText(Path.Combine(nativeRoot, "App.xaml.cs"));
+        var workflow = File.ReadAllText(Path.Combine(Repository.Root, ".github", "workflows", "native.yml"));
+
+        project.Should().Contain("""<PropertyGroup Condition="'$(DroverLongConversationCheck)' == 'true'">""");
+        project.Should().Contain("""<ItemGroup Condition="'$(DroverLongConversationCheck)' != 'true'">""");
+        project.Should().Contain("""<Compile Remove="Chat/LongConversationCheck.cs" />""");
+        app.Should().Contain("#if DROVER_LONG_CONVERSATION_CHECK");
+        workflow.Should().Contain("DroverLongConversationCheck=true");
+        workflow.Should().Contain("Long conversation check passed.");
+        Regex.Matches(workflow, "grep -a -q -E '([^']*)'").Should().OnlyContain(
+            hooks => hooks.Groups[1].Value.Contains("LongConversationCheck", StringComparison.Ordinal),
+            "no shipping build may carry the check");
+    }
 
     [Fact]
     public void No_color_is_written_outside_the_token_file()
@@ -104,8 +201,10 @@ public sealed partial class NativeInterfaceRuleTests
     [Fact]
     public void Nothing_repeats_or_ticks_outside_the_four_live_states()
     {
+        // The long conversation check times the frames the screen draws while it scrolls. It shows nothing of its
+        // own and is not in a shipping build (Shipping_builds_omit_the_long_conversation_check_and_ci_runs_it).
         var inCode = from file in Repository.NativeFiles(".cs")
-                     where !liveStateFiles.Contains(file.Path)
+                     where !liveStateFiles.Contains(file.Path) && file.Path != "Chat/LongConversationCheck.cs"
                      from match in Looping().Matches(file.Text).Cast<Match>()
                      select $"{file.Path}: {match.Value}";
 
@@ -208,6 +307,71 @@ public sealed partial class NativeInterfaceRuleTests
             """;
 
         CardActions(Sample).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Controls_take_their_height_from_the_target_size_not_the_touch_token()
+    {
+        var found = from file in Repository.NativeFiles(".cs", ".xaml")
+                    where !file.Path.StartsWith("Pages/Dev/", StringComparison.Ordinal)
+                        && AllowedReason(touchHeightExceptions, file.Path) is null
+                    from match in TouchHeight().Matches(file.Text).Cast<Match>()
+                    select $"{file.Path}: {match.Value.Trim()}";
+
+        found.Should().BeEmpty(
+            "a control takes its height from Targets.Minimum, which is 44 for a finger and 32 for a pointer");
+    }
+
+    [Fact]
+    public void A_control_sized_from_the_touch_token_is_caught()
+    {
+        const string Sample = """
+            toggle.MinHeight = Tokens.Number("DvTargetTouch");
+            var link = new Link { MinWidth = Tokens.Number("DvTargetTouch") };
+            <dv:Button MinHeight="{StaticResource DvTargetTouch}" />
+            <dv:Button MinWidth="{ThemeResource DvTargetTouch}" />
+            """;
+
+        TouchHeight().Count(Sample).Should().Be(4);
+    }
+
+    [Fact]
+    public void Only_forms_and_editors_draw_a_primary_button()
+    {
+        var found = from file in Repository.NativeFiles(".cs", ".xaml")
+                    from button in PrimaryOn(file.Path, file.Text)
+                    select $"{file.Path}: {button}";
+
+        found.Should().BeEmpty("at rest a screen has at most one primary action, in a form or an editor");
+    }
+
+    [Fact]
+    public void A_primary_button_on_a_list_row_is_caught()
+    {
+        const string Sample = "var turnOn = new Button { Kind = ButtonKind.Primary };";
+
+        PrimaryOn("Pages/Extensions/ExtensionRow.cs", Sample).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void The_phone_dock_uses_each_screens_own_icon()
+    {
+        var source = Repository.NativeFiles(".cs").Single(file => file.Path == "Layouts/PhoneNav.cs").Text;
+
+        DockIcons(source).Should().BeEquivalentTo(dockIcons, "the dock uses each screen's own icon");
+    }
+
+    [Fact]
+    public void A_borrowed_dock_icon_is_caught()
+    {
+        const string Sample = """
+            new NavLink("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
+            new NavLink("Projects", Addresses.Projects, icon: IconName.Project),
+            new NavLink("Bots", Addresses.Bots, icon: IconName.Crew),
+            new NavLink("Tools", Addresses.Tools, icon: IconName.Settings),
+            """;
+
+        WrongDockIcons(Sample).Should().ContainSingle("a borrowed icon is a counterexample");
     }
 
     [Fact]
@@ -338,6 +502,39 @@ public sealed partial class NativeInterfaceRuleTests
     #endregion
 
     #region Private Methods
+
+    private static string? AllowedReason((string Path, string Reason)[] list, string path) =>
+        list.FirstOrDefault(item => item.Path.EndsWith('/')
+            ? path.StartsWith(item.Path, StringComparison.Ordinal)
+            : path == item.Path).Reason;
+
+    private static List<string> PrimaryOn(string path, string text) =>
+        AllowedReason(primaryFiles, path) is null
+            ? [.. PrimaryButton().Matches(text).Cast<Match>().Select(match => match.Value.Trim())]
+            : [];
+
+    private static Dictionary<string, string> DockIcons(string text) =>
+        DockIcon().Matches(text).Cast<Match>()
+            .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value);
+
+    private static List<string> WrongDockIcons(string text)
+    {
+        var found = DockIcons(text);
+        return
+        [
+            .. dockIcons.Where(expected => !found.TryGetValue(expected.Key, out var icon) || icon != expected.Value)
+                .Select(expected => $"{expected.Key}: {(found.TryGetValue(expected.Key, out var icon) ? icon : "missing")}"),
+        ];
+    }
+
+    [GeneratedRegex(@"\b(?:MinHeight|MinWidth)\s*=\s*(?:Tokens\.Number\(\s*""DvTargetTouch""\s*\)|""\{(?:StaticResource|ThemeResource) DvTargetTouch\}"")")]
+    private static partial Regex TouchHeight();
+
+    [GeneratedRegex(@"ButtonKind\.Primary|Kind\s*=\s*""Primary""")]
+    private static partial Regex PrimaryButton();
+
+    [GeneratedRegex(@"new(?:\s+NavLink)?\(""(Chats|Projects|Bots|Tools)""[^)]*IconName\.(\w+)\)")]
+    private static partial Regex DockIcon();
 
     private static string CardMethod(string source) =>
         string.Join('\n', cardMethodMarkers.SelectMany(marker => MethodLines(source, marker)));

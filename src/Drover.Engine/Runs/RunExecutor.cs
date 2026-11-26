@@ -965,7 +965,10 @@ public sealed partial class RunExecutor(
 
         if (Find<RunLimitException>(failure) is { } limit)
         {
-            return (RunStatus.Failed, limit.Reason, new RunError(limit.Reason, limit.Message));
+            return (
+                RunStatus.Failed,
+                limit.Reason,
+                new RunError(limit.Reason, limit.Message, new RunErrorLimit(limit.Kind, limit.Used, limit.Cap)));
         }
 
         if (Find<ModelProviderException>(failure) is { } provider)
