@@ -419,7 +419,7 @@ public static class UnusableToolRequests
             return TryMatchNamedOpenTag(span, ref index, bar, InvokeTag);
         }
 
-        return false;
+        return invocations > 0;
     }
 
     private static bool IsPartialWrapperClose(ReadOnlySpan<char> span, int from, char bar, string wrapper)

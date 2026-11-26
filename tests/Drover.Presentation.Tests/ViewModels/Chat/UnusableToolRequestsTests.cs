@@ -83,6 +83,8 @@ public sealed class UnusableToolRequestsTests
         UnusableToolRequests.IsCutOffProtocolRequest(CutOffEnvelope).Should().BeTrue();
         UnusableToolRequests.IsUnusableRequest(CutOffEnvelope).Should().BeTrue();
         UnusableToolRequests.IsUnusableRequest(CutBeforeWrapperClose).Should().BeTrue("a reply cut before the last > of the closing tag is cut off too");
+        UnusableToolRequests.IsUnusableRequest("<｜DSML｜calls><｜DSML｜invoke name=\"time.now\"></｜DSML｜invoke>")
+            .Should().BeTrue("a reply cut after its invocation is still inside the envelope");
 
         var reply = Message("assistant", false, new PartView("text", CutOffEnvelope)) with { RunId = Guid.CreateVersion7() };
         var shown = new[] { reply }.ToChatMessages();
