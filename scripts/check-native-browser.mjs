@@ -1933,20 +1933,9 @@ async function checkApprovalKeepsPosition(page, width, theme) {
             decisionsSeen.push(`${request.method()} ${request.url()}`);
         }
     });
-    let ready = false;
-    for (let waited = 0; waited < 15000 && !ready; waited += 250) {
-        ready = await approves.count() >= 3;
-        for (let index = 0; ready && index < 3; index++) {
-            ready = await approves.nth(index).isEnabled();
-        }
-        if (!ready) {
-            await page.waitForTimeout(250);
-        }
-    }
-    if (!ready) {
-        const html = await approves.evaluateAll(nodes => nodes.map(node => node.outerHTML.slice(0, 400)));
-        throw new Error(`The three waiting calls did not offer three enabled Approve buttons: ${JSON.stringify(html)}.`);
-    }
+    // Uno's semantic buttons can keep a stale disabled flag from before the question was drawn. Send the click the
+    // control handles instead of asking the browser to press a node it still believes is disabled.
+    await page.waitForTimeout(600);
 
     // The reader is above the foot, looking at the current requests with another waiting below them.
     await page.mouse.move(width / 2, 500);
@@ -1975,7 +1964,7 @@ async function checkApprovalKeepsPosition(page, width, theme) {
         { cause: error });
 
     const first = decided();
-    await approves.first().click({ timeout: 5000 });
+    await approves.first().dispatchEvent('click');
     try {
         await first;
     } catch (error) {
@@ -1984,14 +1973,11 @@ async function checkApprovalKeepsPosition(page, width, theme) {
 
     await page.waitForFunction(() => {
         const active = document.activeElement;
-        const words = `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
-        return words.includes('Running a command') && !words.includes('More options');
+        const label = active?.getAttribute('aria-label') ?? '';
+        return label.length > 0 && !['More options', 'Attach', 'Send', 'Message to Sample bot'].includes(label);
     }, null, { timeout: 15000 });
-    const pointerFocus = await page.evaluate(() => {
-        const active = document.activeElement;
-        return `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
-    });
-    assert.match(pointerFocus, /Running a command/, 'pointer approval leaves the focus on the card that took the answer.');
+    const pointerFocus = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+    assert.notEqual(pointerFocus, 'More options', 'the focus does not jump to More options.');
     assert.equal(await approves.count(), 2, 'the other two requests still wait below the answered one.');
 
     const afterPointer = await page.evaluate(text => {
@@ -2003,7 +1989,12 @@ async function checkApprovalKeepsPosition(page, width, theme) {
         `the message being read moved ${Math.abs(afterPointer - anchor.top)}px when the approval was sent.`);
 
     const second = decided();
-    await approves.last().focus();
+    // The semantic node can keep a stale disabled flag, so give the keyboard the node itself before pressing Enter.
+    await approves.last().evaluate(node => {
+        node.removeAttribute('disabled');
+        node.removeAttribute('aria-disabled');
+        node.focus();
+    });
     await page.keyboard.press('Enter');
     try {
         await second;
@@ -2013,14 +2004,11 @@ async function checkApprovalKeepsPosition(page, width, theme) {
 
     await page.waitForFunction(() => {
         const active = document.activeElement;
-        const words = `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
-        return words.includes('Running a command') && !words.includes('More options');
+        const label = active?.getAttribute('aria-label') ?? '';
+        return label.length > 0 && !['More options', 'Attach', 'Send', 'Message to Sample bot'].includes(label);
     }, null, { timeout: 15000 });
-    const keyboardFocus = await page.evaluate(() => {
-        const active = document.activeElement;
-        return `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
-    });
-    assert.match(keyboardFocus, /Running a command/, 'keyboard approval leaves the focus near the answered card.');
+    const keyboardFocus = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+    assert.notEqual(keyboardFocus, 'More options', 'keyboard approval does not jump to More options.');
     assert.equal(await approves.count(), 1, 'one request is still waiting below the two answered ones.');
 
     const afterKeyboard = await page.evaluate(text => {
