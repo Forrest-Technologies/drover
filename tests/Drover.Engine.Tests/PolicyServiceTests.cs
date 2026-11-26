@@ -124,7 +124,7 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         policies.Runs(new SpaceSettings()).Should().Be(ceilings);
         policies.Runs(new SpaceSettings { MaxStepsPerRun = 5000, MaxTokensPerRun = int.MaxValue }).Should().Be(ceilings);
         policies.Runs(new SpaceSettings { MaxStepsPerRun = 8, MaxTokensPerRun = 90_000, MaxRunsPerDelegationTree = 3 })
-            .Should().Be(new RunCeilings(8, 90_000, 2));
+            .Should().Be(new RunCeilings(8, 90_000, 2, DeploymentPolicy.HostedMaxUnmeteredModelCallsPerRun));
         ceilings.NarrowedBy(new RunLimits()).Should().Be(ceilings);
         ceilings.NarrowedBy(new RunLimits { MaxSteps = 4, MaxDelegations = 0 }).Should().Be(ceilings with { MaxSteps = 4, MaxDelegations = 0 });
         ceilings.NarrowedBy(new RunLimits { MaxSteps = int.MaxValue, MaxTokens = int.MaxValue, MaxDelegations = 50 }).Should().Be(ceilings);

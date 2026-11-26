@@ -588,7 +588,8 @@ public sealed class RunEngineTests(PostgresServer postgres)
         world.Model.UsagePerCall = new ModelTokenUsage(null, null, null);
         world.StartHost();
 
-        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Loop"), RunStatus.Failed, RunStatus.Completed);
+        var runId = await world.Post(await world.NewThread(), "Loop");
+        var run = await world.WaitForStatusWithin(runId, TimeSpan.FromMinutes(2), RunStatus.Failed, RunStatus.Completed);
 
         run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
         run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
