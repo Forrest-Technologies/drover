@@ -87,12 +87,7 @@ public static class UnusableToolRequests
 
         var bar = span[1];
         var index = 0;
-        if (!TryMatchWrapperOpen(span, ref index, bar, out var wrapper) || !HasInvocationMarker(span, index, bar))
-        {
-            return false;
-        }
-
-        return !HasWrapperClose(span, bar, wrapper, index);
+        return TryMatchWrapperOpen(span, ref index, bar, out var wrapper) && EndsInsideRequest(span, index, bar, wrapper);
     }
 
     /// <summary>True for a completed reply that holds only a raw tool request, whole or cut off before its closing tags.</summary>
@@ -388,36 +383,51 @@ public static class UnusableToolRequests
         return true;
     }
 
-    private static bool HasInvocationMarker(ReadOnlySpan<char> span, int from, char bar)
+    // Walks only protocol structure after the opening tag. Prose, quoting and code fences stop the walk, so none of
+    // them can count as an invocation inside a request that never came back whole.
+    private static bool EndsInsideRequest(ReadOnlySpan<char> span, int from, char bar, string wrapper)
     {
-        var marker = $"{OpenPrefix(bar)}{InvokeTag}";
-        var search = from;
+        var index = from;
+        var invocations = 0;
 
-        while (search < span.Length)
+        while (index < span.Length)
         {
-            var offset = span[search..].IndexOf(marker, StringComparison.Ordinal);
-            if (offset < 0)
+            SkipWhitespace(span, ref index);
+            if (index >= span.Length)
+            {
+                return invocations > 0;
+            }
+
+            if (TryMatchCloseTag(span, ref index, bar, wrapper))
             {
                 return false;
             }
 
-            var after = search + offset + marker.Length;
-            if (after < span.Length && (char.IsWhiteSpace(span[after]) || span[after] is '/' or '>'))
+            if (invocations > 0 && IsPartialWrapperClose(span, index, bar, wrapper))
             {
                 return true;
             }
 
-            search = after;
+            var at = index;
+            if (TryReadInvoke(span, ref index, bar))
+            {
+                invocations++;
+                continue;
+            }
+
+            index = at;
+            return TryMatchNamedOpenTag(span, ref index, bar, InvokeTag);
         }
 
         return false;
     }
 
-    private static bool HasWrapperClose(ReadOnlySpan<char> span, char bar, string wrapper, int from)
+    private static bool IsPartialWrapperClose(ReadOnlySpan<char> span, int from, char bar, string wrapper)
     {
         var prefix = bar == FullWidthBar ? FullWidthClosePrefix : AsciiClosePrefix;
-        var close = $"{prefix}{wrapper}";
-        return span[from..].IndexOf(close, StringComparison.Ordinal) >= 0;
+        var close = $"{prefix}{wrapper}>";
+        var rest = span[from..];
+        return rest.Length > 0 && rest.Length < close.Length && close.StartsWith(rest, StringComparison.Ordinal);
     }
 
     private static string OpenPrefix(char bar) =>

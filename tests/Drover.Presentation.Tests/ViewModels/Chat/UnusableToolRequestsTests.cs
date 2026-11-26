@@ -41,6 +41,10 @@ public sealed class UnusableToolRequestsTests
         <｜DSML｜parameter name="command" string="true">ls -la
         """;
 
+    private const string CutBeforeWrapperClose = """
+        <｜DSML｜calls><｜DSML｜invoke name="sandbox.run"><｜DSML｜parameter name="command">ls</｜DSML｜parameter></｜DSML｜invoke></｜DSML｜calls
+        """;
+
     #endregion
 
     #region Detection
@@ -78,6 +82,7 @@ public sealed class UnusableToolRequestsTests
         UnusableToolRequests.IsProtocolEnvelope(CutOffEnvelope).Should().BeFalse("the envelope has no closing tags");
         UnusableToolRequests.IsCutOffProtocolRequest(CutOffEnvelope).Should().BeTrue();
         UnusableToolRequests.IsUnusableRequest(CutOffEnvelope).Should().BeTrue();
+        UnusableToolRequests.IsUnusableRequest(CutBeforeWrapperClose).Should().BeTrue("a reply cut before the last > of the closing tag is cut off too");
 
         var reply = Message("assistant", false, new PartView("text", CutOffEnvelope)) with { RunId = Guid.CreateVersion7() };
         var shown = new[] { reply }.ToChatMessages();
@@ -85,6 +90,9 @@ public sealed class UnusableToolRequestsTests
         shown.Single().UnusableToolRequest.Should().BeTrue("a finished reply cut off inside a request is marked");
         shown.Single().Text.Should().Be(CutOffEnvelope, "the raw text stays for inspection and never becomes a call");
         shown.Single().Tools.Should().BeEmpty();
+
+        var truncated = Message("assistant", false, new PartView("text", CutBeforeWrapperClose));
+        new[] { truncated }.ToChatMessages().Single().UnusableToolRequest.Should().BeTrue();
 
         var item = new DelegationItem(Guid.CreateVersion7(), "Parent bot", Guid.CreateVersion7(), "Helper bot", "List files.",
             DelegationPhase.Done, CutOffEnvelope, DelegationRefusal.None, null, 0);
@@ -115,6 +123,10 @@ public sealed class UnusableToolRequestsTests
             $"> {CutOffEnvelope}",
             $"\"{CutOffEnvelope}\"",
             "DSML uses <｜DSML｜calls> and <｜DSML｜invoke> markers.",
+            "<｜DSML｜calls> and <｜DSML｜invoke> are the DSML markers.",
+            "<|DSML|calls> opens a block, and <|DSML|invoke> names the tool.",
+            $"<｜DSML｜calls>\n\n```xml\n{CutOffEnvelope}\n```",
+            "<｜DSML｜calls><｜DSML｜invoke name=\"sandbox.run\"></｜DSML｜invoke> explains what a call looks like.",
             $"Here is the format: {CutOffEnvelope}",
         ];
 
