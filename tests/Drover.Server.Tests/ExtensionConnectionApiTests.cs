@@ -254,6 +254,15 @@ public sealed class ExtensionConnectionApiTests(PostgresServer postgres) : ToolS
 
     #endregion
 
+    #region Overrides
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        ["Drover:PublicUrl"] = "https://drover.example.test",
+    };
+
+    #endregion
+
     #region Helpers
 
     private static string File(Uri address, string auth, string? headerName) =>
