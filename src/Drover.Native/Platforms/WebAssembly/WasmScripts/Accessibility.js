@@ -8,9 +8,13 @@
     // able to invoke a link: a pointer click can never reach it. Give the anchors pointer input back, so a pointer
     // click and a keypress take the same invoke path, and the app still decides which addresses may be opened.
     const link = 'a:not([href])';
-    const styles = document.createElement('style');
-    styles.textContent = '#uno-semantics-root a[role="link"] { pointer-events: auto !important; }';
-    document.head.appendChild(styles);
+    // The text-selection checks load this script with a document that has no createElement. The style is only a
+    // browser concern, so a stub without it simply runs the rest of the adapter as before.
+    if (typeof document.createElement === 'function') {
+        const styles = document.createElement('style');
+        styles.textContent = '#uno-semantics-root a[role="link"] { pointer-events: auto !important; }';
+        document.head.appendChild(styles);
+    }
 
     function exposeLinks(node) {
         if (node.matches(link)) {
