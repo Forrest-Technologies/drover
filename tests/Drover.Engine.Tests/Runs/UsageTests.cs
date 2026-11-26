@@ -151,6 +151,56 @@ public sealed class UsageTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task RunGovernor_clamps_negative_usage_before_cost_and_storage()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hello.")]));
+        var negativeRate = new ModelPricing { InputPerMillion = 2, OutputPerMillion = -4 };
+        await world.Read(async db =>
+        {
+            var entry = await db.ModelCatalog.SingleAsync(
+                found => found.ModelConnectionId == world.ConnectionId && found.Model == "scripted",
+                RunWorld.Token);
+            entry.Pricing = negativeRate;
+            return true;
+        });
+        world.Model.UsagePerCall = new ModelTokenUsage(-10, 5, -5);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Hi.");
+        var finished = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        finished.Status.Should().Be(RunStatus.Completed);
+
+        var record = (await world.ReadUsage(runId)).Should().ContainSingle().Subject;
+        record.InputTokens.Should().Be(0);
+        record.OutputTokens.Should().Be(5);
+        record.Cost.Should().Be(0, "a negative price in the catalog never lowers a total");
+        var run = await world.Read(
+            db => db.Runs.AsNoTracking().SingleAsync(found => found.Id == runId, RunWorld.Token));
+        run.Usage.Should().Be(new RunUsage { OutputTokens = 5 });
+        var recorded = (await world.ReadEvents(runId))
+            .Where(stored => stored.Type == RunEventTypes.UsageRecorded)
+            .Select(RunWorld.Data<UsageRecorded>)
+            .Should().ContainSingle().Subject;
+        (recorded.Input, recorded.Output, recorded.Cost).Should().Be((0, 5, 0));
+
+        var priced = new ModelPricing { InputPerMillion = 2, OutputPerMillion = 4 };
+        var refund = new ToolModelUsage(world.ConnectionId, "scripted", priced, -1_000_000, 500_000)
+        {
+            DirectCost = -1.25m,
+        };
+        RunGovernor.Cost(RunGovernor.NonNegative(refund)).Should().Be(0, "a negative direct cost never lowers a total");
+        RunGovernor.Cost(refund).Should().Be(0, "a caller that did not clamp first still gets no negative cost");
+        RunGovernor.Cost(RunGovernor.NonNegative(refund with { DirectCost = null }))
+            .Should().Be(2, "only the output tokens are priced");
+        RunGovernor.Cost(refund with { DirectCost = null, Pricing = negativeRate, InputTokens = 0 }).Should().Be(0);
+        var unchanged = new ToolModelUsage(world.ConnectionId, "scripted", priced, 30, 3) { DirectCost = 0.5m };
+        RunGovernor.NonNegative(unchanged).Should().Be(unchanged);
+        RunGovernor.Cost(RunGovernor.NonNegative(unchanged with { DirectCost = null, HasTokenUsage = false }))
+            .Should().BeNull("an unknown cost stays unknown");
+    }
+
+    [Fact]
     public async Task A_total_that_includes_a_model_with_no_known_price_says_it_leaves_it_out()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());

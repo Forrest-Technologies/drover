@@ -144,6 +144,16 @@ public sealed partial class ComposerViewModel : ObservableObject
         Focus();
     }
 
+    /// <summary>
+    /// Adds the words of a recording after what is already written, for the person to read and change. Nothing is
+    /// sent.
+    /// </summary>
+    public void Dictate(string words)
+    {
+        Text = string.IsNullOrWhiteSpace(Text) ? words : $"{Text.TrimEnd()} {words}";
+        Focus();
+    }
+
     /// <summary>Puts the cursor back in the message field.</summary>
     public void Focus() => FocusRequested?.Invoke();
 

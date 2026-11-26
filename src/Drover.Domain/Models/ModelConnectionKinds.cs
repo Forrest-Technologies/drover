@@ -11,5 +11,11 @@ public static class ModelConnectionKinds
     /// </summary>
     public const string Compatible = "openai_compatible";
 
+    /// <summary>
+    /// The server's own speech service, named in the server's configuration. Never the kind of a stored connection:
+    /// no space can make one.
+    /// </summary>
+    public const string ServerSpeech = "server_speech";
+
     #endregion
 }

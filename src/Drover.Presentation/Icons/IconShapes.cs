@@ -56,12 +56,21 @@ public static class IconShapes
             """<path d="M6 3h12v18l-6-4-6 4z"/>""",
         [IconName.Microphone] =
             """<path d="M10 3h4l1 1v8l-1 1h-4l-1-1V4z"/><path d="M6 11v2l3 3h6l3-3v-2"/><path d="M12 16v5"/><path d="M8 21h8"/>""",
+        // The microphone with a line through it: it hears nothing.
+        [IconName.MicrophoneOff] =
+            """<path d="M10 3h4l1 1v8l-1 1h-4l-1-1V4z"/><path d="M6 11v2l3 3h6l3-3v-2"/><path d="M12 16v5"/><path d="M8 21h8"/><path d="m4 3 16 18"/>""",
         [IconName.Model] =
             """<path d="M9 7h8v10H7V9z"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>""",
         [IconName.More] =
             """<path d="M4.5 11.5h1v1h-1z"/><path d="M11.5 11.5h1v1h-1z"/><path d="M18.5 11.5h1v1h-1z"/>""",
         [IconName.Pause] =
             """<path d="M7 4h3v16H7z"/><path d="M14 4h3v16h-3z"/>""",
+        // A handset, held up to call.
+        [IconName.Phone] =
+            """<path d="M5 3h4l2 5-3 2 6 6 2-3 5 2v4l-2 2h-3L8 15 3 8V5z"/>""",
+        // The handset laid down: the call ends.
+        [IconName.PhoneDown] =
+            """<path d="M3 15v-3l3-3h12l3 3v3l-4 1-1-3H8l-1 3z"/><path d="M12 17v4"/><path d="m9 19 3 2 3-2"/>""",
         [IconName.Play] =
             """<path d="m7 4 12 8-12 8z"/>""",
         [IconName.Plus] =
@@ -82,6 +91,9 @@ public static class IconShapes
             """<path d="M4 8h9"/><path d="M17 8h3"/><path d="M13 6h4v4h-4z"/><path d="M4 16h3"/><path d="M11 16h9"/><path d="M7 14h4v4H7z"/>""",
         [IconName.Share] =
             """<path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 11v10h14V11"/>""",
+        // Four corners turned inward: the opposite of Expand.
+        [IconName.Shrink] =
+            """<path d="M4 9h5V4"/><path d="M15 4v5h5"/><path d="M20 15h-5v5"/><path d="M9 20v-5H4"/>""",
         [IconName.Speaker] =
             """<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9v6"/><path d="M20 6v12"/>""",
         [IconName.Stop] =

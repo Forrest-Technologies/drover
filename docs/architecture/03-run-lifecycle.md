@@ -352,6 +352,52 @@ A person's main thread with a bot grows without end, so the server keeps a runni
 
 **Using it.** When the bot's `memory_settings.compaction` is `summarization` and its main thread has a summary, `PostgresChatHistoryProvider` gives the model, before every model call, a first user message labeled as the summary of the first N messages and saying it is not an instruction, then only the messages placed after `summary_through_position`, in call order; a tool result whose call the summary covered is left out with it. The summary is read from the thread's row in the same transaction as the history, never from the framework's session, so a run picks up a summary written while it works. Every other compaction value, and every side chat, gets the whole conversation as before.
 
+## Live calls
+
+A live call is a spoken conversation with a thread's bot through a speech-to-speech model: the model hears the person and answers in its own voice. It is not a run. It has no event log, no worker and no lease; it is one WebSocket the server holds between the person and the provider, and what is said becomes ordinary messages of the thread.
+
+`GET /api/spaces/{space}/threads/{thread}/call`, as a WebSocket. It is authorized like sending a message in that thread: the same session (browser cookie or native bearer), the same membership check, and a thread row-level security shows the caller. A handshake is a GET and carries no antiforgery token, so a request with an `Origin` header must come from the server's own origin (the request's scheme and host, or `DROVER_PUBLIC_URL`); any other origin is refused with 403. A native client sends no `Origin`.
+
+Everything that can refuse does so before the upgrade, as a problem with a sentence: the thread is not found (404); it is a bot's handed-over work, the bot is paused or removed, a run is active on the thread ("The bot is still working in this conversation. Call when it has finished."), or the space has no model marked for live calls (409); the provider refuses the connection (502). The same request without the upgrade headers runs the same checks, opens nothing, and answers 426 when the call would be let in; the typed client asks that way first, because a refused handshake cannot carry a sentence back.
+
+On accept, one short transaction as the caller reads the bot's name and instructions, the last 20 shown messages' text parts as history, the space's live choice ([15-model-providers.md](15-model-providers.md#voice)), the connection's key and the space's outbound rule, and closes. The provider session is opened with the bot's instructions followed by one fixed sentence: "The person is hearing this reply, not reading it. Answer in short plain sentences. No lists, tables, code or links unless asked." No transaction is open while the socket is.
+
+### Wire protocol
+
+Binary frames in both directions are audio: 16-bit little-endian samples, one channel, 24,000 a second (`RealtimeAudio`). Text frames are JSON with a `type`.
+
+| Direction | Frame | Meaning |
+| --- | --- | --- |
+| Client to server | binary | What the microphone heard. The provider decides when the person has finished speaking |
+| Client to server | `{"type":"interrupt","heardMs":N}` | The person talked over the bot; `heardMs` is how much of the answer they heard, so the model's memory of the conversation matches what was said aloud |
+| Client to server | `{"type":"hangup"}` | End the call |
+| Server to client | `{"type":"ready","model":"..","voice":"..","maxMinutes":N}` | The call is connected. `maxMinutes` is left out when the server sets no limit |
+| Server to client | binary | The bot's voice |
+| Server to client | `{"type":"person_started"}` | The person started speaking. Audio still playing should stop |
+| Server to client | `{"type":"person_said","text":".."}` | The words of what the person just said |
+| Server to client | `{"type":"bot_saying","text":".."}` | The next words of the answer being spoken |
+| Server to client | `{"type":"bot_said","text":".."}` | The whole answer, once spoken or cut off |
+| Server to client | `{"type":"failed","message":".."}` | Something failed; the message is a sentence to show. The call may go on |
+| Server to client | `{"type":"ended","reason":".."}` | The last frame: `hung_up`, `time_limit`, `provider` or `server` |
+
+A frame from the client larger than 256 KB (about five seconds of audio) ends the call, and a text frame larger than 1 KB or of an unknown type is ignored. Frames for the client wait in a queue of at most 512; a client that falls further behind has its call dropped (`failed`, then `ended` with `server`) and nothing is buffered without bound.
+
+### What a call leaves in the thread
+
+After each exchange the server appends to the thread in one short transaction (`VoiceService.RecordExchange`, through `MessageRepository.AppendMessages`): the person's words as a `user` message from the caller, and the bot's as an `assistant` message with the bot as author, the live model as `model`, and no `run_id`. A reply with no run reads like any other everywhere messages are read (the thread's messages, export, search, versions). The thread's `last_activity_at` moves, an untitled side chat takes its title from the first words, and the caller and the thread's owner get a `thread.changed` signal so their other screens fetch again. Some providers write down what the person said only after the bot has answered; a reply waits for those words until the person speaks again, so the two are stored in the order they were spoken. Words still waiting when the call ends are stored then, a person's last words included.
+
+A thread still has one writer at a time. A call is refused while a run is active, and if a run becomes active during a call (a message sent from another screen, a schedule), the next write stores nothing and the call ends with a `failed` frame that says so. Audio is never stored anywhere; neither audio nor words are logged.
+
+A call ends when the person hangs up or disconnects, when the provider ends it, at `MaxCallMinutes` (the clock is read each second), when the session is signed out, and when the server stops.
+
+### Stated limits of this version
+
+- **No tools and no approvals.** The speech-to-speech model is given the bot's instructions and nothing else: no tool is offered, so nothing a call says can act. A bot's grants are not consulted because there is nothing to grant.
+- **Bot rules are not applied** to what is said on a call, in either direction, and neither are memory notes, project context or the conversation summary given to the model. Only the bot's instructions and the last 20 messages are.
+- **No usage is recorded**; a call's token counts are logged ([15-model-providers.md](15-model-providers.md#voice)).
+- **What the person said is stored only when the provider writes it down.** The session asks for no separate transcription model, so a provider that transcribes the person only on request sends no `person_said`, and the thread then holds the bot's replies alone.
+- The model that speaks is the space's live model, not the bot's own model.
+
 ## Delegation
 
 Delegation is the built-in tool `delegate`, with two arguments: `bot_id`, a bot directly beneath the caller, and `task`, written in full because the child sees nothing else. Its description, as the model sees it, lists those bots with each one's `description_for_bots`, and marks a paused one. Like every built-in tool it is a catalog row, off until granted and narrowed by every grant above; its sensitivity is `write`, so a grant of Ask makes it ask before it hands work on.

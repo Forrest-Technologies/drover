@@ -256,6 +256,11 @@ const nativeProjectScreens = [
     ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
     ['project-missing', `/projects/${projectId}`, 'Project', 'Project not found'],
     ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
+    // The Voice page, with nothing connected and with a model for each of its three rows. They stand before the
+    // scene that starts the app afresh, so what they taught the app about voice goes with the runtime: no other
+    // scene has a microphone or a speaker button. scripts/check-native-voice.mjs exercises voice itself.
+    ['voice-nothing', '/voice', 'Voice', 'Voice'],
+    ['voice', '/voice?rows=shown', 'Voice', 'Voice'],
     ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
 const errors = [];
@@ -395,6 +400,22 @@ try {
                     await route.fulfill({ status: 204 });
                     return;
                 }
+                // Nothing can listen or speak in any scene but the Voice page's own, so no other scene has a microphone,
+                // a speaker or a Call button.
+                else if (address.endsWith('/voice/options')) {
+                    const none = { sources: [], selected: null };
+                    const filled = (model, voice = null) => ({
+                        sources: [{ connectionId, connectionName: 'Sample connection', model, isServer: false, isPrivateAddress: false }],
+                        selected: { connectionId, connectionName: 'Sample connection', model, voice, isServer: false, isPrivateAddress: false, automatic: true },
+                    });
+                    body = {
+                        listen: current === 'voice' ? filled('sample-whisper') : none,
+                        speak: current === 'voice' ? filled('sample-tts', 'sample-voice') : none,
+                        live: current === 'voice' ? filled('sample-realtime', 'sample-voice') : none,
+                        limits: { maxRecordingBytes: 26214400, maxReadAloudCharacters: 4000, maxCallMinutes: null },
+                    };
+                }
+                else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
@@ -791,6 +812,16 @@ try {
                         description: /^Available when the conversation has loaded\.$/,
                     });
                     await waitingField.waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'voice-nothing') {
+                    await waitForShown(page, 'Voice needs a speech model.');
+                    await page.getByRole('link', { name: 'Connect one', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'voice') {
+                    for (const row of ['Listens with', 'Speaks with', 'Live calls with']) {
+                        await page.getByRole('combobox', { name: row, exact: true }).waitFor({ state: 'attached', timeout: 10000 });
+                    }
+                    await page.getByRole('button', { name: 'Play a sample', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                 }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });

@@ -36,7 +36,16 @@ public static class DeploymentPolicyExtensions
             .WithBoundedMemory()
             .WithoutWebTools()
             .WithoutImageGeneration()
-            .WithBoundedPushTests();
+            .WithBoundedPushTests()
+            .WithBoundedVoice();
+
+    public static DeploymentPolicy WithBoundedVoice(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxVoiceRecordingBytes = DeploymentPolicy.HostedMaxVoiceRecordingBytes,
+            MaxReadAloudCharacters = DeploymentPolicy.HostedMaxReadAloudCharacters,
+            MaxCallMinutes = DeploymentPolicy.HostedMaxCallMinutes,
+        };
 
     public static DeploymentPolicy WithBoundedPushTests(this DeploymentPolicy policy) =>
         policy with { MaxPushTestsPerMinute = DeploymentPolicy.HostedMaxPushTestsPerMinute };

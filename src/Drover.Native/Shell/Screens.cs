@@ -33,5 +33,6 @@ public static class Screens
         .Map(typeof(ExtensionsPage), "/extensions")
         .Map(typeof(StatusPage), "/status")
         .Map(typeof(UsagePage), "/usage")
+        .Map(typeof(VoicePage), "/voice")
         .Map(typeof(GalleryPage), "/dev/gallery");
 }
