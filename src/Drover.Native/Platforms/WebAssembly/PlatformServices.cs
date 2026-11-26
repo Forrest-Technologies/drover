@@ -17,9 +17,9 @@ internal static class PlatformServices
             .AddSingleton<IPushRegistration, BrowserPushRegistration>()
             .AddSingleton(new AppSignInReturn(PlatformShell.ClientPath))
             .AddSingleton(new CallConnection(null))
-            .AddSingleton<NoAudio>(_ => new(AudioHead.Browser))
-            .AddSingleton<IAudioCapture>(provider => provider.GetRequiredService<NoAudio>())
-            .AddSingleton<IAudioPlayback>(provider => provider.GetRequiredService<NoAudio>())
+            .AddSingleton<BrowserAudio>()
+            .AddSingleton<IAudioCapture>(provider => provider.GetRequiredService<BrowserAudio>())
+            .AddSingleton<IAudioPlayback>(provider => provider.GetRequiredService<BrowserAudio>())
             .AddSingleton(_ => new DroverApi(new HttpClient(BrowserRequests()) { BaseAddress = new($"{Browser.Origin}/") }));
 
     /// <summary>Log lines go to the browser's console.</summary>
