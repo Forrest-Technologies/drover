@@ -53,6 +53,8 @@ public sealed class ContractsCarryNoSecretsTests
                 "https://push.example.test/a-previous-device",
                 new("https://push.example.test/a-device", "a-device-key", "a-device-secret"))
             .ToString().Should().NotContain("a-device").And.NotContain("a-previous-device");
+        new Drover.Contracts.Extensions.ConnectExtensionRequest(false, "a-header-value") { Settings = new Dictionary<string, string> { ["token"] = "a-setting-value" } }
+            .ToString().Should().NotContain("a-header-value").And.NotContain("a-setting-value");
         new Drover.Contracts.Tools.FinishToolSignInRequest("a-ticket-value").ToString().Should().NotContain("a-ticket-value");
         new Drover.Contracts.Sandboxes.CreateSandboxSecretRequest("DEPLOY_TOKEN", null, "a-sandbox-secret-value", "brokered", ["api.example.test"], false, false, "space", null, null)
             .ToString().Should().NotContain("a-sandbox-secret-value");
@@ -81,13 +83,17 @@ public sealed class ContractsCarryNoSecretsTests
     #region Private Methods
 
     private static IEnumerable<Type> ContractTypes() =>
-        typeof(Drover.Contracts.Auth.SessionResponse).Assembly.GetExportedTypes().Where(type => type.IsClass || type.IsValueType);
+        typeof(Drover.Contracts.Auth.SessionResponse).Assembly.GetExportedTypes()
+            .Where(type => type.IsClass || type.IsValueType)
+            // An exception is thrown and caught, never sent: what the runtime hangs on one is not part of any contract.
+            .Where(type => !typeof(Exception).IsAssignableFrom(type));
 
     private static IEnumerable<string> ReachableProperties(Type type, HashSet<Type>? seen = null)
     {
         seen ??= [];
 
-        if (!seen.Add(type))
+        // A runtime type's own members (the kind of a JSON element, say) are named by the runtime, not by a contract.
+        if (type.Namespace?.StartsWith("System", StringComparison.Ordinal) is true || !seen.Add(type))
         {
             yield break;
         }

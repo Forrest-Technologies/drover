@@ -1,8 +1,8 @@
 namespace Drover.Native.Pages;
 
 /// <summary>
-/// One installed extension on the extensions screen: the card holds its name, what it adds and whether its bot is
-/// on. The way to set it up or turn it on stays in words beneath the card, as does its connection's steps.
+/// One installed extension on the extensions screen: the card holds its name and what it holds in one line. Beneath
+/// it stand the steps of its tool server, the themes and rules it offers, and the way to remove it, in words.
 /// </summary>
 internal sealed class ExtensionRow : Grid
 {
@@ -10,13 +10,9 @@ internal sealed class ExtensionRow : Grid
 
     private readonly ExtensionsViewModel model;
 
-    private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
-
     private readonly ListCard card = new();
 
     private readonly StackPanel beneath = new() { Spacing = Tokens.Number("DvSpace3") };
-
-    private readonly Button turnOn = new() { Kind = ButtonKind.Quiet };
 
     private ExtensionServerSteps? steps;
 
@@ -30,7 +26,6 @@ internal sealed class ExtensionRow : Grid
     {
         this.model = model;
         Children.Add(card);
-        turnOn.Click += (_, _) => _ = model.TurnOn(shown!);
     }
 
     #endregion
@@ -54,52 +49,35 @@ internal sealed class ExtensionRow : Grid
 
         shown = extension;
         card.Title = extension.Name;
-        card.Facts = ExtensionWords.Adds(extension);
-        card.Status = extension.BotId is null
-            ? null
-            : new Badge { Text = ExtensionWords.Status(extension), Kind = ExtensionsViewModel.StatusKind(extension) };
+        card.Facts = ExtensionWords.Holds(extension);
         beneath.Children.Clear();
-        if (extension.BotId is { } botId)
+
+        if (!string.IsNullOrWhiteSpace(extension.Description))
         {
-            beneath.Children.Add(Actions(botId, extension));
+            beneath.Children.Add(Parts.Small(extension.Description));
         }
 
         ShowServer(extension);
-        card.Beneath = beneath.Children.Count > 0 ? beneath : null;
-        Refresh();
-    }
 
-    /// <summary>Shows what depends on what the screen is doing: the turn on button says it is working.</summary>
-    public void Refresh()
-    {
-        if (shown is null || shown.BotId is null)
+        foreach (var offered in ExtensionReview.Offered(extension.Parts))
         {
-            return;
+            beneath.Children.Add(ExtensionReview.Ruled(offered));
         }
 
-        turnOn.Content = model.TurnOnLabel(shown);
-        turnOn.IsEnabled = model.Busy != shown.Id;
+        if (model.CanEdit)
+        {
+            var remove = BotParts.Action(ExtensionsViewModel.RemoveAction, () => model.AskToRemove(extension));
+            remove.HorizontalAlignment = HorizontalAlignment.Left;
+            AutomationProperties.SetName(remove, $"Remove {extension.Name}");
+            beneath.Children.Add(remove);
+        }
+
+        card.Beneath = beneath.Children.Count > 0 ? beneath : null;
     }
 
     #endregion
 
     #region Private Methods
-
-    private FlexPanel Actions(Guid botId, ExtensionSummary extension)
-    {
-        var actions = new FlexPanel { Gap = Tokens.Number("DvSpace3"), RowGap = Tokens.Number("DvSpace2") };
-        (turnOn.Parent as Panel)?.Children.Remove(turnOn);
-        actions.Children.Add(BotParts.Action(
-            ExtensionsViewModel.SetUpLabel(extension),
-            () => navigator.NavigateTo(Addresses.Bot(botId))));
-
-        if (model.ShowsTurnOn(extension))
-        {
-            actions.Children.Add(turnOn);
-        }
-
-        return actions;
-    }
 
     private void ShowServer(ExtensionSummary extension)
     {

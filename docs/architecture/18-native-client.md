@@ -587,7 +587,7 @@ framework:
 
 The conversation's "More" menu ends with "Save conversation as Markdown" and "Save conversation as JSON". The server
 writes the file (`ConversationSaver` asks for it through `DroverApi.ExportConversation`), and the platform saves it
-the way the extension editor's download does (`PlatformFiles.SaveText`): the system's save dialog on desktop and
+the way a bot's file is saved (`PlatformFiles.SaveText`): the system's save dialog on desktop and
 Android, a download in a browser. A toast says it was saved or why not; a cancelled dialog says nothing.
 
 When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
@@ -937,7 +937,7 @@ Complete state coverage, 200 percent zoom, keyboard navigation, and screen-reade
   This is recorded as an intermittent full-run failure, not a clean full-run sign-off. A preceding full run before
   the final tool-screen additions passed 3,929 tests with 25 live-provider cases excluded.
 - The browser smoke check exercises the trimmed publish under the exact server CSP, actual accessible headings,
-  tool add/review states, extension loading/failure, both themes and widths, and downloaded JSON bytes. Reference
+  tool add/review states, the extensions list with a sample extension, both themes and widths. Reference
   captures use the same fixtures in the existing client. Screenshots are regression evidence, not parity approval.
 - Native package metadata and exact-version license corrections pass the license checker, and NuGet's current
   advisory feed reports no vulnerable packages in the resolved native graph. Actionlint, Zizmor and the staged

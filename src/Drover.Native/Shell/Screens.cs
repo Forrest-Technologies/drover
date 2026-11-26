@@ -31,7 +31,6 @@ public static class Screens
         .Map(typeof(ModelConnectionsPage), "/models")
         .Map(typeof(ToolConnectionsPage), "/tools")
         .Map(typeof(ExtensionsPage), "/extensions")
-        .Map(typeof(ExtensionEditorPage), "/extensions/edit")
         .Map(typeof(StatusPage), "/status")
         .Map(typeof(UsagePage), "/usage")
         .Map(typeof(VoicePage), "/voice")

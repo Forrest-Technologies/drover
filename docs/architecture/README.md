@@ -22,7 +22,7 @@ This document answers the architecture handoff. It is split into one file per ha
 | 14 | [14-agent-framework.md](14-agent-framework.md) | What Drover uses from the agent framework, and how it stays current |
 | 15 | [15-model-providers.md](15-model-providers.md) | Model connections: Venice first-party, compatible endpoints, subscription sign-in |
 | 16 | [16-deployment-policies.md](16-deployment-policies.md) | Deployment policy: self-hosted by default, a hosted preset that locks the server into compliance |
-| 17 | [17-extensions.md](17-extensions.md) | Extensions: one file that adds a bot to a space, read by a person before anything is added |
+| 17 | [17-extensions.md](17-extensions.md) | Extensions: one file of data that adds a tool server, themes, rules, and its own settings for a space to pick up, read by a person before anything is added. Bot files: a bot shared as a file of its own |
 | 18 | [18-native-client.md](18-native-client.md) | The native client: one app for web, Android, and desktop, its tokens and controls, and how a screen moves to it |
 | 19 | [19-chat-channels.md](19-chat-channels.md) | Chat channels: one bot per channel, link codes, what crosses into the app, and operator control |
 

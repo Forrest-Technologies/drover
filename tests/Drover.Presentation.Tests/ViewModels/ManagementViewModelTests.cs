@@ -96,7 +96,7 @@ public sealed class ManagementViewModelTests : IDisposable
     {
         server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
-        var model = new BotListViewModel(server.CreateApi(), session, navigator, NullLogger<BotListViewModel>.Instance);
+        var model = new BotListViewModel(server.CreateApi(), session, navigator, new ToastService(TimeProvider.System), NullLogger<BotListViewModel>.Instance);
         await model.Open();
 
         model.Create(parentId);

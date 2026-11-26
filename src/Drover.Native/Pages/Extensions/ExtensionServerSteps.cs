@@ -1,9 +1,9 @@
 namespace Drover.Native.Pages;
 
 /// <summary>
-/// The tool server of an installed extension: connect it, then choose which of its suggested tools the bot gets.
-/// What it shows follows the view model, and is made again only when the extension it shows changes, so a value
-/// being typed in one row is never lost to a change in another.
+/// The tool server of an installed extension: fill in the extension's settings and connect it. What it shows
+/// follows the view model, and is made again only when the tool server it shows changes, so a value being typed in
+/// one row is never lost to a change in another.
 /// </summary>
 internal sealed class ExtensionServerSteps : Grid
 {
@@ -16,19 +16,14 @@ internal sealed class ExtensionServerSteps : Grid
 
     private readonly StackPanel column = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private readonly List<ToolTick> ticks = [];
+    // Each input of the connect form, as the way to hold it still while the connection is being made.
+    private readonly List<Action<bool>> held = [];
 
     private ExtensionSummary? shown;
-
-    private Field? headerField;
-
-    private Switch? localSwitch;
 
     private StatusNote? problem;
 
     private Button? connect;
-
-    private Button? give;
 
     #endregion
 
@@ -56,7 +51,7 @@ internal sealed class ExtensionServerSteps : Grid
 
     #region Public Methods
 
-    /// <summary>Shows the extension's tool server as it now is. The same extension again changes nothing.</summary>
+    /// <summary>Shows the extension's tool server as it now is. The same tool server again changes nothing.</summary>
     public void Show(ExtensionSummary extension)
     {
         if (ReferenceEquals(shown, extension))
@@ -64,9 +59,8 @@ internal sealed class ExtensionServerSteps : Grid
             return;
         }
 
-        // A change that leaves the tool server alone (the bot turned on) must not clear what is being typed.
-        var same = shown is not null && ReferenceEquals(shown.Connection, extension.Connection)
-            && shown.BotId == extension.BotId && shown.BotName == extension.BotName;
+        // A change that leaves the tool server alone must not clear what is being typed.
+        var same = shown is not null && ReferenceEquals(shown.Connection, extension.Connection);
         shown = extension;
         model.Show(extension);
 
@@ -83,12 +77,11 @@ internal sealed class ExtensionServerSteps : Grid
     private void Render()
     {
         column.Children.Clear();
-        ticks.Clear();
-        (headerField, localSwitch, problem, connect, give) = (null, null, null, null, null);
+        held.Clear();
+        (problem, connect) = (null, null);
 
-        var heading = Parts.Title(model.Heading, AutomationHeadingLevel.Level3);
         AutomationProperties.SetName(rule, model.Heading);
-        column.Children.Add(heading);
+        column.Children.Add(Parts.Title(model.Heading, AutomationHeadingLevel.Level3));
         column.Children.Add(Parts.Machine(model.Connection.Host, "DvText20", "DvText"));
 
         switch (model.Shows)
@@ -114,19 +107,26 @@ internal sealed class ExtensionServerSteps : Grid
     {
         column.Children.Add(Parts.Small(model.ConnectLead));
 
-        if (model.Connection.Auth is "header")
+        foreach (var setting in model.Settings)
         {
-            headerField = new Field { Label = model.HeaderValueLabel, Type = "password", Hint = "Stored encrypted. It is not shown again.", Value = model.HeaderValue };
-            headerField.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) => model.HeaderValue = headerField.Value);
-            headerField.Submitted += (_, _) => Connect();
-            column.Children.Add(headerField);
+            column.Children.Add(SettingInput(setting));
         }
 
-        if (model.Connection.IsLocal)
+        if (model.AsksForHeaderValue)
         {
-            localSwitch = new Switch { Label = model.LocalLabel, Value = model.AcceptLocal };
-            localSwitch.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => model.AcceptLocal = localSwitch.Value);
-            column.Children.Add(localSwitch);
+            var header = new Field { Label = model.HeaderValueLabel, Type = "password", Hint = ExtensionServerStepsViewModel.HeaderValueHint, Value = model.HeaderValue };
+            header.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) => model.HeaderValue = header.Value);
+            header.Submitted += (_, _) => Connect();
+            held.Add(busy => header.Disabled = busy);
+            column.Children.Add(header);
+        }
+
+        if (model.AsksAboutLocal)
+        {
+            var local = new Switch { Label = model.LocalLabel, Value = model.AcceptLocal };
+            local.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => model.AcceptLocal = local.Value);
+            held.Add(busy => local.IsEnabled = !busy);
+            column.Children.Add(local);
         }
 
         problem = new StatusNote { Kind = NoteKind.Danger };
@@ -136,12 +136,50 @@ internal sealed class ExtensionServerSteps : Grid
         column.Children.Add(connect);
     }
 
+    // Each setting is the control its type calls for: a switch, a list to pick from, or a field. A secret is a password field.
+    private UIElement SettingInput(ExtensionSetting setting)
+    {
+        switch (setting.Type)
+        {
+            case ExtensionSetting.Toggle:
+                var toggle = new Switch { Label = setting.Label, Value = model.Value(setting) is "true" };
+                toggle.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => model.SetValue(setting, toggle.Value ? "true" : "false"));
+                held.Add(busy => toggle.IsEnabled = !busy);
+                return string.IsNullOrWhiteSpace(setting.Help) ? toggle : BotParts.Column("DvSpace1", toggle, Parts.Small(setting.Help));
+            case ExtensionSetting.Choice:
+                var choice = new Select
+                {
+                    Label = setting.Label,
+                    Options = [.. setting.Choices.Select(option => new SelectOption(option, option))],
+                    Value = model.Value(setting) is { Length: > 0 } chosen ? chosen : setting.Choices[0],
+                };
+                model.SetValue(setting, choice.Value);
+                choice.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) => model.SetValue(setting, choice.Value));
+                held.Add(busy => choice.Disabled = busy);
+                return string.IsNullOrWhiteSpace(setting.Help) ? choice : BotParts.Column("DvSpace1", choice, Parts.Small(setting.Help));
+            default:
+                var secret = setting.Type is ExtensionSetting.Secret;
+                var field = new Field
+                {
+                    Label = setting.Label,
+                    Type = secret ? "password" : "text",
+                    Hint = ExtensionWords.SettingHint(setting) is { Length: > 0 } hint ? hint : null,
+                    Value = model.Value(setting),
+                };
+                field.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) => model.SetValue(setting, field.Value));
+                field.Submitted += (_, _) => Connect();
+                held.Add(busy => field.Disabled = busy);
+                return field;
+        }
+    }
+
     private void AddConnected()
     {
         var state = new FlexPanel { Gap = Tokens.Number("DvSpace3"), RowGap = Tokens.Number("DvSpace2") };
         state.Children.Add(new Badge { Text = model.StatusText, Kind = model.StatusIsReady ? BadgeKind.Ok : BadgeKind.Warn });
         state.Children.Add(Links.Plain(model.LinkText, Addresses.Tools));
         column.Children.Add(state);
+        column.Children.Add(Parts.Fact("Full address", Parts.Machine(model.Connection.Url, "DvText12", "DvText3")));
 
         if (!string.IsNullOrWhiteSpace(model.Connection.Problem))
         {
@@ -154,33 +192,16 @@ internal sealed class ExtensionServerSteps : Grid
         }
 
         var tools = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
-        AutomationProperties.SetName(tools, model.ToolsLegend);
-        tools.Children.Add(Parts.Title(model.ToolsLegend, AutomationHeadingLevel.None));
-        foreach (var tool in model.Connection.Tools)
-        {
-            tools.Children.Add(Tick(tool));
-        }
-
-        problem = new StatusNote { Kind = NoteKind.Danger };
+        AutomationProperties.SetName(tools, ExtensionServerStepsViewModel.ToolsLegend);
+        tools.Children.Add(Parts.Title(ExtensionServerStepsViewModel.ToolsLegend, AutomationHeadingLevel.None));
+        tools.Children.Add(ExtensionReview.Lines(model.Connection.Tools.Select(Told), machine: true));
+        tools.Children.Add(Parts.Small(ExtensionServerStepsViewModel.GrantHint));
         column.Children.Add(tools);
-        column.Children.Add(problem);
-
-        if (model.ShowsGive)
-        {
-            give = new Button { HorizontalAlignment = HorizontalAlignment.Left };
-            give.Click += (_, _) => _ = model.GrantCommand.ExecuteAsync(null);
-            column.Children.Add(give);
-        }
     }
 
-    private ToolTick Tick(SuggestedToolState tool)
-    {
-        var tick = new ToolTick(tool.Name, tool.Why, ExtensionWords.ToolState(tool)) { IsChecked = model.IsOn(tool), Tag = tool };
-        tick.Checked += (_, _) => model.Tick(tool.Name, on: true);
-        tick.Unchecked += (_, _) => model.Tick(tool.Name, on: false);
-        ticks.Add(tick);
-        return tick;
-    }
+    // What is said of a suggested tool: why the file suggests it, and that the server does not list it when it does not.
+    private static (string Name, string About) Told(SuggestedToolState tool) =>
+        (tool.Name, string.Join(' ', new[] { tool.Why, ExtensionWords.ToolState(tool) }.Where(said => !string.IsNullOrWhiteSpace(said))));
 
     private void Connect() => _ = model.ConnectCommand.ExecuteAsync(null);
 
@@ -192,25 +213,17 @@ internal sealed class ExtensionServerSteps : Grid
             return;
         }
 
-        headerField?.Disabled = model.Busy;
-        localSwitch?.IsEnabled = !model.Busy;
+        foreach (var hold in held)
+        {
+            hold(model.Busy);
+        }
+
         problem?.Text = model.Problem;
 
         if (connect is not null)
         {
             connect.Content = model.ConnectLabel;
             connect.IsEnabled = !model.Busy;
-        }
-
-        if (give is not null)
-        {
-            give.Content = new TextBlock { Text = model.GiveLabel, TextWrapping = TextWrapping.Wrap };
-            give.IsEnabled = model.CanGive;
-        }
-
-        foreach (var tick in ticks)
-        {
-            tick.IsEnabled = model.CanEdit && !model.Busy && tick.Tag is SuggestedToolState tool && ExtensionServerStepsViewModel.CanTick(tool);
         }
     }
 

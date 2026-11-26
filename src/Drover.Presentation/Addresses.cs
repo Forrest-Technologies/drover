@@ -30,12 +30,6 @@ public static class Addresses
 
     public const string Extensions = "/extensions";
 
-    /// <summary>The editor that writes an extension, starting from nothing.</summary>
-    public const string ExtensionEditor = "/extensions/edit";
-
-    /// <summary>The editor, started from a bot of the space.</summary>
-    public static string ExtensionFromBot(Guid botId) => $"{ExtensionEditor}?bot={botId}";
-
     public const string Status = "/status";
 
     public const string Usage = "/usage";

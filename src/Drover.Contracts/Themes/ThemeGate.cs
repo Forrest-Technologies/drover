@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>The accessibility gates every theme must pass, in every mode. See <see cref="ThemeGates"/>.</summary>
 public enum ThemeGate

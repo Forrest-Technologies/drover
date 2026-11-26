@@ -27,6 +27,7 @@ global using Drover.Contracts.Projects;
 global using Drover.Contracts.Push;
 global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
+global using Drover.Contracts.Themes;
 global using Drover.Contracts.Threads;
 global using Drover.Native.Bots;
 global using Drover.Native.Chat;
