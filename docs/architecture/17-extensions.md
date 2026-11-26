@@ -69,7 +69,7 @@ Field names are matched exactly, a number must be a number, a part must name its
 ## What a person does
 
 1. **Choose the file**, or paste its text. The server is never given an address to fetch: a file fetched by address can change between two readings, and fetching is a request the server would make on a stranger's word.
-2. **Review.** `POST /api/spaces/{spaceId}/extensions/preview` reads the file and answers with what it would add. Nothing is stored and nothing outside the server is contacted. The screen shows the bot's name, what it is for, the model it will think with, that it gets only the tools any new bot gets, and its instructions in full.
+2. **Review.** `POST /api/spaces/{spaceId}/extensions/preview` reads the file and answers with what it would add. Nothing is stored and nothing outside the server is contacted. The screen shows the bot's name, what it is for, its model, that it gets only the tools any new bot gets, and its instructions in full.
 3. **Import.** `POST /api/spaces/{spaceId}/extensions` sends the same text again; the server reads it again and makes the bot through `BotService.Create`, the path a person's own new bot takes, so every limit on making a bot applies ([16-deployment-policies.md](16-deployment-policies.md), `MaxBotsPerSpace`). The review has nothing to fill in: there is one decision, yes or no.
 4. **Turn on.** The bot is paused until a person resumes it, with the bot's ordinary resume. Until then it starts no run and uses no tool.
 
@@ -87,7 +87,7 @@ The server chooses the model, the same way for the preview and the import, so th
 
 A file that names a tool server adds two steps to its row on the extensions screen, in order: connect the server, then give the bot its tools.
 
-1. **The review** shows where calls would go (the host, as the largest text in its block), the full address, how Drover proves who is calling, and the suggested tools with the reason for each. Importing stores the file and contacts nothing: no connection is made and the server is asked nothing.
+1. **The review** shows where calls would go (the host, as the largest text in its block), the full address, how Drover signs in to this server, and the suggested tools with the reason for each. Importing stores the file and contacts nothing: no connection is made and the server is asked nothing.
 2. **Connect.** `POST /api/spaces/{spaceId}/extensions/{id}/connection`, for an owner or admin. The address is the file's, as imported; the request has no field for one. A header's value is typed here, goes to the vault, and is never returned. `ExtensionConnector` makes the connection through `ToolConnectionService.Create`, the path a connection added by hand takes, so the same address rules, `AllowToolConnections`, vault, and catalog apply, and the server's results are untrusted. It then asks the server for its tools, holding no tenant scope across that wait.
 3. **A local address needs a yes.** An address that is not https, is a loopback or private address, has no dot in its name, or sits under a suffix kept for private use (`ExtensionPackages.IsLocal`) is refused unless the request says `acceptLocalAddress`. The screen shows one tick box for it, never ticked for the person. A file must not quietly aim a server at its own network; a person who runs a tool server on their own network says so once.
 4. **Grant.** The row lists the suggested tools the server really lists. None is ticked. The person ticks the ones the bot gets, and each is set to `ask` through the bot's ordinary grant route (`PUT .../bots/{botId}/tools/{toolId}`), so the bots above it still bound it ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)). A suggested tool the server does not list cannot be ticked.
@@ -101,7 +101,7 @@ A sign-in connection (`oauth`) is made the same way, and each person signs in on
 
 ## Making one
 
-The editor at `/extensions/edit` writes a file. Its job is to write a bot down so someone else can import it, and hand over the file.
+The editor at `/extensions/edit` writes a file. Its job is to save a bot as a file that someone else can import, and hand over the file.
 
 - **The form comes first**: the extension's name, id, and what it is for; then the bot's name, what it is for, its instructions, and a suggested model; then, when the person switches it on, a tool server's name, address, how it is called, and the tools to suggest, one a line as `name: why`. Either part can be left out, not both. The id follows the name (`ExtensionFile.IdFrom`) until the person types one.
 - **The JSON tab shows the same file as text** and lets a person edit it. `ExtensionFile.Write`, in `Drover.Contracts`, writes the text, so the editor and the server write the same thing. Going back to the form sends the text to `POST /api/spaces/{spaceId}/extensions/read`, which reads it with the reader an import uses and answers with the package. Text it cannot read stays on the JSON tab with the sentence that says why. The editor therefore cannot produce a file the importer would refuse without saying so, and there is one reader, on the server.

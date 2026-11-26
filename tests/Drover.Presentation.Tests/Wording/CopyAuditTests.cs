@@ -2,8 +2,8 @@ namespace Drover.Presentation.Tests.Wording;
 
 /// <summary>
 /// The words #891 retired from the work screens, held so they do not come back into the native client's source.
-/// The Tools strings are also changed by #864 and #890, which rewrite ToolConnectionsPage. Only those strings
-/// are exempt in that one file; every other retired string must be gone from the native and presentation projects.
+/// The Tools sign-in wording was retired by #864 and is no longer exempt. The remaining Tools strings are left
+/// to #890, which rewrites ToolConnectionsPage; only those are exempt in that one file.
 /// </summary>
 public sealed class CopyAuditTests
 {
@@ -38,7 +38,6 @@ public sealed class CopyAuditTests
     // Only these words in ToolConnectionsPage are left to the issues that rewrite that file.
     private static readonly string[] otherIssues =
     [
-        "How Drover proves who is calling",
         "Nothing",
         "A header",
         "A sign-in",

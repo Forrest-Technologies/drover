@@ -567,7 +567,7 @@ public sealed class ExtensionsViewModelTests : IDisposable
         ExtensionSummary? changed = null;
         row.Changed += now => changed = now;
 
-        row.GiveLabel.Should().Be("Give Sample scribe the ticked tools, asking first");
+        row.GiveLabel.Should().Be("Grant Sample scribe the selected tools, set to Ask");
         row.ShowsGive.Should().BeTrue();
         row.CanGive.Should().BeFalse("there is nothing to give until a tool is ticked");
         row.Tick("lookup", on: true);

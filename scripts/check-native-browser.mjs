@@ -171,7 +171,7 @@ const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
     ['connect-model', '/setup/model', 'Connect a model'],
-    ['meet-bot-empty', '/setup/bot', 'Meet your first bot'],
+    ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
