@@ -10,6 +10,9 @@ public sealed record ThemeOption(ThemeMode Mode, string Name, bool InUse)
 /// <summary>One theme in the appearance choices: its name, what it is for, and whether it is the one in use.</summary>
 public sealed record LookOption(string Id, string Name, string Intent, bool InUse)
 {
+    /// <summary>The extension that offers the theme, or null for one of the app's own.</summary>
+    public string? Source { get; init; }
+
     /// <summary>What a screen reader is told: the name and what the theme is for, and that it is in use when it is.</summary>
     public string AccessibleName => InUse ? $"{Name}, in use. {Intent}" : $"{Name}. {Intent}";
 }

@@ -239,10 +239,31 @@ const screens = [
     ['usage-empty', '/usage', 'Usage'],
     ['usage', '/usage?period=30d', 'Usage'],
     ['extensions-empty', '/extensions', 'Extensions'],
-    ['extension-editor-loading', `/extensions/edit?bot=${botId}`, 'Make an extension'],
-    ['extension-editor-failed', `/extensions/edit?bot=${botId}`, 'Make an extension'],
-    ['extension-editor', '/extensions/edit', 'Make an extension'],
+    ['extensions', '/extensions', 'Extensions'],
 ];
+// A sample installed extension, as the server lists one: a tool server not yet connected, a theme, and a rule.
+const sampleExtension = {
+    id: '0196f1a0-0000-7000-8000-0000000000e1',
+    packageId: 'sample.studio',
+    name: 'Sample studio',
+    description: 'Sample description',
+    installedAt: '2026-01-01T00:00:00Z',
+    connection: {
+        name: 'Sample helpdesk', url: 'https://tools.example.test/mcp', host: 'tools.example.test', auth: 'none', headerName: null,
+        isLocal: false, available: true, dependsOnSettings: false, asksForHeader: false,
+        connectionId: null, status: null, problem: null,
+        tools: [{ name: 'lookup', why: 'Sample reason.', toolId: null }],
+    },
+    parts: {
+        settings: [],
+        themes: [{ id: 'sample-dusk', name: 'Sample dusk', intent: 'A sample look.' }],
+        rules: [{
+            name: 'Sample: ask before writing', enabled: true, checkpoint: 'before_tool', effect: 'ask',
+            conditions: [{ kind: 'tool_kind', toolKinds: ['write'] }], position: null,
+        }],
+    },
+    filledSettings: {},
+};
 const nativeProjectScreens = [
     ['projects-empty', '/projects', 'Projects', 'Projects'],
     ['projects-failed', '/projects', 'Projects', 'Projects'],
@@ -297,7 +318,6 @@ try {
             let panelPreviewBroken = false;
             let completePreview;
             const previewGate = new Promise(resolve => { completePreview = resolve; });
-            let extensionFailures = 0;
             let conversationLoadRequests = 0;
             let unusableRegenerateRequests = 0;
             page.on('console', message => {
@@ -308,16 +328,12 @@ try {
                     && message.text().includes('A file the browser handed over with a paste could not be read')) {
                     return;
                 }
-                // These two intentional API failures exercise the loading-to-failure and retry states.
-                const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (current === 'conversation' && previewRequests === 5
                     && message.location().url.endsWith(`/files/${sampleFile.id}/native-preview`)
                     && message.text().includes('net::ERR_FAILED')) {
                     return;
                 }
-                if (message.location().url === expectedUrl && message.text() === 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)') {
-                    extensionFailures++;
-                } else if (current === 'sign-in' && (
+                if (current === 'sign-in' && (
                     (message.location().url === `${origin}/api/session` && message.text().includes('401 (Unauthorized)'))
                     || (message.location().url === `${origin}/api/setup` && message.text().includes('404 (Not Found)'))
                 )) {
@@ -635,12 +651,9 @@ try {
                 else if (address === `/api/spaces/${spaceId}/projects/${projectId}/files` && method === 'GET') {
                     body = [projectFile];
                 }
-                else if (address.endsWith('/extensions')) { body = []; }
-                else if (address.endsWith(`/extensions/from-bot/${botId}`)) {
-                    if (current === 'extension-editor-loading') { heldRoute = route; return; }
-                    await route.fulfill({ status: 503, json: { title: 'Sample server is unavailable.', status: 503 } });
-                    return;
-                }
+                else if (address.endsWith('/extensions')) { body = current === 'extensions' ? [sampleExtension] : []; }
+                // The themes a space's extensions offer, read when a person signs in and when the appearance choices open.
+                else if (address.endsWith('/themes')) { body = []; }
                 else { await route.fulfill({ status: 404, body: '' }); return; }
                 await route.fulfill({ json: body });
             });
@@ -740,9 +753,10 @@ try {
                     await page.getByRole('button', { name: 'Add a tool server', exact: true }).dispatchEvent('click');
                     await page.getByRole('heading', { name: 'Add a tool server', exact: true }).waitFor({ state: 'attached' });
                 }
-                if (name === 'extension-editor-failed') {
-                    await page.getByRole('heading', { name: 'Drover could not open this bot as an extension', exact: true })
+                if (name === 'extensions') {
+                    await page.getByRole('heading', { name: 'Tool server: Sample helpdesk', exact: true })
                         .waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Remove Sample studio', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                 }
                 if (name === 'projects-empty') {
                     await page.getByRole('heading', { name: 'No project yet', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
@@ -814,21 +828,6 @@ try {
                         description: /^Available when the conversation has loaded\.$/,
                     });
                     assert.equal(await waitingField.count(), 0, 'the field says nothing about waiting once the conversation is read');
-                }
-                if (name === 'extension-editor') {
-                    // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
-                    await page.mouse.move(width / 2, 500);
-                    await page.mouse.wheel(0, 3000);
-                    await page.waitForTimeout(200);
-                    const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-                    const [saved] = await Promise.all([
-                        page.waitForEvent('download', item => item.suggestedFilename() === 'extension.json'),
-                        exportControl.dispatchEvent('click'),
-                    ]);
-                    assert.equal(saved.suggestedFilename(), 'extension.json');
-                    const savedPath = await withDeadline(saved.path(), 10000, 'the extension.json download to complete');
-                    const file = JSON.parse(await fs.readFile(savedPath, 'utf8'));
-                    assert.equal(file.version, 1);
                 }
                 if (name === 'projects' && width === 360) {
                     await checkPhoneNavLayout(page, width);
@@ -975,7 +974,6 @@ try {
                     heldRoute = null;
                 }
             }
-            assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
             current = 'conversation-unusable-tool-request';

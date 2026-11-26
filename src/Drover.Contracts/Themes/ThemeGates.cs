@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// The accessibility gates a theme must pass, run over the resolved values of a theme in every mode: dark, light,

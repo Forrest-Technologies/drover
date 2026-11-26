@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>The WCAG 2 contrast ratio between two opaque colors, from 1 (the same) up to 21 (black on white).</summary>
 public static class WcagContrast

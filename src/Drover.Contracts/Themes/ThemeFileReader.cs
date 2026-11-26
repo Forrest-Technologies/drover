@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// Reads a theme file in the closed format: every key required, no other key, the types and bounds exact, colors

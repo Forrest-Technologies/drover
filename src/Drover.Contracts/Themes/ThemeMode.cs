@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>Which mode of a theme a person chose. System follows the device, to dark or to light.</summary>
 public enum ThemeMode

@@ -34,6 +34,7 @@ global using Drover.Contracts.Push;
 global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Status;
+global using Drover.Contracts.Themes;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
 global using Drover.Presentation.Code;

@@ -1,4 +1,4 @@
-namespace Drover.Ui.Theme;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// A theme file does not follow the closed format. It lists every problem found, each with where it is.

@@ -1,4 +1,4 @@
-namespace Drover.Presentation.Drawing;
+namespace Drover.Contracts.Themes;
 
 /// <summary>
 /// A color that may be see-through, as the token file writes it: "#05070A", or "#B805070A" with the alpha first.

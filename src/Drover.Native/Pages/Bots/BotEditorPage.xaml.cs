@@ -37,7 +37,7 @@ public sealed partial class BotEditorPage : Screen
 
     private readonly StatusNote actionProblem = new() { Kind = NoteKind.Danger };
 
-    private readonly TextArea purpose = new() { Label = BotEditorViewModel.PurposeLabel, Rows = 2, Hint = BotEditorViewModel.PurposeHint };
+    private readonly TextArea purpose = new() { Label = BotEditorViewModel.PurposeLabel, Rows = 2, Hint = BotEditorViewModel.PurposeHint, MaxLength = FieldLimits.BotDescription };
 
     private readonly TextArea instructions = new() { Label = BotEditorViewModel.InstructionsLabel, Rows = 8, Hint = BotEditorViewModel.InstructionsHint };
 
@@ -234,7 +234,7 @@ public sealed partial class BotEditorPage : Screen
         handleRow.Children.Add(changeHandle);
         handleRow.Children.Add(paused);
         menu.Items.Add(MenuEntry(BotEditorViewModel.DuplicateLabel, () => _ = Model.Duplicate()));
-        menu.Items.Add(MenuEntry(BotEditorViewModel.MakeExtensionLabel, Model.MakeExtension));
+        menu.Items.Add(MenuEntry(BotEditorViewModel.SaveAsFileLabel, () => _ = Model.SaveAsFile(PlatformFiles.SaveText)));
         menu.Items.Add(pauseOrResume);
         menu.Items.Add(MenuEntry(BotEditorViewModel.RemoveLabel, Model.AskToRemove));
         pauseOrResume.Selected += (_, _) => _ = Model.IsPaused ? Model.Resume() : Model.Pause();

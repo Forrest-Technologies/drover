@@ -15,6 +15,7 @@ global using System.Runtime.CompilerServices;
 global using System.Security.Cryptography;
 global using System.Text;
 global using System.Text.Json;
+global using System.Text.Json.Serialization;
 global using System.Threading;
 global using System.Threading.Tasks;
 global using AwesomeAssertions;
@@ -32,6 +33,7 @@ global using Drover.Contracts.Permissions;
 global using Drover.Contracts.Push;
 global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
+global using Drover.Contracts.Themes;
 global using Drover.Contracts.Threads;
 global using Drover.Data;
 global using Drover.Data.Bootstrap;
@@ -93,7 +95,6 @@ global using Npgsql;
 global using SkiaSharp;
 global using Testcontainers.PostgreSql;
 global using Xunit;
-
 // Aliases, not namespaces: the document libraries name types Run, Text, Paragraph, and Page, which Drover uses too.
 global using OpenXml = DocumentFormat.OpenXml;
 global using OpenXmlPackaging = DocumentFormat.OpenXml.Packaging;

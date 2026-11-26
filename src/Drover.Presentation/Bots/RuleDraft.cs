@@ -160,6 +160,15 @@ public static class RuleStarters
 {
     #region Public Methods
 
+    /// <summary>
+    /// The rules the space's extensions offer, one starter each, named for the extension it comes from. Adding one
+    /// goes the way any starter does: the extension itself gives no bot a rule.
+    /// </summary>
+    public static IReadOnlyList<RuleStarter> From(IReadOnlyList<ExtensionSummary> extensions) =>
+    [
+        .. extensions.SelectMany(extension => extension.Parts.Rules.Select(rule => new RuleStarter($"{rule.Name} (from {extension.Name})", [rule]))),
+    ];
+
     /// <summary>The starters, with quiet hours in a person's own time zone.</summary>
     public static IReadOnlyList<RuleStarter> For(string timeZone) =>
     [
