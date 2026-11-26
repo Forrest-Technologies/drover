@@ -3,8 +3,15 @@
 // the shell is loaded. The published-browser check requires real headings and invokes the export through its peer.
 (() => {
     // Uno 7.0.65 mirrors its links as anchors without href. Give those anchors an explicit role while keeping
-    // Uno's existing activation handlers and leaving ordinary HTML links alone.
-    const link = 'a:not([href]):not([role])';
+    // Uno's existing activation handlers and leaving ordinary HTML links alone. The runtime makes every semantic
+    // element pointer-transparent so the canvas receives the input, which leaves only the anchor's keydown handler
+    // able to invoke a link: a pointer click can never reach it. Give the anchors pointer input back, so a pointer
+    // click and a keypress take the same invoke path, and the app still decides which addresses may be opened.
+    const link = 'a:not([href])';
+    const styles = document.createElement('style');
+    styles.textContent = '#uno-semantics-root a[role="link"] { pointer-events: auto !important; }';
+    document.head.appendChild(styles);
+
     function exposeLinks(node) {
         if (node.matches(link)) {
             node.setAttribute('role', 'link');
