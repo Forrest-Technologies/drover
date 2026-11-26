@@ -780,6 +780,8 @@ public sealed partial class RunExecutor(
             ModelConnectionId = loaded.Bot.ModelConnectionId,
             Model = loaded.Bot.Model,
             Compaction = loaded.Bot.MemorySettings.Compaction,
+            CompactAtTokens = loaded.Bot.MemorySettings.CompactAtTokens ?? loaded.Capabilities?.ContextTokens,
+            KeepRecentMessages = loaded.Bot.MemorySettings.KeepRecentMessages,
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, loaded, tool))],
         Model = model,
