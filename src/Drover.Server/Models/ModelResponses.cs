@@ -33,7 +33,11 @@ public static class ModelResponses
                 entry.Capabilities.StructuredOutput,
                 entry.Capabilities.WebSearch,
                 entry.Capabilities.ImageGeneration,
-                entry.Capabilities.VisionSetByOperator),
+                entry.Capabilities.VisionSetByOperator,
+                entry.Capabilities.SpeechToText,
+                entry.Capabilities.TextToSpeech,
+                entry.Capabilities.RealtimeVoice,
+                entry.Capabilities.VoiceSetByOperator),
             new ModelPriceResponse(
                 entry.Pricing.InputPerMillion,
                 entry.Pricing.OutputPerMillion,
