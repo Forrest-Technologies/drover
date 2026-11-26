@@ -56,8 +56,6 @@ public sealed class Composer : Grid
 
     private readonly TextBlock voiceStatus = Styles.Text(null, "DvTextLabel");
 
-    private readonly StatusNote voiceProblem = new() { Kind = NoteKind.Danger };
-
     private readonly SpokenWords spoken = new();
 
     private readonly VoiceComposerViewModel voice;
@@ -115,7 +113,6 @@ public sealed class Composer : Grid
         column.Children.Add(options);
         column.Children.Add(frame);
         column.Children.Add(dropNote);
-        column.Children.Add(voiceProblem);
         column.Children.Add(spoken);
         Children.Add(column);
 
@@ -166,6 +163,9 @@ public sealed class Composer : Grid
 
             model = value;
             voice.OnWritten = model is null ? null : model.Dictate;
+
+            // A recording that came to nothing is said the way a file that could not be attached is: once, in a toast.
+            voice.OnFailed = model is null ? null : words => model.Notify(words, ToastKind.Error);
 
             if (model is not null)
             {
@@ -410,7 +410,6 @@ public sealed class Composer : Grid
         voiceStatus.Text = recording ? voice.Elapsed : VoiceWords.WritingItDown;
         voiceStatus.FontFamily = recording ? Tokens.FontMono : Tokens.FontUi;
         voiceStatus.Margin = new(0, 0, 0, (Tokens.Number("DvTargetTouch") - voiceStatus.LineHeight) / 2);
-        voiceProblem.Text = listens ? voice.Problem : null;
         spoken.Say(listens ? voice.Announcement : null);
     }
 

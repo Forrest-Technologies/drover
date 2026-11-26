@@ -48,7 +48,8 @@ public sealed class CallSurface : Grid
 
     private readonly CallViewModel model;
 
-    private bool? laidOutShrunk;
+    // How the parts were last placed: as the bar or the full surface, and which of them showed.
+    private string? placedAs;
 
     #endregion
 
@@ -114,7 +115,6 @@ public sealed class CallSurface : Grid
 
         var (inCall, current) = (model.InCall, model.State);
         var bar = model.Shrunk && inCall;
-        Place(bar);
         AutomationProperties.SetName(this, VoiceWords.CallWith(bot.Name));
 
         head.BotName = bot.Name;
@@ -130,11 +130,12 @@ public sealed class CallSurface : Grid
         word.Visibility = Shown(model.StateWord.Length > 0);
         clock.Text = model.Elapsed;
         clock.Visibility = Shown(model.Elapsed.Length > 0);
+        state.Visibility = Shown(model.StateWord.Length > 0 || model.Elapsed.Length > 0);
         problem.Text = model.Problem ?? string.Empty;
         problem.Visibility = Shown(model.Problem is not null && !bar);
         connect.Visibility = Shown(model.NeedsModel && !bar);
 
-        mute.Visibility = hangUp.Visibility = shrink.Visibility = Shown(inCall);
+        actions.Visibility = mute.Visibility = hangUp.Visibility = shrink.Visibility = Shown(inCall);
         words.Visibility = Shown(inCall && !bar);
         close.Visibility = Shown(!inCall);
         mute.Icon = model.Muted ? IconName.MicrophoneOff : IconName.Microphone;
@@ -145,37 +146,47 @@ public sealed class CallSurface : Grid
         shrink.Icon = model.Shrunk ? IconName.Expand : IconName.Shrink;
         shrink.Label = model.ShrinkLabel;
 
-        var showsWords = inCall && model.WordsShown && !bar;
-        said.Visibility = Shown(showsWords);
         personWords.Text = model.PersonWords.Length > 0 ? $"{VoiceWords.YouSaid}: {model.PersonWords}" : string.Empty;
         personWords.Visibility = Shown(model.PersonWords.Length > 0);
         botWords.Text = model.BotWords.Length > 0 ? $"{VoiceWords.BotSaid(bot.Name)}: {model.BotWords}" : string.Empty;
         botWords.Visibility = Shown(model.BotWords.Length > 0);
+        said.Visibility = Shown(inCall && model.WordsShown && !bar && (model.PersonWords.Length > 0 || model.BotWords.Length > 0));
+
+        Place(bar);
 
         // The state is read out when it changes; the clock is never read out by itself.
         spoken.Say(model.StateWord.Length > 0 ? model.StateWord : model.Problem);
         Paint();
     }
 
-    // The full surface is a column around the bot's head. The bar is one row: head, state, the actions.
-    private void Place(bool shrunk)
+    // The full surface is a column around the bot's head, a row for each part it shows now. The bar is one row:
+    // head, state, the actions.
+    private void Place(bool bar)
     {
-        if (laidOutShrunk == shrunk)
+        FrameworkElement[] stacked = [head, state, problem, connect, actions, said];
+        var placed = $"{bar}:{string.Concat(stacked.Select(part => part.Visibility is Visibility.Visible ? '1' : '0'))}";
+
+        if (placed == placedAs)
         {
             return;
         }
 
-        laidOutShrunk = shrunk;
+        placedAs = placed;
         layout.RowDefinitions.Clear();
         layout.ColumnDefinitions.Clear();
         var (auto, star) = (GridLength.Auto, new GridLength(1, GridUnitType.Star));
 
-        if (shrunk)
+        if (bar)
         {
+            FrameworkElement[] inBar = [head, state, actions, shrink];
             GridLength[] columns = [auto, star, auto, auto];
-            foreach (var width in columns)
+            foreach (var part in inBar)
             {
-                layout.ColumnDefinitions.Add(new() { Width = width });
+                var column = Array.IndexOf(inBar, part);
+                layout.ColumnDefinitions.Add(new() { Width = columns[column] });
+                SetRow(part, 0);
+                SetColumn(part, column);
+                SetColumnSpan(part, 1);
             }
 
             layout.ColumnSpacing = Tokens.Number("DvSpace2");
@@ -184,60 +195,53 @@ public sealed class CallSurface : Grid
             head.Size = (int)Tokens.Number("DvAvatar32");
             state.Orientation = Orientation.Horizontal;
             state.Spacing = Tokens.Number("DvSpace2");
-            state.HorizontalAlignment = HorizontalAlignment.Left;
-            FrameworkElement[] inBar = [head, state, actions, shrink];
-            foreach (var part in inBar)
+            state.HorizontalAlignment = word.HorizontalAlignment = clock.HorizontalAlignment = HorizontalAlignment.Left;
+            actions.HorizontalAlignment = HorizontalAlignment.Right;
+            shrink.VerticalAlignment = clock.VerticalAlignment = VerticalAlignment.Center;
+        }
+        else
+        {
+            layout.ColumnDefinitions.Add(new() { Width = star });
+            layout.ColumnDefinitions.Add(new() { Width = auto });
+            layout.ColumnSpacing = 0;
+            layout.RowSpacing = Tokens.Number("DvSpace3");
+            box.Padding = Tokens.Space("DvSpace4", "DvSpace4");
+            head.Size = (int)Tokens.Number("DvAvatar96");
+            state.Orientation = Orientation.Vertical;
+            state.Spacing = Tokens.Number("DvSpace1");
+            state.HorizontalAlignment = word.HorizontalAlignment = clock.HorizontalAlignment = HorizontalAlignment.Center;
+            problem.HorizontalAlignment = connect.HorizontalAlignment = actions.HorizontalAlignment = HorizontalAlignment.Center;
+            problem.TextAlignment = TextAlignment.Center;
+            shrink.VerticalAlignment = close.VerticalAlignment = VerticalAlignment.Top;
+
+            // Each part showing gets a row, centered over the whole width, so the button in the corner does not
+            // push it off the middle and a part not showing leaves no gap.
+            foreach (var part in stacked)
             {
-                At(part, Array.IndexOf(inBar, part));
+                var row = Math.Max(0, layout.RowDefinitions.Count - 1);
+
+                if (part.Visibility is Visibility.Visible)
+                {
+                    row = layout.RowDefinitions.Count;
+                    layout.RowDefinitions.Add(new() { Height = auto });
+                }
+
+                SetRow(part, row);
+                SetColumn(part, 0);
+                SetColumnSpan(part, layout.ColumnDefinitions.Count);
             }
 
-            shrink.VerticalAlignment = VerticalAlignment.Center;
-            return;
+            foreach (var corner in (FrameworkElement[])[shrink, close])
+            {
+                SetRow(corner, 0);
+                SetColumn(corner, layout.ColumnDefinitions.Count - 1);
+                SetColumnSpan(corner, 1);
+            }
         }
 
-        GridLength[] full = [star, auto];
-        foreach (var width in full)
-        {
-            layout.ColumnDefinitions.Add(new() { Width = width });
-        }
-
-
-        layout.ColumnSpacing = 0;
-        layout.RowSpacing = Tokens.Number("DvSpace3");
-        box.Padding = Tokens.Space("DvSpace4", "DvSpace4");
-        head.Size = (int)Tokens.Number("DvAvatar96");
-        state.Orientation = Orientation.Vertical;
-        state.Spacing = Tokens.Number("DvSpace1");
-        state.HorizontalAlignment = HorizontalAlignment.Center;
-        word.HorizontalAlignment = clock.HorizontalAlignment = HorizontalAlignment.Center;
-        problem.HorizontalAlignment = connect.HorizontalAlignment = actions.HorizontalAlignment = HorizontalAlignment.Center;
-        problem.TextAlignment = TextAlignment.Center;
-        shrink.VerticalAlignment = close.VerticalAlignment = VerticalAlignment.Top;
-        FrameworkElement[] stacked = [head, state, problem, connect, actions, said];
-        foreach (var part in stacked)
-        {
-            layout.RowDefinitions.Add(new() { Height = auto });
-            Across(part, Array.IndexOf(stacked, part));
-        }
-
-        At(shrink, full.Length - 1);
-        At(close, full.Length - 1);
-    }
-
-    // In the first row, at a column of its own.
-    private static void At(FrameworkElement part, int column)
-    {
-        SetRow(part, 0);
-        SetColumn(part, column);
-        SetColumnSpan(part, 1);
-    }
-
-    // Centered over the whole width, so the button in the corner does not push it off the middle.
-    private static void Across(FrameworkElement part, int row)
-    {
-        SetRow(part, row);
-        SetColumn(part, 0);
-        SetColumnSpan(part, int.MaxValue);
+        // The parts moved inside the surface. In a browser the tree for assistive technology places a part only when
+        // the part itself moves, so the surface's parts are put in it again where they now stand (see SemanticTree).
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => SemanticTree.PutBack(layout));
     }
 
     private static Visibility Shown(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;

@@ -115,88 +115,53 @@ public sealed class FakeCapture : IAudioCapture
 
 
 /// <summary>
-/// A loudspeaker stand-in. It keeps what it was asked to play, holds a clip "playing" until the test says it ended,
-/// and for a call lets the test say how much has been played.
+/// A loudspeaker stand-in. It hands out outputs a test steers: what was queued on each, how much it has played, and
+/// when it was flushed. Every sound is made-up bytes.
 /// </summary>
 public sealed class FakePlayback : IAudioPlayback
 {
-    #region Private Fields
-
-    private TaskCompletionSource? clipEnds;
-
-    #endregion
-
     #region Properties
 
     public bool IsAvailable { get; set; } = true;
 
-    public string ClipFormat { get; set; } = "mp3";
-
-    /// <summary>The media type and the bytes of each clip played, in order.</summary>
-    public List<(string MediaType, byte[] Audio)> Clips { get; } = [];
-
-    public int ClipsStopped { get; private set; }
-
-    public bool ClipPlaying => clipEnds is not null;
-
-    /// <summary>When set, a clip cannot be played.</summary>
+    /// <summary>When set, no output can be opened.</summary>
     public bool FailsToPlay { get; set; }
 
-    /// <summary>The sound of the call under way, once one was opened.</summary>
-    public FakeCallAudio? Call { get; private set; }
+    /// <summary>Every output opened, in order, with the rate it was opened at.</summary>
+    public List<FakeOutput> Outputs { get; } = [];
 
-    #endregion
+    /// <summary>The output opened last: the clip being read, or the sound of the call under way.</summary>
+    public FakeOutput? Output => Outputs.LastOrDefault();
 
-    #region Public Methods
-
-    /// <summary>The clip being played reaches its end.</summary>
-    public void EndClip() => clipEnds?.TrySetResult();
+    /// <summary>True while the output opened last still has something to play.</summary>
+    public bool Playing => Output is { IsPlaying: true, Disposed: false };
 
     #endregion
 
     #region Interface Implementations
 
-    public async Task PlayClip(Stream audio, string mediaType, CancellationToken cancellationToken)
+    public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default)
     {
         if (FailsToPlay)
         {
-            throw new DeviceCallFailedException("The sample device could not play the clip.");
+            throw new DeviceCallFailedException("The sample device could not open its sound output.");
         }
 
-        using var held = new MemoryStream();
-        await audio.CopyToAsync(held, cancellationToken);
-        Clips.Add((mediaType, held.ToArray()));
-        var ends = clipEnds = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        try
-        {
-            await ends.Task.WaitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            ClipsStopped++;
-            throw;
-        }
-        finally
-        {
-            if (ReferenceEquals(clipEnds, ends))
-            {
-                clipEnds = null;
-            }
-        }
+        var output = new FakeOutput(sampleRate);
+        Outputs.Add(output);
+        return Task.FromResult<IAudioOutput>(output);
     }
-
-    public Task<ICallAudio> OpenCall(CancellationToken cancellationToken = default) =>
-        Task.FromResult<ICallAudio>(Call = new FakeCallAudio());
 
     #endregion
 }
 
 
-/// <summary>The sound of a call, as a test steers it: what was queued, how much was played, when it was flushed.</summary>
-public sealed class FakeCallAudio : ICallAudio
+/// <summary>One output of the stand-in loudspeaker, as a test steers it.</summary>
+public sealed class FakeOutput(int sampleRate) : IAudioOutput
 {
     #region Properties
+
+    public int SampleRate => sampleRate;
 
     public int PlayedMilliseconds { get; set; }
 
@@ -204,6 +169,10 @@ public sealed class FakeCallAudio : ICallAudio
 
     public List<byte[]> Queued { get; } = [];
 
+    /// <summary>Everything queued, end to end.</summary>
+    public byte[] Sound => [.. Queued.SelectMany(piece => piece)];
+
+    /// <summary>How often it was flushed while something was still to be played.</summary>
     public int Flushes { get; private set; }
 
     public bool Disposed { get; private set; }
@@ -236,7 +205,11 @@ public sealed class FakeCallAudio : ICallAudio
 
     public void Flush()
     {
-        Flushes++;
+        if (IsPlaying)
+        {
+            Flushes++;
+        }
+
         IsPlaying = false;
     }
 

@@ -76,7 +76,10 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
     /// <summary>How long the recording has run, as a clock shows it. Empty when nothing is being recorded.</summary>
     public string Elapsed => elapsed;
 
-    /// <summary>Why the last recording came to nothing, in one sentence with what to do. Null when it did not.</summary>
+    /// <summary>
+    /// Why the last recording came to nothing, in one sentence with what to do. Null when it did not, and again once
+    /// the next recording starts.
+    /// </summary>
     public string? Problem => problem;
 
     /// <summary>The phase in words, read out once when it changes and never each second.</summary>
@@ -84,7 +87,7 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
     {
         VoicePhase.Recording => VoiceWords.Recording,
         VoicePhase.Writing => VoiceWords.WritingItDown,
-        _ => problem ?? string.Empty,
+        _ => string.Empty,
     };
 
     /// <summary>What the microphone button does now, which is its accessible name and tooltip.</summary>
@@ -92,6 +95,9 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Given the words of a recording, to put in the message field. Nothing is sent.</summary>
     public Action<string>? OnWritten { get; set; }
+
+    /// <summary>Given the sentence of a recording that came to nothing, to tell the person.</summary>
+    public Action<string>? OnFailed { get; set; }
 
     #endregion
 
@@ -282,6 +288,11 @@ public sealed class VoiceComposerViewModel : ObservableObject, IAsyncDisposable
         }
 
         OnPropertyChanged(string.Empty);
+
+        if (said is not null)
+        {
+            OnFailed?.Invoke(said);
+        }
     }
 
     private void OptionsChanged() => ui.Post(() => OnPropertyChanged(string.Empty));

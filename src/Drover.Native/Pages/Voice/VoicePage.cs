@@ -115,7 +115,10 @@ public sealed class VoicePage : Screen
     private static StackPanel NeedsModel()
     {
         var sentence = Styles.Text(VoiceWords.NeedsModel);
-        return PageParts.Column(sentence, new Link { Text = VoiceWords.ConnectOne, Address = Addresses.Models });
+        var connect = new Link { Text = VoiceWords.ConnectOne, Address = Addresses.Models };
+        AutomationProperties.SetAutomationId(sentence, "VoiceNeedsModel");
+        AutomationProperties.SetAutomationId(connect, "VoiceConnectOne");
+        return PageParts.Column(sentence, connect);
     }
 
     private EmptyState Failed()

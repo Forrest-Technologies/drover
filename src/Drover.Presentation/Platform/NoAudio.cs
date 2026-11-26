@@ -14,8 +14,6 @@ public sealed class NoAudio(AudioHead head) : IAudioCapture, IAudioPlayback
 
     public AudioHead Head => head;
 
-    public string ClipFormat => PcmAudio.Format;
-
     #endregion
 
     #region Interface Implementations
@@ -26,10 +24,7 @@ public sealed class NoAudio(AudioHead head) : IAudioCapture, IAudioPlayback
     public Task<IAsyncDisposable> Listen(Action<ReadOnlyMemory<byte>> heard, CancellationToken cancellationToken = default) =>
         throw new AudioCaptureException(AudioCaptureFailure.NoMicrophone);
 
-    public Task PlayClip(Stream audio, string mediaType, CancellationToken cancellationToken) =>
-        throw new DeviceCallFailedException("This device's build cannot play sound.");
-
-    public Task<ICallAudio> OpenCall(CancellationToken cancellationToken = default) =>
+    public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default) =>
         throw new DeviceCallFailedException("This device's build cannot play sound.");
 
     #endregion

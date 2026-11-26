@@ -12,6 +12,8 @@ public sealed class VoiceComposerViewModelTests : VoiceTest
 
     private readonly List<string> sent = [];
 
+    private readonly List<string> told = [];
+
     #endregion
 
     #region Public Methods
@@ -148,7 +150,7 @@ public sealed class VoiceComposerViewModelTests : VoiceTest
 
         model.Phase.Should().Be(VoicePhase.Idle);
         model.Problem.Should().Be(sentence);
-        model.Announcement.Should().Be(sentence);
+        told.Should().Equal(sentence);
     }
 
     [Fact]
@@ -162,6 +164,7 @@ public sealed class VoiceComposerViewModelTests : VoiceTest
         await model.Press();
 
         model.Problem.Should().Be("The sample speech provider did not answer. Try again.");
+        told.Should().Equal("The sample speech provider did not answer. Try again.");
         composer.Text.Should().BeEmpty();
 
         await model.Press();
@@ -222,6 +225,7 @@ public sealed class VoiceComposerViewModelTests : VoiceTest
         var model = new VoiceComposerViewModel(Voice, Api, Session, Capture, Ui, Time, NullLogger<VoiceComposerViewModel>.Instance)
         {
             OnWritten = composer.Dictate,
+            OnFailed = told.Add,
         };
         await model.Open();
         return model;

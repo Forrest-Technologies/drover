@@ -60,7 +60,7 @@ public sealed class ReadAloudViewModel : ObservableObject, IDisposable
     public string Label(Guid messageId) => IsReading(messageId) ? VoiceWords.StopReading : VoiceWords.ReadAloud;
 
     /// <summary>The speaker button of a reply: it reads the reply aloud, or stops the reading of it.</summary>
-    public Task Press(Guid messageId) => Press(Key(messageId), new SpeakRequest(MessageId: messageId, Format: playback.ClipFormat));
+    public Task Press(Guid messageId) => Press(Key(messageId), new SpeakRequest(MessageId: messageId));
 
     /// <summary>
     /// Plays what <paramref name="speak"/> asks for under a key of the caller's, or stops it when that is what is
@@ -82,9 +82,9 @@ public sealed class ReadAloudViewModel : ObservableObject, IDisposable
 
         try
         {
-            using var answer = await api.Speak(space, speak with { Format = speak.Format ?? playback.ClipFormat }, asked.Token);
+            using var answer = await api.Speak(space, speak with { Format = ClipPlayback.Format }, asked.Token);
             await using var audio = await answer.Content.ReadAsStreamAsync(asked.Token);
-            await playback.PlayClip(audio, answer.Content.Headers.ContentType?.MediaType ?? PcmAudio.MediaType, asked.Token);
+            await playback.PlayClip(audio, answer.Content.Headers.ContentType?.MediaType ?? PcmAudio.WavMediaType, asked.Token);
         }
         catch (OperationCanceledException stopped) when (asked.IsCancellationRequested)
         {

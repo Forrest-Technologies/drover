@@ -13,8 +13,7 @@ public static class PcmAudio
 
     public const int BytesPerSample = VoiceCallMessages.BytesPerSample;
 
-    /// <summary>The name the speech route gives this format.</summary>
-    public const string Format = "pcm";
+    public const int Channels = VoiceCallMessages.Channels;
 
     public const string MediaType = "audio/pcm";
 
@@ -39,10 +38,10 @@ public static class PcmAudio
         "WAVEfmt "u8.CopyTo(header[8..]);
         BinaryPrimitives.WriteInt32LittleEndian(header[16..], 16);
         BinaryPrimitives.WriteInt16LittleEndian(header[20..], 1);
-        BinaryPrimitives.WriteInt16LittleEndian(header[22..], VoiceCallMessages.Channels);
+        BinaryPrimitives.WriteInt16LittleEndian(header[22..], Channels);
         BinaryPrimitives.WriteInt32LittleEndian(header[24..], SampleRate);
-        BinaryPrimitives.WriteInt32LittleEndian(header[28..], SampleRate * BytesPerSample * VoiceCallMessages.Channels);
-        BinaryPrimitives.WriteInt16LittleEndian(header[32..], BytesPerSample * VoiceCallMessages.Channels);
+        BinaryPrimitives.WriteInt32LittleEndian(header[28..], SampleRate * BytesPerSample * Channels);
+        BinaryPrimitives.WriteInt16LittleEndian(header[32..], BytesPerSample * Channels);
         BinaryPrimitives.WriteInt16LittleEndian(header[34..], BytesPerSample * 8);
         "data"u8.CopyTo(header[36..]);
         BinaryPrimitives.WriteInt32LittleEndian(header[40..], samples.Length);

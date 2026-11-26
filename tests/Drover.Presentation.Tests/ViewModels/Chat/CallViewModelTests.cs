@@ -104,13 +104,13 @@ public sealed class CallViewModelTests : VoiceTest
         line.Say(new(VoiceCallMessages.BotSaying) { Text = "answer" });
         await Until(() => model.BotWords == "Sample answer");
         model.State.Should().Be(CallState.Speaking);
-        Playback.Call!.Queued.Should().ContainSingle();
+        Playback.Output!.Queued.Should().ContainSingle();
 
         line.Say(new(VoiceCallMessages.BotSaid) { Text = "Sample answer." });
         await Until(() => model.BotWords == "Sample answer.");
         model.State.Should().Be(CallState.Speaking, "its voice is still playing");
 
-        Playback.Call.Drain();
+        Playback.Output.Drain();
         model.State.Should().Be(CallState.Listening);
 
         model.ToggleMute();
@@ -125,7 +125,7 @@ public sealed class CallViewModelTests : VoiceTest
         model.Problem.Should().BeNull();
         line.FramesSent.Select(frame => frame.Type).Should().Equal(VoiceCallMessages.Hangup);
         Capture.Listening.Should().BeFalse();
-        Playback.Call.Disposed.Should().BeTrue();
+        Playback.Output.Disposed.Should().BeTrue();
 
         // The clock moving on is not a change of state: each word was said once, when the state changed to it.
         announced.Should().Equal("Connecting", "Listening", "Thinking", "Speaking", "Listening", "Muted", "Listening", "Call ended");
@@ -135,17 +135,17 @@ public sealed class CallViewModelTests : VoiceTest
     public async Task Talking_over_the_bot_stops_its_voice_at_once_and_says_how_much_was_heard()
     {
         var model = await Ready();
-        Playback.Call!.Play(5000);
+        Playback.Output!.Play(5000);
         line.Play(1, 2);
         line.Say(new(VoiceCallMessages.BotSaying) { Text = "A long sample answer" });
         await Until(() => model.State is CallState.Speaking);
-        Playback.Call.Play(1240);
+        Playback.Output.Play(1240);
         var before = Time.GetUtcNow();
 
         line.Say(new(VoiceCallMessages.PersonStarted));
         await Until(() => line.FramesSent.Count == 1);
 
-        Playback.Call.Flushes.Should().Be(1);
+        Playback.Output.Flushes.Should().Be(1);
         (Time.GetUtcNow() - before).Should().BeLessThan(TimeSpan.FromMilliseconds(200), "no clock time passes before the voice stops");
         line.FramesSent.Single().Should().BeEquivalentTo(new VoiceCallFrame(VoiceCallMessages.Interrupt) { HeardMs = 1240 });
         model.State.Should().Be(CallState.Listening);
@@ -155,12 +155,12 @@ public sealed class CallViewModelTests : VoiceTest
         line.Say(new(VoiceCallMessages.BotSaid) { Text = "A long sample" });
         line.Say(new(VoiceCallMessages.PersonSaid) { Text = "Sample interruption" });
         await Until(() => model.State is CallState.Thinking);
-        Playback.Call.Queued.Should().ContainSingle();
+        Playback.Output.Queued.Should().ContainSingle();
 
         // The next answer plays, and is measured from its own start.
         line.Play(5, 6);
-        await Until(() => Playback.Call.Queued.Count == 2);
-        Playback.Call.Play(300);
+        await Until(() => Playback.Output.Queued.Count == 2);
+        Playback.Output.Play(300);
         line.Say(new(VoiceCallMessages.PersonStarted));
         await Until(() => line.FramesSent.Count == 2);
         line.FramesSent[1].HeardMs.Should().Be(300);
@@ -176,7 +176,7 @@ public sealed class CallViewModelTests : VoiceTest
         await Until(() => model.State is CallState.Thinking);
 
         line.FramesSent.Should().BeEmpty();
-        Playback.Call!.Flushes.Should().Be(0);
+        Playback.Output!.Flushes.Should().Be(0);
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public sealed class CallViewModelTests : VoiceTest
 
         // A piece that follows while the voice is already playing starts no new guard.
         line.Play(9, 9);
-        await Until(() => Playback.Call!.Queued.Count == 2);
+        await Until(() => Playback.Output!.Queued.Count == 2);
         Capture.Hear(5);
         await Until(() => line.AudioSent.Count == 3);
     }

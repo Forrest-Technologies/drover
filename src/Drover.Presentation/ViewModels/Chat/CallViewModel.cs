@@ -58,7 +58,7 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
 
     private IAsyncDisposable? microphone;
 
-    private ICallAudio? audio;
+    private IAudioOutput? audio;
 
     private Channel<ReadOnlyMemory<byte>>? outgoing;
 
@@ -212,7 +212,7 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
                 FullMode = BoundedChannelFullMode.DropOldest,
                 SingleReader = true,
             });
-            audio = await playback.OpenCall(asked.Token);
+            audio = await playback.Open(PcmAudio.SampleRate, asked.Token);
             audio.Drained += Drained;
             live = true;
             microphone = await capture.Listen(Heard, asked.Token);
@@ -476,7 +476,7 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
 
     // Where the device does not take its own loudspeaker out of the microphone, the first moment of the bot's
     // voice would be heard as the person speaking. The microphone is ignored for that moment.
-    private void GuardIfStarting(ICallAudio speaker)
+    private void GuardIfStarting(IAudioOutput speaker)
     {
         if (!capture.CancelsEcho && !speaker.IsPlaying)
         {

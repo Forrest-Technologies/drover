@@ -159,22 +159,22 @@ public sealed class VoiceSettingsViewModelTests : VoiceTest
     {
         Offer(speak: Filled("sample-tts", "sample-voice"));
         Server.Answer("GET", voices, new List<VoiceOptionResponse> { new("sample-voice", "Sample voice") });
-        Server.AnswerBytes("POST", $"{Space}/voice/speak", [1, 2], "audio/mpeg");
+        Server.AnswerBytes("POST", $"{Space}/voice/speak", [1, 2], "audio/pcm");
         var model = await Opened();
         model.SampleLabel.Should().Be("Play a sample");
 
         var playing = model.PlaySample();
-        await Eventually(() => Playback.ClipPlaying);
+        await Eventually(() => Playback.Playing);
 
         model.SamplePlaying.Should().BeTrue();
         model.SampleLabel.Should().Be("Stop the sample");
         Server.Sent("POST", $"{Space}/voice/speak").Single().Should().Be(
-            """{"messageId":null,"text":"This is a sample of this voice.","voice":"sample-voice","format":"mp3"}""");
+            """{"messageId":null,"text":"This is a sample of this voice.","voice":"sample-voice","format":"wav"}""");
 
         await model.PlaySample();
         await playing;
         model.SamplePlaying.Should().BeFalse();
-        Playback.ClipsStopped.Should().Be(1);
+        Playback.Output!.Flushes.Should().Be(1);
     }
 
     [Fact]
