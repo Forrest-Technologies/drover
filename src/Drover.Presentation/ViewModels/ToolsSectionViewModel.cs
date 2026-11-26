@@ -34,6 +34,10 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     public static string ToolServersAddress => Addresses.Tools;
 
+    public static string QuickLabel => "All tools";
+
+    public static string NoReadingTools => "No tool here is known only to read. A tool server's own claim does not count.";
+
     public bool ModelCallsTools => editor.ModelCallsTools;
 
     public bool Loading => editor.Tools is null;
@@ -44,6 +48,9 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     /// <summary>The tool a change is being asked for, whose controls wait meanwhile.</summary>
     public Guid? Busy { get; private set; }
+
+    /// <summary>The group whose tools are being set all at once, whose controls wait meanwhile.</summary>
+    public string? BusyGroup { get; private set; }
 
     // Bumped when the server refuses a change, so the control is drawn again showing the grant that still holds.
     public int Version { get; private set; }
@@ -100,6 +107,64 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
     ];
 
     public string GrantLabel(BotToolEntry tool) => $"{tool.Title} for {editor.Saved!.Name}";
+
+    public string QuickGrantLabel(ToolGroup group) => $"Every tool in {group.Name} for {editor.Saved!.Name}";
+
+    /// <summary>A group of two or more tools that can be set offers to set them all at once.</summary>
+    public static bool OffersQuick(ToolGroup group) => Settable(group).Count() > 1;
+
+    /// <summary>
+    /// The settings for a whole group, like a tool's own: off, read (only), ask, allow. Each gives every tool the most it
+    /// may have up to that setting, so one that cannot be told apart from a lesser one cannot be taken.
+    /// </summary>
+    public static IReadOnlyList<SegmentOption<string>> QuickOptions(ToolGroup group) =>
+    [
+        new("off", "Off"),
+        new("read", "Read only", Disabled: SameAs(group, "read", "off")),
+        new("ask", "Ask", Disabled: SameAs(group, "ask", "off")),
+        new("allow", "Allow", Disabled: SameAs(group, "allow", "ask")),
+    ];
+
+    /// <summary>The group setting the tools are at now, or null when they are set one by one in some other way.</summary>
+    public static string? QuickValue(ToolGroup group) =>
+        QuickOptions(group).FirstOrDefault(option => !option.Disabled && Targets(group, option.Value).All(target => target.Tool.Grant == target.Grant))?.Value;
+
+    /// <summary>Why Read only cannot be taken, when the reason is that no tool here is known only to read.</summary>
+    public static string? QuickHint(ToolGroup group) => Settable(group).Any(tool => tool.Sensitivity is "read") ? null : NoReadingTools;
+
+    /// <summary>Sets every tool of the group to what the group setting gives it, in one change the server takes whole or not at all.</summary>
+    public async Task SetAll(ToolGroup group, string quick)
+    {
+        List<ToolGrantChange> changes = [.. Targets(group, quick).Where(target => target.Tool.Grant != target.Grant).Select(target => new ToolGrantChange(target.Tool.ToolId, target.Grant))];
+
+        if (changes.Count == 0)
+        {
+            return;
+        }
+
+        BusyGroup = group.Name;
+        Problem = null;
+        editor.Notify();
+
+        try
+        {
+            var changed = (await api.SetBotToolGrants(editor.SpaceId, editor.BotId, changes)).ToDictionary(entry => entry.ToolId);
+            var label = QuickOptions(group).Single(option => option.Value == quick).Label;
+            Announcement = $"{group.Name} is set to {label.ToLowerInvariant()}. {Tools(changes.Count)} changed.";
+            editor.Tools = [.. editor.Tools!.Select(entry => changed.GetValueOrDefault(entry.ToolId) ?? entry)];
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSectionViewModel));
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
+            Version++;
+        }
+        finally
+        {
+            BusyGroup = null;
+            editor.Notify();
+        }
+    }
 
     public string ReviewWords => $"The server changed what this tool says it does. Until a person accepts the change, {editor.Saved!.Name} asks before each use.";
 
@@ -169,7 +234,36 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
     }
 
     /// <summary>The section was closed: what it said goes with it, as it does on the web.</summary>
-    public void Reset() => (Problem, Announcement, Busy) = (null, null, null);
+    public void Reset() => (Problem, Announcement, Busy, BusyGroup) = (null, null, null, null);
+
+    #endregion
+
+    #region Group Settings
+
+    // A tool its server no longer lists cannot be used, so a group setting leaves it as it is.
+    private static IEnumerable<BotToolEntry> Settable(ToolGroup group) => group.Tools.Where(tool => tool.State is not "missing");
+
+    // What a group setting gives each tool: as much as it asks for, never more than the tool may have.
+    private static IEnumerable<(BotToolEntry Tool, string Grant)> Targets(ToolGroup group, string quick) =>
+        Settable(group).Select(tool => (tool, quick switch
+        {
+            "read" => tool.Sensitivity is "read" ? Most(tool, "allow") : "off",
+            "ask" => Most(tool, "ask"),
+            "allow" => Most(tool, "allow"),
+            _ => "off",
+        }));
+
+    private static string Most(BotToolEntry tool, string wanted) => (tool.Ceiling, wanted) switch
+    {
+        ("off", _) => "off",
+        (_, "allow") when tool.Ceiling is "ask" || tool.AlwaysAsks => "ask",
+        _ => wanted,
+    };
+
+    private static bool SameAs(ToolGroup group, string quick, string lesser) =>
+        Targets(group, quick).Select(target => target.Grant).SequenceEqual(Targets(group, lesser).Select(target => target.Grant));
+
+    private static string Tools(int count) => count == 1 ? "1 tool" : $"{count} tools";
 
     #endregion
 

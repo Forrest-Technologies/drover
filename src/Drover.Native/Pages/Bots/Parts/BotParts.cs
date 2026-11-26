@@ -64,7 +64,7 @@ public static class BotParts
         }
     }
 
-    public static void Show(this SegmentedControl control, IReadOnlyList<SegmentOption<string>> options, string value)
+    public static void Show(this SegmentedControl control, IReadOnlyList<SegmentOption<string>> options, string? value)
     {
         if (!control.Options.SequenceEqual(options))
         {
