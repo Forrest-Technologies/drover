@@ -12,27 +12,14 @@ public sealed partial class ModelConnectionsViewModel(
 {
     #region Private Fields
 
-    private const string VeniceKind = "venice";
-
-    private const string CompatibleKind = "openai_compatible";
-
-    private const string OpenAIKind = "openai";
-
-    public static readonly SegmentOption<string>[] Providers =
-    [
-        new(VeniceKind, "Venice"),
-        new(OpenAIKind, "OpenAI"),
-        new(CompatibleKind, "Compatible endpoint"),
-    ];
+    private const string CompatibleKind = NamedProviders.CompatibleKind;
 
     private readonly Dictionary<Guid, string> problems = [];
 
-    [ObservableProperty]
-    private List<ModelConnectionSummary>? connections;
+    private NamedProviders? named;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(KeyHint))]
-    private string kind = VeniceKind;
+    private List<ModelConnectionSummary>? connections;
 
     [ObservableProperty]
     private string name = string.Empty;
@@ -86,13 +73,10 @@ public sealed partial class ModelConnectionsViewModel(
 
     public IReadOnlyDictionary<Guid, string> Problems => problems;
 
-    /// <summary>The one sentence under the key field, for the chosen provider.</summary>
-    public string KeyHint => Kind switch
-    {
-        CompatibleKind => "Leave this empty if the server needs no key.",
-        OpenAIKind => "Paste an API key from your OpenAI account.",
-        _ => "Made in your Venice account, under API keys.",
-    };
+    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    public NamedProviders Named => named ??= MakeNamed();
+
+    public string Kind => Named.Kind;
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -109,7 +93,7 @@ public sealed partial class ModelConnectionsViewModel(
     {
         if (await session.Load() is not null)
         {
-            await Load();
+            await Task.WhenAll(Load(), Named.Load());
         }
     }
 
@@ -149,9 +133,17 @@ public sealed partial class ModelConnectionsViewModel(
 
     public void ChooseProvider(string chosen)
     {
-        Kind = chosen;
+        if (Named.Choose(chosen) is { } address)
+        {
+            BaseUrl = address;
+        }
+
         AddProblem = null;
     }
+
+    public void ChangeAddress() => Named.RevealAddress();
+
+    public Task RetryProviders() => Named.Load();
 
     public void StartAdding()
     {
@@ -159,7 +151,7 @@ public sealed partial class ModelConnectionsViewModel(
         AddProblem = null;
         Notice = null;
         ApiKey = string.Empty;
-        BaseUrl = string.Empty;
+        BaseUrl = Named.Selected?.Address ?? string.Empty;
         Name = string.Empty;
     }
 
@@ -168,7 +160,7 @@ public sealed partial class ModelConnectionsViewModel(
         Adding = false;
         AddProblem = null;
         ApiKey = string.Empty;
-        BaseUrl = string.Empty;
+        BaseUrl = Named.Selected?.Address ?? string.Empty;
         Name = string.Empty;
     }
 
@@ -200,8 +192,8 @@ public sealed partial class ModelConnectionsViewModel(
         try
         {
             var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
-            var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
-            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
+            var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
+            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? Named.NameFor(address) : Name.Trim(), address, key, null));
             Connections!.Add(added);
             voice.Forget();
             Adding = false;
@@ -325,8 +317,12 @@ public sealed partial class ModelConnectionsViewModel(
         Notice = words;
     }
 
-    private string NameFor(string? address) =>
-        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : Providers.First(option => option.Value == Kind).Label;
+    private NamedProviders MakeNamed()
+    {
+        var made = new NamedProviders(api, logger);
+        made.Changed += () => OnPropertyChanged(string.Empty);
+        return made;
+    }
 
     #endregion
 }

@@ -18,6 +18,15 @@ public static class ModelResponses
             connection.Balance?.ReadAt,
             connection.LastCheckedAt);
 
+    public static ModelProviderPresetResponse ToResponse(this ModelProviderPreset preset) =>
+        new(
+            preset.Id,
+            preset.DisplayName,
+            preset.Address,
+            preset.KeyRule.ToString().ToLowerInvariant(),
+            preset.KeyPage,
+            preset.Local);
+
     public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor) =>
         new(
             descriptor.Kind,
@@ -31,7 +40,8 @@ public static class ModelResponses
             descriptor.AddressRule is ModelAddressRule.Fixed ? ModelAddressRules.Fixed : ModelAddressRules.Required,
             descriptor.AddressHint,
             descriptor.KeyHint,
-            descriptor.ReportsCapabilities);
+            descriptor.ReportsCapabilities,
+            [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())]);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(

@@ -16,6 +16,8 @@ public sealed class OpenAIResponsesLiveTests
 
     private const string ModelVariable = "DROVER_TEST_OPENAI_MODEL";
 
+    private const string PlainModelVariable = "DROVER_TEST_OPENAI_PLAIN_MODEL";
+
     private static readonly ModelEndpoint connection = new(OpenAIProvider.ConnectionKind, OpenAIProvider.BaseAddress);
 
     #endregion
@@ -92,6 +94,24 @@ public sealed class OpenAIResponsesLiveTests
         updates.ToChatResponse().Text.Should().NotBeNullOrWhiteSpace();
         Note($"Reasoning words streamed: {updates.SelectMany(update => update.Contents).OfType<TextReasoningContent>().Sum(part => part.Text.Length)} characters");
         Note($"Usage: {updates.SelectMany(update => update.Contents).OfType<UsageContent>().LastOrDefault()?.Details.CachedInputTokenCount} cached");
+    }
+
+    /// <summary>
+    /// A model that does not reason, named in DROVER_TEST_OPENAI_PLAIN_MODEL: the summary every call asks for is either
+    /// ignored or refused, and a refusal is answered by the same call without it.
+    /// </summary>
+    [Fact(Explicit = true)]
+    public async Task Answers_on_a_model_that_does_not_reason()
+    {
+        var model = Environment.GetEnvironmentVariable(PlainModelVariable)
+            ?? throw new InvalidOperationException($"Set {PlainModelVariable} to a model that does not reason.");
+        var client = BuildProvider().CreateChatClient(connection, ReadKey(), model, new ModelSettings());
+
+        var response = await client.GetResponse(
+            new ModelChatRequest([new ModelChatMessage("user", [new ModelText("Reply with the single word: ready")])], new ModelChatOptions()),
+            TestContext.Current.CancellationToken);
+
+        response.Messages.SelectMany(message => message.Contents).OfType<ModelText>().Should().NotBeEmpty();
     }
 
     #endregion

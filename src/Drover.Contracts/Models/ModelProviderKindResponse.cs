@@ -2,7 +2,8 @@ namespace Drover.Contracts.Models;
 
 /// <summary>
 /// One kind of model provider the server offers, and what a connection of it asks for. It carries words and rules
-/// only: never a key, a header, an address of the provider, or a balance. <see cref="KeyRule"/> is one of
+/// only: never a key, a header, or a balance. The one addresses it carries are those of <see cref="NamedProviders"/>,
+/// the providers a person can pick by name for a kind that takes an address. <see cref="KeyRule"/> is one of
 /// <see cref="ModelKeyRules"/>, <see cref="AddressRule"/> one of <see cref="ModelAddressRules"/>.
 /// </summary>
 public sealed record ModelProviderKindResponse(
@@ -12,7 +13,8 @@ public sealed record ModelProviderKindResponse(
     string AddressRule,
     string? AddressHint,
     string? KeyHint,
-    bool ReportsCapabilities);
+    bool ReportsCapabilities,
+    IReadOnlyList<ModelProviderPresetResponse> NamedProviders);
 
 /// <summary>The words the server sends for whether a connection of a kind needs a key.</summary>
 public static class ModelKeyRules

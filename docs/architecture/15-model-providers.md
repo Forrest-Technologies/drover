@@ -153,18 +153,20 @@ The `openai` kind connects OpenAI with an API key and nothing else. `OpenAIProvi
 | Calls | `GET /v1/models` to list and test; `POST /v1/responses` for every model call, whole or streamed. The key goes as `Authorization: Bearer` |
 | Nothing stored at the provider | Every request sends `store: false` and never `previous_response_id`: Drover owns the conversation and sends it whole in `input` each time. This is not a setting |
 | Reasoning carried by Drover | With `store: false` each reasoning item comes back with `encrypted_content`, which arrives as `ModelReasoning.ProtectedData` and goes back unchanged as a reasoning item in the next call of the same tool loop. The item's id is not sent, because the provider keeps no item to look it up in. Reasoning held only as words (a stream's summary text, or reasoning text kept in a thread's history) is not sent back. `include` is not sent: a stateless request gets the encrypted content by default, and a model that does not reason refuses the include. Keeping protected reasoning in a thread's history between turns is #536 |
-| Reasoning words | `reasoning.summary: "auto"` on every request, so `ModelReasoning.Text` has words. A model that does not reason accepts it and ignores it. `reasoning.effort` is sent only when the bot or the call sets one, as given: the values each model takes differ, and the provider's own refusal says which |
+| Reasoning words | `reasoning.summary: "auto"` on every request, so `ModelReasoning.Text` has words. A model that does not reason accepts it and ignores it. When the provider answers 400 naming the summary (an organization not yet verified for summaries, or a model that refuses the setting), the same call is made once more without it, before anything is shown; any other 400, or a second refusal, is the call's failure. `reasoning.effort` is sent only when the bot or the call sets one, as given: the values each model takes differ, and the provider's own refusal says which |
 | Other settings | `MaxOutputTokens` to `max_output_tokens`, `AllowMultipleToolCalls` to `parallel_tool_calls`, instructions to `instructions`, a schema to `text.format` (`json_schema`), the bot's JSON switch to `text.format` `json_object`. Function tools are flat (`type`, `name`, `description`, `parameters`); a call comes back as `function_call` and its result goes back as `function_call_output`, matched by `call_id` |
 | Files | Pictures go as `input_image` parts. Any other file is refused in words before anything is sent; the engine gives a model other files as text. Native PDF input is a later change |
 | Usage | `InputTokens`, `OutputTokens`, `CachedInputTokens` from `input_tokens_details.cached_tokens`, `ReasoningTokens` from `output_tokens_details.reasoning_tokens`; a count the provider does not send stays null |
-| Endings | `status: "incomplete"` (or a `response.incomplete` event) ends as `length`, or `content_filter` when the provider says the filter cut it. A refusal part is the reply's text and ends as `content_filter`. A `response.failed` or `error` event in a stream is a failure of the call, mapped by its code (`rate_limit_exceeded` to retry later, `insufficient_quota` to out of credit, `context_length_exceeded` to too long, `server_error` to unreachable, anything else rejected); the provider's message is not repeated, since it can quote the input |
+| Endings | `status: "incomplete"` (or a `response.incomplete` event) ends as `length`, or `content_filter` when the provider says the filter cut it. A refusal part is the reply's text and ends as `content_filter`. A whole answer with `status: "failed"`, and a `response.failed` or `error` event in a stream, is a failure of the call, mapped by its code (`rate_limit_exceeded`, `slow_down` and `server_is_overloaded` to retry later, `insufficient_quota` to out of credit, `context_length_exceeded` to too long, `server_error` to unreachable, anything else rejected); the provider's message is not repeated, since it can quote the input |
 | Failures over HTTP | As for the compatible client: 401 and 403 are an invalid key, 429 is retry later with the provider's `Retry-After`, `context_length_exceeded` is too long |
+
+**In the connect form.** The client offers this kind from the server's list of kinds, after Venice, with the kind's name and key hint. The `openai` named provider of the compatible kind (chat completions at the same address) has the same name, so the form leaves it out and offers OpenAI once; it stays on the server's list.
 
 **Every model starts permissive.** The model list returns `id`, `object`, `created` and `owned_by` and nothing about what a model can do, and it has no type field, so embedding, speech and image models are listed too and are not filtered by name. Every listed model starts with tool calling, streaming, vision, structured output and reasoning (efforts `low`, `medium`, `high`), so a bot can be given a picture and an effort with no admin step. A setting a model does not take comes back as the provider's own sentence on the run. Context size and prices stay unknown: a bot works without them, and an admin can fill them in (#531).
 
 **Test.** Without a key: "Paste an OpenAI API key to finish setup." With one, the model list is read with it, and success is "Connected to OpenAI."
 
-**Per call address and headers.** `ResponsesChatClient` takes a `ResponsesDestination` for each client it builds: the base address, the key or token sent as the bearer credential, and any extra headers. `OpenAIProvider` gives the fixed address, the key and no headers. A sign-in kind on this wire ([Signing in with a subscription](#signing-in-with-a-subscription)) gives its own address, the person's token and the headers its provider asks for, with no other change to the client.
+**Per call address and headers.** `ResponsesChatClient` takes a `ResponsesDestination` for each client it builds: the base address, the key or token sent as the bearer credential, and any extra headers. `OpenAIProvider` gives the fixed address, the key and no headers. A sign-in kind on this wire ([Signing in with a subscription](#signing-in-with-a-subscription)) gives its own address, the person's token and the headers its provider asks for, with no other change to the client. The destination is fixed for each client the provider builds, so a header that changes from request to request, or a token refreshed in the middle of a run, needs a per-request step added when such a kind is built. The vendor stack adds its own words to a `User-Agent` header given here.
 
 Sources, read 2026-11-26: the create reference (https://developers.openai.com/api/reference/resources/responses/methods/create), the guides on reasoning, function calling, structured outputs and streaming under https://developers.openai.com/api/docs/guides/, and the model list reference (https://developers.openai.com/api/reference/resources/models/methods/list). The wire tests (`OpenAIResponsesWireTests`) and the conformance fixtures under `tests/Drover.Adapters.Tests/Fixtures/openai-responses/` are hand-written from those pages; `OpenAIResponsesLiveTests` is the live check the owner runs with a key.
 
@@ -173,6 +175,61 @@ Sources, read 2026-11-26: the create reference (https://developers.openai.com/ap
 One base address and an optional key covers most hosted providers and local model servers. The adapter lists models from the endpoint when it can and otherwise lets the operator type a model name. Capabilities default to "tools and streaming, nothing else claimed" until the operator says more, so a bot is never offered a feature the model lacks.
 
 The operator says more one model at a time, and today the one thing to say is that a model reads pictures. On the Models page a space admin turns on "<model> reads pictures" for a model of a compatible connection (`PUT /api/spaces/{space}/model-connections/{connection}/models/vision`, admin only, in the space's tenant scope; the model is named in the body because a model ID can hold slashes, and turning the switch off clears the mark). The mark is stored in the catalog row's capabilities as `VisionSetByOperator`, beside `Vision`, so it needs no migration. The catalog's `Vision` is the value every other part reads: the attachment hint, the upload check that decides whether a picture is taken as a picture, and the run that hands the model an image part. A catalog refresh replaces the capabilities with what the provider reports, which for a compatible endpoint is nothing, but keeps the mark (`CatalogUpsert`). A provider that reports its own capabilities, such as Venice, keeps its own value, offers no switch, and refuses the request. A person who is not an admin sees which models read pictures but cannot change it. A refresh and a mark each write the whole capabilities value of a catalog row, so each reads the rows it writes with a row lock (`SELECT ... FOR UPDATE`) and the second to arrive waits for the first and reads what it left. A refresh that overlaps a mark keeps the mark, and a mark that overlaps a refresh keeps what the refresh reported (`ModelVisionTests`). A model that is marked reads pictures only as far as the endpoint really does: a mark on a model that cannot read them fails at the provider, not in Drover.
+
+### Named providers
+
+A person who does not want to type an address picks a provider by name. A named provider is a starting point, not a kind: the stored kind stays `openai_compatible` and the connection keeps its `BaseUrl`, so every adapter lookup, the vision and voice marks and the speech and image paths work as they do for a hand-typed address. A provider whose address changes is fixed by editing one row of the connection, and a provider that needs its own wire gets its own kind.
+
+The table is `KnownProviders` in `Drover.Adapters.OpenAICompatible`, one compiled-in list of `ModelProviderPreset` records (`Drover.Domain`): `Id`, `DisplayName`, `Address`, `KeyRule` (`Required`, `Optional`, `None`), `KeyPage` (https only, or null) and `Local` (the address is on the person's own machine or network). Nothing else in code repeats an address, and nothing at run time adds or changes a row: an address a server calls with a person's key is not taken from a file fetched over the network. The compatible kind's `ModelProviderDescriptor` carries the table as `NamedProviders`, and `GET /api/model-provider-kinds` (signed in) returns it with that kind, in table order, as `ModelProviderPresetResponse` rows. `ModelProviderCatalog.Offered` leaves out the `Local` rows where the deployment's `AllowPrivateAddresses` is false, and the whole kind (so its named providers) where `AllowedModelProviderKinds` does not offer it. Create is unchanged: the client sends `kind: openai_compatible`, the row's address and the key, and `ModelConnectionService` applies every check it applies to any address.
+
+The order is OpenAI, OpenRouter, Google Gemini, xAI, Groq, DeepSeek, Mistral, the other hosted providers by name, then the local ones. Each row's comment in `KnownProviders.cs` names the documentation page that confirmed its address on 2026-11-26. Key pages are confirmed for Groq, DeepSeek, Cerebras, Nebius and Together only. `KnownProvidersLiveTests` lists models on each row whose key is in the environment (`DROVER_TEST_KEY_{ID}`); it settles what a page cannot.
+
+| Id | Name | Address | Key | Where | Address on 2026-11-26 |
+| --- | --- | --- | --- | --- | --- |
+| `openai` | OpenAI | `https://api.openai.com/v1` | required | hosted | confirmed |
+| `openrouter` | OpenRouter | `https://openrouter.ai/api/v1` | required | hosted | confirmed |
+| `gemini` | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | required | hosted | confirmed |
+| `xai` | xAI | `https://api.x.ai/v1` | required | hosted | confirmed |
+| `groq` | Groq | `https://api.groq.com/openai/v1` | required | hosted | confirmed |
+| `deepseek` | DeepSeek | `https://api.deepseek.com` | required | hosted | confirmed |
+| `mistral` | Mistral | `https://api.mistral.ai/v1` | required | hosted | path confirmed; the page also names a preview address (`/openai/v1`), for the Live run to settle |
+| `alibaba` | Alibaba | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | required | hosted | confirmed, but the provider is moving to a workspace-specific address (slice 2 candidate) |
+| `baseten` | Baseten | `https://inference.baseten.co/v1` | required | hosted | confirmed |
+| `cerebras` | Cerebras | `https://api.cerebras.ai/v1` | required | hosted | confirmed |
+| `chutes` | Chutes | `https://llm.chutes.ai/v1` | required | hosted | confirmed |
+| `cohere` | Cohere | `https://api.cohere.ai/compatibility/v1` | required | hosted | confirmed |
+| `deepinfra` | Deep Infra | `https://api.deepinfra.com/v1/openai` | required | hosted | confirmed |
+| `digitalocean` | DigitalOcean | `https://inference.do-ai.run/v1` | required | hosted | confirmed |
+| `fireworks` | Fireworks AI | `https://api.fireworks.ai/inference/v1` | required | hosted | confirmed |
+| `friendli` | Friendli | `https://api.friendli.ai/serverless/v1` | required | hosted | confirmed |
+| `helicone` | Helicone | `https://ai-gateway.helicone.ai/v1` | required | hosted | confirmed |
+| `huggingface` | Hugging Face | `https://router.huggingface.co/v1` | required | hosted | confirmed |
+| `inception` | Inception | `https://api.inceptionlabs.ai/v1/` | required | hosted | confirmed; the provider winds this API down through 2026-12-28, remove the row after |
+| `moonshot` | Moonshot AI | `https://api.moonshot.ai/v1` | required | hosted | confirmed |
+| `nebius` | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | required | hosted | confirmed |
+| `novita` | Novita AI | `https://api.novita.ai/openai` | required | hosted | confirmed |
+| `nvidia` | Nvidia | `https://integrate.api.nvidia.com/v1` | required | hosted | confirmed |
+| `ollama-cloud` | Ollama Cloud | `https://ollama.com/v1` | required | hosted | confirmed |
+| `ovhcloud` | OVHcloud AI Endpoints | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | required | hosted | confirmed |
+| `perplexity` | Perplexity | `https://api.perplexity.ai/orchestrator/v1` | required | hosted | confirmed |
+| `poe` | Poe | `https://api.poe.com/v1` | required | hosted | confirmed |
+| `requesty` | Requesty | `https://router.requesty.ai/v1` | required | hosted | confirmed |
+| `sambanova` | SambaNova | `https://api.sambanova.ai/v1` | required | hosted | confirmed |
+| `scaleway` | Scaleway | `https://api.scaleway.ai/v1` | required | hosted | confirmed |
+| `siliconflow` | SiliconFlow | `https://api.siliconflow.com/v1` | required | hosted | confirmed |
+| `synthetic` | Synthetic | `https://api.synthetic.new/openai/v1` | required | hosted | confirmed |
+| `together` | Together AI | `https://api.together.ai/v1` | required | hosted | confirmed |
+| `upstage` | Upstage | `https://api.upstage.ai/v1` | required | hosted | confirmed |
+| `vercel` | Vercel AI Gateway | `https://ai-gateway.vercel.sh/v1` | required | hosted | confirmed |
+| `vultr` | Vultr | `https://api.vultrinference.com/v1` | required | hosted | confirmed |
+| `zai` | Z.AI | `https://api.z.ai/api/paas/v4` | required | hosted | confirmed |
+| `zai-coding` | Z.AI Coding Plan | `https://api.z.ai/api/coding/paas/v4` | required | hosted | confirmed |
+| `lmstudio` | LM Studio | `http://127.0.0.1:1234/v1` | none | local | confirmed |
+| `ollama` | Ollama | `http://localhost:11434/v1` | none | local | confirmed |
+| `vllm` | vLLM | `http://localhost:8000/v1` | optional | local | confirmed |
+| `llamacpp` | llama.cpp | `http://localhost:9931/v1` | optional | local | confirmed |
+
+Left out: GitHub Models (retired on 2026-07-30) and Anthropic (waits for its own kind, #527). The Google Gemini row goes when #529 lands its own kind.
 
 On the hosted service the base address is checked against private address ranges ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Self-hosters can point at a machine on their own network.
 

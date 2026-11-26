@@ -274,6 +274,68 @@ public sealed class OpenAIResponsesWireTests
         failure.Failure.Should().Be(ModelFailure.Unreachable);
     }
 
+    [Fact]
+    public async Task A_whole_answer_that_failed_is_a_failure_of_the_call_not_an_empty_reply()
+    {
+        var wire = new Wire(new Answer(
+            HttpStatusCode.OK,
+            "application/json",
+            JsonSerializer.Serialize(Response("failed", error: new { code = "server_error", message = "Failed for: the person's text" }))));
+
+        var failure = (await FluentActions.Awaiting(() => wire.Client().GetResponse(Prompt("Say hello."), Token))
+            .Should().ThrowAsync<ModelProviderException>()).Which;
+
+        failure.Failure.Should().Be(ModelFailure.Unreachable);
+        failure.Message.Should().NotContain("the person's text");
+    }
+
+    [Theory]
+    [InlineData("reasoning.summary", "Your organization must be verified to generate reasoning summaries.")]
+    [InlineData(null, "Unsupported parameter: 'reasoning.summary' is not supported with this model.")]
+    public async Task A_refused_summary_is_dropped_and_the_call_made_once_more_whole_and_streamed(string? param, string message)
+    {
+        var refusal = new Answer(HttpStatusCode.BadRequest, "application/json", JsonSerializer.Serialize(new { error = new { message, type = "invalid_request_error", param, code = (string?)null } }));
+        var wire = new Wire(refusal, Reply(Message("Hi.")), refusal, Stream(TextDeltas("Hi", ".")));
+
+        var whole = await wire.Client().GetResponse(Prompt("Say hello."), Token);
+        var streamed = await Collect(wire.Client().GetStreamingResponse(Prompt("Say hello."), Token));
+
+        Text(whole.Messages.SelectMany(item => item.Contents)).Should().Be("Hi.");
+        Text(streamed.SelectMany(update => update.Contents)).Should().Be("Hi.");
+        wire.Requests.Should().HaveCount(4);
+        wire.Requests[0].Json.GetProperty("reasoning").GetProperty("summary").GetString().Should().Be("auto");
+        wire.Requests[1].Json.TryGetProperty("reasoning", out _).Should().BeFalse("the second call leaves the summary out");
+        wire.Requests[2].Json.GetProperty("reasoning").GetProperty("summary").GetString().Should().Be("auto");
+        wire.Requests[3].Json.TryGetProperty("reasoning", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_refused_summary_keeps_the_effort_and_a_second_refusal_is_the_calls_failure()
+    {
+        var refusal = new Answer(HttpStatusCode.BadRequest, "application/json", JsonSerializer.Serialize(new { error = new { message = "Unsupported parameter: 'reasoning.summary' is not supported with this model.", type = "invalid_request_error", param = "reasoning.summary", code = (string?)null } }));
+        var wire = new Wire(refusal, refusal);
+
+        var failure = (await FluentActions.Awaiting(() => wire.Client(new ModelSettings { ReasoningEffort = "low" }).GetResponse(Prompt("Say hello."), Token))
+            .Should().ThrowAsync<ModelProviderException>()).Which;
+
+        failure.Failure.Should().Be(ModelFailure.Rejected);
+        wire.Requests.Should().HaveCount(2, "the call is made once more, not again and again");
+        var second = wire.Requests[1].Json.GetProperty("reasoning");
+        second.GetProperty("effort").GetString().Should().Be("low");
+        second.TryGetProperty("summary", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Another_400_is_not_made_again()
+    {
+        var refusal = new Answer(HttpStatusCode.BadRequest, "application/json", JsonSerializer.Serialize(new { error = new { message = "Unsupported value: 'minimal'.", type = "invalid_request_error", param = "reasoning.effort", code = (string?)null } }));
+        var wire = new Wire(refusal, Reply(Message("unused")));
+
+        await FluentActions.Awaiting(() => wire.Client().GetResponse(Prompt("Say hello."), Token)).Should().ThrowAsync<ModelProviderException>();
+
+        wire.Requests.Should().ContainSingle();
+    }
+
     #endregion
 
     #region Destination

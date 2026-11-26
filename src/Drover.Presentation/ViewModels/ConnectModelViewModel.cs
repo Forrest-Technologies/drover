@@ -9,22 +9,9 @@ public sealed partial class ConnectModelViewModel(
 {
     #region Private Fields
 
-    private const string VeniceKind = "venice";
+    public const string CompatibleKind = NamedProviders.CompatibleKind;
 
-    public const string CompatibleKind = "openai_compatible";
-
-    private const string OpenAIKind = "openai";
-
-    public static readonly SegmentOption<string>[] Providers =
-    [
-        new(VeniceKind, "Venice"),
-        new(OpenAIKind, "OpenAI"),
-        new(CompatibleKind, "Compatible endpoint"),
-    ];
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(KeyHint))]
-    private string kind = VeniceKind;
+    private NamedProviders? named;
 
     [ObservableProperty]
     private string baseUrl = string.Empty;
@@ -53,17 +40,14 @@ public sealed partial class ConnectModelViewModel(
 
     #region Properties
 
+    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    public NamedProviders Named => named ??= MakeNamed();
+
+    public string Kind => Named.Kind;
+
     public bool Passed => Problem is null && Result is { Succeeded: true };
 
     public string? Outcome => Problem ?? Result?.Message;
-
-    /// <summary>The one sentence under the key field, for the chosen provider.</summary>
-    public string KeyHint => Kind switch
-    {
-        CompatibleKind => "Leave this empty if the server needs no key.",
-        OpenAIKind => "Paste an API key from your OpenAI account.",
-        _ => "Made in your Venice account, under API keys.",
-    };
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -71,14 +55,28 @@ public sealed partial class ConnectModelViewModel(
 
     #region Public Methods
 
-    public Task Open() => session.Load();
+    public async Task Open()
+    {
+        await session.Load();
+        await Named.Load();
+    }
 
     public void ChooseProvider(string chosen)
     {
-        Kind = chosen;
+        if (Named.Choose(chosen) is { } address)
+        {
+            BaseUrl = address;
+        }
+
         Result = null;
         Problem = null;
     }
+
+    [RelayCommand]
+    public void ChangeAddress() => Named.RevealAddress();
+
+    [RelayCommand]
+    public Task RetryProviders() => Named.Load();
 
     [RelayCommand]
     public async Task Test()
@@ -109,7 +107,7 @@ public sealed partial class ConnectModelViewModel(
     private async Task<ModelConnectionSummary> SaveConnection()
     {
         var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
-        var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
+        var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
 
         if (Connection is null || Connection.Kind != Kind || !string.Equals(Connection.BaseUrl, address, StringComparison.Ordinal))
         {
@@ -123,7 +121,7 @@ public sealed partial class ConnectModelViewModel(
             }
             else
             {
-                var made = await api.CreateModelConnection(SpaceId, new(Kind, NameFor(address), address, key, null));
+                var made = await api.CreateModelConnection(SpaceId, new(Kind, Named.NameFor(address), address, key, null));
                 SentKey = key;
                 return made;
             }
@@ -139,8 +137,12 @@ public sealed partial class ConnectModelViewModel(
         return Connection;
     }
 
-    private string NameFor(string? address) =>
-        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : Providers.First(option => option.Value == Kind).Label;
+    private NamedProviders MakeNamed()
+    {
+        var made = new NamedProviders(api, logger);
+        made.Changed += () => OnPropertyChanged(string.Empty);
+        return made;
+    }
 
     [RelayCommand]
     public void Continue() => navigator.NavigateTo(Addresses.SetupBot);

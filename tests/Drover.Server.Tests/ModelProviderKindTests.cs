@@ -17,22 +17,24 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI);
-        kinds.Single(kind => kind.Kind == OpenAI).Should().Be(new ModelProviderKindResponse(
+        kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
             "OpenAI",
             ModelKeyRules.Required,
             ModelAddressRules.Fixed,
             null,
             "Paste an API key from your OpenAI account.",
-            false));
-        kinds.Single(kind => kind.Kind == Venice).Should().Be(new ModelProviderKindResponse(
+            false,
+            []));
+        kinds.Single(kind => kind.Kind == Venice).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Venice,
             "Venice",
             ModelKeyRules.Required,
             ModelAddressRules.Fixed,
             null,
             "Made in your Venice account, under API keys.",
-            true));
+            true,
+            []), options => options.ComparingByMembers<ModelProviderKindResponse>());
         var compatible = kinds.Single(kind => kind.Kind == ModelConnectionKinds.Compatible);
         compatible.KeyRule.Should().Be(ModelKeyRules.Optional);
         compatible.AddressRule.Should().Be(ModelAddressRules.Required);
@@ -41,13 +43,18 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     }
 
     [Fact]
-    public async Task The_list_carries_no_address_of_a_provider()
+    public async Task The_list_carries_no_address_of_a_kind_that_has_its_own_address()
     {
         var client = await SignedInClient();
 
-        var body = await (await client.Get(Route)).Content.ReadAsStringAsync(Token);
+        var response = await client.Get(Route);
+        var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        body.Should().NotContain("venice.ai").And.NotContain("api/v1").And.NotContain("api.openai.com");
+        kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
+        var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
+        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com");
+        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible), JsonSerializerOptions.Web)
+            .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
     }
 
     [Fact]

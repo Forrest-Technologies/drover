@@ -30,18 +30,28 @@ internal sealed class ResponsesChatClient(
     {
         RefuseFilesOtherThanPictures(request);
         var headers = new ProtocolHeaderCapture();
-        using var client = CreateClient(headers);
         ChatResponse response;
 
         try
         {
-            response = await client.GetResponseAsync(ToChatMessages(request), ToChatOptions(request.Options), cancellation);
+            try
+            {
+                response = await Send(request, headers, askForSummary: true, cancellation);
+            }
+            // The provider refused only the summary; the same call is made once without it, and its own failure stands.
+#pragma warning disable DRV0005
+            catch (Exception exception) when (RefusesTheSummary(exception))
+            {
+                response = await Send(request, headers, askForSummary: false, cancellation);
+            }
+#pragma warning restore DRV0005
         }
         catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
         {
             throw ProtocolChatClient.WithHeaders(mapped, headers.Headers);
         }
 
+        RefuseAFailedResponse(response, headers.Headers);
         var refused = false;
 
         foreach (var message in response.Messages)
@@ -62,37 +72,58 @@ internal sealed class ResponsesChatClient(
         RefuseFilesOtherThanPictures(request);
         var headers = new ProtocolHeaderCapture();
         using var client = CreateClient(headers);
-        await using var updates = client.GetStreamingResponseAsync(ToChatMessages(request), ToChatOptions(request.Options), cancellation).GetAsyncEnumerator(cancellation);
+        var askForSummary = true;
+        var updates = Stream(client, request, askForSummary, cancellation);
+        var started = false;
         var refused = false;
 
-        while (true)
+        try
         {
-            var hasNext = false;
-
-            try
+            while (true)
             {
-                hasNext = await updates.MoveNextAsync();
-            }
-            catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
-            {
-                throw ProtocolChatClient.WithHeaders(mapped, headers.Headers);
-            }
+                var hasNext = false;
 
-            if (!hasNext)
-            {
-                yield break;
+                try
+                {
+                    hasNext = await updates.MoveNextAsync();
+                }
+                // The provider refused only the summary and nothing was shown yet, so the call is made again once
+                // without it, and that call's own failure stands.
+#pragma warning disable DRV0005
+                catch (Exception exception) when (!started && askForSummary && RefusesTheSummary(exception))
+                {
+                    await updates.DisposeAsync();
+                    askForSummary = false;
+                    updates = Stream(client, request, askForSummary, cancellation);
+                    continue;
+                }
+#pragma warning restore DRV0005
+                catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
+                {
+                    throw ProtocolChatClient.WithHeaders(mapped, headers.Headers);
+                }
+
+                if (!hasNext)
+                {
+                    yield break;
+                }
+
+                started = true;
+                var update = updates.Current;
+                SettleEnding(update, headers.Headers);
+                refused |= ReplaceRefusals(update.Contents, headers.Headers);
+
+                if (refused && update.FinishReason is not null)
+                {
+                    update.FinishReason = ChatFinishReason.ContentFilter;
+                }
+
+                yield return ModelChatMapping.ToModelUpdate(update) with { Headers = headers.Headers };
             }
-
-            var update = updates.Current;
-            SettleEnding(update, headers.Headers);
-            refused |= ReplaceRefusals(update.Contents, headers.Headers);
-
-            if (refused && update.FinishReason is not null)
-            {
-                update.FinishReason = ChatFinishReason.ContentFilter;
-            }
-
-            yield return ModelChatMapping.ToModelUpdate(update) with { Headers = headers.Headers };
+        }
+        finally
+        {
+            await updates.DisposeAsync();
         }
     }
 
@@ -101,6 +132,15 @@ internal sealed class ResponsesChatClient(
     #endregion
 
     #region Request Shaping
+
+    private async Task<ChatResponse> Send(ModelChatRequest request, ProtocolHeaderCapture headers, bool askForSummary, CancellationToken cancellation)
+    {
+        using var client = CreateClient(headers);
+        return await client.GetResponseAsync(ToChatMessages(request), ToChatOptions(request.Options, askForSummary), cancellation);
+    }
+
+    private IAsyncEnumerator<ChatResponseUpdate> Stream(IChatClient client, ModelChatRequest request, bool askForSummary, CancellationToken cancellation) =>
+        client.GetStreamingResponseAsync(ToChatMessages(request), ToChatOptions(request.Options, askForSummary), cancellation).GetAsyncEnumerator(cancellation);
 
     /// <summary>
     /// Reasoning goes back only as the provider sealed it. A summary with no <c>encrypted_content</c> (the words a
@@ -113,34 +153,39 @@ internal sealed class ResponsesChatClient(
             .Where(message => message.Contents.Count > 0)
             .Select(ModelChatMapping.ToChatMessage);
 
-    private ChatOptions ToChatOptions(ModelChatOptions options)
+    private ChatOptions ToChatOptions(ModelChatOptions options, bool askForSummary)
     {
         var effective = ProtocolChatClient.WithDefaults(options, settings);
         var effort = effective.ReasoningEffort?.ToLowerInvariant();
         var mapped = ModelChatMapping.ToChatOptions(effective with { ReasoningEffort = null });
-        mapped.RawRepresentationFactory = _ => ShapeRequest(effort);
+        mapped.RawRepresentationFactory = _ => ShapeRequest(effort, askForSummary);
         return mapped;
     }
 
+#pragma warning disable OPENAI001 // The vendor marks its Responses types experimental; this adapter is where they belong.
+
     /// <summary>
     /// What the vendor client cannot be told through the shared options. <c>store</c> is always false: the provider
-    /// keeps nothing. A reasoning summary is always asked for, so <see cref="ModelReasoning.Text"/> has words; a model
-    /// that does not reason accepts the summary setting and ignores it. The effort goes as the bot set it, any value the
-    /// provider documents, because the accepted values differ by model and the provider's own refusal is clearer than
-    /// one written here. <c>include</c> is not sent: a request with <c>store: false</c> gets
-    /// <c>encrypted_content</c> by default, and a model that does not reason refuses the include.
+    /// keeps nothing. A reasoning summary is asked for, so <see cref="ModelReasoning.Text"/> has words; a model that
+    /// does not reason accepts the summary setting and ignores it, and a call the provider refuses because of the
+    /// summary is made again once without it (<see cref="RefusesTheSummary"/>). The effort goes as the bot set it,
+    /// any value the provider documents, because the accepted values differ by model and the provider's own refusal
+    /// is clearer than one written here. <c>include</c> is not sent: a request with <c>store: false</c> gets
+    /// <c>encrypted_content</c> on each reasoning item by default (the provider's reasoning guide, "Preserve reasoning
+    /// without stored responses"), and a model that does not reason refuses the include.
     /// </summary>
-#pragma warning disable OPENAI001 // The vendor marks its Responses types experimental; this adapter is where they belong.
-    private static OpenAI.Responses.CreateResponseOptions ShapeRequest(string? effort)
+    private static OpenAI.Responses.CreateResponseOptions ShapeRequest(string? effort, bool askForSummary)
     {
-        var reasoning = new OpenAI.Responses.ResponseReasoningOptions
+        OpenAI.Responses.ResponseReasoningOptions? reasoning = askForSummary || effort is not null ? new() : null;
+
+        if (askForSummary)
         {
-            ReasoningSummaryVerbosity = OpenAI.Responses.ResponseReasoningSummaryVerbosity.Auto,
-        };
+            reasoning!.ReasoningSummaryVerbosity = OpenAI.Responses.ResponseReasoningSummaryVerbosity.Auto;
+        }
 
         if (effort is not null)
         {
-            reasoning.ReasoningEffortLevel = new OpenAI.Responses.ResponseReasoningEffortLevel(effort);
+            reasoning!.ReasoningEffortLevel = new OpenAI.Responses.ResponseReasoningEffortLevel(effort);
         }
 
         return new() { StoredOutputEnabled = false, ReasoningOptions = reasoning };
@@ -181,6 +226,56 @@ internal sealed class ResponsesChatClient(
 
     private static bool IsPicture(string mediaType) => mediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A 400 that names the reasoning summary: an organization that has not been verified may not have summaries
+    /// ("Your organization must be verified to generate reasoning summaries"), and some models refuse the setting
+    /// ("'reasoning.summary' is not supported with this model"). Only the error's <c>param</c> and <c>message</c> are
+    /// read, and neither is kept.
+    /// </summary>
+    internal static bool RefusesTheSummary(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is ClientResultException { Status: 400 } failure && NamesTheSummary(failure))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool NamesTheSummary(ClientResultException failure)
+    {
+        if (failure.GetRawResponse()?.Content is not { } content || content.ToMemory().Length > 65536)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(content.ToMemory());
+            if (document.RootElement.ValueKind is not JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("error", out var error) || error.ValueKind is not JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var param = error.TryGetProperty("param", out var named) && named.ValueKind is JsonValueKind.String ? named.GetString() : null;
+            var message = error.TryGetProperty("message", out var said) && said.ValueKind is JsonValueKind.String ? said.GetString() : null;
+            return param == "reasoning.summary"
+                || message?.Contains("reasoning.summary", StringComparison.OrdinalIgnoreCase) == true
+                || message?.Contains("reasoning summaries", StringComparison.OrdinalIgnoreCase) == true;
+        }
+        // An unreadable error body is not a refusal of the summary; the ordinary 400 mapping applies.
+#pragma warning disable DRV0005
+        catch (JsonException)
+        {
+            return false;
+        }
+#pragma warning restore DRV0005
+    }
+
     #endregion
 
     #region Reply Settling
@@ -213,12 +308,25 @@ internal sealed class ResponsesChatClient(
         return refused;
     }
 
+#pragma warning disable OPENAI001 // The vendor marks its Responses types experimental; this adapter is where they belong.
+
+    /// <summary>
+    /// A whole answer can come back with <c>status: "failed"</c> and an <c>error</c>; the vendor client passes it on
+    /// with nothing in it, so it is read here and is a failure of the call.
+    /// </summary>
+    private static void RefuseAFailedResponse(ChatResponse response, IReadOnlyDictionary<string, string> headers)
+    {
+        if (response.RawRepresentation is OpenAI.Responses.ResponseResult { Status: OpenAI.Responses.ResponseStatus.Failed } failed)
+        {
+            throw ProtocolChatClient.WithHeaders(FailureFor(failed.Error?.Code.ToString()), headers);
+        }
+    }
+
     /// <summary>
     /// A stream ends with <c>response.completed</c>, <c>response.incomplete</c> or <c>response.failed</c>. The vendor
     /// client passes the last two on with nothing in them, so they are read here: a cut answer ends as "length" (or as
     /// filtered when the provider says so), and a failed one is a failure of the call.
     /// </summary>
-#pragma warning disable OPENAI001 // The vendor marks its Responses types experimental; this adapter is where they belong.
     private static void SettleEnding(ChatResponseUpdate update, IReadOnlyDictionary<string, string> headers)
     {
         switch (update.RawRepresentation)
@@ -237,13 +345,17 @@ internal sealed class ResponsesChatClient(
 
     /// <summary>
     /// Error codes a response or a stream reports in its body. The provider's message is not repeated: it can quote
-    /// the person's input. Codes from https://developers.openai.com/api/docs/guides/error-codes and the response
-    /// object's <c>error.code</c> in the create reference.
+    /// the person's input. <c>server_error</c>, <c>rate_limit_exceeded</c> and the other codes of a response's
+    /// <c>error.code</c> are listed in the provider's own SDK (openai-python, <c>types/responses/response_error.py</c>);
+    /// <c>context_length_exceeded</c> and <c>insufficient_quota</c> also arrive in <c>response.failed</c>; and
+    /// <c>slow_down</c> and <c>server_is_overloaded</c> are the provider's words for "try again in a moment"
+    /// (https://developers.openai.com/api/docs/guides/error-codes). Both of those are a wait, not a fault, so they map to
+    /// retry later.
     /// </summary>
     internal static ModelProviderException FailureFor(string? code) =>
         code?.Replace("_", string.Empty, StringComparison.Ordinal).ToLowerInvariant() switch
         {
-            "ratelimitexceeded" => ModelProviderException.FromStatus((int)HttpStatusCode.TooManyRequests),
+            "ratelimitexceeded" or "slowdown" or "serverisoverloaded" => ModelProviderException.FromStatus((int)HttpStatusCode.TooManyRequests),
             "insufficientquota" => ModelProviderException.FromStatus((int)HttpStatusCode.PaymentRequired),
             "contextlengthexceeded" => new(ModelFailure.TooLong, "The provider says this conversation is longer than the model can read."),
             "servererror" => new(ModelFailure.Unreachable, "The provider failed on its side while answering. Try again shortly."),

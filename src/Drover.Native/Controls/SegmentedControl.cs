@@ -72,7 +72,10 @@ public sealed class SegmentedControl : Grid
         set => SetValue(DisabledProperty, value);
     }
 
-    /// <summary>Spans the width it is given, each choice the same width, as the provider choice of a setup form does.</summary>
+    /// <summary>
+    /// Spans the width it is given, each choice the same width unless one needs more room for its widest word, which it
+    /// then gets, so a label wraps between words and never inside one.
+    /// </summary>
     public bool Fills
     {
         get => (bool)GetValue(FillsProperty);

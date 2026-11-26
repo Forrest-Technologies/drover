@@ -105,6 +105,18 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task AllowPrivateAddresses_decides_whether_the_named_providers_on_this_network_are_offered()
+    {
+        var client = await SignedInClient();
+
+        var kinds = await (await client.Get("/api/model-provider-kinds")).Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token);
+        var listed = kinds!.Single(kind => kind.Kind == ModelConnectionKinds.Compatible).NamedProviders;
+
+        listed.Any(row => row.Local).Should().Be(Setting(nameof(DeploymentPolicy.AllowPrivateAddresses)) == "true");
+        listed.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public async Task RequireSetupCode_decides_whether_first_run_setup_needs_the_code()
     {
         var required = Setting(nameof(DeploymentPolicy.RequireSetupCode)) == "true";
