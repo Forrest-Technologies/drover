@@ -137,6 +137,31 @@ const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
 const unusableReplyId = '0196f1a0-0000-7000-8000-000000000204';
 const rawDsmlEnvelope = '<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command" string="true">ls -la</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>';
 const quotedDsmlSample = 'Here is a DSML example:\n\n```xml\n<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command">ls</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>\n```';
+const cutOffDsmlRequest = '<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command" string="true">ls -la /handoff-sample';
+const helperBotId = '0196f1a0-0000-7000-8000-000000000205';
+const helperBot = { id: helperBotId, name: 'Sample helper', handle: 'sample-helper', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
+const handoffParentRunId = '0196f1a0-0000-7000-8000-000000000206';
+const handoffCallId = '0196f1a0-0000-7000-8000-000000000207';
+const handoffChildRunId = '0196f1a0-0000-7000-8000-000000000208';
+const handoffChildThreadId = '0196f1a0-0000-7000-8000-000000000209';
+const handoffTask = 'List the workspace files.';
+const handoffArguments = JSON.stringify({ bot_id: helperBotId, task: handoffTask });
+const handoffToolEvents = [
+    { seq: 1, runId: handoffParentRunId, type: 'tool.requested', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, toolName: 'delegate', title: 'Hand work to a bot', arguments: handoffArguments, effect: 'allow' }) },
+    { seq: 2, runId: handoffParentRunId, type: 'delegation.started', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, childRunId: handoffChildRunId, childBotId: helperBotId, childThreadId: handoffChildThreadId }) },
+    { seq: 3, runId: handoffChildRunId, type: 'run.started', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ status: 'running', reason: null, error: null, attempt: 1, usage: null }) },
+    { seq: 4, runId: handoffChildRunId, type: 'run.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ status: 'completed', reason: null, error: null, attempt: 1, usage: null }) },
+    { seq: 5, runId: handoffParentRunId, type: 'delegation.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, childRunId: handoffChildRunId, childBotId: helperBotId, outcome: 'completed', summary: cutOffDsmlRequest }) },
+    { seq: 6, runId: handoffParentRunId, type: 'tool.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, outcome: 'completed', isError: false, preview: '', durationMs: 0 }) },
+    { seq: 7, runId: handoffParentRunId, type: 'run.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ status: 'completed', reason: null, error: null, attempt: 1, usage: null }) },
+];
 const unusableMessages = [
     {
         id: '0196f1a0-0000-7000-8000-000000000201', threadId: thread.id, position: 1, role: 'user',
@@ -153,6 +178,11 @@ const unusableMessages = [
     {
         id: unusableReplyId, threadId: thread.id, position: 4, role: 'assistant',
         parts: [{ kind: 'text', text: rawDsmlEnvelope }], createdAt: thread.lastActivityAt,
+    },
+    {
+        id: '0196f1a0-0000-7000-8000-00000000020c', threadId: thread.id, position: 5, role: 'assistant',
+        parts: [{ kind: 'tool_call', toolCallId: handoffCallId, toolName: 'delegate', arguments: handoffArguments }],
+        createdAt: thread.lastActivityAt,
     },
 ];
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
@@ -423,10 +453,15 @@ try {
                     await route.fulfill({ status: 201, json: bot });
                     return;
                 }
-                else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : [bot]; }
+                else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : current === 'conversation-unusable-tool-request' ? [bot, helperBot] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
                 else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
+                else if (address.endsWith(`/bots/${helperBotId}`)) { body = helperBot; }
+                else if (address.endsWith(`/bots/${helperBotId}/definition`)) { body = { ...botDetail, id: helperBotId, name: 'Sample helper', handle: 'sample-helper' }; }
+                else if (address.endsWith(`/bots/${helperBotId}/notify`)) { body = { notifies: false }; }
+                else if (address.endsWith(`/bots/${helperBotId}/sandbox`)) { body = { available: false, hasSandbox: false, desktop: false, state: 'stopped' }; }
+                else if (address.includes(`/bots/${helperBotId}/`)) { body = []; }
                 else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
@@ -608,9 +643,10 @@ try {
                     return;
                 }
                 else if (address.endsWith('/files/rules')) { body = { maxFileBytes: 26214400 }; }
+                else if (address.endsWith('/tool-events')) { body = current === 'conversation-unusable-tool-request' ? handoffToolEvents : []; }
                 else if (address.endsWith(`/bots/${botId}/tools`) && current === 'bot-editor-tools') { body = editorTools; }
                 else if (address.endsWith(`/bots/${botId}/tools`)
-                    || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
+                    || ['/rules', '/schedules'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
                 else if (address.endsWith('/usage')) {
                     body = { period: current === 'usage' ? '30d' : '7d', since: thread.lastActivityAt, currency: 'usd', crew: current === 'usage' ? [usage] : [] };
@@ -1004,9 +1040,24 @@ try {
             });
             await unusableHeading.waitFor({ state: 'attached', timeout: 60000 });
             assert.equal(await unusableHeading.count(), 1, 'Only the protocol-only reply should show the unusable tool-request state, not the quoted DSML code sample.');
-            const originalDisclosure = page.getByRole('button', { name: 'Original response', exact: true });
+            const handoffCard = page.getByRole('button', { name: 'Sample bot asked Sample helper: List the workspace files.', exact: true });
+            await handoffCard.waitFor({ state: 'attached', timeout: 10000 });
+            await handoffCard.dispatchEvent('click');
+            const handoffHeading = page.getByRole('heading', {
+                name: "Sample helper's model returned a tool request that could not be used.",
+                exact: true,
+            });
+            await handoffHeading.waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(await handoffHeading.count(), 1, 'A handoff answer cut off inside a tool request shows the plain words, not the raw text.');
+            const disclosures = page.getByRole('button', { name: 'Original response', exact: true });
+            assert.equal(await disclosures.count(), 2, 'The reply and the handoff answer each keep their original behind a disclosure.');
+            const originalDisclosure = disclosures.first();
+            const handoffDisclosure = disclosures.last();
             await originalDisclosure.waitFor({ state: 'attached', timeout: 10000 });
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
+            assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
+            await handoffDisclosure.press('Enter');
+            assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 1, 'The handoff disclosure opens by keyboard.');
             await originalDisclosure.dispatchEvent('click');
             await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
             await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });
