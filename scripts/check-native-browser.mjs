@@ -943,7 +943,26 @@ try {
                 assert.equal(await page.title(), title);
             };
             const externalSource = page.getByRole('link', { name: /Sample external source,/ });
-            const inlineLink = page.getByRole('link', { name: /inline link/ });
+            // A markdown link is a run of text drawn by the canvas, not a semantic anchor. Find where its words are
+            // drawn and click that point, so this proves the canvas path rather than the anchor's invoke handler.
+            const inlinePoint = () => page.evaluate(() => {
+                const words = 'inline link';
+                for (const node of document.querySelectorAll('[data-uno-standalone-text="true"]')) {
+                    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+                    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+                        const at = text.textContent.indexOf(words);
+                        if (at < 0) {
+                            continue;
+                        }
+                        const range = document.createRange();
+                        range.setStart(text, at);
+                        range.setEnd(text, at + words.length);
+                        const box = range.getBoundingClientRect();
+                        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+                    }
+                }
+                return null;
+            });
             await loadLinks();
             await externalSource.waitFor({ state: 'attached', timeout: 60000 });
             // A popup blocker can return a fake successful window instead of null. Links must not depend on that result.
@@ -960,8 +979,13 @@ try {
             progress(`source link by keyboard ${width} ${theme}`);
 
             await loadLinks();
-            await inlineLink.waitFor({ state: 'attached', timeout: 60000 });
-            await openByPointer(inlineLink, 'sample-inline', 'Sample inline destination');
+            await page.getByText(/Sample reply with an inline link/).first()
+                .waitFor({ state: 'attached', timeout: 60000 });
+            const point = await inlinePoint();
+            assert.ok(point, 'The inline link has drawn words to click.');
+            await page.mouse.click(point.x, point.y);
+            await page.waitForURL(`${origin}/sample-inline`, { timeout: 10000 });
+            assert.equal(await page.title(), 'Sample inline destination');
             progress(`inline markdown link by pointer ${width} ${theme}`);
 
             await loadLinks();
