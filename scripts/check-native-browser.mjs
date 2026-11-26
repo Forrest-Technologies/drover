@@ -170,6 +170,67 @@ const searchMessages = Array.from({ length: 25 }, (_, index) => ({
     }],
     createdAt: thread.lastActivityAt,
 }));
+// A conversation long enough to scroll, ending in three tool calls that all wait for a person. Two stay waiting
+// while the first is answered, so the approval must not take the reader back to the start of the conversation.
+const approvalRunId = '0196f1a0-0000-7000-8000-000000000031';
+const approvalCallIds = [
+    '0196f1a0-0000-7000-8000-000000000041',
+    '0196f1a0-0000-7000-8000-000000000042',
+    '0196f1a0-0000-7000-8000-000000000043',
+];
+const approvalMessages = [
+    ...Array.from({ length: 8 }, (_, index) => [
+        {
+            id: `0196f1a0-0000-7000-8000-${String(index * 2 + 300).padStart(12, '0')}`,
+            threadId: thread.id, position: index * 2 + 1, role: 'user',
+            parts: [{ kind: 'text', text: `Sample setup question ${index + 1} about background work.` }],
+            createdAt: thread.lastActivityAt,
+        },
+        {
+            id: `0196f1a0-0000-7000-8000-${String(index * 2 + 301).padStart(12, '0')}`,
+            threadId: thread.id, position: index * 2 + 2, role: 'assistant',
+            parts: [{ kind: 'text', text: `Sample answer ${index + 1} with a few lines about keeping the work going after a restart and handling a repeated request once.` }],
+            createdAt: thread.lastActivityAt,
+        },
+    ]).flat(),
+    {
+        id: '0196f1a0-0000-7000-8000-000000000032', threadId: thread.id, position: 17, role: 'user',
+        parts: [{ kind: 'text', text: 'Design a background job service using the official documentation.' }],
+        createdAt: thread.lastActivityAt,
+    },
+    {
+        id: '0196f1a0-0000-7000-8000-000000000033', threadId: thread.id, position: 18, role: 'assistant', runId: approvalRunId,
+        parts: [
+            { kind: 'text', text: 'Let me check the documentation and the examples.' },
+            ...approvalCallIds.map((id, index) => ({
+                kind: 'tool_call', toolCallId: id, toolName: 'sandbox_run',
+                arguments: JSON.stringify({ command: `sample check ${index + 1}` }),
+            })),
+        ],
+        createdAt: thread.lastActivityAt,
+    },
+];
+const approvalRun = {
+    ...heldRun, id: approvalRunId, rootRunId: approvalRunId, status: 'waiting', statusReason: 'awaiting_approval', lastEventSeq: 7,
+};
+const approvalEvent = (seq, type, data) => ({
+    seq, runId: approvalRunId, type, data: JSON.stringify(data), createdAt: '2026-11-18T00:00:01Z',
+});
+const approvalInitialEvents = [
+    approvalEvent(1, 'run.started', { status: 'running', reason: null, error: null, attempt: 1, usage: null }),
+    ...approvalCallIds.flatMap((id, index) => [
+        approvalEvent(index * 2 + 2, 'tool.requested', {
+            toolCallId: id, toolName: 'sandbox.run', title: 'Run a command',
+            arguments: JSON.stringify({ command: `sample check ${index + 1}` }), effect: 'ask',
+        }),
+        approvalEvent(index * 2 + 3, 'tool.approval_requested', {
+            toolCallId: id, requestId: `sample-request-${index + 1}`, callId: `sample-call-${index + 1}`, details: null,
+        }),
+    ]),
+];
+let approvalDecisions = [];
+let approvalHeldEvents = [];
+
 const usage = {
     botId, botName: bot.name, model: bot.model, own: { cost: 1.23, inputTokens: 120, outputTokens: 45 }, children: [],
 };
@@ -198,6 +259,7 @@ const screens = [
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
+    ['conversation-approval', `/talk/${botId}`, 'Sample bot'],
     ['conversation-load-failed', `/talk/${botId}`, 'Sample bot'],
     ['share-empty', '/share', 'Share to Drover'],
     ['models', '/models', 'Model connections'],
@@ -381,7 +443,9 @@ try {
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
                 else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
                 else if (address.endsWith(`/bots/${botId}/threads`)) { body = [thread]; }
-                else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
+                else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) {
+                    body = current === 'conversation-approval' ? { ...thread, activeRunId: approvalRunId } : thread;
+                }
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
                     body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
                 }
@@ -526,6 +590,34 @@ try {
                     await route.fulfill({ contentType: 'text/event-stream', body: `id: 1\ndata: ${JSON.stringify(started)}\n\n` });
                     return;
                 }
+                else if (address.endsWith(`/runs/${approvalRunId}`)) { body = approvalRun; }
+                else if (address.endsWith(`/runs/${approvalRunId}/events`)) {
+                    const after = Number(route.request().headers()['last-event-id'] ?? 0);
+                    const next = approvalInitialEvents.filter(event => event.seq > after);
+                    if (next.length > 0) {
+                        const body = next.map(event => `id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+                        await route.fulfill({ contentType: 'text/event-stream', body });
+                        return;
+                    }
+
+                    // The questions are on screen. Hold the stream until the check answers one, then say what the run did.
+                    approvalHeldEvents.push(route);
+                    return;
+                }
+                else if (/^\/api\/spaces\/[^/]+\/tool-calls\/[^/]+\/decision$/.test(address) && route.request().method() === 'POST') {
+                    approvalDecisions.push({
+                        toolCallId: address.split('/')[5],
+                        approved: route.request().postDataJSON()?.approved,
+                    });
+                    await route.fulfill({ json: approvalRun });
+                    const decision = approvalDecisions.length;
+                    const event = approvalEvent(decision + 7, 'tool.started', { toolCallId: approvalCallIds[decision - 1] });
+                    approvalHeldEvents.splice(0).forEach(held => held.fulfill({
+                        contentType: 'text/event-stream',
+                        body: `id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`,
+                    }));
+                    return;
+                }
                 else if (address.endsWith(`/threads/${thread.id}/messages/${unusableReplyId}/regenerate`) && route.request().method() === 'POST') {
                     unusableRegenerateRequests++;
                     await route.fulfill({
@@ -544,7 +636,8 @@ try {
                         ? [{ ...messages[0], parts: [{ kind: 'text', text: 'Sample reply with a source.' }, { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` }] }]
                         : current === 'conversation-unusable-tool-request'
                             ? (unusableRegenerateRequests > 0 ? unusableMessages.slice(0, 3) : unusableMessages)
-                            : current === 'conversation-search' ? searchMessages : messages;
+                            : current === 'conversation-search' ? searchMessages
+                                : current === 'conversation-approval' ? approvalMessages : messages;
                 }
                 else if (address.endsWith('/messages')) { body = current === 'conversation-search' ? searchMessages : messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
@@ -614,13 +707,14 @@ try {
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
+                if (name === 'conversation-approval') { approvalDecisions = []; approvalHeldEvents = []; }
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok()
                         && response.request().method() === 'GET'
                         && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
                     : null;
                 const target = address;
-                if (name === 'account' || name === 'sign-in' || name === 'project-member' || name === 'conversation-load-failed') {
+                if (name === 'account' || name === 'sign-in' || name === 'project-member' || name === 'conversation-load-failed' || name === 'conversation-approval') {
                     // A fresh runtime, so the conversation reads from the start and meets the failed answer.
                     await page.goto(`${origin}${target}`);
                     await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
@@ -682,6 +776,9 @@ try {
                     assert.equal(exhaustedPictureRequests, 2, 'A busy picture preview should retry only once.');
                     await shown(page, 'This picture could not be shown.')
                         .waitFor({ state: 'attached', timeout: 10000 });
+                }
+                if (name === 'conversation-approval') {
+                    await page.getByRole('button', { name: 'Approve', exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
                 }
                 if (name === 'share-empty') {
                     await page.getByText('Nothing is waiting to be shared. Share text or a file to Drover from another app.', { exact: true })
@@ -821,6 +918,9 @@ try {
                     await checkComposerBounds(page);
                     await checkPastedAndDroppedFiles(page, uploadedFiles, width, theme);
                     await checkStopBounds(page, width);
+                }
+                if (name === 'conversation-approval') {
+                    await checkApprovalKeepsPosition(page, width, theme);
                 }
                 if (name === 'conversation') {
                     const preview = page.getByRole('button', { name: 'Preview sample-preview.md', exact: true });
@@ -1819,6 +1919,90 @@ async function checkConversationSearch(page, width) {
     }, null, { timeout: 10000 });
     process.stdout.write(`conversation-search ${width}: passed\n`);
     progress(`conversation-search ${width}`);
+}
+
+// Approving one of several waiting requests must leave the reader where they were and the focus near the answered
+// card, not on a control in the composer. The mock holds a conversation longer than the viewport with three calls
+// waiting: the first is answered with the pointer, the second from the keyboard, and one is left waiting below.
+async function checkApprovalKeepsPosition(page, width, theme) {
+    const approves = page.getByRole('button', { name: 'Approve', exact: true });
+    await approves.nth(2).waitFor({ state: 'attached', timeout: 20000 });
+
+    // The reader is above the foot, looking at the current requests with another waiting below them.
+    await page.mouse.move(width / 2, 500);
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(300);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+    const anchor = await page.evaluate(() => {
+        const inView = [...document.querySelectorAll('[role="group"]')].find(node => {
+            const box = node.getBoundingClientRect();
+            return box.height > 0 && box.top >= 0 && box.bottom <= window.innerHeight && !node.textContent?.includes('Approve');
+        });
+        if (!inView) { return null; }
+        const box = inView.getBoundingClientRect();
+        return { text: inView.textContent ?? '', top: box.top };
+    });
+    assert.ok(anchor, 'a message of the conversation is in view above the waiting requests.');
+
+    const decided = decision => page.waitForResponse(response => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === `/api/spaces/${spaceId}/tool-calls/${approvalCallIds[decision]}/decision`
+        && response.ok(), { timeout: 15000 });
+
+    const first = decided(0);
+    await approves.first().dispatchEvent('click');
+    await first;
+
+    await page.waitForFunction(() => {
+        const active = document.activeElement;
+        const words = `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
+        return words.includes('Running a command') && !words.includes('More options');
+    }, null, { timeout: 15000 });
+    const pointerFocus = await page.evaluate(() => {
+        const active = document.activeElement;
+        return `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
+    });
+    assert.match(pointerFocus, /Running a command/, 'pointer approval leaves the focus on the card that took the answer.');
+    assert.equal(await approves.count(), 2, 'the other two requests still wait below the answered one.');
+
+    const afterPointer = await page.evaluate(text => {
+        const same = [...document.querySelectorAll('[role="group"]')].find(node => node.textContent === text);
+        return same ? same.getBoundingClientRect().top : null;
+    }, anchor.text);
+    assert.ok(afterPointer !== null, 'the message being read is still on the page after the card changed.');
+    assert.ok(Math.abs(afterPointer - anchor.top) <= 4,
+        `the message being read moved ${Math.abs(afterPointer - anchor.top)}px when the approval was sent.`);
+
+    const second = decided(1);
+    await approves.last().focus();
+    await page.keyboard.press('Enter');
+    await second;
+
+    await page.waitForFunction(() => {
+        const active = document.activeElement;
+        const words = `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
+        return words.includes('Running a command') && !words.includes('More options');
+    }, null, { timeout: 15000 });
+    const keyboardFocus = await page.evaluate(() => {
+        const active = document.activeElement;
+        return `${active?.getAttribute('aria-label') ?? ''} ${active?.textContent ?? ''}`;
+    });
+    assert.match(keyboardFocus, /Running a command/, 'keyboard approval leaves the focus near the answered card.');
+    assert.equal(await approves.count(), 1, 'one request is still waiting below the two answered ones.');
+
+    const afterKeyboard = await page.evaluate(text => {
+        const same = [...document.querySelectorAll('[role="group"]')].find(node => node.textContent === text);
+        return same ? same.getBoundingClientRect().top : null;
+    }, anchor.text);
+    assert.ok(afterKeyboard !== null, 'the message being read is still on the page after the run events arrived.');
+    assert.ok(Math.abs(afterKeyboard - anchor.top) <= 4,
+        `the message being read moved ${Math.abs(afterKeyboard - anchor.top)}px when the run events arrived.`);
+
+    assert.equal(approvalDecisions.length, 2, 'each request was answered once.');
+    assert.ok(approvalDecisions.every(decision => decision.approved), 'both approvals were sent as approved.');
+    approvalHeldEvents.splice(0).forEach(held => held.fulfill({ contentType: 'text/event-stream', body: '' }));
+    process.stdout.write(`approval position ${width} ${theme}: passed\n`);
+    progress(`approval position ${width} ${theme}`);
 }
 
 /**
