@@ -78,9 +78,12 @@ public sealed class RunFiles(
             },
             cancellationToken);
 
+        // The provider's PDF bounds are for one request, so the PDFs one model call is given share them.
+        var pdfAllowance = pdf is null ? null : new PdfAllowance(pdf);
+
         foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered, pdf is not null), cancellationToken);
+            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered, pdf is not null), pdfAllowance, cancellationToken);
         }
 
         return opened;
@@ -497,7 +500,7 @@ public sealed class RunFiles(
     #region Private Methods
 
     /// <summary>Opens a conversation attachment within the bot's current file abilities.</summary>
-    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, CancellationToken cancellationToken)
+    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, PdfAllowance? pdfAllowance, CancellationToken cancellationToken)
     {
         if (given.TryGetValue(file.Id, out var known))
         {
@@ -512,7 +515,7 @@ public sealed class RunFiles(
             FileUse.Image => await Picture(file, AttachmentCaption, cancellationToken),
             FileUse.Text => await Text(file, AttachmentCaption, cancellationToken),
             FileUse.Document => await Document(file, can, cancellationToken),
-            FileUse.NativeDocument => await NativeDocument(file, can, pdf!, cancellationToken),
+            FileUse.NativeDocument => await NativeDocument(file, can, pdfAllowance!, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
             _ => Note(file, FileUses.RefusalFor(kind, can) switch
             {
@@ -573,13 +576,13 @@ public sealed class RunFiles(
     }
 
     /// <summary>
-    /// A PDF given as itself to a model that reads PDFs, when it is within both the server's and the provider's bounds
-    /// (<see cref="PdfReading"/>); past either, it is given as a <see cref="FileUse.Document"/> is. Its pages are counted
+    /// A PDF given as itself to a model that reads PDFs, when it fits in what is left of the server's and the provider's
+    /// bounds for this model call (<see cref="PdfAllowance"/>); otherwise it is given as a <see cref="FileUse.Document"/> is. Its pages are counted
     /// by reading it, which also leaves its text ready for the text path.
     /// </summary>
-    private async Task<FileForModel> NativeDocument(StoredFile file, FileAbilities can, PdfReading reading, CancellationToken cancellationToken)
+    private async Task<FileForModel> NativeDocument(StoredFile file, FileAbilities can, PdfAllowance allowance, CancellationToken cancellationToken)
     {
-        if (file.Size > reading.MaxBytes)
+        if (file.Size > allowance.Bytes)
         {
             return await Document(file, can, cancellationToken);
         }
@@ -591,7 +594,7 @@ public sealed class RunFiles(
 
         var (read, _) = ReadDocument(file, bytes, modelReadsImages: false);
 
-        if (read is null || read.Total > reading.MaxPages || bytes.Length > reading.MaxBytes)
+        if (read is null || !allowance.TryTake(read.Total, bytes.Length))
         {
             return await Document(file, can, cancellationToken);
         }
