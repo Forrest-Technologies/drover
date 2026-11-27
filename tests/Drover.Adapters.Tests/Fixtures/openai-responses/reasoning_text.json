@@ -1,0 +1,217 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's Responses API reference and guides (https://developers.openai.com/api/reference/resources/responses/methods/create, https://developers.openai.com/api/docs/guides/streaming-responses, read 2026-11-26). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "body": {
+        "id": "resp_reason_1",
+        "object": "response",
+        "created_at": 1794400000,
+        "status": "completed",
+        "error": null,
+        "incomplete_details": null,
+        "model": "gpt-test-reasoner",
+        "output": [
+          {
+            "type": "reasoning",
+            "id": "rs_reason_1",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "Ten percent of 240 is 24 and five percent is 12, so fifteen percent is 36."
+              }
+            ],
+            "encrypted_content": "gAAAAA-fixture-reasoning-1"
+          },
+          {
+            "type": "message",
+            "id": "msg_reason_1",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "15 percent of 240 is 36.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": true,
+        "store": false,
+        "usage": {
+          "input_tokens": 20,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 40,
+          "output_tokens_details": {
+            "reasoning_tokens": 28
+          },
+          "total_tokens": 60
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "sse": [
+        {
+          "type": "response.created",
+          "sequence_number": 0,
+          "response": {
+            "id": "resp_reason_2",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "in_progress",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": null
+          }
+        },
+        {
+          "type": "response.output_item.added",
+          "sequence_number": 1,
+          "output_index": 0,
+          "item": {
+            "type": "reasoning",
+            "id": "rs_reason_2",
+            "summary": []
+          }
+        },
+        {
+          "type": "response.reasoning_summary_part.added",
+          "sequence_number": 2,
+          "item_id": "rs_reason_2",
+          "output_index": 0,
+          "summary_index": 0,
+          "part": {
+            "type": "summary_text",
+            "text": ""
+          }
+        },
+        {
+          "type": "response.reasoning_summary_text.delta",
+          "sequence_number": 3,
+          "item_id": "rs_reason_2",
+          "output_index": 0,
+          "summary_index": 0,
+          "delta": "Ten percent is 24, "
+        },
+        {
+          "type": "response.reasoning_summary_text.delta",
+          "sequence_number": 4,
+          "item_id": "rs_reason_2",
+          "output_index": 0,
+          "summary_index": 0,
+          "delta": "five percent is 12."
+        },
+        {
+          "type": "response.reasoning_summary_text.done",
+          "sequence_number": 5,
+          "item_id": "rs_reason_2",
+          "output_index": 0,
+          "summary_index": 0,
+          "text": "Ten percent is 24, five percent is 12."
+        },
+        {
+          "type": "response.output_item.done",
+          "sequence_number": 6,
+          "output_index": 0,
+          "item": {
+            "type": "reasoning",
+            "id": "rs_reason_2",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "Ten percent is 24, five percent is 12."
+              }
+            ],
+            "encrypted_content": "gAAAAA-fixture-reasoning-2"
+          }
+        },
+        {
+          "type": "response.output_item.added",
+          "sequence_number": 7,
+          "output_index": 1,
+          "item": {
+            "type": "message",
+            "id": "msg_reason_2",
+            "status": "in_progress",
+            "role": "assistant",
+            "content": []
+          }
+        },
+        {
+          "type": "response.output_text.delta",
+          "sequence_number": 8,
+          "item_id": "msg_reason_2",
+          "output_index": 1,
+          "content_index": 0,
+          "delta": "15 percent of 240 "
+        },
+        {
+          "type": "response.output_text.delta",
+          "sequence_number": 9,
+          "item_id": "msg_reason_2",
+          "output_index": 1,
+          "content_index": 0,
+          "delta": "is 36."
+        },
+        {
+          "type": "response.output_item.done",
+          "sequence_number": 10,
+          "output_index": 1,
+          "item": {
+            "type": "message",
+            "id": "msg_reason_2",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "15 percent of 240 is 36.",
+                "annotations": []
+              }
+            ]
+          }
+        },
+        {
+          "type": "response.completed",
+          "sequence_number": 11,
+          "response": {
+            "id": "resp_reason_2",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "completed",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": {
+              "input_tokens": 20,
+              "input_tokens_details": {
+                "cached_tokens": 0
+              },
+              "output_tokens": 40,
+              "output_tokens_details": {
+                "reasoning_tokens": 28
+              },
+              "total_tokens": 60
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

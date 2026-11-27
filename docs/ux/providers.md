@@ -53,7 +53,7 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor.
+The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice, and the client does not hide any.
 
 | Choice | Drawn as |
 | --- | --- |
@@ -62,6 +62,7 @@ The provider choice is drawn from `GET /api/model-provider-kinds`, in the server
 | Key rule: optional | The field labeled `Key (optional)` |
 | A key page | One `Link` under the key field: `Get a key from {name}`, opened in the browser. The text and address are drawn as plain values from the server, never as markup |
 | A local provider | One line: `Drover's server must be able to reach this address.` |
+| A kind with its own wire | No address field. The key field and its hint as the server describes the kind. The kind's name is the connection's name |
 | Another compatible server | The address field, as before |
 
 | State | Words |

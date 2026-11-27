@@ -203,6 +203,30 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
                 "openai_compatible", "Sample hosted", "https://hosted.example.test/v1", "sample-key", null));
     }
 
+    [Fact]
+    public async Task A_connection_added_with_a_kind_of_its_own_wire_takes_its_name_its_hint_and_no_address()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample own wire", "sample_own_wire", null, true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.WithOwnWire(SampleProviders.All));
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Models();
+        await model.Open();
+        model.StartAdding();
+        model.ChooseProvider("sample_own_wire");
+        model.BaseUrl = "https://ignored.example.test/v1";
+        model.ApiKey = "sample-key";
+
+        await model.Add();
+
+        model.Named.KeyHint.Should().Be("Sample own wire hint.");
+        model.Named.ShowsAddress.Should().BeFalse();
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest("sample_own_wire", "Sample own wire", null, "sample-key", null));
+    }
+
     #endregion
 
     #region Private Methods
