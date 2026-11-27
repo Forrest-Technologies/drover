@@ -238,6 +238,7 @@ public sealed class BotService(
         bot.Handle = edit.Handle;
         bot.Avatar = edit.Avatar;
         bot.DescriptionForBots = edit.DescriptionForBots;
+        bot.AcceptsBotRequests = edit.AcceptsBotRequests ?? bot.AcceptsBotRequests;
         bot.Instructions = edit.Instructions;
         bot.ModelConnectionId = edit.ModelConnectionId;
         bot.Model = edit.Model.Trim();
@@ -296,6 +297,7 @@ public sealed class BotService(
             SandboxSettings = source.SandboxSettings,
             BuildLimits = source.BuildLimits,
             RunLimits = source.RunLimits with { UncappedUsageAcknowledged = false },
+            AcceptsBotRequests = source.AcceptsBotRequests,
             CreatedByUserId = actorUserId,
         };
         var sharedWith = await bots.ListSandboxShares(id, cancellationToken);
@@ -401,6 +403,7 @@ public sealed class BotService(
             SandboxSharedWith = sharedWith,
             bot.BuildLimits,
             bot.RunLimits,
+            bot.AcceptsBotRequests,
             bot.Status,
         });
 
@@ -869,6 +872,9 @@ public sealed class BotService(
             { MaxDelegations: { } delegations } when delegations < 0 || delegations > space.MaxDelegations => space.MaxDelegations is int.MaxValue
                 ? "The limit on handoffs is a whole number of 0 or more."
                 : $"The limit on handoffs is a whole number from 0 to {space.MaxDelegations}, the most this space allows.",
+            { MaxJudgedChecks: { } checks } when checks < 0 || checks > space.MaxJudgedChecks => space.MaxJudgedChecks is int.MaxValue
+                ? "The limit on rule checks is a whole number of 0 or more."
+                : $"The limit on rule checks is a whole number from 0 to {space.MaxJudgedChecks}, the most this space allows.",
             _ => null,
         };
 

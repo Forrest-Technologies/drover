@@ -2,7 +2,9 @@ namespace Drover.Domain.Rules;
 
 /// <summary>
 /// Decides which rule applies to a subject. This is the one place rules are evaluated: a run and the editor's
-/// "Try it" both call it, so what a person is shown is what a run does. Same input, same outcome; no model is asked.
+/// "Try it" both call it, so what a person is shown is what a run does. Same input, same outcome; no model is asked
+/// here. A rule written as a sentence is decided from verdicts a decision model gave, handed in by the caller, which
+/// asks between the two steps: <see cref="FindJudgmentsDue"/>, then Evaluate with the verdicts.
 /// Conditions are of two kinds. An exact condition is decided on structure (which tool, its kind, the time, a count,
 /// the values of named inputs) and is guaranteed. A pattern condition looks for something in text and catches the
 /// common forms. Either kind applies when it could not be checked.
@@ -23,6 +25,8 @@ public static class RuleEvaluator
 
     private static readonly JsonElement nothing = JsonElement.Parse("{}");
 
+    private static readonly IReadOnlyDictionary<ActiveRule, JudgedVerdict> noVerdicts = new Dictionary<ActiveRule, JudgedVerdict>();
+
     private static readonly SearchValues<char> hostCharacters = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-");
 
     private static readonly SearchValues<char> mailboxCharacters = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-");
@@ -41,16 +45,91 @@ public static class RuleEvaluator
     public static RuleOutcome? Evaluate(IReadOnlyList<ActiveRule> rules, RuleSubject subject) =>
         Evaluate(rules, subject, new RuleBudget(RuleBudget.MaxWork));
 
-    public static RuleOutcome? Evaluate(IReadOnlyList<ActiveRule> rules, RuleSubject subject, RuleBudget budget)
+    public static RuleOutcome? Evaluate(IReadOnlyList<ActiveRule> rules, RuleSubject subject, RuleBudget budget) =>
+        Evaluate(rules, subject, budget, noVerdicts);
+
+    /// <summary>
+    /// The first of the two steps for judged rules: what the rules decided by code say, and the judged rules that
+    /// still need a verdict. Those are the judged rules at this checkpoint whose other conditions hold, unless a rule
+    /// decided by code already refuses: then nothing is judged, because what is refused is never sent to a decision
+    /// model. A rule the server does not judge (<see cref="ActiveRule.JudgedOff"/>) is never in the list.
+    /// </summary>
+    public static JudgmentsDue FindJudgmentsDue(IReadOnlyList<ActiveRule> rules, RuleSubject subject)
+    {
+        if (!rules.Any(rule => rule.Checkpoint == subject.Checkpoint && rule.Judged is not null))
+        {
+            return new(Evaluate(rules, subject), []);
+        }
+
+        var hard = Evaluate(HardRules(rules), subject);
+
+        if (hard is { Effect: >= RuleEffect.Block })
+        {
+            return new(hard, []);
+        }
+
+        var reading = new RuleReading(subject, new RuleBudget(RuleBudget.MaxWork));
+        return new(
+            hard,
+            [.. rules.Where(rule => rule is { Judged: not null, JudgedOff: false } && rule.Checkpoint == subject.Checkpoint && Reasons(rule, reading) is not null)]);
+    }
+
+    /// <summary>
+    /// The second step: the outcome from the verdicts handed in, by the same rules as <see cref="Evaluate(IReadOnlyList{ActiveRule}, RuleSubject)"/>.
+    /// Rules decided by code come first: when one of them refuses, no judged rule is looked at. A judged rule with no
+    /// verdict counts as unsure.
+    /// </summary>
+    public static RuleOutcome? Evaluate(IReadOnlyList<ActiveRule> rules, RuleSubject subject, IReadOnlyDictionary<ActiveRule, JudgedVerdict> verdicts) =>
+        Evaluate(rules, subject, new RuleBudget(RuleBudget.MaxWork), verdicts);
+
+    public static RuleOutcome? Evaluate(
+        IReadOnlyList<ActiveRule> rules,
+        RuleSubject subject,
+        RuleBudget budget,
+        IReadOnlyDictionary<ActiveRule, JudgedVerdict> verdicts)
+    {
+        if (rules.Any(rule => rule.Checkpoint == subject.Checkpoint && rule.Judged is not null)
+            && Decide(HardRules(rules), subject, new RuleBudget(RuleBudget.MaxWork), verdicts) is { Effect: >= RuleEffect.Block } refused)
+        {
+            return refused;
+        }
+
+        return Decide(rules, subject, budget, verdicts);
+    }
+
+    #endregion
+
+    #region Deciding
+
+    private static List<ActiveRule> HardRules(IReadOnlyList<ActiveRule> rules) => [.. rules.Where(rule => rule.Judged is null)];
+
+    private static RuleOutcome? Decide(
+        IReadOnlyList<ActiveRule> rules,
+        RuleSubject subject,
+        RuleBudget budget,
+        IReadOnlyDictionary<ActiveRule, JudgedVerdict> verdicts)
     {
         var reading = new RuleReading(subject, budget);
-        List<(ActiveRule Rule, string Why)> holding = [];
+        List<(ActiveRule Rule, string Why, RuleEffect Effect)> holding = [];
 
         foreach (var rule in rules)
         {
-            if (rule.Checkpoint == subject.Checkpoint && Applies(rule, reading) is { } why)
+            if (rule.Checkpoint != subject.Checkpoint || Reasons(rule, reading) is not { } reasons)
             {
-                holding.Add((rule, why));
+                continue;
+            }
+
+            if (rule.Judged is null)
+            {
+                holding.Add((rule, Because(reasons), rule.Effect));
+                continue;
+            }
+
+            var settled = JudgedRules.Settle(rule, subject.Checkpoint, verdicts.GetValueOrDefault(rule));
+
+            if (settled.Effect is { } judged)
+            {
+                holding.Add((rule, reasons.Count == 0 ? settled.Why : $"{string.Join(", and ", reasons)}, and {settled.Why}", judged));
             }
         }
 
@@ -62,15 +141,15 @@ public static class RuleEvaluator
         // The rewrite is made before the effects are settled, because a rule that removes text and cannot (for
         // what it matched, or for the work it takes) blocks instead, and that can change which rule decides.
         // Rules can be equal to one another (the same rule from two bots), so each keeps its place in the list.
-        var redacting = holding.Select(entry => entry.Rule).Where(rule => rule.Effect is RuleEffect.Redact).ToList();
-        List<string?> obstacles = [.. holding.Select(entry => entry.Rule.Effect is RuleEffect.Redact ? CannotRewrite(entry.Rule, reading) : null)];
+        var redacting = holding.Where(entry => entry.Effect is RuleEffect.Redact).Select(entry => entry.Rule).ToList();
+        List<string?> obstacles = [.. holding.Select(entry => entry.Effect is RuleEffect.Redact ? CannotRewrite(entry.Rule, reading) : null)];
         var rewritten = redacting.Count > 0 && obstacles.All(obstacle => obstacle is null) ? Rewrite(reading, redacting) : null;
         var rewriteFailed = redacting.Count > 0 && rewritten is null;
         List<(ActiveRule Rule, string Why, RuleEffect Effect)> applied =
         [
-            .. holding.Select((entry, index) => entry.Rule.Effect is RuleEffect.Redact && rewriteFailed
+            .. holding.Select((entry, index) => entry.Effect is RuleEffect.Redact && rewriteFailed
                 ? (entry.Rule, $"{entry.Why}{obstacles[index] ?? NothingLetThrough}", RuleEffect.Block)
-                : (entry.Rule, entry.Why, entry.Rule.Effect)),
+                : entry),
         ];
         var (deciding, reason, effect) = applied.MaxBy(entry => entry.Effect);
         var outcome = new RuleOutcome(deciding, effect, reason)
@@ -85,7 +164,7 @@ public static class RuleEvaluator
 
         // Nothing is kept of a subject a rule could not rewrite, nor of a call that is refused for what stands in
         // the name of one of its inputs: what is stored must not hold what matched.
-        var keepsNothing = rewriteFailed || (effect >= RuleEffect.Block && holding.Any(entry => MatchesInAName(entry.Rule, reading)));
+        var keepsNothing = rewriteFailed || (effect >= RuleEffect.Block && holding.Any(entry => entry.Rule.Judged is null && MatchesInAName(entry.Rule, reading)));
         return keepsNothing
             ? outcome with { RedactedText = subject.Text is null ? null : Redaction, RedactedJson = subject.Json is null ? null : nothing }
             : outcome;
@@ -95,12 +174,13 @@ public static class RuleEvaluator
 
     #region Conditions
 
-    // The reason the rule applies, in words that never hold the text that matched, or null when it does not apply.
-    private static string? Applies(ActiveRule rule, RuleReading reading)
+    // The reasons the rule's conditions decided by code hold, in words that never hold the text that matched, or
+    // null when one does not. A judged condition is not decided here: its verdict is settled by the caller.
+    private static List<string>? Reasons(ActiveRule rule, RuleReading reading)
     {
         List<string> reasons = [];
 
-        foreach (var condition in rule.Conditions)
+        foreach (var condition in rule.Conditions.Where(condition => !condition.IsJudged))
         {
             if (Holds(condition, rule, reading) is not { } reason)
             {
@@ -110,8 +190,10 @@ public static class RuleEvaluator
             reasons.Add(reason);
         }
 
-        return reasons.Count == 0 ? "it always applies" : string.Join(", and ", reasons);
+        return reasons;
     }
+
+    private static string Because(List<string> reasons) => reasons.Count == 0 ? "it always applies" : string.Join(", and ", reasons);
 
     private static string? Holds(RuleCondition condition, ActiveRule rule, RuleReading reading)
     {

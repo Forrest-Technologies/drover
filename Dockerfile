@@ -22,6 +22,7 @@ COPY src/Drover.Engine/Drover.Engine.csproj src/Drover.Engine/
 COPY src/Drover.Agents/Drover.Agents.csproj src/Drover.Agents/
 COPY src/Drover.Adapters.Anthropic/Drover.Adapters.Anthropic.csproj src/Drover.Adapters.Anthropic/
 COPY src/Drover.Adapters.E2B/Drover.Adapters.E2B.csproj src/Drover.Adapters.E2B/
+COPY src/Drover.Adapters.Gemini/Drover.Adapters.Gemini.csproj src/Drover.Adapters.Gemini/
 COPY src/Drover.Adapters.DataProtection/Drover.Adapters.DataProtection.csproj src/Drover.Adapters.DataProtection/
 COPY src/Drover.Adapters.LocalFiles/Drover.Adapters.LocalFiles.csproj src/Drover.Adapters.LocalFiles/
 COPY src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj src/Drover.Adapters.Mcp/

@@ -45,7 +45,7 @@ public sealed class CrewToolsTests(PostgresServer postgres)
             && bot.SandboxPolicy == SandboxPolicy.None && bot.Status == BotStatus.Active);
 
         var grants = await OwnGrants(world, scout.Id);
-        grants.Keys.Should().Equal(["time.now"], "a bot made beneath a parent never gets the crew tools by default");
+        grants.Keys.Should().BeEquivalentTo(["time.now", "message_bot"], "a bot made beneath a parent never gets the crew tools by default");
         grants["time.now"].Should().Match<ToolGrant>(grant => grant.Effect == GrantEffect.Ask
             && grant.GrantedByBotId == world.BotId && grant.GrantedByUserId == world.UserId);
 
@@ -95,7 +95,7 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         var script = new ScriptedModel([new TextOutput("I cannot.")]);
         await using var world = await RunWorld.Create(postgres, script, everyHost: services => UsePolicy(services, policy));
 
-        (await OwnGrants(world, world.BotId)).Keys.Should().Equal(["time.now"], "a new bot at the top is granted no crew tool");
+        (await OwnGrants(world, world.BotId)).Keys.Should().BeEquivalentTo(["time.now", "message_bot"], "a new bot at the top is granted no crew tool");
         await SetGrant(world, world.BotId, "crew.add", GrantEffect.Allow);
         var host = world.StartHost();
         var runId = await world.Post(await world.NewThread(), "Make a scout.");

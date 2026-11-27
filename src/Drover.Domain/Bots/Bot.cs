@@ -27,6 +27,8 @@ public sealed class Bot : ISpaceOwned
     /// <summary>What other bots read to decide whether to delegate to this one.</summary>
     public string DescriptionForBots { get; set; } = string.Empty;
 
+    public bool AcceptsBotRequests { get; set; } = true;
+
     public string Instructions { get; set; } = string.Empty;
 
     public Guid ModelConnectionId { get; set; }
