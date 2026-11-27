@@ -5,7 +5,11 @@ public static class ModelResponses
 {
     #region Public Methods
 
-    public static ModelConnectionSummary ToSummary(this ModelConnection connection) =>
+    /// <summary>
+    /// The connection as the caller sees it. <paramref name="signIn"/> says whether the connection is one each person
+    /// signs in to, and if so the caller's own sign-in, or null for none. It is never another person's.
+    /// </summary>
+    public static ModelConnectionSummary ToSummary(this ModelConnection connection, SignInView? signIn = null) =>
         new(
             connection.Id,
             connection.Name,
@@ -16,7 +20,16 @@ public static class ModelResponses
             connection.DefaultModel,
             [.. (connection.Balance?.Amounts ?? []).Select(balance => new BalanceAmount(balance.Currency, balance.Amount))],
             connection.Balance?.ReadAt,
-            connection.LastCheckedAt);
+            connection.LastCheckedAt,
+            signIn is null ? null : ToSignInSummary(signIn.Credential));
+
+    public static ModelSignInSummary ToSignInSummary(ModelConnectionCredential? credential) =>
+        credential switch
+        {
+            null => new(ModelSignInStatuses.None, null),
+            { Status: ModelSignInStatus.NeedsSignIn } => new(ModelSignInStatuses.NeedsSignIn, credential.AccountLabel),
+            _ => new(ModelSignInStatuses.Active, credential.AccountLabel),
+        };
 
     public static ModelProviderPresetResponse ToResponse(this ModelProviderPreset preset) =>
         new(
@@ -75,3 +88,7 @@ public static class ModelResponses
 
     #endregion
 }
+
+
+/// <summary>A connection each person signs in to, with the caller's own sign-in, or null when they have none.</summary>
+public sealed record SignInView(ModelConnectionCredential? Credential);

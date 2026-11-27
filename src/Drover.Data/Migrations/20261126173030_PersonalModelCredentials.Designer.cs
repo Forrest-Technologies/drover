@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261126152409_UsageOfRuleChecks")]
-partial class UsageOfRuleChecks
+[Migration("20261126173030_PersonalModelCredentials")]
+partial class PersonalModelCredentials
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1155,6 +1155,66 @@ partial class UsageOfRuleChecks
                     });
             });
 
+        modelBuilder.Entity("Drover.Domain.Models.ModelConnectionCredential", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<string>("AccountLabel")
+                    .HasMaxLength(320)
+                    .HasColumnType("character varying(320)")
+                    .HasColumnName("account_label");
+
+                b.Property<Guid>("AudienceUserId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("audience_user_id");
+
+                b.Property<DateTimeOffset?>("ExpiresAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("expires_at");
+
+                b.Property<Guid>("ModelConnectionId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("model_connection_id");
+
+                b.Property<DateTimeOffset?>("RenewAttemptedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renew_attempted_at");
+
+                b.Property<DateTimeOffset?>("RenewedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renewed_at");
+
+                b.Property<Guid>("SecretId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("secret_id");
+
+                b.Property<Guid>("SpaceId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("space_id");
+
+                b.Property<string>("Status")
+                    .IsRequired()
+                    .HasMaxLength(32)
+                    .HasColumnType("character varying(32)")
+                    .HasColumnName("status");
+
+                b.HasKey("Id")
+                    .HasName("pk_model_connection_credentials");
+
+                b.HasIndex("SpaceId", "ModelConnectionId", "AudienceUserId")
+                    .IsUnique()
+                    .HasDatabaseName("ix_model_connection_credentials_space_id_model_connection_id_a");
+
+                b.ToTable("model_connection_credentials", t =>
+                    {
+                        t.HasCheckConstraint("ck_model_connection_credentials_one_person", "audience_user_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                        t.HasCheckConstraint("ck_model_connection_credentials_status", "status IN ('active', 'needs_sign_in')");
+                    });
+            });
+
         modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
             {
                 b.Property<Guid>("Id")
@@ -1884,7 +1944,7 @@ partial class UsageOfRuleChecks
                     .HasColumnType("character varying(200)")
                     .HasColumnName("model");
 
-                b.Property<Guid?>("ModelConnectionId")
+                b.Property<Guid>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
 
@@ -3058,6 +3118,17 @@ partial class UsageOfRuleChecks
                     .HasConstraintName("fk_model_catalog_model_connections_space_id_model_connection_id");
             });
 
+        modelBuilder.Entity("Drover.Domain.Models.ModelConnectionCredential", b =>
+            {
+                b.HasOne("Drover.Domain.Models.ModelConnection", null)
+                    .WithMany()
+                    .HasForeignKey("SpaceId", "ModelConnectionId")
+                    .HasPrincipalKey("SpaceId", "Id")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired()
+                    .HasConstraintName("fk_model_connection_credentials_model_connections_space_id_mod");
+            });
+
         modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
             {
                 b.HasOne("Drover.Domain.Bots.Bot", null)
@@ -3280,6 +3351,7 @@ partial class UsageOfRuleChecks
                     .HasForeignKey("SpaceId", "ModelConnectionId")
                     .HasPrincipalKey("SpaceId", "Id")
                     .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired()
                     .HasConstraintName("fk_usage_records_model_connections_space_id_model_connection_id");
 
                 b.HasOne("Drover.Domain.Runs.Run", null)

@@ -25,6 +25,27 @@ public sealed class ModelCatalogEntrySeeder : PlainSeeder<ModelCatalogEntry>
     };
 }
 
+public sealed class ModelConnectionCredentialSeeder : PlainSeeder<ModelConnectionCredential>
+{
+    #region Properties
+
+    public override bool ForOnePersonOnly => true;
+
+    #endregion
+
+    #region Protected Methods
+
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["model_connection_id"] = seed.Parent("model_connections"),
+        ["secret_id"] = Guid.CreateVersion7(),
+        ["status"] = "active",
+    };
+
+    #endregion
+}
+
 public sealed class ToolConnectionSeeder : PlainSeeder<ToolConnection>
 {
     protected override Dictionary<string, object?> Columns(SeedRow seed) => new()

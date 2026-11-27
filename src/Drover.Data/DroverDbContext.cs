@@ -48,6 +48,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<ModelConnection> ModelConnections => Set<ModelConnection>();
 
+    public DbSet<ModelConnectionCredential> ModelConnectionCredentials => Set<ModelConnectionCredential>();
+
     public DbSet<ModelCatalogEntry> ModelCatalog => Set<ModelCatalogEntry>();
 
     public DbSet<ToolConnection> ToolConnections => Set<ToolConnection>();

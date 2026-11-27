@@ -27,7 +27,8 @@ public sealed class DroverFactory(
     public const string RemoteIpHeader = "X-Test-Remote-Ip";
 
     /// <summary>The kinds a hosted server under test offers when its test does not say.</summary>
-    public static IReadOnlyList<string> HostedTestKinds { get; } = ["scripted", "scripted_model", "openai_compatible", "venice"];
+    public static IReadOnlyList<string> HostedTestKinds { get; } =
+        ["scripted", "scripted_model", "openai_compatible", "venice", FakeModelSignIn.PlanKind, FakeModelSignIn.OpenKind];
 
     public const string AllowedKindsSetting = "Drover:Policy:Rules:AllowedModelProviderKinds";
 

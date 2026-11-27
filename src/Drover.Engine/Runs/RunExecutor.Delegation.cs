@@ -214,6 +214,7 @@ public sealed partial class RunExecutor
 
     private async Task ExecuteChildSession(RunSession parent, LoadedRun loaded, CancellationToken serverStopping, CancellationToken cancellationToken)
     {
+        loaded = await WithReadyCredential(loaded, cancellationToken);
         await using var session = NewSession(loaded, parent.Tenant, parent.Fence.Worker, parent);
         RunStatus? status;
 
