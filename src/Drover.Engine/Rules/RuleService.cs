@@ -77,8 +77,8 @@ public sealed class RuleService(
     public async Task<List<BotRuleResponse>> Describe(IReadOnlyList<InheritedRule> found, CancellationToken cancellationToken)
     {
         var known = (await tools.ListAllToolNames(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var decisionModel = AllowsJudgedRules && found.Any(rule => rule.Rule.Conditions.Any(condition => condition.IsJudged)) && tenant.SpaceId is { } spaceId
-            ? await findDecisionModel(spaceId, cancellationToken)
+        var decisionModel = AllowsJudgedRules && found.Any(rule => rule.Rule.Conditions.Any(condition => condition.IsJudged)) && tenant is { SpaceId: { } spaceId, UserId: { } userId }
+            ? await findDecisionModel(spaceId, userId, cancellationToken)
             : null;
         return [.. found.Select(rule => rule.ToResponse() with { Notes = Notes(rule.Rule, known, AllowsWrittenPatterns, AllowsJudgedRules, decisionModel is not null) })];
     }
@@ -317,12 +317,12 @@ public sealed class RuleService(
     // sample has no person's messages and no tool results.
     private async Task<IReadOnlyDictionary<ActiveRule, JudgedVerdict>> Judge(JudgmentsDue due, RuleSubject subject, CancellationToken cancellationToken)
     {
-        var model = tenant.SpaceId is { } spaceId ? await findDecisionModel(spaceId, cancellationToken) : null;
-        var checks = new JudgedChecks(model, policy.Deployment.MaxJudgedRuleSeconds, time, text => text, logger);
+        var model = tenant is { SpaceId: { } spaceId, UserId: { } userId } ? await findDecisionModel(spaceId, userId, cancellationToken) : null;
+        var checks = new JudgedChecks(policy.Deployment.MaxJudgedRuleSeconds, time, text => text, logger);
         var action = subject.Checkpoint is RuleCheckpoint.BeforeTool
             ? JsonSerializer.Serialize(new { tool = subject.ToolName, kind = subject.ToolKind is { } kind ? Words.Of(kind) : null, arguments = due.Hard?.RedactedJson ?? subject.Json })
             : due.Hard?.RedactedText ?? subject.Text ?? string.Empty;
-        return (await checks.Check(due.Rules, new JudgedState(action, string.Empty, string.Empty), cancellationToken)).Verdicts;
+        return (await checks.Check(model, due.Rules, new JudgedState(action, string.Empty, string.Empty), cancellationToken)).Verdicts;
     }
 
     private static List<string> Notes(BotRule rule, HashSet<string> knownTools, bool writtenPatterns, bool judgedRules, bool hasDecisionModel)

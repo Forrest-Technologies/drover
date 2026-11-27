@@ -1,0 +1,17 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's own reference (https://docs.typesafe.ai/api/system-one, the shared API another server speaks, read 2026-11-26). The answers are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 429,
+      "headers": {
+        "Retry-After": "7"
+      },
+      "body": {
+        "detail": "You have exceeded your rate limit"
+      }
+    }
+  ]
+}

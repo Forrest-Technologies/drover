@@ -23,6 +23,7 @@ global using Drover.Data.Tenancy;
 global using Drover.Domain.Appearance;
 global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;
+global using Drover.Domain.Decisions;
 global using Drover.Domain.Extensions;
 global using Drover.Domain.Files;
 global using Drover.Domain.Memory;

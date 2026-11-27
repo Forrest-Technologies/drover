@@ -29,7 +29,7 @@ public sealed class JudgedRuleSwitchTests(PostgresServer postgres) : ServerTestB
     protected override void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IModelClientProvider>(_ => model ??= new ScriptedModelProvider(new ScriptedModel()));
-        services.AddSingleton<FindDecisionModel>(_ => (_, _) => Task.FromResult<SpaceDecisionModel?>(new(judge, "scripted-judge", null)));
+        services.AddSingleton<FindDecisionModel>(_ => (_, _, _) => Task.FromResult<SpaceDecisionModel?>(new(judge, "scripted-judge", null)));
     }
 
     #endregion

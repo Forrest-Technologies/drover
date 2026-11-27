@@ -573,13 +573,9 @@ public sealed partial class RunExecutor(
             : null;
     }
 
-    /// <summary>
-    /// The rule checks of this run, sent to the space's decision model. Asked for outside any tenant scope; a space
-    /// with none gets checks that make no call, so every rule written as a sentence is unsure.
-    /// </summary>
-    private async Task<JudgedChecks> NewJudgedChecks(RunSession session, CancellationToken cancellationToken) =>
+    /// <summary>The rule checks of this run. The space's decision model is found before each check, outside any tenant scope.</summary>
+    private JudgedChecks NewJudgedChecks(RunSession session) =>
         new(
-            await findDecisionModel(session.Tenant.SpaceId, cancellationToken),
             deployment.Value.Rules.MaxJudgedRuleSeconds,
             time,
             session.Redactor.Redact,
@@ -644,7 +640,7 @@ public sealed partial class RunExecutor(
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
         };
-        var rules = new RunRules(session, await NewJudgedChecks(session, stopping), loggers.CreateLogger<RunRules>());
+        var rules = new RunRules(session, NewJudgedChecks(session), findDecisionModel, loggers.CreateLogger<RunRules>());
         var governor = new RunGovernor(
             session,
             bot,
