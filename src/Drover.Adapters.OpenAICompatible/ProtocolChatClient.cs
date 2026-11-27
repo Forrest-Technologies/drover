@@ -94,6 +94,12 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
     {
         var options = CreateOptions(httpClient, endpoint.BaseAddress);
         options.AddPolicy(headers, PipelinePosition.PerCall);
+
+        if (ProtocolKey.ExtraHeaders(endpoint.BaseAddress, apiKey) is { Count: > 0 } extra)
+        {
+            options.AddPolicy(new ProtocolRequestHeaders(extra), PipelinePosition.PerCall);
+        }
+
         return new OpenAIClient(new ApiKeyCredential(apiKey), options).GetChatClient(modelId).AsIChatClient();
     }
 

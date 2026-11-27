@@ -29,11 +29,11 @@ public static class CompatibleRig
 
     public static readonly Uri Address = new("https://models.example.test/v1");
 
-    public static Rig Start(string fixtureName)
+    public static Rig Start(string fixtureName, Uri? address = null)
     {
         var handler = new RecordedHandler(RecordedFixture.Load("openai-compatible", fixtureName));
         var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
-        var connection = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, Address);
+        var connection = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, address ?? Address);
 
         return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
     }

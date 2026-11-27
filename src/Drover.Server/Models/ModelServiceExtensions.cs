@@ -8,9 +8,9 @@ public static class ModelServiceExtensions
     /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
     /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
     /// provider choice in every form: Venice, OpenAI, Anthropic and Gemini, the hosted providers that need only a key, the
-    /// ChatGPT plan, which each person signs in to, then the compatible kind
-    /// with the named providers it carries, so the choice starts on a provider that needs only a key and "Another
-    /// compatible server" comes last. A new provider kind is one more call here.
+    /// ChatGPT plan and the Claude plan, which each person signs in to, then the compatible kind with the named providers
+    /// it carries, so the choice starts on a provider that needs only a key and "Another compatible server" comes last. A
+    /// new provider kind is one more call here.
     /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
     /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
@@ -26,6 +26,9 @@ public static class ModelServiceExtensions
             OpenAIPlanProvider.HttpClientName,
             OpenAIPlanSignIn.HttpClientName);
         services.Configure<OpenAIPlanOptions>(configuration.GetSection(OpenAIPlanOptions.Section));
+        // The plan's calls share the key kind's client, which already has the outbound handler; only its sign-in client is new.
+        services.Configure<AnthropicPlanSignInOptions>(configuration.GetSection(AnthropicPlanSignInOptions.Section));
+        services.AddModelProvider<AnthropicPlanProvider>(adapter => adapter.AddAnthropicPlan(), AnthropicPlanSignIn.HttpClientName);
         services.AddModelProvider<OpenAICompatibleProvider>(
             adapter => adapter.AddOpenAICompatibleProvider(),
             OpenAICompatibleProvider.HttpClientName,
@@ -34,6 +37,19 @@ public static class ModelServiceExtensions
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));
         services.AddHostedService<ModelSignInRenewer>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the decision model providers this build ships, which judge rules written as a sentence. Their one
+    /// named client gets the <see cref="SpaceOutboundHandler"/>, as every model provider's does, so the checked outbound
+    /// handler applies the deployment's and the space's rule on private addresses to every decision model call.
+    /// </summary>
+    public static IServiceCollection AddDroverDecisionModels(this IServiceCollection services)
+    {
+        services.AddSystemOneDecisionModels();
+        services.TryAddTransient<SpaceOutboundHandler>();
+        services.AddHttpClient(SystemOneProvider.HttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
         return services;
     }
 
@@ -66,7 +82,12 @@ public static class ModelServiceExtensions
 
         foreach (var name in httpClients)
         {
-            services.AddHttpClient(name).AddHttpMessageHandler<SpaceOutboundHandler>();
+            // It never follows a redirect: .NET drops Authorization on a redirect to another host but not a header the
+            // adapter adds itself (Azure's api-key), so the key would go to whatever host the answer names.
+            // It turns redirects off on the handler the policy built for every client, and replaces nothing.
+            services.AddHttpClient(name)
+                .ConfigurePrimaryHttpMessageHandler((handler, _) => OutboundHttp.DisableRedirects(handler))
+                .AddHttpMessageHandler<SpaceOutboundHandler>();
         }
 
         return services;

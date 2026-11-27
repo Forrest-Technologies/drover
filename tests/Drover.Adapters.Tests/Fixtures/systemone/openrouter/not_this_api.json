@@ -1,0 +1,24 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's own reference (https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request and https://openrouter.ai/docs/api_reference/errors-and-debugging, read 2026-11-26). The answers are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Yes."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

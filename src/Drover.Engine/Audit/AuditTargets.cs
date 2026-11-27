@@ -19,5 +19,7 @@ public static class AuditTargets
 
     public const string ModelConnection = "model_connection";
 
+    public const string DecisionModel = "decision_model";
+
     #endregion
 }

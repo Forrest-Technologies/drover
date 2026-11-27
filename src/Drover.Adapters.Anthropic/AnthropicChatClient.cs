@@ -341,11 +341,11 @@ internal sealed class AnthropicChatClient(
         HttpClient = httpClients.CreateClient(httpClientName),
         BaseUrl = destination.Address.AbsoluteUri.TrimEnd('/'),
         ApiKey = destination.Credential,
-        ExtraHeaders = destination.Headers.Count > 0 ? destination.Headers : null,
         MaxRetries = 0,
         Timeout = Timeout.InfiniteTimeSpan,
         OpenTelemetry = false,
-        Handlers = [capture],
+        // The client's own headers would gain the destination's as extra values; the handler replaces them instead.
+        Handlers = destination.Headers.Count > 0 ? [capture, new AnthropicHeaderReplacement(destination.Headers)] : [capture],
     });
 
     #endregion

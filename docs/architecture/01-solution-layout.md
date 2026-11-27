@@ -29,6 +29,7 @@ Drover.slnx
     Drover.Adapters.E2B              ISandboxProvider over E2B's HTTP API
     Drover.Adapters.WebPush          IPushChannel for browsers and UnifiedPush
     Drover.Adapters.SearXng          IWebSearch over an operator's own SearXNG instance
+    Drover.Adapters.SystemOne        IDecisionModelProvider for the state-and-questions API, five kinds, plain HTTP
     Drover.Adapters.LocalFiles       IFileStore on a volume
     Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
     Drover.Client                 typed API client, SSE reader with reconnect, run state reducer and view model

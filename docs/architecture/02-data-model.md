@@ -114,6 +114,7 @@ A bot's instructions are assembled by the engine from an ordered list of instruc
 | Table | Class | Key columns |
 | --- | --- | --- |
 | `model_connections` | Space-owned | `id`, `name`, `kind`, `base_url`, `auth_kind`, `credential_scope`, `secret_id null`, `default_model`, `status`, `balance jsonb`, `last_checked_at` |
+| `decision_connections` | Space-owned | `id`, `kind`, `address null`, `account null`, `model`, `key_secret_id null` (a plain column, like a model connection's), `status` (`pending`, `ready`, `failed`), `tested_at null`, `last_error null`, `input_price_per_million null`, `created_by_user_id null`. At most one a space (unique on `space_id`): the decision model that judges rules written as a sentence ([15-model-providers.md](15-model-providers.md#a-spaces-decision-model)) |
 | `model_connection_credentials` | Space-owned with an audience, always one person | `id`, `model_connection_id`, `audience_user_id`, `secret_id`, `account_label null`, `expires_at null`, `renewed_at null`, `renew_attempted_at null`, `status` |
 | `model_catalog` | Space-owned | `model_connection_id`, `model`, `display_name`, `capabilities jsonb`, `pricing jsonb`, `operator_capabilities jsonb null`, `operator_pricing jsonb null`, `privacy_mode`, `traits`, `state`, `last_seen_at` |
 | `tool_connections` | Space-owned | `id`, `name`, `slug`, `url`, `transport`, `auth_kind`, `credential_scope`, `oauth jsonb`, `trust`, `status`, `last_listed_at`, `last_error` |

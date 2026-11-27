@@ -102,3 +102,15 @@ public sealed class ToolSeeder : PlainSeeder<Tool>
         ["last_seen_at"] = DateTimeOffset.UtcNow,
     };
 }
+
+public sealed class DecisionConnectionSeeder : PlainSeeder<DecisionConnection>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["kind"] = "systemone_compatible",
+        ["address"] = "https://judge.example.test/api/systemone",
+        ["model"] = seed.Unique("model"),
+        ["status"] = "ready",
+    };
+}
