@@ -14,7 +14,7 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
 
-    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest"];
+    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest", "SetDecisionModelRequest", "ReplaceDecisionKeyRequest"];
 
     // A card's figure, row and answer values are the words shown on the card, not credentials. Their names are fixed
     // by the card contract; #880 refuses a field label that names a credential, and an answer is the person's message.
@@ -49,6 +49,9 @@ public sealed class ContractsCarryNoSecretsTests
         new Drover.Contracts.Models.CreateModelConnectionRequest("venice", "V", null, "a-model-key-value", null)
             .ToString().Should().NotContain("a-model-key-value");
         new Drover.Contracts.Models.UpdateModelKeyRequest("a-model-key-value").ToString().Should().NotContain("a-model-key-value");
+        new Drover.Contracts.Decisions.SetDecisionModelRequest("typesafe", null, null, "jev-latest", "a-decision-key-value")
+            .ToString().Should().NotContain("a-decision-key-value");
+        new Drover.Contracts.Decisions.ReplaceDecisionKeyRequest("a-decision-key-value").ToString().Should().NotContain("a-decision-key-value");
         new Drover.Contracts.Tools.CreateToolConnectionRequest("T", "https://tools.example.test/", "header", "X-Api-Key", "a-header-value")
             .ToString().Should().NotContain("a-header-value");
         new Drover.Contracts.Tools.ReplaceToolHeaderRequest("X-Api-Key", "a-header-value").ToString().Should().NotContain("a-header-value");

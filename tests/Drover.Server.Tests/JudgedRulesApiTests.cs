@@ -24,7 +24,7 @@ public sealed class JudgedRulesApiTests(PostgresServer postgres) : ServerTestBas
     protected override void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IModelClientProvider>(_ => model ??= new ScriptedModelProvider(new ScriptedModel()));
-        services.AddSingleton<FindDecisionModel>(_ => (_, _) => Task.FromResult<SpaceDecisionModel?>(connected ? new(judge, "scripted-judge", null) : null));
+        services.AddSingleton<FindDecisionModel>(_ => (_, _, _) => Task.FromResult<SpaceDecisionModel?>(connected ? new(judge, "scripted-judge", null) : null));
     }
 
     #endregion

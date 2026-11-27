@@ -72,6 +72,10 @@ public sealed record DeploymentPolicy
         return problems;
     }
 
+    /// <summary>Whether this deployment offers a kind of decision model: every kind under All, the listed ones otherwise.</summary>
+    public bool OffersDecisionModel(string kind) =>
+        DecisionModelKinds is ModelProviderSet.All || AllowedDecisionModelKinds.Contains(kind, StringComparer.Ordinal);
+
     /// <summary>Whether this deployment offers a kind of model provider: every kind under All, the listed ones otherwise.</summary>
     public bool OffersModelProvider(string kind) =>
         ModelProviders is ModelProviderSet.All || AllowedModelProviderKinds.Contains(kind, StringComparer.Ordinal);
@@ -432,6 +436,19 @@ public sealed record DeploymentPolicy
     /// </summary>
     public IReadOnlyList<string> AllowedModelProviderKinds { get; init; } = [];
 
+    /// <summary>
+    /// Which kinds of decision model a space may connect, to check rules written as a sentence. Every kind on a
+    /// self-hosted server; on the hosted service only the kinds the operator lists in
+    /// <see cref="AllowedDecisionModelKinds"/>, after reading each provider's terms.
+    /// </summary>
+    public ModelProviderSet DecisionModelKinds { get; init; } = ModelProviderSet.All;
+
+    /// <summary>
+    /// The kinds of decision model this server offers when <see cref="DecisionModelKinds"/> is
+    /// <see cref="ModelProviderSet.OperatorList"/>. Empty offers none. The operator names them; no preset does.
+    /// </summary>
+    public IReadOnlyList<string> AllowedDecisionModelKinds { get; init; } = [];
+
     /// <summary>Anyone may register. Off in both presets; the operator of a hosted service may turn it on.</summary>
     public bool OpenRegistration { get; init; }
 
@@ -741,6 +758,14 @@ public sealed record DeploymentPolicy
             nameof(AllowedModelProviderKinds),
             policy => policy.AllowedModelProviderKinds,
             Enforcement.Now("ModelProviderCatalog, when ModelProviders is OperatorList")),
+        PolicyRule.Choice(
+            nameof(DecisionModelKinds),
+            policy => policy.DecisionModelKinds,
+            Enforcement.Now("DecisionConnectionService, when a decision model is connected, and every check of a run")),
+        PolicyRule.Names(
+            nameof(AllowedDecisionModelKinds),
+            policy => policy.AllowedDecisionModelKinds,
+            Enforcement.Now("DecisionConnectionService, when DecisionModelKinds is OperatorList")),
         PolicyRule.Permission(
             nameof(OpenRegistration),
             policy => policy.OpenRegistration,
