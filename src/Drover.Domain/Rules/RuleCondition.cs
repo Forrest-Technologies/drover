@@ -2,7 +2,9 @@ namespace Drover.Domain.Rules;
 
 /// <summary>
 /// One condition of a rule. Which properties are used depends on <see cref="Kind"/>; the rest stay empty.
-/// A condition is data and is decided by code: nothing here is ever put to a model.
+/// A condition is data and is decided by code. One kind is the exception, and only narrows:
+/// <see cref="RuleConditionKind.Judged"/> holds a sentence that a decision model is asked about, and its
+/// probabilities are compared with <see cref="Confidence"/> in code (ADR 0026).
 /// </summary>
 public sealed record RuleCondition
 {
@@ -43,6 +45,20 @@ public sealed record RuleCondition
     public RunCounter? Counter { get; init; }
 
     public long? Limit { get; init; }
+
+    /// <summary>The sentence a decision model judges, for <see cref="RuleConditionKind.Judged"/>.</summary>
+    public string? Statement { get; init; }
+
+    /// <summary>
+    /// How sure the decision model must be, for <see cref="RuleConditionKind.Judged"/>: from 0.50 to 0.99. Null is
+    /// <see cref="JudgedRules.DefaultConfidence"/>.
+    /// </summary>
+    public double? MinConfidence { get; init; }
+
+    /// <summary>How sure the decision model must be for the rule to apply. At or below one minus this, it does not.</summary>
+    public double Confidence => MinConfidence ?? JudgedRules.DefaultConfidence;
+
+    public bool IsJudged => Kind is RuleConditionKind.Judged;
 
     /// <summary>
     /// Whether the condition looks for something in text. Such a condition catches the common forms and is not a

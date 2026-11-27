@@ -23,6 +23,7 @@ public sealed partial class RunExecutor(
     IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    FindDecisionModel findDecisionModel,
     TimeProvider time,
     ILoggerFactory loggers)
 {
@@ -555,6 +556,18 @@ public sealed partial class RunExecutor(
     }
 
     /// <summary>
+    /// The rule checks of this run, sent to the space's decision model. Asked for outside any tenant scope; a space
+    /// with none gets checks that make no call, so every rule written as a sentence is unsure.
+    /// </summary>
+    private async Task<JudgedChecks> NewJudgedChecks(RunSession session, CancellationToken cancellationToken) =>
+        new(
+            await findDecisionModel(session.Tenant.SpaceId, cancellationToken),
+            deployment.Value.Rules.MaxJudgedRuleSeconds,
+            time,
+            session.Redactor.Redact,
+            loggers.CreateLogger<JudgedChecks>());
+
+    /// <summary>
     /// The files people attached, as this run gives them to its model: by whether the model reads pictures and
     /// whether the run was given a sandbox tool, which takes a sandbox on this server, on the bot, and in its grants.
     /// </summary>
@@ -613,7 +626,7 @@ public sealed partial class RunExecutor(
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
         };
-        var rules = new RunRules(session, loggers.CreateLogger<RunRules>());
+        var rules = new RunRules(session, await NewJudgedChecks(session, stopping), loggers.CreateLogger<RunRules>());
         var governor = new RunGovernor(
             session,
             bot,

@@ -20,6 +20,15 @@ public sealed record ActiveRule(
     /// </summary>
     public bool WrittenPatternsOff { get; init; }
 
+    /// <summary>
+    /// The server does not judge rules written as a sentence (deployment rule AllowJudgedRules). Such a rule is
+    /// never sent to a decision model: it counts as unsure, so a person is asked or the reply is held back.
+    /// </summary>
+    public bool JudgedOff { get; init; }
+
+    /// <summary>The rule's sentence condition, or null when it has none. A rule has at most one.</summary>
+    public RuleCondition? Judged => Conditions.FirstOrDefault(condition => condition.IsJudged);
+
     #endregion
 }
 
@@ -69,3 +78,9 @@ public sealed record RuleOutcome(ActiveRule Rule, RuleEffect Effect, string Why)
 
     #endregion
 }
+
+/// <summary>
+/// The first step of evaluating with judged rules: what the rules decided by code say, and the judged rules that
+/// still need a verdict from a decision model. Empty when none does.
+/// </summary>
+public sealed record JudgmentsDue(RuleOutcome? Hard, IReadOnlyList<ActiveRule> Rules);
