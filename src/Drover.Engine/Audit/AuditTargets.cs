@@ -17,5 +17,7 @@ public static class AuditTargets
 
     public const string Space = "space";
 
+    public const string DecisionModel = "decision_model";
+
     #endregion
 }

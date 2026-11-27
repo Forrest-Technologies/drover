@@ -49,7 +49,7 @@ public sealed class ScriptedDecisionModel : IDecisionModel
 
     /// <summary>A host change that gives every space this decision model.</summary>
     public Action<IServiceCollection> InEverySpace() =>
-        services => services.AddSingleton<FindDecisionModel>(_ => (_, _) => Task.FromResult<SpaceDecisionModel?>(new(this, "scripted-judge", null)));
+        services => services.AddSingleton<FindDecisionModel>(_ => (_, _, _) => Task.FromResult<SpaceDecisionModel?>(new(this, "scripted-judge", null)));
 
     #endregion
 
@@ -61,6 +61,56 @@ public sealed class ScriptedDecisionModel : IDecisionModel
                 question => question.Name,
                 question => new DecisionResult { Yes = question.Name.EndsWith(JudgedChecks.AppliesQuestion, StringComparison.Ordinal) ? Applies : Met }),
             InputTokens);
+
+    #endregion
+}
+
+/// <summary>
+/// A decision model kind for tests: an address a person gives and a required key, a client that is
+/// <see cref="Model"/>, and a test that answers <see cref="TestResult"/>. It records each test's key and whether a
+/// tenant scope was open while it was asked.
+/// </summary>
+public sealed class ScriptedDecisionProvider : IDecisionModelProvider
+{
+    #region Private Fields
+
+    public const string ConnectionKind = "scripted_decisions";
+
+    private readonly ConcurrentQueue<(string? Key, bool ScopeOpen)> tests = new();
+
+    #endregion
+
+    #region Properties
+
+    public string Kind => ConnectionKind;
+
+    public string DisplayName => "Scripted decisions";
+
+    public ModelKeyRule KeyRule => ModelKeyRule.Required;
+
+    public DecisionAddressRule AddressRule => DecisionAddressRule.Address;
+
+    public ScriptedDecisionModel Model { get; } = new();
+
+    public ConnectionTestResult TestResult { get; set; } = ConnectionTestResult.Ok("Connected. Answered in 12 ms.");
+
+    /// <summary>Each test: the key it was given, and whether a tenant scope was open in the flow that asked.</summary>
+    public IReadOnlyList<(string? Key, bool ScopeOpen)> Tests => [.. tests];
+
+    #endregion
+
+    #region Interface Implementations
+
+    public Uri? AddressFor(string? address, string? account) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var given) ? given : null;
+
+    public IDecisionModel CreateClient(ModelEndpoint endpoint, string? apiKey, string model) => Model;
+
+    public Task<ConnectionTestResult> TestConnection(ModelEndpoint endpoint, string? apiKey, string model, CancellationToken cancellationToken)
+    {
+        tests.Enqueue((apiKey, TenantScope.IsOpenInCurrentFlow));
+        return Task.FromResult(TestResult);
+    }
 
     #endregion
 }

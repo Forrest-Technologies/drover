@@ -228,6 +228,31 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task DecisionModelKinds_decides_which_decision_models_a_space_may_connect()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("decisions");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var state = (await (await client.Get($"/api/spaces/{spaceId}/decision-model")).Content.ReadFromJsonAsync<DecisionModelState>(Token))!;
+        var set = await client.Put(
+            $"/api/spaces/{spaceId}/decision-model",
+            new SetDecisionModelRequest("systemone_compatible", "https://judge.example.test/api/systemone", null, "judge-1", null));
+
+        if (Setting(nameof(DeploymentPolicy.DecisionModelKinds)) == "All")
+        {
+            state.Kinds.Select(kind => kind.Kind).Should().Contain("systemone_compatible");
+            set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Token));
+        }
+        else
+        {
+            state.Kinds.Should().BeEmpty("the operator has listed no kind");
+            set.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await set.Content.ReadAsStringAsync(Token)).Should().Contain(nameof(DeploymentPolicy.DecisionModelKinds), "the message names the rule an operator would change");
+        }
+    }
+
+    [Fact]
     public async Task The_sandbox_rules_decide_what_the_bot_editor_offers_and_what_a_bot_may_save()
     {
         var (email, password, _, spaceId) = await SeedPerson("sandboxrules");

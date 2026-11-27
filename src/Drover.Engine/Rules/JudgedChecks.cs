@@ -1,13 +1,13 @@
 namespace Drover.Engine.Rules;
 
 /// <summary>
-/// Finds the decision model of a space, or null when it has none. It only reads and never waits on a provider: a run
-/// and "Try it" ask it outside any tenant scope, and the read-back of a bot's rules asks it inside the request's.
-/// Until a space can connect one, the server's own finder answers null for every space.
+/// Finds the decision model of a space as one of its people, or null when it has none ready. It reads in a scope of
+/// its own, as that person, and never waits on a provider: a run asks it before every check, so a model disconnected
+/// meanwhile is not asked again; "Try it" and the read-back of a bot's rules ask it too.
 /// </summary>
-public delegate Task<SpaceDecisionModel?> FindDecisionModel(Guid spaceId, CancellationToken cancellationToken);
+public delegate Task<SpaceDecisionModel?> FindDecisionModel(Guid spaceId, Guid userId, CancellationToken cancellationToken);
 
-/// <summary>The decision model of a space, as a rule check uses it. The connection is null until a space can connect one.</summary>
+/// <summary>The decision model of a space, as a rule check uses it, and the id of the space's connection to it.</summary>
 public sealed record SpaceDecisionModel(IDecisionModel Client, string Model, Guid? ConnectionId)
 {
     #region Properties
@@ -32,7 +32,7 @@ public sealed record JudgedCheck(IReadOnlyDictionary<ActiveRule, JudgedVerdict> 
 /// no tenant scope open and is cut off at <c>MaxJudgedRuleSeconds</c>. Nothing here fails: a timeout, a provider
 /// error and an answer that cannot be read each come back as a failed verdict, which code treats as unsure.
 /// </summary>
-public sealed class JudgedChecks(SpaceDecisionModel? model, int maxSeconds, TimeProvider time, Func<string, string> redact, ILogger logger)
+public sealed class JudgedChecks(int maxSeconds, TimeProvider time, Func<string, string> redact, ILogger logger)
 {
     #region Private Fields
 
@@ -52,21 +52,14 @@ public sealed class JudgedChecks(SpaceDecisionModel? model, int maxSeconds, Time
 
     #endregion
 
-    #region Properties
-
-    /// <summary>The model checks are sent to, or null when the space has none.</summary>
-    public SpaceDecisionModel? Model => model;
-
-    #endregion
-
     #region Public Methods
 
     /// <summary>Verdicts for rules that were not checked, each saying why in the same words.</summary>
     public static IReadOnlyDictionary<ActiveRule, JudgedVerdict> NotChecked(IReadOnlyList<ActiveRule> rules, string reason) =>
         rules.Distinct().ToDictionary(rule => rule, _ => JudgedVerdict.Unchecked(reason));
 
-    /// <summary>Asks the decision model about every rule due, in one request.</summary>
-    public async Task<JudgedCheck> Check(IReadOnlyList<ActiveRule> due, JudgedState state, CancellationToken cancellationToken)
+    /// <summary>Asks the decision model about every rule due, in one request. With no model, nothing is asked.</summary>
+    public async Task<JudgedCheck> Check(SpaceDecisionModel? model, IReadOnlyList<ActiveRule> due, JudgedState state, CancellationToken cancellationToken)
     {
         if (model is null)
         {
@@ -81,7 +74,7 @@ public sealed class JudgedChecks(SpaceDecisionModel? model, int maxSeconds, Time
         var rules = due.Distinct().ToList();
         var request = BuildRequest(rules, state, redact);
         var started = time.GetTimestamp();
-        var (answer, failure) = await Ask(request, cancellationToken);
+        var (answer, failure) = await Ask(model.Client, request, cancellationToken);
         var elapsed = (long)time.GetElapsedTime(started).TotalMilliseconds;
         var verdicts = failure is null && answer is not null
             ? Read(rules, answer)
@@ -124,7 +117,7 @@ public sealed class JudgedChecks(SpaceDecisionModel? model, int maxSeconds, Time
 
     #region Private Methods
 
-    private async Task<(DecisionAnswer? Answer, string? Failure)> Ask(DecisionRequest request, CancellationToken cancellationToken)
+    private async Task<(DecisionAnswer? Answer, string? Failure)> Ask(IDecisionModel client, DecisionRequest request, CancellationToken cancellationToken)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, maxSeconds)), time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
@@ -132,7 +125,7 @@ public sealed class JudgedChecks(SpaceDecisionModel? model, int maxSeconds, Time
         try
         {
             // A model that does not watch its token is left behind when the time is up.
-            return (await model!.Client.Decide(request, linked.Token).WaitAsync(linked.Token), null);
+            return (await client.Decide(request, linked.Token).WaitAsync(linked.Token), null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
