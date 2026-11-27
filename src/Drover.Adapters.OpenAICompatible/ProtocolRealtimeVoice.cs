@@ -18,9 +18,9 @@ internal static class ProtocolRealtimeVoice
     {
         var socket = new ClientWebSocket();
 
-        if (!string.IsNullOrEmpty(apiKey))
+        foreach (var (name, value) in ProtocolKey.Headers(connection.BaseAddress, apiKey))
         {
-            socket.Options.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+            socket.Options.SetRequestHeader(name, value);
         }
 
         try

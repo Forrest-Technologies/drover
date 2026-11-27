@@ -189,6 +189,51 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task An_address_the_server_rewrote_is_shown_as_saved_and_found_again_by_the_next_test()
+    {
+        var path = $"{space}/model-connections";
+        var stored = "https://sample.example.test/v1/";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample", "openai_compatible", stored, true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = "https://sample.example.test/";
+        model.ApiKey = "sample-key";
+
+        await model.Test();
+        await model.Test();
+
+        model.BaseUrl.Should().Be(stored);
+        model.Outcome.Should().Be("Sample connected.");
+        server.Sent("POST", path).Should().ContainSingle("the second test finds the saved connection");
+    }
+
+    [Fact]
+    public async Task The_first_test_of_a_rewritten_address_says_where_it_was_saved()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample", "openai_compatible", "https://sample.example.test/v1/", true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = "https://sample.example.test/";
+
+        await model.Test();
+
+        model.Outcome.Should().Be("Saved as https://sample.example.test/v1/. Sample connected.");
+    }
+
+    [Fact]
     public async Task A_provider_with_no_key_sends_none_even_when_one_was_typed_before()
     {
         var path = $"{space}/model-connections";

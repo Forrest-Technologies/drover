@@ -34,6 +34,10 @@ public sealed partial class ConnectModelViewModel(
     private string? problem;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Outcome))]
+    private string? savedAs;
+
+    [ObservableProperty]
     private bool busy;
 
     #endregion
@@ -47,7 +51,7 @@ public sealed partial class ConnectModelViewModel(
 
     public bool Passed => Problem is null && Result is { Succeeded: true };
 
-    public string? Outcome => Problem ?? Result?.Message;
+    public string? Outcome => Problem ?? (SavedAs is null ? Result?.Message : $"{SavedAs} {Result?.Message}".TrimEnd());
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -84,6 +88,7 @@ public sealed partial class ConnectModelViewModel(
         Busy = true;
         Problem = null;
         Result = null;
+        SavedAs = null;
         try
         {
             Connection = await SaveConnection();
@@ -123,6 +128,15 @@ public sealed partial class ConnectModelViewModel(
             {
                 var made = await api.CreateModelConnection(SpaceId, new(Kind, Named.NameFor(address), address, key, null));
                 SentKey = key;
+
+                // The server may turn what was pasted into the address it calls. The field shows that address, so the
+                // next test finds this connection again instead of making a second one.
+                if (made.BaseUrl is { } stored && !string.Equals(stored, address, StringComparison.Ordinal))
+                {
+                    BaseUrl = stored;
+                    SavedAs = $"Saved as {stored}.";
+                }
+
                 return made;
             }
         }

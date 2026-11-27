@@ -239,6 +239,12 @@ Left out: GitHub Models (retired on 2026-07-30) and Anthropic (waits for its own
 
 On the hosted service the base address is checked against private address ranges ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Self-hosters can point at a machine on their own network.
 
+### Azure OpenAI
+
+Azure OpenAI connects as a compatible endpoint, with key sign-in only. Its v1 address is `https://{resource}.openai.azure.com/openai/v1/` (or `.services.ai.azure.com`); it needs no `api-version`, and the **deployment name is the model** ([v1 API](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle), [endpoints](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/endpoints)). A person pastes what the portal shows and `AzureAddress` (`Drover.Engine`) stores the v1 address when the connection is created: the bare endpoint gets `/openai/v1/`, and a classic deployment address (`/openai/deployments/{name}`, with or without an `api-version` query) becomes the v1 address with `{name}` as the default model when none was given. Any other query, on these hosts or any other, keeps the refusal that a query is not allowed in an address, because a query is where keys get pasted. The create response carries the stored address and the connect form says "Saved as ...".
+
+The reference documents both an `api-key` header and an `Authorization` header as accepted key forms ([REST reference](https://learn.microsoft.com/rest/api/microsoft-foundry/azureopenai/models)), so on a host ending in `.openai.azure.com` or `.services.ai.azure.com` the adapter sends the key in both (`ProtocolKey`, the one place the key's headers are built); every other host gets the bearer token alone. The model list of this provider describes its own models, not a resource's deployments, so the connection test on these hosts ends with "Type your deployment name as the model." Entra ID sign-in and the classic dated API are not supported. What a real resource answers (which key form it accepts, what its model list holds) is recorded by `AzureOpenAILiveTests`, which only the owner runs; until it has been run, this section does not claim that the bearer form alone is accepted.
+
 ## Voice
 
 Speech has three jobs, each behind an interface Drover owns in `Drover.Domain/Voice`, and each chosen on its own:

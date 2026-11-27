@@ -18,10 +18,7 @@ internal static class ProtocolModelList
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(WithTrailingSlash(address), "models"));
 
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
+        ProtocolKey.Apply(request, address, apiKey);
 
         try
         {
