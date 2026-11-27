@@ -7,6 +7,7 @@
     <Project Path="src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj" />
     <Project Path="src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.csproj" />
     <Project Path="src/Drover.Adapters.SearXng/Drover.Adapters.SearXng.csproj" />
+    <Project Path="src/Drover.Adapters.Gemini/Drover.Adapters.Gemini.csproj" />
     <Project Path="src/Drover.Adapters.SystemOne/Drover.Adapters.SystemOne.csproj" />
     <Project Path="src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj" />
     <Project Path="src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj" />

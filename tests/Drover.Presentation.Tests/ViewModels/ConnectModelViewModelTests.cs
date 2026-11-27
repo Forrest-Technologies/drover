@@ -45,6 +45,28 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task The_gemini_kind_the_server_offers_is_a_key_only_choice_with_its_helper_sentence()
+    {
+        server.Answer("GET", PresetsPath, new ModelProviderKindResponse[]
+        {
+            new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, []),
+            new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
+            new("gemini", "Google Gemini", "required", "fixed", null, "Paste a Gemini API key. A personal plan cannot be used here.", true, []),
+        });
+        var model = Step();
+        await model.Open();
+
+        model.ChooseProvider("gemini");
+
+        model.Named.Options.Select(option => option.Label).Should().Contain("Google Gemini");
+        model.Kind.Should().Be("gemini");
+        model.Named.ShowsAddress.Should().BeFalse();
+        model.Named.OffersAddressChange.Should().BeFalse();
+        model.Named.ShowsKey.Should().BeTrue();
+        model.Named.KeyHint.Should().Be("Paste a Gemini API key. A personal plan cannot be used here.");
+    }
+
+    [Fact]
     public async Task A_server_with_no_named_providers_offers_the_two_choices_of_before()
     {
         server.Answer("GET", PresetsPath, SampleProviders.Kinds());

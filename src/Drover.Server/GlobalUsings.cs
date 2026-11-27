@@ -22,6 +22,7 @@ global using System.Threading.Tasks;
 global using Drover.Adapters.Anthropic;
 global using Drover.Adapters.DataProtection;
 global using Drover.Adapters.E2B;
+global using Drover.Adapters.Gemini;
 global using Drover.Adapters.LocalFiles;
 global using Drover.Adapters.Mcp;
 global using Drover.Adapters.OpenAICompatible;
