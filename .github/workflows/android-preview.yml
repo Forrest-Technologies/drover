@@ -233,5 +233,5 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${flags[@]}" \
             --title "Drover Android $RELEASE_TAG" \
-            --notes 'Install the APK and sign in with the HTTPS address of your Drover server. See the [Android guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
+            --notes 'Install the APK and sign in with the HTTPS address of your Drover server. If the older Drover Preview app is still installed, uninstall it: it no longer updates. See the [Android guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
             "release/$apk" "release/$apk.sha256"

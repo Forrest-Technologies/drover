@@ -41,6 +41,7 @@ public sealed partial class NativeInterfaceRuleTests
         ("Session/AboutDrover.cs", "session dialog"),
         ("Session/AccountMenu.cs", "session dialog, install update"),
         ("Session/PushControl.cs", "session dialog, turn on notifications"),
+        ("Session/RetiredAppRequest.cs", "session dialog, uninstall the retired app"),
         ("Pages/Dev/", "gallery samples are not screens"),
         ("Device/ConnectPage.cs", "setup"),
         ("Pages/SignInPage.xaml", "sign-in"),
@@ -232,6 +233,18 @@ public sealed partial class NativeInterfaceRuleTests
                     select $"{file.Path}: {match.Value}";
 
         found.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void No_provider_is_named_in_client_source()
+    {
+        var names = KnownProviders.All.SelectMany(row => new[] { row.Id, row.DisplayName }).Distinct().ToList();
+        var found = from file in Repository.NativeFiles(".xaml", ".cs").Concat(Repository.PresentationFiles(".cs"))
+                    from name in names
+                    where file.Text.Contains($"\"{name}\"", StringComparison.Ordinal)
+                    select $"{file.Path}: \"{name}\"";
+
+        found.Should().BeEmpty("the names, addresses and key rules of the named providers come from the server");
     }
 
     [Fact]

@@ -109,11 +109,15 @@ Daytona ([#660](https://github.com/Forrest-Technologies/drover/issues/660)) and 
 
 Turn Sandbox on in the bot's editor, then grant the sandbox tools the bot may use. The bot's sandbox page is at `/bots/{botId}/sandbox`. Self-hosted limits are `MaxSandboxCommandSeconds` (3600), `MaxSandboxFileBytes` (50 MB) and `MaxSandboxIdleMinutes` (60); what they bound is in [deployment policies](architecture/16-deployment-policies.md). To turn sandboxes off again, remove `E2B_API_KEY` from `.env` and run `docker compose up -d`; an empty value means no provider is registered. Nothing then clears sandboxes that already exist: with no key the server registers no sandbox provider, no sandbox tools and no sweep, so the rows stay in Drover and the sandboxes stay at the provider with their files until someone removes them in the provider's own console; check the provider's pricing for paused sandboxes. Leave the key in until they have been cleared if you want the server's sweep to handle them. [Issue 649](https://github.com/Forrest-Technologies/drover/issues/649) covers sandboxes left at a previous provider.
 
+## Local model servers
+
+The provider list on Connect a model includes servers that run on a computer of your own: LM Studio, Ollama, vLLM and llama.cpp. Their addresses (`localhost` or `127.0.0.1` and a port) are where the server of that provider listens when it runs on the same computer as the Drover server. "This computer" means the one the Drover server runs on, not the one holding your browser or phone. When Drover runs in a container, `localhost` is the container, so use "Change address" and enter an address the container can reach, such as `http://host.docker.internal:11434/v1` (add `extra_hosts: ["host.docker.internal:host-gateway"]` to the `drover` service on Linux). A server that sets `AllowPrivateAddresses` to false does not list these providers and refuses private addresses.
+
 ## Before you expose it
 
 - Finish setup before making Drover available over the internet. Read the one-time code from `docker compose logs drover`.
 - Leave open registration off for a private server.
-- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled.
+- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled. The services you name in the server's own configuration (the speech container of `compose.voice.yaml`, a search service beside the server) keep working either way: the rule covers addresses a space, a person, or a bot supplies, not yours.
 - Keep database and key ring backups private. Together they can be used to read stored secrets.
 
 ## The public address
@@ -211,6 +215,8 @@ Moving is a backup on the old machine and a restore on the new one. Use the same
 ## Upgrading
 
 Check out a newer tag or commit and run the same `docker compose up --build`. Pending database migrations apply before the server starts. Take a backup first. If a release needs a manual step, its notes say so.
+
+Upgrading a server that runs the `hosted` preset, or sets `ModelProviders` to `OperatorList`, to a version that enforces `AllowedModelProviderKinds`: until you list the kinds to offer (`Drover:Policy:Rules:AllowedModelProviderKinds:0`, `:1`, and so on, for example `venice`), no kind is offered, every existing model connection fails with "The operator of this server switched {kind} off.", and no new one can be made. The server logs a warning at start when that is the case. A self-hosted server on the default `All` is not affected.
 
 `docker compose down` keeps your data. `docker compose down --volumes` deletes every volume, including the key ring.
 

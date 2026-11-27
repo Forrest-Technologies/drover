@@ -288,7 +288,7 @@ Not built yet: an approval that nobody answers is meant to expire (default 24 ho
 
 ## Rules
 
-A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) are checked at four points of a run, each time against the rules as they are stored at that moment, by the one evaluator in `Drover.Domain.Rules`. No model is asked whether a rule applies, with one exception that only narrows: a rule written as a sentence, which the space's decision model judges and code decides ("Rules written as a sentence", below; ADR 0024). A rule that applies writes `rule.fired`.
+A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) are checked at four points of a run, each time against the rules as they are stored at that moment, by the one evaluator in `Drover.Domain.Rules`. No model is asked whether a rule applies, with one exception that only narrows: a rule written as a sentence, which the space's decision model judges and code decides ("Rules written as a sentence", below; ADR 0025). A rule that applies writes `rule.fired`.
 
 | Checkpoint | Where | What each effect does |
 | --- | --- | --- |

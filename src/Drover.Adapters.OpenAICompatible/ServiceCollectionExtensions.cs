@@ -2,6 +2,8 @@ namespace Drover.Adapters.OpenAICompatible;
 
 public static class ServiceCollectionExtensions
 {
+    #region Public Methods
+
     /// <summary>
     /// Registers the compatible-endpoint provider. Streaming replies and reasoning models run for minutes, so the
     /// timeouts are wider than the resilience defaults. Each endpoint gets its own pipeline, so one failing server
@@ -10,20 +12,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddOpenAICompatibleProvider(this IServiceCollection services)
     {
-        services.AddHttpClient(OpenAICompatibleProvider.HttpClientName)
-            .AddStandardResilienceHandler(options =>
-            {
-                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(6);
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
-
-                options.Retry.ShouldHandle = arguments =>
-                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome));
-                options.CircuitBreaker.ShouldHandle = arguments =>
-                    ValueTask.FromResult(RetryRules.CountsAgainstCircuit(arguments.Outcome));
-            })
-            .SelectPipelineByAuthority();
-
+        services.AddModelHttpClient(OpenAICompatibleProvider.HttpClientName);
         services.AddHttpClient(OpenAICompatibleProvider.RealtimeHttpClientName);
 
         services.AddSingleton<OpenAICompatibleProvider>();
@@ -34,6 +23,19 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRealtimeVoice>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
         services.AddSingleton<CompatibleChatClientBuilder>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().CreateProtocolClient);
         services.AddSingleton<CompatibleImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().GenerateCompatibleImage);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers OpenAI on its Responses API, with its own named client and pipeline, under the same rules as the
+    /// compatible client: wide timeouts, and a model call repeated only when the provider certainly did not run it.
+    /// </summary>
+    public static IServiceCollection AddOpenAIProvider(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenAIProvider.HttpClientName);
+        services.AddSingleton<OpenAIProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAIProvider>());
 
         return services;
     }
@@ -50,4 +52,25 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITextToSpeech>(provider => provider.GetRequiredService<OperatorSpeech>());
         return services.AddHttpClient(OperatorSpeech.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(5));
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static void AddModelHttpClient(this IServiceCollection services, string name) =>
+        services.AddHttpClient(name)
+            .AddStandardResilienceHandler(options =>
+            {
+                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(6);
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
+
+                options.Retry.ShouldHandle = arguments =>
+                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome));
+                options.CircuitBreaker.ShouldHandle = arguments =>
+                    ValueTask.FromResult(RetryRules.CountsAgainstCircuit(arguments.Outcome));
+            })
+            .SelectPipelineByAuthority();
+
+    #endregion
 }

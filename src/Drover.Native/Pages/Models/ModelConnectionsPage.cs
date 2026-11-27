@@ -17,7 +17,15 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Dialog replaceDialog = new();
 
-    private readonly SegmentedControl provider = new() { Label = "Provider", Options = ModelConnectionsViewModel.Providers };
+    private readonly Select provider = new() { Label = "Provider" };
+
+    private readonly TextBlock providersLoading = PageParts.Waiting(NamedProviders.LoadingWords);
+
+    private readonly StatusNote providersFailed = new() { Kind = NoteKind.Danger, Text = NamedProviders.FailedWords };
+
+    private readonly TextBlock reach = Styles.Text(NamedProviders.ReachWords, "DvTextSecondary");
+
+    private readonly Link keyLink = new();
 
     private readonly Field nameField;
 
@@ -34,6 +42,10 @@ public sealed class ModelConnectionsPage : Screen
     private readonly StatusNote replaceProblem = new() { Kind = NoteKind.Danger };
 
     private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
+
+    private readonly Button retryProviders;
+
+    private readonly Button changeAddress;
 
     private readonly Button cancelAdd;
 
@@ -52,14 +64,19 @@ public sealed class ModelConnectionsPage : Screen
         nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
         baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url",
             "Any server that speaks the chat completions API.");
-        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", KeyHint());
+        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", model.Named.KeyHint);
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
-        provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
+        provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
         {
-            model.ChooseProvider(provider.Value ?? model.Kind);
-            UpdateAddForm();
+            if (provider.Value.Length > 0 && provider.Value != model.Named.Choice)
+            {
+                model.ChooseProvider(provider.Value);
+                UpdateAddForm();
+            }
         });
+        retryProviders = PageParts.Action(NamedProviders.RetryWords, async () => { await model.RetryProviders(); UpdateAddForm(); }, UpdateAddForm);
+        changeAddress = PageParts.Action(NamedProviders.ChangeAddressWords, () => { model.ChangeAddress(); UpdateAddForm(); return Task.CompletedTask; }, UpdateAddForm);
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
         keyField.Submitted += (_, _) => Run(model.Add);
@@ -67,7 +84,7 @@ public sealed class ModelConnectionsPage : Screen
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = PageParts.SheetBody(provider, nameField, baseUrlField, keyField, addProblem, addBusy);
+        addSheet.Body = PageParts.SheetBody(provider, providersLoading, providersFailed, retryProviders, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -251,20 +268,38 @@ public sealed class ModelConnectionsPage : Screen
     private void UpdateAddForm()
     {
         var busy = model.AddingBusy;
-        if (provider.Value != model.Kind)
+        var providers = model.Named;
+        IReadOnlyList<SelectOption> options = [.. providers.Options.Select(option => new SelectOption(option.Value, option.Label))];
+        if (!provider.Options.SequenceEqual(options))
         {
-            provider.Value = model.Kind;
+            provider.Options = options;
+        }
+
+        if (provider.Value != providers.Choice)
+        {
+            provider.Value = providers.Choice;
         }
 
         provider.Disabled = busy;
+        providersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
+        providersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        retryProviders.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        reach.Text = providers.ReachNote ?? string.Empty;
+        reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
+        changeAddress.Visibility = providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
+        keyField.Label = providers.KeyLabel;
+        keyField.Visibility = providers.ShowsKey ? Visibility.Visible : Visibility.Collapsed;
+        keyLink.Text = providers.KeyLinkText ?? string.Empty;
+        keyLink.Address = providers.KeyLinkAddress;
+        keyLink.Visibility = providers.KeyLinkText is null || !providers.ShowsKey ? Visibility.Collapsed : Visibility.Visible;
         nameField.Value = model.Name;
         nameField.Disabled = busy;
         baseUrlField.Value = model.BaseUrl;
         baseUrlField.Disabled = busy;
         keyField.Value = model.ApiKey;
         keyField.Disabled = busy;
-        keyField.Hint = KeyHint();
-        baseUrlField.Visibility = model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
+        keyField.Hint = providers.KeyHint;
+        baseUrlField.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
         addProblem.Text = model.AddProblem;
         addBusy.Text = busy ? "Adding the connection." : string.Empty;
         addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
@@ -283,10 +318,6 @@ public sealed class ModelConnectionsPage : Screen
         cancelReplace.IsEnabled = !busy;
         saveKey.IsEnabled = !busy && model.Replacing is not null;
     }
-
-    private string KeyHint() => model.Kind is "openai_compatible"
-        ? "Leave this empty if the server needs no key."
-        : "Made in your Venice account, under API keys.";
 
     private Drover.Contracts.Models.ModelConnectionSummary? Replacing() =>
         model.Replacing is { } id ? model.Connections?.FirstOrDefault(connection => connection.Id == id) : null;

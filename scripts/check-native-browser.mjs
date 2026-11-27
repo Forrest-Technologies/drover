@@ -77,6 +77,19 @@ const connectionId = '0196f1a0-0000-7000-8000-000000000003';
 const htmlFileId = '0196f1a0-0000-7000-8000-0000000000f1';
 const person = { userId: '00000000-0000-7000-8000-0000000000a1', email: 'sample@example.test', displayName: 'Sample person', spaces: [{ id: spaceId, kind: 'personal', name: 'Sample space', handle: 'sample', role: 'owner' }] };
 const connection = { id: connectionId, name: 'Sample connection', kind: 'venice', baseUrl: null, hasKey: true, status: 'ready', defaultModel: 'sample-model', balances: [], balanceReadAt: null, lastCheckedAt: null };
+// The kinds the server offers, in the contract's shape. The compatible kind carries two named providers made up for the
+// check and marked as samples: one hosted with a key page, one on the person's own machine with no key.
+const providerKinds = [
+    { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, namedProviders: [] },
+    {
+        kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required',
+        addressHint: 'The address of the server, starting with http:// or https://.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false,
+        namedProviders: [
+            { id: 'sample-hosted', displayName: 'Sample hosted provider', address: 'https://hosted.example.test/v1', keyRule: 'required', keyPage: 'https://keys.example.test/', local: false },
+            { id: 'sample-local', displayName: 'Sample local server', address: 'http://localhost:9/v1', keyRule: 'none', keyPage: null, local: true },
+        ],
+    },
+];
 const bot = { id: botId, name: 'Sample bot', handle: 'sample-bot', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
 const botDetail = {
     ...bot, avatar: {}, descriptionForBots: 'Sample purpose', modelSettings: { webSearch: 'off' },
@@ -446,6 +459,7 @@ try {
                     };
                 }
                 else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
+                else if (address === '/api/model-provider-kinds') { body = providerKinds; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {

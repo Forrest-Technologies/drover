@@ -1,0 +1,19 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's Responses API reference and guides (https://developers.openai.com/api/reference/resources/responses/methods/create, https://developers.openai.com/api/docs/guides/streaming-responses, read 2026-11-26). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 401,
+      "body": {
+        "error": {
+          "message": "Incorrect API key provided.",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": "invalid_api_key"
+        }
+      }
+    }
+  ]
+}

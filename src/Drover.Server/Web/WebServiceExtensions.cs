@@ -9,10 +9,10 @@ public static class WebServiceExtensions
     /// cookies and with redirects left to the reader, and no request of it states a space's rule, so a page is never
     /// read from a private address whatever the deployment allows. <c>web.search</c> is registered only when the
     /// operator names a search service in <c>Drover:WebSearch:SearXng:BaseUrl</c>, an http or https address; without
-    /// one the server has no search, which is not an error. That address is the operator's own configuration, so it
-    /// may be private where the deployment allows private addresses (a search service beside the server is the usual
-    /// setup), and its client disables redirects and cookies so the operator permission never follows a redirect to
-    /// another origin.
+    /// one the server has no search, which is not an error. That address is the operator's own configuration, which no
+    /// space, person or bot can change, so it may be private (a search service beside the server is the usual setup)
+    /// even where the deployment forbids private addresses, and its client disables redirects and cookies so the
+    /// operator permission never follows a redirect to another origin.
     /// </summary>
     public static IServiceCollection AddDroverWebTools(this IServiceCollection services, IConfiguration configuration)
     {
@@ -28,8 +28,7 @@ public static class WebServiceExtensions
 
         services.TryAddTransient<OperatorAddressHandler>();
         services.AddSearXngSearch(options => options.BaseUrl = address)
-            .ConfigurePrimaryHttpMessageHandler(provider =>
-                OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
+            .ConfigurePrimaryHttpMessageHandler(OutboundHttp.CreateOperatorHandler)
             .AddHttpMessageHandler<OperatorAddressHandler>();
         return services.AddWebSearch();
     }

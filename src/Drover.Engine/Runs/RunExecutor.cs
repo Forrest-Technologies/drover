@@ -10,7 +10,7 @@ namespace Drover.Engine.Runs;
 public sealed partial class RunExecutor(
     RunScopes scopes,
     IAgentRuntime runtime,
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     IEnumerable<BuiltinTool> builtins,
     IEnumerable<IToolSource> toolSources,
     RunEventHub hub,
@@ -627,7 +627,7 @@ public sealed partial class RunExecutor(
 
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
-        var provider = providers.First(candidate => candidate.Kind == connection.Kind);
+        var provider = catalog.Resolve(connection.Kind).Provider!;
         var endpoint = new ModelEndpoint(connection.Kind, provider.FixedAddress ?? new Uri(connection.BaseUrl!))
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
@@ -906,10 +906,17 @@ public sealed partial class RunExecutor(
             return Failed("bot_unavailable", "This bot is paused or removed, so it cannot answer.");
         }
 
-        if (loaded.Connection is not { } connection || providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind) is not { } provider
-            || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
+        if (loaded.Connection is not { } connection)
         {
             return Failed("model_unavailable", "The bot's model connection is missing or this server has no adapter for it.");
+        }
+
+        var resolution = catalog.Resolve(connection.Kind);
+
+        if (resolution.Provider is not { } provider
+            || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
+        {
+            return Failed("model_unavailable", resolution.Refusal ?? "The bot's model connection is missing or this server has no adapter for it.");
         }
 
         if (!loaded.KeyReadable)

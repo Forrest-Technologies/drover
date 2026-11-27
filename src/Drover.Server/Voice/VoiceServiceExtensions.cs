@@ -23,8 +23,9 @@ public static class VoiceServiceExtensions
     /// speech service is optional: <c>Drover:Voice:Speech:BaseUrl</c> names a compatible speech endpoint that reads
     /// aloud (with <c>:Model</c>, default <c>kokoro</c>, and <c>:Voice</c>, default <c>af_heart</c>), and
     /// <c>Drover:Voice:Transcription:BaseUrl</c> one that writes down recordings (its <c>:Model</c> is required).
-    /// Both are the operator's own configuration, so they may be private addresses where the deployment allows
-    /// private addresses, and their client follows no redirect, so that permission never reaches another origin.
+    /// Both are the operator's own configuration, which no space, person or bot can change, so they may be private
+    /// addresses (a speech container beside the server is the usual setup) even where the deployment forbids private
+    /// addresses, and their client follows no redirect, so that permission never reaches another origin.
     /// A space with no speech model of its own falls back to them.
     /// </summary>
     public static IServiceCollection AddDroverVoice(this IServiceCollection services, IConfiguration configuration)
@@ -40,8 +41,7 @@ public static class VoiceServiceExtensions
 
         services.TryAddTransient<OperatorAddressHandler>();
         services.AddOperatorSpeech()
-            .ConfigurePrimaryHttpMessageHandler(provider =>
-                OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
+            .ConfigurePrimaryHttpMessageHandler(OutboundHttp.CreateOperatorHandler)
             .AddHttpMessageHandler<OperatorAddressHandler>();
         return services;
     }
