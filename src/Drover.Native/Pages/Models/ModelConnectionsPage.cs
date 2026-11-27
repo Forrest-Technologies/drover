@@ -286,16 +286,19 @@ public sealed class ModelConnectionsPage : Screen
         }
 
         provider.Disabled = providerSegments.Disabled = busy;
-        provider.Visibility = providers.ShowsChoice && providers.UsesList ? Visibility.Visible : Visibility.Collapsed;
-        providerSegments.Visibility = providers.ShowsChoice && !providers.UsesList ? Visibility.Visible : Visibility.Collapsed;
+        var phone = XamlRoot is { Size.Width: > 0 } root && root.Size.Width < (double)Styles.Dictionary["DvBreakPhone"];
+        var list = providers.UsesListWhen(phone);
+        provider.Visibility = providers.ShowsChoice && list ? Visibility.Visible : Visibility.Collapsed;
+        providerSegments.Visibility = providers.ShowsChoice && !list ? Visibility.Visible : Visibility.Collapsed;
         onlyKind.Text = providers.OnlyKindWords ?? string.Empty;
         onlyKind.Visibility = providers.OnlyKindWords is null ? Visibility.Collapsed : Visibility.Visible;
         baseUrlField.Hint = providers.AddressHint;
         baseUrlField.Error = model.AddressProblem;
         keyField.Error = model.AddKeyProblem;
         providersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
-        providersFailed.Cause = providers.FailureWords ?? NamedProviders.FailedCause;
-        providersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        providersFailed.Title = providers.StateTitle;
+        providersFailed.Cause = providers.StateCause;
+        providersFailed.Visibility = providers.ShowsState ? Visibility.Visible : Visibility.Collapsed;
         var form = providers.ShowsForm ? Visibility.Visible : Visibility.Collapsed;
         nameField.Visibility = form;
         reach.Text = providers.ReachNote ?? string.Empty;

@@ -44,7 +44,7 @@ public sealed partial class ConnectModelViewModel(
 
     #region Properties
 
-    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    /// <summary>The provider choice and what the form shows for it, drawn from the kinds the server offers.</summary>
     public NamedProviders Named => named ??= MakeNamed();
 
     public string Kind => Named.Kind;
@@ -98,11 +98,6 @@ public sealed partial class ConnectModelViewModel(
         Busy = true;
         try
         {
-            if (!Named.Offers(Kind) && Named.State == NamedProvidersState.Loaded)
-            {
-                Problem = $"This server no longer offers {Kind}. Choose another provider.";
-                return;
-            }
 
             Connection = await SaveConnection();
             Result = await api.TestModelConnection(SpaceId, Connection.Id);

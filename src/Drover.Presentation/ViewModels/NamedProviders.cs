@@ -24,6 +24,10 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public const string FailedTitle = "Drover could not load the providers";
 
+    public const string NoneTitle = "This server offers no model provider";
+
+    public const string NoneCause = "The operator of this server has switched every provider off. Ask them to turn one on, then try again.";
+
     public const string RetryWords = "Try again";
 
     /// <summary>What the failure note says before the server has given a sentence.</summary>
@@ -41,6 +45,9 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     /// <summary>The largest number of choices shown as a segmented control. Five or more are a list.</summary>
     public const int MostSegments = 4;
+
+    /// <summary>The largest number of choices shown as segments on a phone-width screen.</summary>
+    public const int MostSegmentsNarrow = 3;
 
     private const string AnotherCompatibleWords = "Another compatible server";
 
@@ -84,7 +91,13 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     public bool ShowsChoice => Options.Count > 1;
 
     /// <summary>Whether the choice is drawn as a list rather than as segments. The order is the server's either way.</summary>
-    public bool UsesList => Options.Count > MostSegments;
+    public bool UsesList => UsesListWhen(narrow: false);
+
+    /// <summary>
+    /// Whether the choice is a list at this width. Four segments with their labels do not fit a phone, so a narrow
+    /// screen draws a list from the fourth choice on.
+    /// </summary>
+    public bool UsesListWhen(bool narrow) => Options.Count > (narrow ? MostSegmentsNarrow : MostSegments);
 
     /// <summary>The line that says which kind a server with one kind uses, or null.</summary>
     public string? OnlyKindWords => State == NamedProvidersState.Loaded && !ShowsChoice && Descriptor is { } only
@@ -129,8 +142,18 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     /// <summary>The server's sentence for why the kinds could not be read, shown under the failure title.</summary>
     public string? FailureWords { get; private set; }
 
-    /// <summary>Whether the form is drawn. It is not while the kinds are being read or could not be read.</summary>
-    public bool ShowsForm => State == NamedProvidersState.Loaded;
+    /// <summary>True when the kinds were read and the server offers none, for example when the operator switched them all off.</summary>
+    public bool OffersNone => State == NamedProvidersState.Loaded && kinds.Count == 0;
+
+    /// <summary>Whether the form is drawn. It is not while the kinds are being read, when they could not be, or when there are none.</summary>
+    public bool ShowsForm => State == NamedProvidersState.Loaded && kinds.Count > 0;
+
+    /// <summary>Whether a state is drawn in place of the form: the kinds could not be read, or there are none.</summary>
+    public bool ShowsState => ShowsFailure || OffersNone;
+
+    public string StateTitle => OffersNone ? NoneTitle : FailedTitle;
+
+    public string StateCause => OffersNone ? NoneCause : FailureWords ?? FailedCause;
 
     public bool ShowsLoading => State == NamedProvidersState.Loading;
 

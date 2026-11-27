@@ -5,18 +5,20 @@ public static class ModelServiceExtensions
     #region Public Methods
 
     /// <summary>
-    /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each, in the
-    /// order their registrations require (the compatible transport first, because Venice builds its chat client from
-    /// it). A new provider kind is one more call here.
+    /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
+    /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
+    /// provider choice in every form: Venice, the first hosted provider, then the compatible kind with the named
+    /// providers it carries, so the choice starts on a provider that needs only a key. A new provider kind is one
+    /// more call here.
     /// </summary>
     public static IServiceCollection AddDroverModels(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddModelProvider<OpenAICompatibleProvider>(
             adapter => adapter.AddOpenAICompatibleProvider(),
             OpenAICompatibleProvider.HttpClientName,
             OpenAICompatibleProvider.RealtimeHttpClientName);
-        services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         return services;

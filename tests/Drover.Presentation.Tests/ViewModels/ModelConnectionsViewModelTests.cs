@@ -111,6 +111,22 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_server_that_offers_no_kind_draws_a_state_in_place_of_the_form()
+    {
+        server.Answer("GET", PresetsPath, Array.Empty<ModelProviderKindResponse>());
+        var model = Models();
+
+        await model.Open();
+        model.StartAdding();
+        await model.Add();
+
+        model.Named.ShowsForm.Should().BeFalse();
+        model.Named.ShowsState.Should().BeTrue();
+        model.Named.StateTitle.Should().Be("This server offers no model provider");
+        server.Sent("POST", $"{space}/model-connections").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_connection_of_an_offered_kind_is_not_off_and_nothing_is_said_while_the_list_is_unread()
     {
         var kept = new ModelConnectionSummary(
@@ -126,7 +142,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
         await model.RetryProviders();
         model.IsOff(kept).Should().BeFalse();
         model.StatusOf(kept).Should().Be((BadgeKind.Ok, "Working"));
-        model.Facts(kept).Should().StartWith("venice · key stored");
+        model.Facts(kept).Should().StartWith("Venice · key stored");
     }
 
     [Fact]

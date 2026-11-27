@@ -194,6 +194,8 @@ public sealed class ConnectModelViewModelTests : IDisposable
         model.Named.Options.Select(option => option.Label).Should().Equal("Venice", "Another compatible server", "Sample third");
         model.Named.Options.Select(option => option.Value).Should().Equal("venice", "openai_compatible", "sample-third");
         model.Named.UsesList.Should().BeFalse("up to four choices are segments");
+        model.Named.UsesListWhen(narrow: true).Should().BeFalse("three fit a phone");
+        SampleProviders.KindsWithThird().Length.Should().Be(3);
         model.Named.Choice.Should().Be("venice", "the first kind in the server's order is chosen at first");
 
         model.ChooseProvider("sample-third");
@@ -222,6 +224,19 @@ public sealed class ConnectModelViewModelTests : IDisposable
         model.Named.ShowsChoice.Should().BeFalse();
         model.Named.OnlyKindWords.Should().Be("This server uses Sample third.");
         model.Kind.Should().Be("sample-third");
+    }
+
+    [Fact]
+    public async Task Four_choices_are_segments_on_a_wide_screen_and_a_list_on_a_phone()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All[0], SampleProviders.All[1]));
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.Options.Should().HaveCount(4);
+        model.Named.UsesListWhen(narrow: false).Should().BeFalse();
+        model.Named.UsesListWhen(narrow: true).Should().BeTrue();
     }
 
     [Fact]
@@ -366,6 +381,23 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
         model.KeyProblem.Should().Be("Enter the key.");
         navigator.Current.Should().NotBe(Addresses.SetupBot);
+    }
+
+    [Fact]
+    public async Task A_server_that_offers_no_kind_draws_a_state_in_place_of_the_form()
+    {
+        server.Answer("GET", PresetsPath, Array.Empty<ModelProviderKindResponse>());
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.OffersNone.Should().BeTrue();
+        model.Named.ShowsForm.Should().BeFalse();
+        model.Named.ShowsState.Should().BeTrue();
+        model.Named.StateTitle.Should().Be("This server offers no model provider");
+        model.Named.StateCause.Should().Contain("The operator of this server has switched every provider off");
+        await model.Test();
+        server.Sent("POST", $"{space}/model-connections").Should().BeEmpty("there is no kind to connect");
     }
 
     [Fact]

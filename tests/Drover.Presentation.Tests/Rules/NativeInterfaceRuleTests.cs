@@ -250,15 +250,16 @@ public sealed partial class NativeInterfaceRuleTests
     [Fact]
     public void No_provider_kind_is_named_in_client_source()
     {
-        // The one kind the client names is the compatible one, once, in NamedProviders: a named provider is a
-        // starting point for it, and it is the kind that still works when the list of kinds cannot be read.
-        var kinds = new[] { "venice", OpenAICompatibleProvider.ConnectionKind };
+        // The kinds are the ones the adapters name, read from their source. The one kind the client names is the
+        // compatible one, once, in NamedProviders: a named provider is a starting point for it.
+        var kinds = Repository.ProviderKinds;
         var found = from file in Repository.NativeFiles(".xaml", ".cs").Concat(Repository.PresentationFiles(".cs"))
                     from kind in kinds
                     where file.Text.Contains($"\"{kind}\"", StringComparison.Ordinal)
                     where !(kind == OpenAICompatibleProvider.ConnectionKind && file.Path.EndsWith("NamedProviders.cs", StringComparison.Ordinal))
                     select $"{file.Path}: \"{kind}\"";
 
+        kinds.Should().Contain(OpenAICompatibleProvider.ConnectionKind).And.Contain("venice");
         found.Should().BeEmpty("the kinds, their names and what each asks for come from the server");
     }
 

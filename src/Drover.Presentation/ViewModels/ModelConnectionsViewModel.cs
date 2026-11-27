@@ -79,7 +79,7 @@ public sealed partial class ModelConnectionsViewModel(
 
     public IReadOnlyDictionary<Guid, string> Problems => problems;
 
-    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    /// <summary>The provider choice and what the form shows for it, drawn from the kinds the server offers.</summary>
     public NamedProviders Named => named ??= MakeNamed();
 
     public string Kind => Named.Kind;
@@ -129,7 +129,7 @@ public sealed partial class ModelConnectionsViewModel(
 
     public string Facts(ModelConnectionSummary connection)
     {
-        var kindWords = KindName(connection).ToLowerInvariant();
+        var kindWords = KindName(connection);
         var key = connection.HasKey ? "key stored" : "no key";
         var checkedWords = connection.LastCheckedAt is { } at ? $"checked {at.ToLocalTime():g}" : "never checked";
         return $"{kindWords} · {key} · {checkedWords}";

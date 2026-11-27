@@ -26,9 +26,13 @@
       <Grid x:Name="Actions">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <dv:Button x:Name="Test" HorizontalAlignment="Stretch" Content="Test connection" Command="{x:Bind Model.TestCommand}" />
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <dv:Button x:Name="Test" HorizontalAlignment="Stretch" Kind="Quiet" Content="Test connection" Command="{x:Bind Model.TestCommand}" />
         <dv:Button x:Name="Continue" Grid.Column="1" HorizontalAlignment="Stretch" Kind="Primary" Content="Continue" Command="{x:Bind Model.ContinueCommand}" />
       </Grid>
       </StackPanel>

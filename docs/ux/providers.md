@@ -70,6 +70,7 @@ The provider choice is drawn from `GET /api/model-provider-kinds`, in the server
 | The list could not be read | `EmptyState` in place of the form: title `Drover could not load the providers`, the failure sentence, action `Try again` |
 | A server with one kind and no named providers | No choice. `This server uses {kind}.` |
 | A server whose kind is switched off for an existing connection | The Models row shows the `Off` badge and `The operator of this server switched {kind} off.` |
+| The server offers no kind | `EmptyState` in place of the form: title `This server offers no model provider`, cause `The operator of this server has switched every provider off. Ask them to turn one on, then try again.`, action `Try again` |
 | A required field is empty and a button is pressed | Under the field: `Enter the base address.` or `Enter the key.` |
 
 No provider name or id is written in the client; all of it comes from the server.

@@ -28,6 +28,7 @@ public sealed partial class ConnectModelPage : Screen
             }
         });
         Model.PropertyChanged += (_, _) => Refresh();
+        SizeChanged += (_, _) => Refresh();
         Refresh();
     }
 
@@ -69,8 +70,9 @@ public sealed partial class ConnectModelPage : Screen
             ProviderSegments.Value = providers.Choice;
         }
 
-        Provider.Visibility = providers.ShowsChoice && providers.UsesList ? Visibility.Visible : Visibility.Collapsed;
-        ProviderSegments.Visibility = providers.ShowsChoice && !providers.UsesList ? Visibility.Visible : Visibility.Collapsed;
+        var list = providers.UsesListWhen(IsPhone());
+        Provider.Visibility = providers.ShowsChoice && list ? Visibility.Visible : Visibility.Collapsed;
+        ProviderSegments.Visibility = providers.ShowsChoice && !list ? Visibility.Visible : Visibility.Collapsed;
         OnlyKind.Text = providers.OnlyKindWords ?? string.Empty;
         OnlyKind.Visibility = providers.OnlyKindWords is null ? Visibility.Collapsed : Visibility.Visible;
         Address.Hint = providers.AddressHint;
@@ -78,8 +80,9 @@ public sealed partial class ConnectModelPage : Screen
         Key.Error = Model.KeyProblem;
 
         ProvidersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
-        ProvidersFailed.Cause = providers.FailureWords ?? NamedProviders.FailedCause;
-        ProvidersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        ProvidersFailed.Title = providers.StateTitle;
+        ProvidersFailed.Cause = providers.StateCause;
+        ProvidersFailed.Visibility = providers.ShowsState ? Visibility.Visible : Visibility.Collapsed;
         Form.Visibility = providers.ShowsForm ? Visibility.Visible : Visibility.Collapsed;
         Reach.Text = providers.ReachNote ?? string.Empty;
         Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
@@ -95,12 +98,25 @@ public sealed partial class ConnectModelPage : Screen
         Outcome.Visibility = Model.Busy ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;
         Continue.Visibility = Visibility.Visible;
-        Actions.ColumnDefinitions[1].Width = Model.Passed ? new(1, GridUnitType.Star) : GridLength.Auto;
-        Actions.ColumnSpacing = Model.Passed ? Tokens.Number("DvSpace2") : 0;
+        ArrangeActions();
         Continue.IsEnabled = Test.IsEnabled = !Model.Busy;
-        Continue.Kind = Model.Passed ? ButtonKind.Primary : ButtonKind.Quiet;
-        Test.Kind = Model.Passed ? ButtonKind.Quiet : ButtonKind.Primary;
         Test.Content = Model.Busy ? "Testing" : Model.Passed ? "Test again" : "Test connection";
+    }
+
+    private bool IsPhone() => XamlRoot is { Size.Width: > 0 } root && root.Size.Width < (double)Styles.Dictionary["DvBreakPhone"];
+
+    // Test connection is Quiet and Continue is Primary, side by side with a gap. Below the phone width the two stack,
+    // Continue first.
+    private void ArrangeActions()
+    {
+        var phone = IsPhone();
+        Actions.ColumnSpacing = phone ? 0 : Tokens.Number("DvSpace2");
+        Actions.RowSpacing = phone ? Tokens.Number("DvSpace2") : 0;
+        Actions.ColumnDefinitions[1].Width = phone ? new(0) : new(1, GridUnitType.Star);
+        Grid.SetRow(Continue, 0);
+        Grid.SetColumn(Continue, phone ? 0 : 1);
+        Grid.SetRow(Test, phone ? 1 : 0);
+        Grid.SetColumn(Test, 0);
     }
 
     private void Submit(object? sender, EventArgs args)
