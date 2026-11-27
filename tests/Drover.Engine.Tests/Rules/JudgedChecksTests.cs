@@ -181,9 +181,9 @@ public sealed class JudgedChecksTests(PostgresServer postgres)
 
         var runId = await world.Post(await world.NewThread(), "Pay both");
 
-        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed, RunStatus.Waiting)).Status.Should().Be(RunStatus.Waiting);
         judge.Requests.Should().ContainSingle("the bot's limit is one check a run");
-        tools.Count("invoice.pay").Should().Be(1, "the second call is unsure, and goes to a person");
+        tools.Count("invoice.pay").Should().Be(1, "the second call is unsure, and waits for a person");
         Checked(await world.ReadEvents(runId)).Select(check => check.Outcome).Should().Equal("passes", "unsure");
         (await world.ReadRun(runId)).Usage.JudgedChecks.Should().Be(1);
     }
@@ -313,7 +313,7 @@ public sealed class JudgedChecksTests(PostgresServer postgres)
 
         var runId = await world.Post(await world.NewThread(), "Send it");
 
-        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed, RunStatus.Waiting)).Status.Should().Be(RunStatus.Waiting);
         tools.Count("email.send").Should().Be(0);
         Checked(await world.ReadEvents(runId)).Should().ContainSingle().Which.Outcome.Should().Be("unsure");
         (await world.ReadUsage(runId)).Should().OnlyContain(record => record.ModelConnectionId == world.ConnectionId, "no check was made, so none is recorded");

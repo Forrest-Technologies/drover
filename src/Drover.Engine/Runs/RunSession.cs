@@ -193,21 +193,29 @@ public sealed class RunSession(
     }
 
     /// <summary>
-    /// True when a rule asks a person before this tool is used, going by the rule's conditions about the tool alone.
-    /// The framework can stop for approval only on tools marked for it when the agent is built, before any argument
-    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask. A rule
-    /// written as a sentence marks no tool yet: until it can pause a tool, a person it would ask is asked by refusing
-    /// the call and saying approval is needed.
+    /// True when a rule decided by code asks a person before this tool is used, going by the rule's conditions about
+    /// the tool alone. The framework can stop for approval only on tools marked for it when the agent is built, before
+    /// any argument is known, so a rule that asks only for some arguments makes every call of the tools it could apply
+    /// to ask.
     /// </summary>
     public bool RuleAsks(RunTool tool) =>
-        RulesAtBuild.Any(rule =>
-            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask, Judged: null }
-            && rule.Conditions.All(condition => condition.Kind switch
-            {
-                RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
-                RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Tool.Sensitivity),
-                _ => true,
-            }));
+        RulesAtBuild.Any(rule => rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask, Judged: null } && Reaches(rule, tool));
+
+    /// <summary>
+    /// True when a rule written as a sentence, of this bot or one above it, is about calls of this tool, going by its
+    /// conditions about the tool alone (every tool, when it has none). Such a tool is held for approval at each call, and
+    /// the rule check then decides whether a person is asked: see <see cref="RunGovernor.ClearsWithoutAPerson"/>.
+    /// </summary>
+    public bool JudgedRuleReaches(RunTool tool) =>
+        RulesAtBuild.Any(rule => rule is { Checkpoint: RuleCheckpoint.BeforeTool, Judged: not null } && Reaches(rule, tool));
+
+    private static bool Reaches(ActiveRule rule, RunTool tool) =>
+        rule.Conditions.All(condition => condition.Kind switch
+        {
+            RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
+            RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Tool.Sensitivity),
+            _ => true,
+        });
 
     /// <summary>
     /// A child run of this one waits for a person. This run stops where it is and waits too: its call to the child

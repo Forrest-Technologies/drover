@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261127075731_DecisionConnections";
+    public override string LastMigrationId => "20261127081644_ToolCallsClearedByRuleCheck";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1877,6 +1877,11 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("uuid")
                     .HasColumnName("id");
 
+                b.Property<string>("ApprovalRequestId")
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("approval_request_id");
+
                 b.Property<JsonElement>("Arguments")
                     .ValueGeneratedOnAdd()
                     .HasColumnType("jsonb")
@@ -1890,6 +1895,10 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid?>("ChildRunId")
                     .HasColumnType("uuid")
                     .HasColumnName("child_run_id");
+
+                b.Property<DateTimeOffset?>("ClearedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("cleared_at");
 
                 b.Property<DateTimeOffset?>("DecidedAt")
                     .HasColumnType("timestamp with time zone")
@@ -1910,6 +1919,11 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<bool>("IsError")
                     .HasColumnType("boolean")
                     .HasColumnName("is_error");
+
+                b.Property<string>("ModelCallId")
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("model_call_id");
 
                 b.Property<JsonElement?>("Result")
                     .HasColumnType("jsonb")
