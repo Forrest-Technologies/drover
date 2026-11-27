@@ -7,7 +7,8 @@ namespace Drover.Contracts.Models;
 /// <see cref="ModelKeyRules"/>, <see cref="AddressRule"/> one of <see cref="ModelAddressRules"/>. <see cref="SignIn"/>
 /// is true for a kind each person connects by signing in with their own account, which takes no key in the form;
 /// <see cref="SignInName"/> is what its button calls the provider, and <see cref="UsagePage"/> the provider's own public
-/// page where a person manages their plan's use, when it has one.
+/// page where a person manages their plan's use, when it has one. <see cref="PersonalPlan"/> is true for a sign-in
+/// kind that uses a person's paid plan, and false for one that uses their account (the screens say "plan" or "account").
 /// </summary>
 public sealed record ModelProviderKindResponse(
     string Kind,
@@ -20,7 +21,8 @@ public sealed record ModelProviderKindResponse(
     IReadOnlyList<ModelProviderPresetResponse> NamedProviders,
     bool SignIn = false,
     string? SignInName = null,
-    string? UsagePage = null);
+    string? UsagePage = null,
+    bool PersonalPlan = false);
 
 /// <summary>The words the server sends for whether a connection of a kind needs a key.</summary>
 public static class ModelKeyRules

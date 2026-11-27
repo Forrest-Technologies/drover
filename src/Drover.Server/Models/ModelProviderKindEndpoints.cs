@@ -22,7 +22,7 @@ public static class ModelProviderKindEndpoints
     #region Endpoints
 
     private static Ok<List<ModelProviderKindResponse>> ListKinds(ModelProviderCatalog catalog, ModelCredentials credentials) =>
-        TypedResults.Ok(catalog.Offered.Select(descriptor => descriptor.ToResponse(credentials.IsSignInKind(descriptor.Kind))).ToList());
+        TypedResults.Ok(catalog.Offered.Select(descriptor => descriptor.ToResponse(credentials.IsSignInKind(descriptor.Kind), credentials.FindSignIn(descriptor.Kind)?.IsPersonalPlan ?? false)).ToList());
 
     #endregion
 }

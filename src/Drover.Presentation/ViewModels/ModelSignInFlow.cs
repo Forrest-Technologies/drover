@@ -85,8 +85,11 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
     /// <summary>The words of the screen's one primary action, which is never an icon.</summary>
     public string ContinueWords => $"Continue with {Provider}";
 
+    /// <summary>What the person signs in with: their paid "plan", or for a provider whose sign-in is open to any app their "account".</summary>
+    public string Noun => Kind?.PersonalPlan is false ? "account" : "plan";
+
     /// <summary>The one line under the provider's name before anything starts.</summary>
-    public string PlanLine => $"Uses your own {Provider} plan. Drover does not charge for it.";
+    public string PlanLine => $"Uses your own {Provider} {Noun}. Drover does not charge for it.";
 
     /// <summary>The words of <see cref="Action"/>, or null when the state has none.</summary>
     public string? ActionWords => Action switch
@@ -123,7 +126,7 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
         {
             Settle(
                 ModelSignInStage.CannotListen,
-                $"Signing in with a {Provider} plan needs the Drover desktop app for now. You can add an API key here.",
+                $"Signing in with a {Provider} {Noun} needs the Drover desktop app for now. You can add an API key here.",
                 ModelSignInAction.AddKey);
         }
     }
@@ -180,7 +183,7 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
             var signedIn = await api.FinishModelSignIn(spaceId, started.AttemptId, new(returned), CancellationToken.None);
             Connection = signedIn;
             var who = signedIn.SignIn?.AccountLabel is { Length: > 0 } label ? $"Signed in as {label}." : "Signed in.";
-            Settle(ModelSignInStage.Done, $"{who} Your bots can use your {Provider} plan.", ModelSignInAction.None);
+            Settle(ModelSignInStage.Done, $"{who} Your bots can use your {Provider} {Noun}.", ModelSignInAction.None);
         }
         catch (OperationCanceledException stopped) when (patience.IsCancellationRequested)
         {

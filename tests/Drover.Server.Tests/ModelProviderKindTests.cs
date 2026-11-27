@@ -37,7 +37,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             [],
             SignIn: true,
             SignInName: "ChatGPT",
-            UsagePage: "https://chatgpt.com/settings/usage"));
+            UsagePage: "https://chatgpt.com/settings/usage",
+            PersonalPlan: true));
         kinds.Where(kind => kind.Kind != OpenAIPlan && kind.Kind != OpenRouterSignIn.ConnectionKind).Should().OnlyContain(kind => !kind.SignIn, "only a sign-in kind is connected by signing in");
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
@@ -82,7 +83,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
 
         kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).SignIn.Should().BeTrue();
         kinds.Where(kind => kind.SignIn).Select(kind => kind.Kind).Should().Equal(OpenAIPlan, OpenRouterSignIn.ConnectionKind);
-        kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).SignInName.Should().Be("OpenRouter");
+        kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).Should().Match<ModelProviderKindResponse>(kind => kind.SignInName == "OpenRouter" && !kind.PersonalPlan);
     }
 
     [Fact]

@@ -49,6 +49,25 @@ public sealed class ModelSignInFlowTests : IDisposable
     public void Dispose() => server.Dispose();
 
     [Fact]
+    public async Task A_sign_in_that_uses_an_account_and_not_a_plan_says_account_in_every_line()
+    {
+        var kind = new ModelProviderKindResponse("sample_account_signin", "Sample account", "required", "fixed", null, null, false, [], SignIn: true, SignInName: "Sample", PersonalPlan: false);
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/authorize?state=sample", ModelSignInWaits.Return));
+        server.Answer("POST", $"{space}/sign-in/{attemptId}/finish", signedIn with { Kind = kind.Kind });
+        var flow = new ModelSignInFlow(server.CreateApi(), listener, NullLogger.Instance);
+
+        flow.Show(kind);
+        var ready = flow.PlanLine;
+        var running = flow.Start(spaceId, Open);
+        await Until(() => opened.Count == 1);
+        listener.Current!.Bring("code=sample-code&state=sample");
+        await running;
+
+        ready.Should().Be("Uses your own Sample account. Drover does not charge for it.");
+        flow.Sentence.Should().Be("Signed in as sam@example.test. Your bots can use your Sample account.");
+    }
+
+    [Fact]
     public async Task Choosing_a_plan_shows_one_button_and_one_line_and_no_key_or_address()
     {
         var model = await Chosen();
@@ -273,7 +292,7 @@ public sealed class ModelSignInFlowTests : IDisposable
     private static ModelProviderKindResponse[] WithPlan() =>
     [
         .. SampleProviders.WithOwnWire(),
-        new("sample_plan_signin", "Sample plan", "required", "fixed", null, null, false, [], SignIn: true, SignInName: "Sample", UsagePage: "https://usage.example.test/"),
+        new("sample_plan_signin", "Sample plan", "required", "fixed", null, null, false, [], SignIn: true, SignInName: "Sample", UsagePage: "https://usage.example.test/", PersonalPlan: true),
     ];
 
     #endregion
