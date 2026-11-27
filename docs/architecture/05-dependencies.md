@@ -19,6 +19,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 | `ISandboxProvider` | Create, pause, resume, destroy an environment; run commands; read and write files | E2B | Operator's Docker host |
 | `IMemoryStore` | Store and recall long-term memory for a bot | PostgreSQL with `pgvector` (Phase 1) | |
 | `IEmbeddingProvider` | Text to vector | Venice and compatible endpoints, through `IEmbeddingGenerator` (Phase 1) | |
+| `IDecisionModel`, `IDecisionModelProvider` | Ask a decision model typed questions about a state and get probabilities, to judge a rule written as a sentence ([03-run-lifecycle.md](03-run-lifecycle.md#rules)) | `Drover.Adapters.SystemOne`: the state-and-questions API that TypeSafe, Cloudflare Workers AI, OpenRouter, Microsoft Foundry, and other servers serve ([15-model-providers.md](15-model-providers.md#decision-models)) | A provider whose API is another contract, such as OpenAI's Decisions API, as a second adapter |
 | `IWebSearch` | Search the web, for the `web.search` tool | `Drover.Adapters.SearXng`: the operator's own SearXNG instance through its JSON search API, which a self-hoster runs without an account or a key | Venice's search endpoint; any provider with a plain HTTP API and operator key |
 | `ISpeechToText`, `ITextToSpeech`, `IRealtimeVoice` | Write down a recording, read text aloud, and hold a live call with a speech-to-speech model ([15-model-providers.md](15-model-providers.md#voice)) | `Drover.Adapters.OpenAICompatible`, for any endpoint that speaks the compatible audio and realtime protocols, with `HttpClient` and `ClientWebSocket` and no added package; the same adapter on its own client serves the server's own speech service | Venice's speech endpoints |
 | `IPushChannel` | Deliver a wake-up to one subscription | Web Push, which also serves UnifiedPush | Apple relay, Google |
@@ -26,7 +27,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 | `IEmailSender` | Send account email | SMTP through MailKit (Phase 2) | |
 | `ISecretVault` | Protect and reveal secrets by id | ASP.NET Core Data Protection with rows in PostgreSQL | An external key manager for the hosted service |
 
-Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see the simplicity rule in `AGENTS.md`.
+Thirteen interfaces. Nothing else in the codebase gets an interface "in case"; see the simplicity rule in `AGENTS.md`.
 
 `Microsoft.Extensions.AI` stays inside the model SDK adapter and `Drover.Agents`. `IModelClientProvider` returns a Drover-owned `IModelChatClient`; requests, streaming updates, tool declarations, content, usage and citations use Domain records. This is a translation seam, not a replacement for agent sessions, orchestration or tool invocation. A Domain `CompatibleChatClientBuilder` delegate lets Venice compose the shared OpenAI protocol implementation without referencing another adapter. Only `Drover.Adapters.OpenAICompatible` references the OpenAI packages. The shared conversion source is compiled independently inside the two permitted boundary projects.
 
@@ -98,6 +99,8 @@ Phase 1 and 2 additions, already checked:
 No library is used for E2B or for Apple's push service. Neither has an official or well-adopted .NET client, and both are small HTTP APIs. Drover owns those clients inside their adapter projects. See [07-sandbox.md](07-sandbox.md) and [13-deployment-and-push.md](13-deployment-and-push.md).
 
 `Drover.Adapters.SearXng` adds no package either. It uses `System.Net.Http`, `System.Text.Json`, and the client factory that arrives with `Microsoft.Extensions.Http.Resilience`, and it is the only project that knows SearXNG's request and answer shapes.
+
+`Drover.Adapters.SystemOne` adds no package. It uses `System.Net.Http`, `System.Text.Json`, and the client factory that arrives with `Microsoft.Extensions.Http.Resilience`, and it is the only project that knows the state-and-questions API's request and answer shapes and each provider's address, header and envelope. The API is small: one POST with a JSON body, and no provider ships a .NET client for it.
 
 `Drover.Adapters.E2B` adds no package. It uses `System.Net.Http`, `System.Text.Json`, and `Microsoft.Extensions.Http.Resilience`, which is already central, and it is the only project that talks to E2B: its control plane, its in-sandbox daemon, and their JSON shapes are internal to it.
 

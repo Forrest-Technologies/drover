@@ -25,6 +25,7 @@
     <ProjectReference Include="..\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\Drover.Adapters.WebPush\Drover.Adapters.WebPush.csproj" />
     <ProjectReference Include="..\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.SystemOne\Drover.Adapters.SystemOne.csproj" />
   </ItemGroup>
 
   <!-- What the browser client's former address, /native/, still answers (Clients/RetiredNativeAddress.cs). -->

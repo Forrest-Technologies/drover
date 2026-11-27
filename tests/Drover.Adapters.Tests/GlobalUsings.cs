@@ -23,6 +23,7 @@ global using AwesomeAssertions;
 global using Drover.Adapters.Anthropic;
 global using Drover.Adapters.Conformance;
 global using Drover.Adapters.Conformance.Agents;
+global using Drover.Adapters.Conformance.Decisions;
 global using Drover.Adapters.Conformance.Files;
 global using Drover.Adapters.Conformance.Images;
 global using Drover.Adapters.Conformance.Models;
@@ -38,6 +39,7 @@ global using Drover.Adapters.LocalFiles;
 global using Drover.Adapters.Mcp;
 global using Drover.Adapters.OpenAICompatible;
 global using Drover.Adapters.SearXng;
+global using Drover.Adapters.SystemOne;
 global using Drover.Adapters.Tests.Agents;
 global using Drover.Adapters.Tests.Mcp;
 global using Drover.Adapters.Tests.Support;
@@ -56,6 +58,7 @@ global using Drover.Data.Identity;
 global using Drover.Data.Tenancy;
 global using Drover.Domain.Agents;
 global using Drover.Domain.Bots;
+global using Drover.Domain.Decisions;
 global using Drover.Domain.Files;
 global using Drover.Domain.Images;
 global using Drover.Domain.Models;
@@ -90,7 +93,6 @@ global using Polly.CircuitBreaker;
 global using Polly.Timeout;
 global using Testcontainers.PostgreSql;
 global using Xunit;
-
 // Drover.Domain.Runs.AgentSession is the stored row; in these tests the name means the framework session.
 global using AgentSession = Microsoft.Agents.AI.AgentSession;
 

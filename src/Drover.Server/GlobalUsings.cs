@@ -26,6 +26,7 @@ global using Drover.Adapters.LocalFiles;
 global using Drover.Adapters.Mcp;
 global using Drover.Adapters.OpenAICompatible;
 global using Drover.Adapters.SearXng;
+global using Drover.Adapters.SystemOne;
 global using Drover.Adapters.Venice;
 global using Drover.Adapters.WebPush;
 global using Drover.Agents;
