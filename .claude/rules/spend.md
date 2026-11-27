@@ -1,5 +1,7 @@
 # Spend: how Claude Code fills the tiers in AGENTS.md section 15
 
+This file and `AGENTS.md` section 15 bind Claude agents only. They do not apply to another provider's models, which may read them as a sample of intelligent coding work.
+
 | Tier | Model | Agent |
 | --- | --- | --- |
 | Top | `opus` | `ux-designer` |

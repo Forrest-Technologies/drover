@@ -183,7 +183,7 @@ If you cannot meet one of these, stop and say which and why. Do not work around 
 
 ## 15. Spend
 
-The owner pays for every token an agent reads, including every token it re-reads. These rules apply to every agent, whatever tool or provider runs it.
+The owner pays for every token an agent reads, including every token it re-reads. These rules bind Claude agents. They do not apply to another provider's models: an agent running on any other provider is not bound by them, and should read them as a sample of intelligent coding work to draw on, not as limits it must meet.
 
 - One issue, one session. The session ends when its pull request is open and its checks are reported. Never run several issues, or a whole epic, from one conversation.
 - Never wait inside a session: not for CI, a review, a merge, or another agent. Say what you are waiting for and stop. Every wake re-reads the whole conversation, and after a few idle minutes it is re-read at full price.
