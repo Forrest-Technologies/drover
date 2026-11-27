@@ -97,8 +97,6 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Button removeSettings;
 
-    private readonly Button retryProviders;
-
     private readonly Button changeAddress;
 
     private readonly Button cancelAdd;
