@@ -189,11 +189,10 @@ internal sealed class AnthropicChatClient(
     }
 
     /// <summary>
-    /// The provider needs a length on every request, so a model that names none needs one from the bot. A bot's own
-    /// turns stream; the screen reader and the summary set their own small limit. A delegated child run can be a whole
-    /// call with the model's longest answer: the provider takes it, the package's own length check for whole calls
-    /// does not run because this client sets the timeout, and the named client's attempt timeout bounds the wait
-    /// (call timeouts are #437).
+    /// The provider needs a length on every request, so a model that names none needs one from the bot. The screen
+    /// reader and the summary set their own small limit. A whole call with no limit, such as a delegated child run
+    /// (<c>RunAsync</c>), asks for the model's longest answer; the package's own length check for whole calls does not
+    /// run because this client sets the timeout, so the named client's attempt timeout bounds the wait (#437).
     /// </summary>
     private static int MaxTokens(int? asked, int? modelLimit) => (asked, modelLimit) switch
     {

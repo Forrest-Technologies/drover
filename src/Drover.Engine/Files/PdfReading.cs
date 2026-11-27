@@ -23,7 +23,6 @@ public sealed record PdfReading(int MaxPages, long MaxBytes)
     #endregion
 }
 
-
 /// <summary>
 /// What is left of <see cref="PdfReading"/> for one model call. The provider's bounds are for a whole request, so
 /// each PDF given as itself takes its pages and bytes from here, and one that no longer fits takes the text path.

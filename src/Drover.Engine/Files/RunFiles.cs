@@ -83,7 +83,8 @@ public sealed class RunFiles(
 
         foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered, pdf is not null), pdfAllowance, cancellationToken);
+            var abilities = new FileAbilities(modelReadsImages, hasSandbox, covered, pdf is not null);
+            opened[file.Id] = await Give(file, abilities, pdfAllowance, cancellationToken);
         }
 
         return opened;
@@ -576,9 +577,10 @@ public sealed class RunFiles(
     }
 
     /// <summary>
-    /// A PDF given as itself to a model that reads PDFs, when it fits in what is left of the server's and the provider's
-    /// bounds for this model call (<see cref="PdfAllowance"/>); otherwise it is given as a <see cref="FileUse.Document"/> is. Its pages are counted
-    /// by reading it, which also leaves its text ready for the text path.
+    /// A PDF given as itself to a model that reads PDFs, when it fits in what is left of the server's and the
+    /// provider's bounds for this model call (<see cref="PdfAllowance"/>); otherwise it is given as a
+    /// <see cref="FileUse.Document"/> is. Its pages are counted by reading it, which also leaves its text ready for the
+    /// text path.
     /// </summary>
     private async Task<FileForModel> NativeDocument(StoredFile file, FileAbilities can, PdfAllowance allowance, CancellationToken cancellationToken)
     {
