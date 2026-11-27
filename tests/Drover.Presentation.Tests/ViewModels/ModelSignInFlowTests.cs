@@ -344,14 +344,26 @@ public sealed class ModelSignInFlowTests : IDisposable
     public async Task A_kind_that_returns_to_the_server_is_followed_on_a_head_that_cannot_listen()
     {
         listener.CanListen = false;
-        server.Answer("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
+        var path = $"{space}/sign-in/{attemptId}";
+        server.Answer("GET", path, new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
+        var hold = server.Hold("GET", path);
         var model = await Chosen();
 
-        await model.ActOnSignIn(Open);
+        var running = model.ActOnSignIn(async address =>
+        {
+            await Open(address);
+            throw new DeviceCallFailedException("A browser blocked the window.");
+        });
+        await Until(() => opened.Count == 1);
+        model.SignIn.Page.Should().Be("https://auth.example.test/authorize?state=sample");
+        model.SignIn.PageWords.Should().Be("auth.example.test/authorize");
 
-        opened.Should().Equal("https://auth.example.test/authorize?state=sample");
+        hold.SetResult();
+        await running;
+
         server.Sent("POST", $"{space}/sign-in/{attemptId}/finish").Should().BeEmpty("the browser came back to the server");
         model.SignIn.Stage.Should().Be(ModelSignInStage.Done);
+        model.SignIn.Page.Should().BeNull();
     }
 
     [Fact]

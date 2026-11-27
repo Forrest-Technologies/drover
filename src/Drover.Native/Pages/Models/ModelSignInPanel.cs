@@ -26,7 +26,7 @@ internal sealed class ModelSignInPanel : StackPanel
 
     private readonly CopyButton copy = new() { Label = ModelSignInFlow.CopyWords, VerticalAlignment = VerticalAlignment.Center };
 
-    private readonly Link page = new();
+    private readonly Link page = new() { OpensNewTab = true };
 
     private readonly Field pasted = new() { Label = ModelSignInFlow.PasteLabel, Autofill = "one-time-code" };
 
@@ -87,6 +87,17 @@ internal sealed class ModelSignInPanel : StackPanel
     #endregion
 
     #region Public Methods
+
+    /// <summary>Opens approval while the app keeps showing the sign-in.</summary>
+    public static Task OpenApprovalPage(string address)
+    {
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new DeviceCallFailedException("The sign-in address must use HTTPS.");
+        }
+
+        return Link.OpenOutside(uri, opensNewTab: true);
+    }
 
     /// <summary>Draws the flow as it stands. <paramref name="takeFocus"/> lets the sentence take focus when it changed.</summary>
     public void Refresh(bool shown, bool takeFocus)

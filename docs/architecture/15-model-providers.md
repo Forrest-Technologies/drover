@@ -445,7 +445,7 @@ A run on a sign-in connection whose person has not signed in stops before any mo
 | `DELETE /sign-in/{attemptId}` | none | Stops the caller's code poll (204), including when the provider has yet to answer an in-flight poll. If the server started storing the approval or the attempt already ended, returns 409. Another person's attempt or a different kind of wait returns 404. |
 | `DELETE /{connectionId}/sign-in` | none | 204, with no confirmation. Tells the provider where it can be told, then drops every token. What the provider registered for the person (`Details`, such as an issued client id) stays, with no token and no account label, in a row marked `needs_sign_in` that the caller's summary calls `signed_out`; a row that already holds no token, or kept nothing, is deleted with its secret. 404 when the caller has no sign-in to it. |
 
-Each waits on the provider, so none sits under the tenant scope filter; the services open short scopes as the caller. `FinishModelSignInRequest` carries a one-time code and prints nothing of it.
+The browser opens provider approval in a separate tab so the connect screen keeps showing the code, the approval link and Cancel. The sign-in routes sit outside the tenant scope filter. Calls that need tenant data open short scopes as the caller. `FinishModelSignInRequest` carries a one-time code and prints nothing of it.
 
 ### Who may sign in where
 

@@ -258,7 +258,9 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
                     await TakePastes(spaceId, started.AttemptId, patience.Token);
                     break;
                 default:
-                    await open(started.Address);
+                    Page = Https(started.Address);
+                    OnPropertyChanged(nameof(PageWords));
+                    await OpenPage(open, started.Address);
                     await Return(spaceId, started.AttemptId, listening, patience.Token);
                     break;
             }
