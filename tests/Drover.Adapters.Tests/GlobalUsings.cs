@@ -33,6 +33,7 @@ global using Drover.Adapters.Conformance.Voice;
 global using Drover.Adapters.Conformance.Web;
 global using Drover.Adapters.DataProtection;
 global using Drover.Adapters.E2B;
+global using Drover.Adapters.Gemini;
 global using Drover.Adapters.LocalFiles;
 global using Drover.Adapters.Mcp;
 global using Drover.Adapters.OpenAICompatible;
@@ -89,7 +90,6 @@ global using Polly.CircuitBreaker;
 global using Polly.Timeout;
 global using Testcontainers.PostgreSql;
 global using Xunit;
-
 // Drover.Domain.Runs.AgentSession is the stored row; in these tests the name means the framework session.
 global using AgentSession = Microsoft.Agents.AI.AgentSession;
 

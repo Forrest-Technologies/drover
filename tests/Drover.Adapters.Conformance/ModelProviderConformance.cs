@@ -143,8 +143,12 @@ public abstract class ModelProviderConformance
         report.Should().NotBeNull();
         report!.City.Should().Be("Paris");
 
-        subject.SentStructuredFormat(subject.ChatRequests().Single())
-            .Should().Be(new StructuredFormat(StructuredFormatKind.JsonSchema, "weather_report"));
+        var sent = subject.SentStructuredFormat(subject.ChatRequests().Single());
+
+        sent.Kind.Should().Be(StructuredFormatKind.JsonSchema);
+
+        // A wire whose schema request has no name (the provider takes only the schema) reports none.
+        sent.SchemaName?.Should().Be("weather_report");
     }
 
     [Fact]

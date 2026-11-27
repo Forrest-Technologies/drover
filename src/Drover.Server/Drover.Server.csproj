@@ -17,6 +17,7 @@
     <ProjectReference Include="..\Drover.Engine\Drover.Engine.csproj" />
     <ProjectReference Include="..\Drover.Agents\Drover.Agents.csproj" />
     <ProjectReference Include="..\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Gemini\Drover.Adapters.Gemini.csproj" />
     <ProjectReference Include="..\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />
     <ProjectReference Include="..\Drover.Adapters.Mcp\Drover.Adapters.Mcp.csproj" />
     <ProjectReference Include="..\Drover.Adapters.LocalFiles\Drover.Adapters.LocalFiles.csproj" />

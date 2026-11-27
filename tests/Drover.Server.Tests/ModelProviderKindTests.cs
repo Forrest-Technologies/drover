@@ -16,7 +16,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, Gemini);
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
             "OpenAI",
@@ -25,6 +25,15 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             null,
             "Paste an API key from your OpenAI account.",
             false,
+            []));
+        kinds.Single(kind => kind.Kind == Gemini).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            Gemini,
+            "Google Gemini",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            "Paste a Gemini API key. A personal plan cannot be used here.",
+            true,
             []));
         kinds.Single(kind => kind.Kind == Venice).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Venice,
@@ -52,7 +61,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
 
         kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
         var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
-        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com");
+        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com").And.NotContain("googleapis.com");
         JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible), JsonSerializerOptions.Web)
             .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
     }
@@ -91,6 +100,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     private const string Venice = "venice";
 
     private const string OpenAI = "openai";
+
+    private const string Gemini = "gemini";
 
     #endregion
 
@@ -230,7 +241,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai");
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "gemini");
     }
 
     #endregion
