@@ -47,8 +47,9 @@ public sealed partial class RunExecutor(
 
     /// <summary>
     /// Runs the claimed run as <paramref name="workerId"/>. <paramref name="stopping"/> is the server shutting down:
-    /// the run is left as it is and its lease released, so the next server takes it over at once. A run on a main
-    /// thread that completed is followed by the thread's summary, once the run has ended and its person has been told.
+    /// the run is left as it is and its lease released, so the next server takes it over at once. A completed run is
+    /// followed by a bounded post-run memory feed call (when a memory service is active) and, on a main thread, the
+    /// thread's summary, once the run has ended and its person has been told.
     /// </summary>
     public async Task Execute(ClaimedRun claimed, string workerId, CancellationToken stopping)
     {
@@ -266,6 +267,7 @@ public sealed partial class RunExecutor(
 
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
+        var unmetered = await services.GetRequiredService<RunRepository>().CountUnmeteredCalls(runId, cancellationToken);
         var openMessage = steps.Open is { } open
             ? await services.GetRequiredService<MessageRepository>().FindMessage(open.MessageId, cancellationToken)
             : null;
@@ -317,6 +319,7 @@ public sealed partial class RunExecutor(
             entry?.Pricing ?? new ModelPricing(),
             granted,
             steps,
+            unmetered,
             openMessage,
             unsettled,
             rows,
@@ -525,7 +528,8 @@ public sealed partial class RunExecutor(
             loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
-            parent);
+            parent,
+            loaded.UnmeteredCalls);
     }
 
     /// <summary>
@@ -614,7 +618,8 @@ public sealed partial class RunExecutor(
             deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
-            loggers.CreateLogger<RunFiles>());
+            loggers.CreateLogger<RunFiles>(),
+            PdfReading.For(loaded.Capabilities, deployment.Value.Rules.MaxDocumentPages, deployment.Value.Rules.MaxFileBytes));
     }
 
     #endregion
@@ -1363,6 +1368,7 @@ public sealed partial class RunExecutor(
         ModelPricing Pricing,
         IReadOnlyList<GrantedTool> Granted,
         StepState Steps,
+        int UnmeteredCalls,
         Message? OpenStepMessage,
         IReadOnlyList<Guid> UnsettledCalls,
         IReadOnlyList<ToolCall> UnsettledRows,

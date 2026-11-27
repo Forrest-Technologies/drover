@@ -12,6 +12,7 @@ public sealed class VendorContainmentAnalyzerTests
         namespace Microsoft.Extensions.AI { public interface IChatClient { } }
         namespace ModelContextProtocol.Client { public class McpClient { } }
         namespace Lib.Net.Http.WebPush { public class PushServiceClient { } }
+        namespace Anthropic { public class AnthropicClient { } }
         namespace Microsoft.Extensions.Logging { public interface ILogger { } }
         """;
 
@@ -82,6 +83,21 @@ public sealed class VendorContainmentAnalyzerTests
             """);
 
         diagnostics.Should().ContainSingle().Which.GetMessage().Should().Contain("Drover.Adapters.WebPush");
+    }
+
+    [Fact]
+    public async Task The_Anthropic_package_outside_its_adapter_is_reported_even_in_the_server()
+    {
+        var diagnostics = await Run(
+            "Drover.Server",
+            """
+            public sealed class Models
+            {
+                public Anthropic.AnthropicClient? Client { get; set; }
+            }
+            """);
+
+        diagnostics.Should().ContainSingle().Which.GetMessage().Should().Contain("Drover.Adapters.Anthropic");
     }
 
     #endregion

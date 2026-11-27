@@ -22,6 +22,7 @@ public static class MemoryServiceExtensions
                 options.Provider = string.IsNullOrEmpty(provider) ? null : provider;
                 options.RecallMaxCharacters = section.GetValue(nameof(MemoryOptions.RecallMaxCharacters), options.RecallMaxCharacters);
                 options.RecallTimeoutSeconds = section.GetValue(nameof(MemoryOptions.RecallTimeoutSeconds), options.RecallTimeoutSeconds);
+                options.RememberTimeoutSeconds = section.GetValue(nameof(MemoryOptions.RememberTimeoutSeconds), options.RememberTimeoutSeconds);
             })
             .ValidateOnStart();
         services.TryAddSingleton<IValidateOptions<MemoryOptions>, MemoryOptionsValidator>();

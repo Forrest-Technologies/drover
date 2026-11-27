@@ -213,8 +213,8 @@ public sealed class AccountService(
     /// <summary>
     /// Removes <paramref name="memberUserId"/> from <paramref name="spaceId"/> when <paramref name="actorUserId"/> is
     /// allowed to do so and the space keeps at least one owner. Records a durable memory forget request in the same
-    /// transaction when a memory service is active, then tells the provider after the commit with no tenant
-    /// transaction open.
+    /// transaction whenever the deployment policy permits a memory service, then tells the active provider after the
+    /// commit with no tenant transaction open.
     /// </summary>
     public async Task<bool> RemoveMember(
         Guid spaceId,
@@ -228,6 +228,7 @@ public sealed class AccountService(
 
         await using (var work = await scope.Begin(cancellationToken))
         {
+            await accounts.LockSpaceMemberships(spaceId, cancellationToken);
             var actorRole = await accounts.FindRole(spaceId, actorUserId, cancellationToken);
             var target = await accounts.FindMembershipForUpdate(spaceId, memberUserId, cancellationToken);
 
@@ -252,7 +253,7 @@ public sealed class AccountService(
 
             accounts.Remove(target);
 
-            if (memoryFeed.IsActive)
+            if (memoryFeed.IsAllowed)
             {
                 forget = new MemoryForgetRequest
                 {
@@ -267,7 +268,7 @@ public sealed class AccountService(
             await work.Commit(cancellationToken);
         }
 
-        if (forget is not null)
+        if (forget is not null && memoryFeed.IsActive)
         {
             await memoryFeed.TryForget(runScopes, forget, policy!, cancellationToken);
         }

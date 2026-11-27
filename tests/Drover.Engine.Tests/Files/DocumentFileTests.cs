@@ -2,8 +2,8 @@ namespace Drover.Engine.Tests.Files;
 
 /// <summary>
 /// PDF and office documents a person attaches: the model is given the text the server reads out of them, a document
-/// cut at a limit says so to the model and to the person, and a scanned PDF reaches a model that reads pictures as
-/// pictures of its pages.
+/// cut at a limit says so to the model and to the person, a scanned PDF reaches a model that reads pictures as
+/// pictures of its pages, and a PDF within every bound reaches a model that reads PDFs as itself.
 /// </summary>
 public sealed class DocumentFileTests(PostgresServer postgres)
 {
@@ -206,7 +206,95 @@ public sealed class DocumentFileTests(PostgresServer postgres)
 
     #endregion
 
+    #region As A PDF
+
+    [Fact]
+    public async Task A_pdf_reaches_a_model_that_reads_pdfs_as_the_pdf_itself()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("It is 1,250.00.")]));
+        await SetCapabilities(world, new ModelCapabilities { PdfInput = true, PdfMaxPages = 100, PdfMaxBytes = 32 * 1024 * 1024 });
+        var threadId = await world.NewThread();
+        var pdf = TestDocuments.Pdf("Invoice 4471", "Total due 1,250.00");
+        var upload = await world.Upload(threadId, "invoice.pdf", pdf);
+        world.StartHost();
+
+        var runId = await PostWith(world, threadId, "What is the total?", upload.File!.Id);
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        world.Model.ImagesSeen[0].Select(data => (data.MediaType, data.Data.ToArray()))
+            .Should().BeEquivalentTo([(DocumentTypes.Pdf, pdf)]);
+        var texts = TextsOf(world.Model.Requests[0]).ToList();
+        texts.Should().Contain("[The person attached invoice.pdf, a PDF of 2 pages:]");
+        texts.Should().NotContain(text => text.Contains("Total due", StringComparison.Ordinal), "the model reads the PDF itself, not its text");
+    }
+
+    [Theory]
+    [InlineData(1, 100, 32 * 1024 * 1024)]
+    [InlineData(100, 1, 32 * 1024 * 1024)]
+    [InlineData(100, 100, 64)]
+    public async Task A_pdf_past_the_servers_or_the_providers_bound_is_given_as_its_text(int serverPages, int providerPages, long providerBytes)
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Read.")]), everyHost: services =>
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions { Rules = new DeploymentPolicy { MaxDocumentPages = serverPages } })));
+        await SetCapabilities(world, new ModelCapabilities { PdfInput = true, PdfMaxPages = providerPages, PdfMaxBytes = providerBytes });
+        var threadId = await world.NewThread();
+        var upload = await world.Upload(threadId, "invoice.pdf", TestDocuments.Pdf("Invoice 4471", "Total due 1,250.00"));
+        world.StartHost();
+
+        var runId = await PostWith(world, threadId, "What is the total?", upload.File!.Id);
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        world.Model.ImagesSeen[0].Should().BeEmpty();
+        TextsOf(world.Model.Requests[0]).Should().Contain(text => text.StartsWith("[The person attached invoice.pdf, a PDF document of 2 pages.", StringComparison.Ordinal)
+            && text.Contains("Invoice 4471", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Two_pdfs_that_each_fit_but_not_together_give_the_second_as_its_text()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Read both.")]));
+        await SetCapabilities(world, new ModelCapabilities { PdfInput = true, PdfMaxPages = 3, PdfMaxBytes = 32 * 1024 * 1024 });
+        var threadId = await world.NewThread();
+        var first = TestDocuments.Pdf("Invoice 4471", "Total due 1,250.00");
+        var firstUpload = await world.Upload(threadId, "first.pdf", first);
+        var secondUpload = await world.Upload(threadId, "second.pdf", TestDocuments.Pdf("Receipt 88", "Paid in full"));
+        world.StartHost();
+
+        var post = await world.PostRaw(threadId, "Compare them", fileIds: [firstUpload.File!.Id, secondUpload.File!.Id]);
+
+        (await world.WaitForStatus(post.Run!.Id, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        world.Model.ImagesSeen[0].Select(data => data.Data.ToArray()).Should().BeEquivalentTo([first], "the two PDFs share one request's page bound");
+        TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains("second.pdf", StringComparison.Ordinal)
+            && text.Contains("Receipt 88", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_word_document_reaches_a_model_that_reads_pdfs_as_its_text()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("On the first.")]));
+        await SetCapabilities(world, new ModelCapabilities { PdfInput = true, PdfMaxPages = 100, PdfMaxBytes = 32 * 1024 * 1024 });
+        var threadId = await world.NewThread();
+        var upload = await world.Upload(threadId, "lease.docx", TestDocuments.Docx("Rent is due on the first."));
+        world.StartHost();
+
+        var runId = await PostWith(world, threadId, "When is rent due?", upload.File!.Id);
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        world.Model.ImagesSeen[0].Should().BeEmpty();
+        TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains("Rent is due on the first.", StringComparison.Ordinal));
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static Task<bool> SetCapabilities(RunWorld world, ModelCapabilities capabilities) =>
+        world.Read(async db =>
+        {
+            var model = await db.ModelCatalog.SingleAsync(entry => entry.Model == "scripted", RunWorld.Token);
+            model.Capabilities = capabilities;
+            return true;
+        });
 
     private static IEnumerable<string> TextsOf(ModelChatRequest request) =>
         request.Messages.SelectMany(message => message.Contents).OfType<ModelText>().Select(text => text.Text);

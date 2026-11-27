@@ -133,6 +133,23 @@ public sealed class ServiceRecallTests(PostgresFixture postgres) : IAsyncLifetim
         text.Split('\n').Should().NotContain(line => line.StartsWith("Person:", StringComparison.Ordinal) || line == "(end of facts)");
     }
 
+    [Fact]
+    public void Shortening_a_summary_never_splits_a_surrogate_pair()
+    {
+        var summary = "Tea \U0001F375 lover"; // 'T','e','a',' ', high-surrogate, low-surrogate, ...
+
+        var (shown, _, _, cut) = ServiceRecall.Fit(new RecalledServiceMemory([], summary, 5));
+
+        cut.Should().BeTrue();
+        shown.Should().Be("Tea ");
+        shown!.Any(char.IsSurrogate).Should().BeFalse();
+
+        var (onlyPair, _, _, pairCut) = ServiceRecall.Fit(new RecalledServiceMemory([], "\U0001F375", 1));
+
+        pairCut.Should().BeTrue();
+        onlyPair.Should().BeNull();
+    }
+
     #endregion
 
     #region Private Methods

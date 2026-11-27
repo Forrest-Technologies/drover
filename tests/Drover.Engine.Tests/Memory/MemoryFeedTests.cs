@@ -175,6 +175,128 @@ public sealed class MemoryFeedTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_provider_that_ignores_cancellation_in_Recall_still_times_out()
+    {
+        var memory = new FakeMemoryProvider
+        {
+            OnRecall = (_, _, _) => new TaskCompletionSource<MemoryRecall?>().Task,
+        };
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel([new TextOutput("Answered despite ignored token.")]),
+            everyHost: services => UseMemoryProvider(services, memory, recallTimeoutSeconds: 1));
+        await TurnMemoryOn(world);
+        var host = world.StartHost();
+        var thread = await world.NewThread();
+
+        var runId = await world.Post(thread, "Hello while provider ignores cancellation.", through: host);
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        var unavailable = (await world.ReadEvents(runId))
+            .Where(stored => stored.Type == RunEventTypes.MemoryServiceUnavailable)
+            .ToList();
+        unavailable.Should().ContainSingle();
+        RunWorld.Data<MemoryServiceUnavailable>(unavailable[0]).Reason.Should().Be("timeout");
+    }
+
+    [Fact]
+    public async Task A_hanging_provider_in_Remember_times_out_and_still_frees_the_worker()
+    {
+        var hangFirst = true;
+        var memory = new FakeMemoryProvider
+        {
+            OnRemember = (_, _, _) => hangFirst
+                ? new TaskCompletionSource().Task
+                : Task.CompletedTask,
+        };
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel(
+                [new TextOutput("First reply.")],
+                [new TextOutput("Second reply.")]),
+            everyHost: services => UseMemoryProvider(services, memory, rememberTimeoutSeconds: 1));
+        await TurnMemoryOn(world);
+        var host = world.StartHost();
+        var thread = await world.NewThread();
+
+        var firstRunId = await world.Post(thread, "First message while remember hangs.", through: host);
+        var firstRun = await world.WaitForStatus(firstRunId, RunStatus.Completed, RunStatus.Failed);
+        firstRun.Status.Should().Be(RunStatus.Completed, firstRun.Error?.Message);
+        await WaitFor(() => memory.Remembers.Count == 1);
+
+        // Once the bounded remember times out, the worker is free to finish the next run promptly.
+        hangFirst = false;
+        var secondRunId = await world.Post(thread, "Second message after timeout.", through: host);
+        var secondRun = await world.WaitForStatus(secondRunId, RunStatus.Completed, RunStatus.Failed);
+        await WaitFor(() => memory.Remembers.Count == 2);
+
+        secondRun.Status.Should().Be(RunStatus.Completed, secondRun.Error?.Message);
+        AssertNothingLeakedInLogs(host.Log, "First message while remember hangs.", "First reply.", memory.ApiKey);
+    }
+
+    [Fact]
+    public async Task Regenerating_a_reply_does_not_send_the_persons_message_again()
+    {
+        var memory = new FakeMemoryProvider();
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel(
+                [new TextOutput("Initial reply.")],
+                [new TextOutput("Regenerated reply.")]),
+            everyHost: services => UseMemoryProvider(services, memory));
+        await TurnMemoryOn(world);
+        var host = world.StartHost();
+        var thread = await world.NewThread();
+
+        var firstRunId = await world.Post(thread, "Tell me about oolong.", through: host);
+        (await world.WaitForStatus(firstRunId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        await WaitFor(() => memory.Remembers.Count == 1);
+
+        var replyId = await world.Read(db => db.Messages.AsNoTracking()
+            .Where(message => message.ThreadId == thread && message.Role == MessageRole.Assistant && message.ShelvedAt == null)
+            .Select(message => message.Id)
+            .SingleAsync(RunWorld.Token));
+
+        VersionChange regenerated;
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
+            regenerated = await scope.ServiceProvider.GetRequiredService<RunService>()
+                .Regenerate(thread, replyId, world.UserId, RunWorld.Token);
+        }
+
+        regenerated.Outcome.Should().Be(VersionOutcome.Queued);
+        (await world.WaitForStatus(regenerated.Run!.Id, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        await WaitFor(() => memory.Remembers.Count == 2);
+
+        memory.Remembers[1].Turns.Should().ContainSingle();
+        memory.Remembers[1].Turns[0].Speaker.Should().Be(MemorySpeaker.Bot);
+        memory.Remembers[1].Turns[0].Text.Should().Be("Regenerated reply.");
+    }
+
+    [Fact]
+    public void MemoryOptionsValidator_fails_for_unmatched_provider_when_allowed_and_ignores_when_disallowed()
+    {
+        var allowedValidator = new MemoryOptionsValidator(
+            [new FakeMemoryProvider()],
+            Options.Create(new DeploymentPolicyOptions { Rules = DeploymentPolicy.SelfHosted }),
+            NullLogger<MemoryOptionsValidator>.Instance);
+
+        allowedValidator.Validate(null, new MemoryOptions { Provider = "unknown_provider" }).Failed.Should().BeTrue();
+        allowedValidator.Validate(null, new MemoryOptions { Provider = FakeMemoryProvider.DefaultKind }).Succeeded.Should().BeTrue();
+        allowedValidator.Validate(null, new MemoryOptions { RememberTimeoutSeconds = 0 }).Failed.Should().BeTrue();
+
+        var disallowedValidator = new MemoryOptionsValidator(
+            [],
+            Options.Create(new DeploymentPolicyOptions { Rules = DeploymentPolicy.Hosted }),
+            NullLogger<MemoryOptionsValidator>.Instance);
+
+        disallowedValidator.Validate(null, new MemoryOptions { Provider = "unknown_provider" }).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Nothing_is_sent_or_recalled_when_bot_memory_is_off_or_AllowMemoryService_is_false()
     {
         var offBotMemory = new FakeMemoryProvider();
@@ -310,6 +432,104 @@ public sealed class MemoryFeedTests(PostgresServer postgres)
         transactionsOpen.Should().NotBeEmpty().And.OnlyContain(open => !open, "no tenant transaction is open during any forget call");
     }
 
+    [Fact]
+    public async Task A_forget_recorded_while_the_provider_is_unavailable_is_sent_once_it_is_back()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 27, 10, 0, 0, TimeSpan.Zero));
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel([new TextOutput("Hello.")]),
+            everyHost: services => services.AddSingleton<TimeProvider>(clock));
+        var member = await world.AddMember(MembershipRole.Member);
+        var threadToDelete = await world.NewThread();
+
+        // No provider is active on this host, yet AllowMemoryService is true so forgets are still recorded durably.
+        var offlineHost = world.IdleHost();
+        (await DeleteThread(offlineHost, world.SpaceId, world.UserId, threadToDelete)).Should().BeTrue();
+        (await RemoveMember(offlineHost, world.SpaceId, world.UserId, member)).Should().BeTrue();
+        (await world.Read(db => db.MemoryForgetRequests.AsNoTracking().CountAsync(RunWorld.Token))).Should().Be(2);
+
+        // Once a host with the provider configured comes back, the retry pass sends both forgets and drains the table.
+        var memory = new FakeMemoryProvider();
+        var onlineHost = world.IdleHost(services => UseMemoryProvider(services, memory));
+        var retried = await onlineHost.Services.GetRequiredService<MemoryForgetRetry>().RetryDue(RunWorld.Token);
+
+        retried.Should().Be(2);
+        memory.ForgottenConversations.Should().ContainSingle(scope => scope.ThreadId == threadToDelete);
+        memory.ForgottenPeople.Should().ContainSingle(scope => scope.PersonId == member && scope.SpaceId == world.SpaceId);
+        (await world.Read(db => db.MemoryForgetRequests.AsNoTracking().CountAsync(RunWorld.Token))).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Deleting_a_conversation_removes_runs_delegation_child_threads_and_note_source_links()
+    {
+        var memory = new FakeMemoryProvider();
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel(),
+            everyHost: services => UseMemoryProvider(services, memory));
+        await TurnMemoryOn(world);
+        var childBotId = await world.NewBotBeneath(world.BotId, "Helper", "Helps look things up.");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.Grant("memory.save", GrantEffect.Allow);
+        world.Script.Then(
+            [new ToolCallOutput("d1", DelegateTool.Name, JsonSerializer.Serialize(new { bot_id = childBotId, task = "Check tea." }))],
+            [new TextOutput("Child checked tea.")],
+            [new ToolCallOutput("m1", "memory_save", """{"text":"Likes oolong tea."}""")],
+            [new TextOutput("Saved your tea preference.")]);
+        var host = world.StartHost();
+        var threadId = await world.NewThread();
+
+        var rootRunId = await world.Post(threadId, "Remember my tea preference.", through: host);
+        var rootRun = await world.WaitForStatus(rootRunId, RunStatus.Completed, RunStatus.Failed);
+        rootRun.Status.Should().Be(RunStatus.Completed, rootRun.Error?.Message);
+        await WaitFor(() => memory.Remembers.Count > 0);
+
+        var tree = await world.ReadTree(rootRunId);
+        var childRun = tree.Should().ContainSingle(run => run.Id != rootRunId).Subject;
+        Guid[] allThreadIds = [threadId, childRun.ThreadId];
+        Guid[] allRunIds = [.. tree.Select(run => run.Id)];
+
+        // Shared conversations cannot be deleted through this private-only hook.
+        await world.AddMember(MembershipRole.Member);
+        var sharedThread = await world.NewSharedThread();
+        (await DeleteThread(host, world.SpaceId, world.UserId, sharedThread)).Should().BeFalse();
+
+        // Deleting the private conversation removes all runs, delegation child threads, messages, events, and clears note sources.
+        (await DeleteThread(host, world.SpaceId, world.UserId, threadId)).Should().BeTrue();
+
+        (await world.Read(db => db.Threads.AsNoTracking().CountAsync(thread => allThreadIds.Contains(thread.Id), RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Messages.AsNoTracking().CountAsync(message => allThreadIds.Contains(message.ThreadId), RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Runs.AsNoTracking().CountAsync(run => allRunIds.Contains(run.Id), RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.RunEvents.AsNoTracking().CountAsync(stored => allRunIds.Contains(stored.RootRunId), RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.ToolCalls.AsNoTracking().CountAsync(call => allThreadIds.Contains(call.ThreadId) || allRunIds.Contains(call.RunId), RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.UsageRecords.AsNoTracking().CountAsync(record => allRunIds.Contains(record.RunId), RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.AgentSessions.AsNoTracking().CountAsync(session => allThreadIds.Contains(session.ThreadId), RunWorld.Token))).Should().Be(0);
+
+        var notes = await world.Read(db => db.Memories.AsNoTracking().ToListAsync(RunWorld.Token));
+        var savedNote = notes.Should().ContainSingle().Subject;
+        savedNote.Text.Should().Be("Likes oolong tea.");
+        savedNote.SourceThreadId.Should().BeNull();
+        savedNote.SourceMessageId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Two_owners_removing_each_other_at_once_leave_one_owner()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hello.")]));
+        var secondOwner = await world.AddMember(MembershipRole.Owner);
+        var host = world.IdleHost();
+
+        var firstRemovesSecond = Task.Run(() => RemoveMember(host, world.SpaceId, world.UserId, secondOwner), RunWorld.Token);
+        var secondRemovesFirst = Task.Run(() => RemoveMember(host, world.SpaceId, secondOwner, world.UserId), RunWorld.Token);
+        var results = await Task.WhenAll(firstRemovesSecond, secondRemovesFirst);
+
+        results.Count(removed => removed).Should().Be(1, "exactly one concurrent owner removal must succeed");
+        var remainingOwners = await world.Read(db => db.Memberships.AsNoTracking()
+            .CountAsync(membership => membership.SpaceId == world.SpaceId && membership.Role == MembershipRole.Owner, RunWorld.Token));
+        remainingOwners.Should().Be(1, "concurrent removals must never leave a space without an owner");
+    }
+
     #endregion
 
     #region Private Methods
@@ -318,7 +538,8 @@ public sealed class MemoryFeedTests(PostgresServer postgres)
         IServiceCollection services,
         FakeMemoryProvider provider,
         int recallMaxCharacters = MemoryOptions.DefaultRecallMaxCharacters,
-        int recallTimeoutSeconds = MemoryOptions.DefaultRecallTimeoutSeconds)
+        int recallTimeoutSeconds = MemoryOptions.DefaultRecallTimeoutSeconds,
+        int rememberTimeoutSeconds = MemoryOptions.DefaultRememberTimeoutSeconds)
     {
         services.AddSingleton<IMemoryProvider>(provider);
         services.Configure<MemoryOptions>(options =>
@@ -326,6 +547,7 @@ public sealed class MemoryFeedTests(PostgresServer postgres)
             options.Provider = provider.Kind;
             options.RecallMaxCharacters = recallMaxCharacters;
             options.RecallTimeoutSeconds = recallTimeoutSeconds;
+            options.RememberTimeoutSeconds = rememberTimeoutSeconds;
         });
     }
 

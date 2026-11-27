@@ -233,6 +233,63 @@ public abstract class MemoryProviderConformance
             .Should().Contain("vintage maps");
     }
 
+    [Fact]
+    public async Task Forgetting_twice_or_forgetting_what_was_never_remembered_succeeds()
+    {
+        await using var underTest = await CreateProvider(NewApiKey());
+        var spaceId = Guid.CreateVersion7();
+        var botId = Guid.CreateVersion7();
+        var personId = Guid.CreateVersion7();
+        var rememberedScope = new MemoryScope(spaceId, botId, personId, Guid.CreateVersion7());
+        var unknownScope = new MemoryScope(spaceId, botId, personId, Guid.CreateVersion7());
+        var unknownPerson = new MemoryPersonScope(spaceId, Guid.CreateVersion7());
+        var now = DateTimeOffset.UtcNow;
+
+        await underTest.Provider.Remember(
+            rememberedScope,
+            [new MemoryTurn(MemorySpeaker.Person, "I bake sourdough on Sundays.", now)],
+            Token);
+
+        await underTest.Provider.ForgetConversation(rememberedScope, Token);
+        await underTest.Provider.ForgetConversation(rememberedScope, Token);
+        await underTest.Provider.ForgetConversation(unknownScope, Token);
+
+        var personScope = new MemoryPersonScope(spaceId, personId);
+        await underTest.Provider.ForgetPerson(personScope, Token);
+        await underTest.Provider.ForgetPerson(personScope, Token);
+        await underTest.Provider.ForgetPerson(unknownPerson, Token);
+
+        CombinedText(await underTest.Provider.Recall(rememberedScope, new MemoryRecallRequest("Anything?", 4000), Token))
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Forgetting_a_person_in_one_space_keeps_what_they_said_in_another()
+    {
+        await using var underTest = await CreateProvider(NewApiKey());
+        var botId = Guid.CreateVersion7();
+        var personId = Guid.CreateVersion7();
+        var space1 = new MemoryScope(Guid.CreateVersion7(), botId, personId, Guid.CreateVersion7());
+        var space2 = new MemoryScope(Guid.CreateVersion7(), botId, personId, Guid.CreateVersion7());
+        var now = DateTimeOffset.UtcNow;
+
+        await underTest.Provider.Remember(
+            space1,
+            [new MemoryTurn(MemorySpeaker.Person, "In space one I prefer dark roast coffee.", now)],
+            Token);
+        await underTest.Provider.Remember(
+            space2,
+            [new MemoryTurn(MemorySpeaker.Person, "In space two I prefer green tea.", now.AddSeconds(1))],
+            Token);
+
+        await underTest.Provider.ForgetPerson(new MemoryPersonScope(space1.SpaceId, personId), Token);
+
+        CombinedText(await underTest.Provider.Recall(space1, new MemoryRecallRequest("Drinks?", 4000), Token))
+            .Should().BeEmpty();
+        CombinedText(await underTest.Provider.Recall(space2, new MemoryRecallRequest("Drinks?", 4000), Token))
+            .Should().Contain("green tea");
+    }
+
     #endregion
 
     #region Identifiers And Secrets

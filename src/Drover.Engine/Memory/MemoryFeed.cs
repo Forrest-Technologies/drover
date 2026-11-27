@@ -41,6 +41,9 @@ public sealed class MemoryFeed(
 
     public bool IsActive => ActiveProvider is not null;
 
+    /// <summary>Whether the deployment policy permits an external memory service.</summary>
+    public bool IsAllowed => deployment.Value.Rules.AllowMemoryService;
+
     #endregion
 
     #region Public Methods
@@ -48,7 +51,8 @@ public sealed class MemoryFeed(
     /// <summary>
     /// Sends the person's triggering message and the bot's final reply (unless the run was tainted) from a completed
     /// private conversation to the configured memory provider. Runs after the run commits, with no tenant transaction
-    /// open. Failures are logged without message text or secrets and never change the run's outcome.
+    /// open and bounded by <see cref="MemoryOptions.RememberTimeoutSeconds"/>. Failures and timeouts are logged
+    /// without message text or secrets and never change the run's outcome.
     /// </summary>
     public async Task Remember(RunTenant tenant, Run completedRun, CancellationToken cancellationToken)
     {
@@ -66,12 +70,18 @@ public sealed class MemoryFeed(
             }
 
             EnsureNoOpenTransaction();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(options.Value.RememberTimeoutSeconds), time);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             using var outbound = OutboundAttempt.Begin(pending.Policy);
-            await provider.Remember(pending.Scope, pending.Turns, cancellationToken);
+            await provider.Remember(pending.Scope, pending.Turns, linked.Token).WaitAsync(linked.Token);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             logger.LogDebug("Memory service {Provider} remember for run {RunId} stopped with the server", provider.Kind, completedRun.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning("Memory service {Provider} timed out remembering run {RunId}", provider.Kind, completedRun.Id);
         }
         catch (Exception failure)
         {
@@ -110,7 +120,8 @@ public sealed class MemoryFeed(
         try
         {
             using var outbound = OutboundAttempt.Begin(policy);
-            var recalled = await provider.Recall(scope, new MemoryRecallRequest(latestMessage, maxCharacters), linked.Token);
+            var recalled = await provider.Recall(scope, new MemoryRecallRequest(latestMessage, maxCharacters), linked.Token)
+                .WaitAsync(linked.Token);
 
             if (recalled is null || (recalled.Facts.Count == 0 && string.IsNullOrWhiteSpace(recalled.Summary)))
             {
@@ -141,8 +152,9 @@ public sealed class MemoryFeed(
     }
 
     /// <summary>
-    /// Sends one pending forget request to the active provider outside any tenant transaction, and deletes the
-    /// durable row on success. Returns true when the provider accepted the forget.
+    /// Sends one pending forget request to the active provider outside any tenant transaction, bounded by
+    /// <see cref="MemoryOptions.RememberTimeoutSeconds"/>, and deletes the durable row on success. Returns true when
+    /// the provider accepted the forget.
     /// </summary>
     public async Task<bool> TryForget(
         RunScopes scopes,
@@ -156,6 +168,8 @@ public sealed class MemoryFeed(
         }
 
         EnsureNoOpenTransaction();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(options.Value.RememberTimeoutSeconds), time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
 
         try
         {
@@ -165,13 +179,13 @@ public sealed class MemoryFeed(
             {
                 await provider.ForgetConversation(
                     new MemoryScope(request.SpaceId, request.BotId!.Value, request.PersonId, request.ThreadId!.Value),
-                    cancellationToken);
+                    linked.Token).WaitAsync(linked.Token);
             }
             else
             {
                 await provider.ForgetPerson(
                     new MemoryPersonScope(request.SpaceId, request.PersonId),
-                    cancellationToken);
+                    linked.Token).WaitAsync(linked.Token);
             }
 
             await scopes.For(request.SpaceId, request.PersonId).Transact(
@@ -182,6 +196,15 @@ public sealed class MemoryFeed(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Memory service {Provider} timed out processing forget request {RequestId} ({Kind})",
+                provider.Kind,
+                request.Id,
+                request.Kind);
+            return false;
         }
         catch (Exception failure)
         {
@@ -231,10 +254,12 @@ public sealed class MemoryFeed(
             return null;
         }
 
+        var runs = services.GetRequiredService<RunRepository>();
         var messages = services.GetRequiredService<MessageRepository>();
         List<MemoryTurn> turns = [];
 
         if (run.TriggerMessageId is { } triggerId
+            && !await runs.HasEarlierCompletedRunForTrigger(thread.Id, triggerId, run.Id, cancellationToken)
             && await messages.FindMessage(triggerId, cancellationToken) is { Role: MessageRole.User, Withheld: false, ShelvedAt: null } trigger)
         {
             var text = SpokenText(trigger);

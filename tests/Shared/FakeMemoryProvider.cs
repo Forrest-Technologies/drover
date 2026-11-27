@@ -49,6 +49,9 @@ public sealed class FakeMemoryProvider(string kind = FakeMemoryProvider.DefaultK
     /// <summary>When set, <see cref="Remember"/> throws this exception after recording the call.</summary>
     public Func<MemoryScope, IReadOnlyList<MemoryTurn>, Exception?>? FailRemember { get; set; }
 
+    /// <summary>When set, <see cref="Remember"/> runs this handler after recording the call.</summary>
+    public Func<MemoryScope, IReadOnlyList<MemoryTurn>, CancellationToken, Task>? OnRemember { get; set; }
+
     /// <summary>When set, <see cref="Recall"/> throws this exception or waits before returning.</summary>
     public Func<MemoryScope, MemoryRecallRequest, CancellationToken, Task<MemoryRecall?>>? OnRecall { get; set; }
 
@@ -123,7 +126,7 @@ public sealed class FakeMemoryProvider(string kind = FakeMemoryProvider.DefaultK
 
     #region Interface Implementations
 
-    public Task Remember(MemoryScope scope, IReadOnlyList<MemoryTurn> turns, CancellationToken cancellationToken)
+    public async Task Remember(MemoryScope scope, IReadOnlyList<MemoryTurn> turns, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         BeforeCall?.Invoke(nameof(Remember));
@@ -133,6 +136,11 @@ public sealed class FakeMemoryProvider(string kind = FakeMemoryProvider.DefaultK
         lock (gate)
         {
             remembers.Add(new RecordedRemember(scope, [.. turns]));
+        }
+
+        if (OnRemember is { } custom)
+        {
+            await custom(scope, turns, cancellationToken);
         }
 
         if (FailRemember?.Invoke(scope, turns) is { } failure)
@@ -150,8 +158,6 @@ public sealed class FakeMemoryProvider(string kind = FakeMemoryProvider.DefaultK
                 }
             }
         }
-
-        return Task.CompletedTask;
     }
 
     public async Task<MemoryRecall?> Recall(MemoryScope scope, MemoryRecallRequest request, CancellationToken cancellationToken)

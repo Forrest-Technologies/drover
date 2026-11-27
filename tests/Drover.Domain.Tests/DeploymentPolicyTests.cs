@@ -139,6 +139,28 @@ public sealed class DeploymentPolicyTests
     }
 
     [Fact]
+    public void The_unmetered_call_bound_is_a_default_on_self_hosted_and_a_ceiling_on_hosted()
+    {
+        DeploymentPolicy.SelfHosted.MaxUnmeteredModelCallsPerRun.Should().Be(200);
+        DeploymentPolicy.Hosted.MaxUnmeteredModelCallsPerRun.Should().Be(50);
+
+        var raised = DeploymentPolicy.SelfHosted with { MaxUnmeteredModelCallsPerRun = 1000 };
+        var unlimited = DeploymentPolicy.SelfHosted with { MaxUnmeteredModelCallsPerRun = int.MaxValue };
+
+        raised.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("the operator may raise the safety bound on their own server");
+        unlimited.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("the largest value stands for no limit");
+        DeploymentPolicy.Rules.Single(rule => rule.Name == nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)).ReadText(unlimited)
+            .Should().Be(PolicyRule.NoLimit);
+        raised.FindLoosenedRules(DeploymentPolicy.Hosted)
+            .Should().Contain(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun), "it is looser than the hosted preset");
+        (DeploymentPolicy.Hosted with { MaxUnmeteredModelCallsPerRun = 51 })
+            .FindProblems(DeploymentPolicy.HostedName, DeploymentPolicy.Hosted, null, new(false, false))
+            .Should().Contain(problem => problem.StartsWith(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun), StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_self_hosted_server_sets_no_limit_on_model_calls_or_on_the_runs_of_a_tree()
     {
         DeploymentPolicy.SelfHosted.MaxStepsPerRun.Should().Be(int.MaxValue);

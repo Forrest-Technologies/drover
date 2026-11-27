@@ -28,6 +28,16 @@ public sealed class FileUsesTests
     public void Nothing_goes_to_the_sandbox_from_a_conversation_others_who_reach_it_cannot_see(FileKind kind, bool readsImages, FileUse use) =>
         FileUses.For(kind, new FileAbilities(readsImages, HasSandbox: true, AudienceCoversSandbox: false)).Should().Be(use);
 
+    [Theory]
+    [InlineData(DocumentTypes.Pdf, true, FileUse.NativeDocument)]
+    [InlineData(DocumentTypes.Pdf, false, FileUse.Document)]
+    [InlineData(DocumentTypes.Word, true, FileUse.Document)]
+    [InlineData("text/plain", true, FileUse.Text)]
+    [InlineData("image/png", true, FileUse.Image)]
+    public void A_pdf_goes_as_itself_only_to_a_model_that_reads_pdfs(string contentType, bool readsPdf, FileUse use) =>
+        FileUses.For(contentType, new FileAbilities(true, HasSandbox: false, AudienceCoversSandbox: false, ModelReadsPdf: readsPdf))
+            .Should().Be(use);
+
     [Fact]
     public void A_refusal_says_why_in_the_terms_of_the_kind()
     {

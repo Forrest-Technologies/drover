@@ -40,7 +40,14 @@ public sealed class ServiceRecall(RecalledServiceMemory memory) : AIContextProvi
                 }
                 else
                 {
-                    shownSummary = flatSummary[..room];
+                    var cut = room;
+
+                    if (cut > 0 && char.IsHighSurrogate(flatSummary[cut - 1]))
+                    {
+                        cut--;
+                    }
+
+                    shownSummary = cut > 0 ? flatSummary[..cut] : null;
                     room = 0;
                     summaryCut = true;
                 }

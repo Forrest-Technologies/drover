@@ -175,6 +175,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxStepsPerRun = 50;
 
+    /// <summary>
+    /// The most model calls of one run whose usage was missing or zero before the run stops. A server that reports
+    /// no tokens would otherwise keep a run going for ever when no other limit is set.
+    /// </summary>
+    public const int SelfHostedMaxUnmeteredModelCallsPerRun = 200;
+
+    public const int HostedMaxUnmeteredModelCallsPerRun = 50;
+
     public const int StepsPerRun = SelfHostedMaxStepsPerRun;
 
     public const int SelfHostedMaxTokensPerRun = 5_000_000;
@@ -337,6 +345,15 @@ public sealed record DeploymentPolicy
     /// 50. Self-hosted has no default ceiling; an operator may set one, which a space may lower and a bot may lower again.
     /// </summary>
     public int MaxStepsPerRun { get; init; } = SelfHostedMaxStepsPerRun;
+
+    /// <summary>
+    /// The most model calls of one run, calls made by tools included, whose recorded usage is missing or is zero
+    /// input and zero output tokens, before it is stopped with <c>unmetered_call_limit</c>. It counts all of them
+    /// in the run, not only ones in a row: a server that never reports usage is the case to bound. On self-hosted
+    /// it is a default the operator may raise, to <see cref="int.MaxValue"/> for no limit; a space may only lower it.
+    /// There is no bot setting, because a bot already has its own model-call limit.
+    /// </summary>
+    public int MaxUnmeteredModelCallsPerRun { get; init; } = SelfHostedMaxUnmeteredModelCallsPerRun;
 
     /// <summary>
     /// The most tokens, read and written together, one run uses before it is stopped with <c>token_limit</c>. A space
@@ -661,6 +678,11 @@ public sealed record DeploymentPolicy
             policy => policy.MaxStepsPerRun,
             HostedMaxStepsPerRun,
             Enforcement.Now("RunSession, before every model call of a run")),
+        PolicyRule.Limit(
+            nameof(MaxUnmeteredModelCallsPerRun),
+            policy => policy.MaxUnmeteredModelCallsPerRun,
+            HostedMaxUnmeteredModelCallsPerRun,
+            Enforcement.Now("RunGovernor, when a model call is recorded; RunSession, before every model call")),
         PolicyRule.Limit(
             nameof(MaxTokensPerRun),
             policy => policy.MaxTokensPerRun,

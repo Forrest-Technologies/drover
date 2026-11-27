@@ -87,6 +87,21 @@ public sealed class RunRepository(DroverDbContext db)
             .Select(run => run.Id)
             .ToListAsync(cancellationToken);
 
+    /// <summary>Whether another completed root run on this thread already answered <paramref name="triggerMessageId"/>.</summary>
+    public Task<bool> HasEarlierCompletedRunForTrigger(
+        Guid threadId,
+        Guid triggerMessageId,
+        Guid runId,
+        CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .AnyAsync(
+                run => run.ThreadId == threadId
+                    && run.ParentRunId == null
+                    && run.TriggerMessageId == triggerMessageId
+                    && run.Status == RunStatus.Completed
+                    && run.Id != runId,
+                cancellationToken);
+
     /// <summary>
     /// Each of these runs whose conversation the caller can see, by id. A run has no audience of its own, so it is
     /// joined to its thread, which row-level security hides when it is another person's private conversation.
@@ -155,6 +170,12 @@ public sealed class RunRepository(DroverDbContext db)
     /// <summary>What every model call of a tree has cost so far, finished runs and working ones alike.</summary>
     public async Task<decimal> SumTreeCost(Guid rootRunId, CancellationToken cancellationToken) =>
         await db.UsageRecords.Where(usage => usage.RootRunId == rootRunId).SumAsync(usage => (decimal?)usage.Cost, cancellationToken) ?? 0m;
+
+    /// <summary>The calls of one run recorded with missing or zero token usage, earlier executions included.</summary>
+    public Task<int> CountUnmeteredCalls(Guid runId, CancellationToken cancellationToken) =>
+        db.UsageRecords.CountAsync(
+            usage => usage.RunId == runId && usage.InputTokens == 0 && usage.OutputTokens == 0,
+            cancellationToken);
 
     /// <summary>The runs below the root that have not ended, deepest first, locked until the transaction ends.</summary>
     public async Task<List<Run>> ListOpenDescendantsForUpdate(Guid rootRunId, CancellationToken cancellationToken) =>

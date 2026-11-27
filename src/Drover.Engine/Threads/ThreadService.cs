@@ -225,9 +225,10 @@ public sealed class ThreadService(
     }
 
     /// <summary>
-    /// Deletes a conversation owned by <paramref name="userId"/> when no run is active on it, records a durable forget
-    /// request in the same transaction when a memory service is active, and tells the memory provider after the commit
-    /// with no tenant transaction open. False when the conversation is missing, not owned by the caller, or busy.
+    /// Deletes a private conversation owned by <paramref name="userId"/> when no run is active on it, records a
+    /// durable forget request in the same transaction whenever the deployment policy permits a memory service, and
+    /// tells the active memory provider after the commit with no tenant transaction open. False when the conversation
+    /// is missing, shared, delegated, not owned by the caller, or busy.
     /// </summary>
     public async Task<bool> Delete(Guid threadId, Guid userId, CancellationToken cancellationToken)
     {
@@ -238,7 +239,10 @@ public sealed class ThreadService(
         {
             var thread = await threads.GetThreadForUpdate(threadId, cancellationToken);
 
-            if (thread is null || thread.OwnerUserId != userId)
+            if (thread is null
+                || thread.OwnerUserId != userId
+                || thread.AudienceUserId != userId
+                || thread.Origin is ThreadOrigin.Delegation)
             {
                 return false;
             }
@@ -248,7 +252,7 @@ public sealed class ThreadService(
                 return false;
             }
 
-            if (memoryFeed.IsActive)
+            if (memoryFeed.IsAllowed)
             {
                 forget = new MemoryForgetRequest
                 {
@@ -266,7 +270,7 @@ public sealed class ThreadService(
             await work.Commit(cancellationToken);
         }
 
-        if (forget is not null)
+        if (forget is not null && memoryFeed.IsActive)
         {
             await memoryFeed.TryForget(runScopes, forget, policy!, cancellationToken);
         }
