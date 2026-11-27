@@ -23,6 +23,7 @@ Drover.slnx
     Drover.Agents                 the agent runtime on Microsoft Agent Framework: stores, governance, teams
     Drover.Adapters.OpenAICompatible IModelClientProvider for any compatible endpoint, and OpenAI
     Drover.Adapters.Anthropic        IModelClientProvider for Anthropic, over its official package
+    Drover.Adapters.Gemini           IModelClientProvider for Google Gemini, over HttpClient
     Drover.Adapters.Venice           IModelClientProvider and more for Venice
     Drover.Adapters.Mcp              IToolSource over the MCP C# SDK
     Drover.Adapters.E2B              ISandboxProvider over E2B's HTTP API

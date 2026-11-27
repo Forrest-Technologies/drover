@@ -1,0 +1,28 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's generateContent reference and guides (https://ai.google.dev/api/generate-content, https://ai.google.dev/api/models, https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking/thought-signatures, read 2026-11-27). The model id and every value are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 400,
+      "body": {
+        "error": {
+          "code": 400,
+          "message": "API key not valid. Please pass a valid API key.",
+          "status": "INVALID_ARGUMENT",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "API_KEY_INVALID",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "generativelanguage.googleapis.com"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

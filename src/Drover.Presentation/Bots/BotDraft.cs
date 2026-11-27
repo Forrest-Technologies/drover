@@ -101,6 +101,9 @@ public sealed class BotDraft
 
     public bool UncappedUsageAcknowledged { get; set; }
 
+    /// <summary>The bot's limit on rule checks, kept as it was read: the editor does not change it yet.</summary>
+    public int? MaxJudgedChecks { get; set; }
+
     public string MaxDelegations { get; set; } = string.Empty;
 
     /// <summary>
@@ -148,6 +151,7 @@ public sealed class BotDraft
         UnlimitedTokens = bot.RunLimits.UncappedUsageAcknowledged,
         UncappedUsageAcknowledged = bot.RunLimits.UncappedUsageAcknowledged,
         MaxDelegations = Text(bot.RunLimits.MaxDelegations),
+        MaxJudgedChecks = bot.RunLimits.MaxJudgedChecks,
     };
 
     /// <summary>
@@ -222,7 +226,7 @@ public sealed class BotDraft
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
-            new RunLimitsBody(ReadWhole(MaxSteps), UnlimitedTokens ? null : ReadWhole(MaxTokens), ReadWhole(MaxDelegations), UnlimitedTokens && UncappedUsageAcknowledged),
+            new RunLimitsBody(ReadWhole(MaxSteps), UnlimitedTokens ? null : ReadWhole(MaxTokens), ReadWhole(MaxDelegations), UnlimitedTokens && UncappedUsageAcknowledged, MaxJudgedChecks),
             HandleFollowsName: !HandleChosen);
 
     /// <summary>

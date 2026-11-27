@@ -13,8 +13,8 @@ public abstract class ModelProviderPresetTests(PostgresServer postgres) : Server
 
     protected static readonly string[] RowFields = ["address", "displayName", "id", "keyPage", "keyRule", "local"];
 
-    /// <summary>The rows this server lists: every row but the one whose own kind (OpenAI's) the server offers.</summary>
-    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id != OpenAIProvider.ConnectionKind);
+    /// <summary>The rows this server lists: every row but those whose own kind (OpenAI, Gemini) the server offers.</summary>
+    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id is not (OpenAIProvider.ConnectionKind or GeminiProvider.ConnectionKind));
 
     #endregion
 
@@ -224,9 +224,22 @@ public sealed class ModelProviderCatalogNamedProviderTests
         offered.NamedProviders.Should().Equal(KnownProviders.All);
     }
 
+    [Fact]
+    public void The_gemini_row_is_not_listed_while_its_own_kind_is_offered_and_comes_back_when_the_policy_switches_it_off()
+    {
+        var offered = WithGemini(DeploymentPolicy.SelfHosted).Offered.Single(descriptor => descriptor.Kind == ModelConnectionKinds.Compatible);
+        var rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList, AllowedModelProviderKinds = [ModelConnectionKinds.Compatible] };
+
+        offered.NamedProviders.Should().NotContain(row => row.Id == GeminiProvider.ConnectionKind);
+        WithGemini(rules).Offered.Single().NamedProviders.Should().Contain(row => row.Id == GeminiProvider.ConnectionKind);
+    }
+
     #endregion
 
     #region Private Methods
+
+    private static ModelProviderCatalog WithGemini(DeploymentPolicy rules) =>
+        new([new OpenAICompatibleProvider(new NoNetwork()), new GeminiProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));
 
     private static ModelProviderCatalog Catalog(DeploymentPolicy rules) =>
         new([new OpenAICompatibleProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));
