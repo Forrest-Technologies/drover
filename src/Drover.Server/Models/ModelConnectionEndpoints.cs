@@ -271,6 +271,7 @@ public static class ModelConnectionEndpoints
     private static string ToWireName(ModelSignInWait wait) =>
         wait switch
         {
+            ModelSignInWait.Paste => ModelSignInWaits.Paste,
             _ => ModelSignInWaits.Return,
         };
 

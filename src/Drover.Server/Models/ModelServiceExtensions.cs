@@ -21,6 +21,9 @@ public static class ModelServiceExtensions
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
+        // The plan's calls share the key kind's client, which already has the outbound handler; only its sign-in client is new.
+        services.Configure<AnthropicPlanSignInOptions>(configuration.GetSection(AnthropicPlanSignInOptions.Section));
+        services.AddModelProvider<AnthropicPlanProvider>(adapter => adapter.AddAnthropicPlan(), AnthropicPlanSignIn.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));

@@ -392,6 +392,29 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         }
     }
 
+    [Fact]
+    public async Task SubscriptionSignIn_decides_whether_the_claude_plan_may_be_signed_in_to_from_a_device_that_pastes()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("claude-planner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var started = await client.Post($"/api/spaces/{spaceId}/model-connections/sign-in", new StartModelSignInRequest(AnthropicPlanSignIn.ConnectionKind, null));
+
+        if (Setting(nameof(DeploymentPolicy.SubscriptionSignIn)) == nameof(SubscriptionSignInMode.Available))
+        {
+            started.StatusCode.Should().Be(HttpStatusCode.OK);
+            var step = (await started.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!;
+            step.Wait.Should().Be(ModelSignInWaits.Paste, "a device with no listener pastes the code the provider's page shows");
+            step.Address.Should().StartWith("https://claude.ai/oauth/authorize?");
+        }
+        else
+        {
+            started.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await started.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString().Should().Be(ModelCredentials.NotAvailable);
+        }
+    }
+
     #endregion
 
     #region Overrides

@@ -2,14 +2,17 @@ namespace Drover.Contracts.Models;
 
 /// <summary>
 /// Starts a person's own sign-in to a model provider. <see cref="RedirectUri"/> is the address on the person's device
-/// that receives the browser's return.
+/// that receives the browser's return, or null on a device that cannot listen.
 /// </summary>
 public sealed record StartModelSignInRequest(string? Kind, string? RedirectUri);
 
 /// <summary>Where the person goes to approve, and how the answer comes back (<see cref="ModelSignInWaits"/>).</summary>
 public sealed record ModelSignInStarted(Guid AttemptId, string Address, string Wait);
 
-/// <summary>Input only: the query string the person's device received from the provider's page. It holds a one-time code.</summary>
+/// <summary>
+/// Input only: the query string the person's device received from the provider's page, or what the person pasted from
+/// it when the wait is <see cref="ModelSignInWaits.Paste"/>. It holds a one-time code.
+/// </summary>
 public sealed record FinishModelSignInRequest(string? Query)
 {
     public override string ToString() => nameof(FinishModelSignInRequest);
@@ -57,6 +60,9 @@ public static class ModelSignInWaits
 
     /// <summary>The person's device receives the browser's return and posts its query string to finish.</summary>
     public const string Return = "return";
+
+    /// <summary>The provider's page shows a code; the person pastes it and the device posts it to finish.</summary>
+    public const string Paste = "paste";
 
     #endregion
 }
