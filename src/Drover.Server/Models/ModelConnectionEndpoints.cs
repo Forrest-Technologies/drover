@@ -27,7 +27,7 @@ public static class ModelConnectionEndpoints
         // their own short scopes as the caller. Any member may sign in; only the person who started a sign-in can
         // finish or read it, and only their own sign-in can be removed.
         calling.MapPost("/sign-in", StartSignIn).WithName("StartModelSignIn");
-        calling.MapPost("/sign-in/{attemptId:guid}/finish", FinishSignIn).WithName("FinishModelSignIn");
+        calling.MapPost("/sign-in/{attemptId:guid}/finish", FinishSignIn).WithBodyLimit(RequestLimits.Account).WithName("FinishModelSignIn");
         calling.MapGet("/sign-in/{attemptId:guid}", ReadSignIn).WithName("ReadModelSignIn");
         calling.MapDelete("/{connectionId:guid}/sign-in", SignOut).WithName("SignOutOfModelConnection");
         return space;
@@ -278,6 +278,7 @@ public static class ModelConnectionEndpoints
     private static string ToWireName(ModelSignInWait wait) =>
         wait switch
         {
+            ModelSignInWait.Paste => ModelSignInWaits.Paste,
             _ => ModelSignInWaits.Return,
         };
 
