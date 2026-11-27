@@ -164,14 +164,16 @@ public sealed partial class ModelConnectionsViewModel(
     /// </summary>
     public string? SignInFacts(ModelConnectionSummary connection)
     {
-        var provider = SignInKindOf(connection)?.SignInName ?? connection.Name;
+        var kind = SignInKindOf(connection);
+        var provider = kind?.SignInName ?? connection.Name;
+        var noun = kind?.PersonalPlan is false ? "account" : "plan";
 
         return connection.SignIn?.Status switch
         {
-            ModelSignInStatuses.Active => connection.SignIn.AccountLabel is { Length: > 0 } label ? $"Using {provider} plan · {label}" : $"Using {provider} plan",
+            ModelSignInStatuses.Active => connection.SignIn.AccountLabel is { Length: > 0 } label ? $"Using {provider} {noun} · {label}" : $"Using {provider} {noun}",
             ModelSignInStatuses.NeedsSignIn => $"Your {provider} sign-in has ended.",
-            ModelSignInStatuses.SignedOut => $"Signed out of your {provider} plan.",
-            ModelSignInStatuses.None => $"Sign in with your own {provider} plan to use it.",
+            ModelSignInStatuses.SignedOut => $"Signed out of your {provider} {noun}.",
+            ModelSignInStatuses.None => $"Sign in with your own {provider} {noun} to use it.",
             _ => null,
         };
     }

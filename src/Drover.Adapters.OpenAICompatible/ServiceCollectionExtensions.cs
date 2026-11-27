@@ -41,6 +41,24 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Registers OpenRouter's own sign-in and the provider that calls with the key it makes. The provider's client has
+    /// the same wide timeouts and retry rules as the other model clients. The sign-in's client has no retry: its one
+    /// request spends a one-time code. Both flows read <see cref="OpenRouterSignInOptions"/>, bound by the caller
+    /// to <see cref="OpenRouterSignInOptions.Section"/>, and follow a change of it without a restart.
+    /// </summary>
+    public static IServiceCollection AddOpenRouterSignIn(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenRouterProvider.HttpClientName);
+        services.AddHttpClient(OpenRouterSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        services.AddSingleton<OpenRouterProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenRouterProvider>());
+        services.AddSingleton<IModelSignIn, OpenRouterSignIn>();
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers the ChatGPT plan: its provider, on the Responses API with the person's own token, and its sign-in.
     /// The model calls have their own client and pipeline, under the same rules as OpenAI's except that a call the
     /// plan limited is not sent again: the plan's limit is the person's, and the provider asks apps to pause, not to

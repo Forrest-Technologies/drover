@@ -29,6 +29,11 @@ public static class ModelServiceExtensions
         // The plan's calls share the key kind's client, which already has the outbound handler; only its sign-in client is new.
         services.Configure<AnthropicPlanSignInOptions>(configuration.GetSection(AnthropicPlanSignInOptions.Section));
         services.AddModelProvider<AnthropicPlanProvider>(adapter => adapter.AddAnthropicPlan(), AnthropicPlanSignIn.HttpClientName);
+        services.Configure<OpenRouterSignInOptions>(configuration.GetSection(OpenRouterSignInOptions.Section));
+        services.AddModelProvider<OpenRouterProvider>(
+            adapter => adapter.AddOpenRouterSignIn(),
+            OpenRouterProvider.HttpClientName,
+            OpenRouterSignIn.HttpClientName);
         services.AddModelProvider<OpenAICompatibleProvider>(
             adapter => adapter.AddOpenAICompatibleProvider(),
             OpenAICompatibleProvider.HttpClientName,

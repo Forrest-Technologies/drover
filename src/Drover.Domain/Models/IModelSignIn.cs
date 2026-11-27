@@ -21,6 +21,13 @@ public interface IModelSignIn
     bool IsPersonalPlan { get; }
 
     /// <summary>
+    /// True when the provider's page may send the browser back to this server's own address, for a person whose device
+    /// cannot listen. Drover then gives the attempt that address as its <see cref="ModelSignInAttempt.RedirectUri"/>;
+    /// it is only used where the server has an <c>https</c> public address. False for a kind that needs the device.
+    /// </summary>
+    bool CanReturnToServer => false;
+
+    /// <summary>
     /// Whether the person's device may receive the browser's return at this address. A kind compares it with the
     /// address it is configured for, where only the port may vary. Null is a device that cannot listen.
     /// </summary>
