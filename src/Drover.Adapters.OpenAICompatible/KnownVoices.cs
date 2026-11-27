@@ -81,6 +81,10 @@ internal static class KnownVoices
 
     public static bool IsGrok(Uri address) => address.IdnHost.EndsWith("x.ai", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>True for the service the realtime protocol comes from, which takes every setting the protocol has.</summary>
+    public static bool IsHosted(Uri address) =>
+        address.IdnHost.Equals("api.openai.com", StringComparison.OrdinalIgnoreCase);
+
     #endregion
 
     #region Private Methods

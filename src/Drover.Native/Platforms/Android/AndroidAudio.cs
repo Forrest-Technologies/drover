@@ -3,8 +3,9 @@ namespace Drover.Native.Droid;
 /// <summary>
 /// The microphone and the loudspeaker of an Android device. The microphone is opened as the one for a spoken
 /// conversation, so the system takes its own loudspeaker and the room's noise out of what it hears where the device
-/// can, and the permission is asked the first time something records. What is played goes out as speech on the
-/// media stream. A message is recorded as plain samples and handed over as a WAV file
+/// can, and the permission is asked the first time something records. The system only does that for sound it plays
+/// as a conversation, so a call's voice goes out that way (<see cref="CallRoute"/>); a reply read aloud goes out as
+/// speech on the media stream. A message is recorded as plain samples and handed over as a WAV file
 /// (<see cref="PcmRecording"/>). Sound is held in memory only.
 /// </summary>
 internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture, IAudioPlayback
@@ -57,14 +58,26 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
         }
     }
 
-    public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default)
+    public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Open(sampleRate, route: null));
+
+    public Task<IAudioOutput> OpenCall(int sampleRate, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Open(sampleRate, new CallRoute(logger)));
+
+    #endregion
+
+    #region Private Methods
+
+    // A route that was taken is given back when the output it was for could not be opened.
+    private IAudioOutput Open(int sampleRate, CallRoute? route)
     {
         try
         {
-            return Task.FromResult<IAudioOutput>(new Output(sampleRate, logger));
+            return new Output(sampleRate, logger, route);
         }
         catch (Exception failure) when (failure is Java.Lang.Exception or InvalidOperationException)
         {
+            route?.Dispose();
             logger.LogWarning(failure, "The sound output could not be opened");
             throw new DeviceCallFailedException("Android could not open its sound output.", failure);
         }
@@ -73,6 +86,121 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
     #endregion
 
     #region Nested Types
+
+    // How the system carries sound while a call lasts. It is told a conversation is going on, which is what makes it
+    // take the voice it plays out of what the microphone hears: played as media, the voice comes back in through the
+    // microphone and the bot answers itself. A conversation plays through the earpiece unless told otherwise, so the
+    // voice is sent to a headset where one is connected and to the loudspeaker where none is. Before Android 12 a
+    // wireless headset is not looked for. Disposing it gives the system back as it was.
+    private sealed class CallRoute : IDisposable
+    {
+        #region Private Fields
+
+        private readonly Android.Media.AudioManager manager;
+
+        private readonly Android.Media.Mode before;
+
+        private readonly ILogger logger;
+
+        #endregion
+
+        #region Constructors
+
+        public CallRoute(ILogger logger)
+        {
+            this.logger = logger;
+            manager = (Android.Media.AudioManager)AndroidApplication.Context.GetSystemService(Android.Content.Context.AudioService)!;
+            before = manager.Mode;
+
+            try
+            {
+                manager.Mode = Android.Media.Mode.InCommunication;
+                Choose();
+            }
+            catch (Java.Lang.Exception refused)
+            {
+                // The call still plays, through whatever the system chose.
+                logger.LogWarning(refused, "The sound of a call could not be routed");
+            }
+        }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public void Dispose()
+        {
+            try
+            {
+                if (OperatingSystem.IsAndroidVersionAtLeast(31))
+                {
+                    manager.ClearCommunicationDevice();
+                }
+                else
+                {
+                    manager.SpeakerphoneOn = false;
+                }
+
+                manager.Mode = before;
+            }
+            catch (Java.Lang.Exception refused)
+            {
+                logger.LogWarning(refused, "The sound of a call could not be given back");
+            }
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        private void Choose()
+        {
+            if (!OperatingSystem.IsAndroidVersionAtLeast(31))
+            {
+                manager.SpeakerphoneOn = !WiredHeadsetConnected();
+                return;
+            }
+
+            Android.Media.AudioDeviceInfo? headset = null;
+            Android.Media.AudioDeviceInfo? loudspeaker = null;
+
+            foreach (var device in manager.AvailableCommunicationDevices)
+            {
+                if (device.Type is Android.Media.AudioDeviceType.WiredHeadset
+                    or Android.Media.AudioDeviceType.WiredHeadphones
+                    or Android.Media.AudioDeviceType.UsbHeadset
+                    or Android.Media.AudioDeviceType.BluetoothSco
+                    or Android.Media.AudioDeviceType.BleHeadset)
+                {
+                    headset ??= device;
+                }
+                else if (device.Type is Android.Media.AudioDeviceType.BuiltinSpeaker)
+                {
+                    loudspeaker ??= device;
+                }
+            }
+
+            if ((headset ?? loudspeaker) is { } chosen && !manager.SetCommunicationDevice(chosen))
+            {
+                logger.LogWarning("The system would not play a call through {Device}", chosen.Type);
+            }
+        }
+
+        private bool WiredHeadsetConnected()
+        {
+            foreach (var device in manager.GetDevices(Android.Media.GetDevicesTargets.Outputs) ?? [])
+            {
+                if (device.Type is Android.Media.AudioDeviceType.WiredHeadset or Android.Media.AudioDeviceType.WiredHeadphones)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        #endregion
+    }
 
     // The microphone, read on a thread of its own for as long as it is listened to.
     private sealed class Microphone : IAsyncDisposable
@@ -221,6 +349,9 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
 
         private readonly ILogger logger;
 
+        // Held for a call's output and given back with it.
+        private readonly CallRoute? route;
+
         private readonly int rate;
 
         // How long the system's own buffer plays for: the least it holds back before a sound is heard.
@@ -254,9 +385,9 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
 
         #region Constructors
 
-        public Output(int sampleRate, ILogger logger)
+        public Output(int sampleRate, ILogger logger, CallRoute? route)
         {
-            (rate, this.logger) = (sampleRate, logger);
+            (rate, this.logger, this.route) = (sampleRate, logger, route);
             var least = Android.Media.AudioTrack.GetMinBufferSize(sampleRate, Android.Media.ChannelOut.Mono, Android.Media.Encoding.Pcm16bit);
 
             if (least <= 0)
@@ -266,7 +397,7 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
 
             bufferMilliseconds = least / PcmAudio.BytesPerSample * 1000 / sampleRate;
             using var attributes = new Android.Media.AudioAttributes.Builder()
-                .SetUsage(Android.Media.AudioUsageKind.Media)!
+                .SetUsage(route is null ? Android.Media.AudioUsageKind.Media : Android.Media.AudioUsageKind.VoiceCommunication)!
                 .SetContentType(Android.Media.AudioContentType.Speech)!
                 .Build()!;
             using var format = new Android.Media.AudioFormat.Builder()
@@ -388,6 +519,7 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
             track.Release();
             track.Dispose();
             queued.Dispose();
+            route?.Dispose();
             return ValueTask.CompletedTask;
         }
 
