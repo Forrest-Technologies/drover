@@ -237,15 +237,13 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Only_an_admin_is_offered_to_mark_a_compatible_endpoints_model_and_a_providers_own_models_offer_no_toggle()
+    public async Task Only_an_admin_can_edit_what_a_model_can_do()
     {
-        var compatible = Connection with { Kind = "openai_compatible" };
-        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection, compatible]);
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         var model = Models();
         await model.Open();
 
-        model.CanMarkVision(compatible).Should().BeTrue();
-        model.CanMarkVision(Connection).Should().BeFalse("a provider that reports its own capabilities keeps its own value");
+        model.CanEdit.Should().BeTrue();
 
         server.Answer("GET", "/api/session", Samples.Session("member"));
         var memberSession = new SessionState(server.CreateApi(), new ShareInbox());
@@ -257,46 +255,176 @@ public sealed class ManagementViewModelTests : IDisposable
             NullLogger<ModelConnectionsViewModel>.Instance);
         await asMember.Open();
 
-        asMember.CanMarkVision(compatible).Should().BeFalse("the server decides, and a member is not offered the control");
+        asMember.CanEdit.Should().BeFalse("the server decides, and a member is not offered the menu entry");
     }
 
     [Fact]
-    public async Task Marking_a_model_sends_the_model_and_the_answer_replaces_only_its_row_in_the_shown_catalog()
+    public async Task The_sheet_opens_filled_with_what_is_known_and_says_where_each_value_came_from()
     {
-        var compatible = Connection with { Kind = "openai_compatible" };
-        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[compatible]);
-        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[Entry("meta/plain", vision: false), Entry("other", vision: false)]);
-        server.Answer("PUT", $"{space}/model-connections/{connectionId}/models/vision", Entry("meta/plain", vision: true));
+        var entry = Entry("meta/plain", vision: false) with
+        {
+            Capabilities = new ModelCapabilitiesResponse(8192, null, true, true, true, false, [], false, false, VisionSetByOperator: true),
+            Price = new ModelPriceResponse(0.5m, null, null, "USD"),
+            OperatorSet = ["vision", "inputPerMillion"],
+        };
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         var model = Models();
         await model.Open();
-        await model.ShowCatalog(compatible);
 
-        await model.SetVision(compatible, model.Catalog![0], readsImages: true);
+        model.OpenSettings(Connection, entry);
 
-        model.Catalog.Select(row => (row.Model, row.Capabilities.Vision)).Should().Equal(("meta/plain", true), ("other", false));
-        model.NoticeIsProblem.Should().BeFalse();
-        model.Notice.Should().Contain("reading pictures");
-        JsonSerializer.Deserialize<SetModelVisionRequest>(server.Sent("PUT", $"{space}/model-connections/{connectionId}/models/vision").Single(), JsonSerializerOptions.Web)
-            .Should().Be(new SetModelVisionRequest("meta/plain", true));
-        ModelConnectionsViewModel.VisionLabel(model.Catalog[0]).Should().Be("meta/plain reads pictures");
+        model.EditingSettings.Should().BeTrue();
+        model.Settings.ContextSize.Should().Be("8192");
+        model.Settings.InputPrice.Should().Be("0.5");
+        model.Settings.Caption("contextSize").Should().Be("From the provider");
+        model.Settings.Caption("vision").Should().Be("Set here");
+        model.Settings.Caption("inputPerMillion").Should().Be("Set here");
+        model.Settings.Caption("outputPerMillion").Should().BeNull("nothing is known, so nothing is said");
+        model.Settings.Caption("toolCalling").Should().BeNull("every model is assumed to call tools, which is not the provider's word");
+        model.Settings.OffersUseProvidersValues.Should().BeTrue();
     }
 
     [Fact]
-    public async Task A_refused_mark_reports_on_the_connection_and_leaves_the_catalog_as_it_was()
+    public async Task Effort_levels_show_only_while_the_model_thinks_before_answering()
     {
-        var compatible = Connection with { Kind = "openai_compatible" };
-        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[compatible]);
-        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[Entry("plain", vision: false)]);
-        server.Refuse("PUT", $"{space}/model-connections/{connectionId}/models/vision", HttpStatusCode.NotFound, "Sample model is gone.");
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         var model = Models();
         await model.Open();
-        await model.ShowCatalog(compatible);
+        model.OpenSettings(Connection, Entry("plain", vision: false));
 
-        await model.SetVision(compatible, model.Catalog![0], readsImages: true);
+        model.Settings.ShowsEfforts.Should().BeFalse();
 
-        model.Catalog[0].Capabilities.Vision.Should().BeFalse();
-        model.Problems.Should().ContainKey(connectionId);
+        model.Settings.Reasoning = true;
+
+        model.Settings.ShowsEfforts.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Saving_sends_only_what_was_changed_and_what_was_already_set_and_the_answer_replaces_its_row()
+    {
+        var entry = Entry("meta/plain", vision: false) with
+        {
+            Capabilities = new ModelCapabilitiesResponse(8192, null, true, true, true, false, [], false, false),
+            OperatorSet = [],
+        };
+        var answer = entry with
+        {
+            Capabilities = entry.Capabilities with { MaxOutputSize = 4096 },
+            OperatorSet = ["maxOutputSize"],
+        };
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[entry, Entry("other", vision: false)]);
+        server.Answer("PUT", $"{space}/model-connections/{connectionId}/model-settings", answer);
+        var model = Models();
+        await model.Open();
+        await model.ShowCatalog(Connection);
+        model.OpenSettings(Connection, entry);
+        model.Settings.MaxOutputSize = "4096";
+        model.Settings.OutputPrice = "1.25";
+
+        await model.SaveSettings();
+
+        var sent = JsonSerializer.Deserialize<SetModelSettingsRequest>(
+            server.Sent("PUT", $"{space}/model-connections/{connectionId}/model-settings").Single(),
+            JsonSerializerOptions.Web)!;
+        sent.Model.Should().Be("meta/plain");
+        sent.Capabilities.Should().Be(new ModelAbilitiesRequest(MaxOutputSize: 4096));
+        sent.Pricing.Should().Be(new ModelPricingRequest(OutputPerMillion: 1.25m, Currency: "USD"));
+        model.EditingSettings.Should().BeFalse();
+        model.Catalog!.Select(row => (row.Model, row.Capabilities.MaxOutputSize)).Should().Equal(("meta/plain", 4096), ("other", null));
+        model.Notice.Should().Contain("was updated");
+    }
+
+    [Theory]
+    [InlineData("ContextSize", "0", "Enter a size of 1 token or more.")]
+    [InlineData("MaxOutputSize", "ten", "Enter a size of 1 token or more.")]
+    [InlineData("InputPrice", "-1", "Enter a price of zero or more per million tokens.")]
+    [InlineData("OutputPrice", "0.1234567", "Enter a price of zero or more per million tokens.")]
+    [InlineData("Currency", "US", "Enter a three letter currency code, such as USD.")]
+    public async Task A_value_out_of_range_stays_on_the_form_with_its_sentence_and_nothing_is_sent(string field, string typed, string sentence)
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var model = Models();
+        await model.Open();
+        model.OpenSettings(Connection, Entry("plain", vision: false));
+        typeof(ModelSettingsForm).GetProperty(field)!.SetValue(model.Settings, typed);
+
+        await model.SaveSettings();
+
+        model.Settings.Problems[field].Should().Be(sentence);
+        model.EditingSettings.Should().BeTrue();
+        server.Sent("PUT", $"{space}/model-connections/{connectionId}/model-settings").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Changing_only_the_currency_sends_every_price_on_the_form_with_it()
+    {
+        var entry = Entry("plain", vision: false) with { Price = new ModelPriceResponse(3m, 15m, null, "USD") };
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var model = Models();
+        await model.Open();
+        model.OpenSettings(Connection, entry);
+        model.Settings.Currency = "eur";
+
+        var sent = model.Settings.Request().Pricing;
+
+        sent.Should().Be(new ModelPricingRequest(InputPerMillion: 3m, OutputPerMillion: 15m, Currency: "EUR"));
+    }
+
+    [Fact]
+    public async Task A_size_above_ten_million_is_accepted_on_the_form()
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var model = Models();
+        await model.Open();
+        model.OpenSettings(Connection, Entry("plain", vision: false));
+        model.Settings.ContextSize = "20000000";
+
+        model.Settings.Check().Should().BeTrue();
+        model.Settings.Request().Capabilities!.ContextSize.Should().Be(20_000_000);
+    }
+
+    [Fact]
+    public async Task A_refused_save_keeps_the_sheet_open_with_the_servers_sentence()
+    {
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        server.Refuse("PUT", $"{space}/model-connections/{connectionId}/model-settings", HttpStatusCode.BadRequest, "Sample model is refused.");
+        var model = Models();
+        await model.Open();
+        model.OpenSettings(Connection, Entry("plain", vision: false));
+        model.Settings.Vision = true;
+
+        await model.SaveSettings();
+
+        model.EditingSettings.Should().BeTrue();
+        model.SettingsProblem.Should().Be("Sample model is refused.");
         model.ChangePending.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Using_the_providers_values_asks_first_then_clears_and_reads_the_catalog_again()
+    {
+        var entry = Entry("plain", vision: true) with { OperatorSet = ["vision"] };
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[Entry("plain", vision: false)]);
+        server.Answer("DELETE", $"{space}/model-connections/{connectionId}/model-settings", HttpStatusCode.NoContent);
+        var model = Models();
+        await model.Open();
+        model.OpenSettings(Connection, entry);
+
+        model.AskUseProvidersValues();
+        model.ConfirmingClear.Should().BeTrue();
+        model.KeepSettings();
+        model.ConfirmingClear.Should().BeFalse();
+        server.Sent("DELETE", $"{space}/model-connections/{connectionId}/model-settings").Should().BeEmpty("keeping them sends nothing");
+
+        model.AskUseProvidersValues();
+        await model.UseProvidersValues();
+
+        server.Sent("DELETE", $"{space}/model-connections/{connectionId}/model-settings").Should().HaveCount(1);
+        server.Addresses.Should().Contain($"DELETE {space}/model-connections/{connectionId}/model-settings?model=plain");
+        model.Catalog!.Single().Capabilities.Vision.Should().BeFalse();
+        (model.EditingSettings, model.ConfirmingClear).Should().Be((false, false));
     }
 
     [Fact]

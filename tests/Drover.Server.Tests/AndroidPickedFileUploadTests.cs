@@ -183,7 +183,7 @@ public sealed class AndroidPickedFileUploadTests(PostgresServer postgres) : Serv
             ModelConnectionId = connectionId,
             Model = "scripted",
             DisplayName = "scripted",
-            Capabilities = new ModelCapabilities { Vision = true, VisionSetByOperator = true },
+            OperatorCapabilities = new ModelCapabilityOverrides { Vision = true },
             LastSeenAt = Time.GetUtcNow(),
         });
         await db.SaveChangesAsync(Token);

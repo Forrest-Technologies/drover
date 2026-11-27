@@ -18,10 +18,10 @@ public sealed class FileAbilityReader(
     {
         var entry = await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
         return new FileAbilities(
-            entry?.Capabilities.Vision ?? false,
+            entry?.EffectiveCapabilities.Vision ?? false,
             await HasSandbox(bot, cancellationToken),
             await AudienceCoversSandbox(thread.SpaceId, thread.AudienceUserId, accounts, cancellationToken),
-            entry?.Capabilities.PdfInput ?? false);
+            entry?.EffectiveCapabilities.PdfInput ?? false);
     }
 
     /// <summary>

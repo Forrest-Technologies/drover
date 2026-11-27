@@ -25,6 +25,7 @@ public static class FieldInput
         "password" => "Password",
         "email" => "EmailSmtpAddress",
         "url" => "Url",
+        "number" => "Number",
         _ => "Default",
     };
 

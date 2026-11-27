@@ -12,4 +12,10 @@ public sealed record ModelEndpoint(string Kind, Uri BaseAddress)
     /// Empty for a key connection.
     /// </summary>
     public IReadOnlyDictionary<string, string> SignInDetails { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Models of this connection whose facts are already stored. A provider that must ask for the facts of each model
+    /// one by one asks for the others first, so a pass that runs out of time still moves on.
+    /// </summary>
+    public IReadOnlySet<string> Filled { get; init; } = new HashSet<string>();
 }

@@ -1124,6 +1124,14 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("last_seen_at");
 
+                b.Property<string>("OperatorCapabilities")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_capabilities");
+
+                b.Property<string>("OperatorPricing")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_pricing");
+
                 b.Property<string>("Pricing")
                     .IsRequired()
                     .ValueGeneratedOnAdd()
