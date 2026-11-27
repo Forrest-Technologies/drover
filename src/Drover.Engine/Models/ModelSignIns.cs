@@ -165,11 +165,18 @@ public sealed class ModelSignIns(
     /// <c>state</c> is checked as on any return. It ends only an attempt that was started to return here, once.
     /// An attempt that is not waiting any more, whether finished, refused or ran out, is not found, so an id works once.
     /// </summary>
-    public async Task<ModelSignInOutcome> FinishFromReturn(Guid attemptId, string? arrived, CancellationToken cancellationToken)
+    public async Task<ModelSignInOutcome> FinishFromReturn(Guid attemptId, string? arrived, Guid? callerUserId, CancellationToken cancellationToken)
     {
         if (!attempts.TryGetValue(attemptId, out var pending) || !pending.ViaServer || StateOf(pending) is not ModelSignInState.Waiting)
         {
             return ModelSignInOutcome.NotFound;
+        }
+
+        // A browser signed in to Drover as somebody else is not the person who started this: it was handed the address,
+        // so nothing is exchanged, and the attempt stays for the person it belongs to.
+        if (callerUserId is { } caller && caller != pending.UserId)
+        {
+            return new ModelSignInOutcome(ModelSignInState.Waiting, null, "This sign-in was started by someone else.", 403);
         }
 
         return await Finish(pending.SpaceId, pending.UserId, attemptId, arrived, cancellationToken);

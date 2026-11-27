@@ -28,7 +28,7 @@ public sealed class DroverFactory(
 
     /// <summary>The kinds a hosted server under test offers when its test does not say.</summary>
     public static IReadOnlyList<string> HostedTestKinds { get; } =
-        ["scripted", "scripted_model", "openai_compatible", "venice", FakeModelSignIn.PlanKind, FakeModelSignIn.OpenKind];
+        ["scripted", "scripted_model", "openai_compatible", "venice", FakeModelSignIn.PlanKind, FakeModelSignIn.OpenKind, OpenRouterSignIn.ConnectionKind];
 
     public const string AllowedKindsSetting = "Drover:Policy:Rules:AllowedModelProviderKinds";
 

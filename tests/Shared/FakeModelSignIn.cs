@@ -69,6 +69,9 @@ public sealed class FakeModelSignIn(
     /// <summary>How the next refreshes are answered.</summary>
     public FakeRefreshAnswer RefreshAnswer { get; set; } = FakeRefreshAnswer.Renewed;
 
+    /// <summary>When true the token set has no end and no refresh token, as a key the provider made does.</summary>
+    public bool NoEnd { get; set; }
+
     /// <summary>How long an access token lasts.</summary>
     public TimeSpan Lifetime { get; set; } = TimeSpan.FromHours(1);
 
@@ -186,7 +189,7 @@ public sealed class FakeModelSignIn(
         {
             AccessToken = $"fake-access-{Guid.NewGuid():N}",
             RefreshToken = $"fake-refresh-{Guid.NewGuid():N}",
-            ExpiresAt = clock.GetUtcNow() + Lifetime,
+            ExpiresAt = NoEnd ? null : clock.GetUtcNow() + Lifetime,
             Scopes = ["models"],
             AccountLabel = AccountLabel,
         };

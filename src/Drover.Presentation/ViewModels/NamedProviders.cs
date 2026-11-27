@@ -116,7 +116,8 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         try
         {
             var kinds = await api.ListModelProviderKinds();
-            ownWire = [.. kinds.Where(kind => kind.Kind is not (VeniceKind or CompatibleKind))];
+            // A sign-in kind has no key form to draw; the connect screen's sign-in entry (#1056) offers it.
+            ownWire = [.. kinds.Where(kind => kind.Kind is not (VeniceKind or CompatibleKind) && !kind.SignIn)];
             presets = kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [];
             State = NamedProvidersState.Loaded;
         }

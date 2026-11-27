@@ -54,7 +54,8 @@ public static class ModelResponses
             descriptor.AddressHint,
             descriptor.KeyHint,
             descriptor.ReportsCapabilities,
-            [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())]);
+            [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())],
+            descriptor.SignIn);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(

@@ -47,6 +47,25 @@ public sealed class ModelSignInReturnEndpointTests(PostgresServer postgres) : Se
     }
 
     [Fact]
+    public async Task A_browser_signed_in_as_someone_else_is_refused_with_no_exchange_and_the_starter_can_still_finish()
+    {
+        var owner = await SeedPerson("owner");
+        var other = await SeedPerson("other");
+        var client = await SignedIn(owner);
+        var started = await Start(client, owner.SpaceId);
+        var approval = open.Approve(FakeModelSignIn.StateOf(new Uri(started.Address))).Text;
+
+        var asOther = await (await SignedIn(other)).Get($"{ReturnPath(started.AttemptId)}?{approval}");
+        var asOwner = await client.Get($"{ReturnPath(started.AttemptId)}?{approval}");
+
+        asOther.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await asOther.Content.ReadAsStringAsync(Token)).Should().Contain("did not finish");
+        (await ReadCredentialCount(other.SpaceId, other.UserId)).Should().Be(0);
+        asOwner.StatusCode.Should().Be(HttpStatusCode.OK, "the refusal changed nothing for the person the attempt belongs to");
+        (await ReadCredentialCount(owner.SpaceId, owner.UserId)).Should().Be(1);
+    }
+
+    [Fact]
     public async Task An_id_works_once_and_a_wrong_or_made_up_id_is_a_404()
     {
         var owner = await SeedPerson("owner");

@@ -238,6 +238,18 @@ public sealed class ConnectModelViewModelTests : IDisposable
             .Should().BeEquivalentTo(new CreateModelConnectionRequest("sample_own_wire", "Sample own wire", null, "sample-key", null));
     }
 
+    [Fact]
+    public async Task A_sign_in_kind_is_not_offered_as_a_choice_with_a_key_form()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.WithOwnWire(SampleProviders.All));
+        server.Answer("GET", $"{space}/model-connections", Array.Empty<ModelConnectionSummary>());
+        var model = Step();
+        await model.Open();
+
+        model.Named.Options.Select(option => option.Value).Should().NotContain("sample_sign_in");
+        model.Named.OwnWire.Should().BeNull();
+    }
+
     #endregion
 
     #region Private Methods
@@ -265,6 +277,7 @@ public static class SampleProviders
         new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
         new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
         new("sample_own_wire", "Sample own wire", "required", "fixed", null, "Sample own wire hint.", false, []),
+        new("sample_sign_in", "Sample sign-in", "required", "fixed", null, null, false, [], true),
     ];
 
     public static ModelProviderPresetResponse[] All { get; } =

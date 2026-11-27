@@ -33,7 +33,11 @@ public static class ModelSignInReturnEndpoint
 
     private static async Task<Results<ContentHttpResult, NotFound>> Return(Guid attemptId, HttpContext context, ModelSignIns signIns)
     {
-        var outcome = await signIns.FinishFromReturn(attemptId, context.Request.QueryString.Value, context.RequestAborted);
+        var outcome = await signIns.FinishFromReturn(
+            attemptId,
+            context.Request.QueryString.Value,
+            context.User.Identity?.IsAuthenticated == true ? context.User.GetUserId() : null,
+            context.RequestAborted);
 
         if (outcome.State is null)
         {

@@ -30,7 +30,15 @@ public sealed class RenewingChatClient(
     public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
         using var client = provider.CreateChatClient(endpoint, await Key(cancellation), model, settings);
-        return await client.GetResponse(request, cancellation);
+
+        try
+        {
+            return await client.GetResponse(request, cancellation);
+        }
+        catch (ModelProviderException failure) when (failure.Failure is ModelFailure.InvalidKey && current.ExpiresAt is null)
+        {
+            throw await Rejected(failure, cancellation);
+        }
     }
 
     public async IAsyncEnumerable<ModelChatUpdate> GetStreamingResponse(
@@ -39,9 +47,23 @@ public sealed class RenewingChatClient(
     {
         using var client = provider.CreateChatClient(endpoint, await Key(cancellation), model, settings);
 
-        await foreach (var update in client.GetStreamingResponse(request, cancellation))
+        await using var updates = client.GetStreamingResponse(request, cancellation).GetAsyncEnumerator(cancellation);
+
+        while (true)
         {
-            yield return update;
+            try
+            {
+                if (!await updates.MoveNextAsync())
+                {
+                    yield break;
+                }
+            }
+            catch (ModelProviderException failure) when (failure.Failure is ModelFailure.InvalidKey && current.ExpiresAt is null)
+            {
+                throw await Rejected(failure, cancellation);
+            }
+
+            yield return updates.Current;
         }
     }
 
@@ -50,6 +72,21 @@ public sealed class RenewingChatClient(
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// The provider refused a key that has no end. For a sign-in that is the sign-in being over, so it is ended and the
+    /// call fails as such; for anything else the provider's own failure stands.
+    /// </summary>
+    private async Task<Exception> Rejected(ModelProviderException failure, CancellationToken cancellation)
+    {
+        if (await credentials.EndAfterRejection(current, cancellation) is not { } ended)
+        {
+            return failure;
+        }
+
+        current = ended;
+        return new ModelCredentialException(ended);
+    }
 
     /// <summary>The credential for this call, renewed first when it runs out soon. One caller at a time, so parallel calls share one renewal.</summary>
     private async Task<string?> Key(CancellationToken cancellation)

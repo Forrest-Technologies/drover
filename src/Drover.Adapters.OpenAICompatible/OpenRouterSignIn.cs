@@ -65,7 +65,8 @@ public sealed class OpenRouterSignIn(IHttpClientFactory httpClients, IOptionsMon
             $"code_challenge={challenge}",
             "code_challenge_method=S256",
             $"state={Uri.EscapeDataString(attempt.State)}",
-            $"key_label={Uri.EscapeDataString(settings.KeyLabel)}");
+            $"key_label={Uri.EscapeDataString(settings.KeyLabel)}",
+            "expiration=never");
         var address = new UriBuilder(settings.AuthorizeAddress) { Query = query }.Uri;
 
         return Task.FromResult(new ModelSignInStep(address, null, ModelSignInWait.Return));

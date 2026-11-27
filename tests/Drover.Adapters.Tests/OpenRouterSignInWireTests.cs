@@ -31,6 +31,7 @@ public sealed class OpenRouterSignInWireTests
         query["callback_url"].Should().Be("http://localhost:50321/auth/callback", "the page documents localhost callbacks, so the loopback address is spelled that way");
         query["code_challenge_method"].Should().Be("S256");
         query["state"].Should().Be(attempt.State);
+        query["expiration"].Should().Be("never", "the key is asked for with no end; the person can still change it");
         query.Keys.Should().NotContain(["client_id", "client_secret"]);
         step.Wait.Should().Be(ModelSignInWait.Return);
         step.Code.Should().BeNull();

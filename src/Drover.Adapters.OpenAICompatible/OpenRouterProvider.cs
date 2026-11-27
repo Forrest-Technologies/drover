@@ -29,7 +29,8 @@ public sealed class OpenRouterProvider(IHttpClientFactory httpClients, IOptionsM
         ModelAddressRule.Fixed,
         AddressHint: null,
         KeyHint: null,
-        ReportsCapabilities: false);
+        ReportsCapabilities: false,
+        SignIn: true);
 
     #endregion
 

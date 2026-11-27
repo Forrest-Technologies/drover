@@ -41,6 +41,29 @@ public sealed class ModelSignInRunTests(PostgresServer postgres)
         signIn.Revoked.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task A_key_the_provider_refuses_ends_the_sign_in_and_the_next_run_is_told_to_sign_in_again_with_no_call()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hi.")]), new TestTools());
+        var signIn = new FakeModelSignIn(ScriptedModelProvider.ConnectionKind) { NoEnd = true };
+        var host = world.StartHost(replaceServices: services => services.AddSingleton<IModelSignIn>(signIn));
+        await ModelCredentialsTests.SignIn(world, host, signIn, world.UserId);
+        world.Model.BeforeCall = _ => Task.FromException(ModelProviderException.FromStatus(401));
+        var firstRun = await world.Post(await world.NewThread(), "Hello?");
+
+        var first = await world.WaitForStatus(firstRun, RunStatus.Completed, RunStatus.Failed);
+        var callsAfterFirst = world.Model.KeysSeen.Count;
+        world.Model.BeforeCall = _ => Task.CompletedTask;
+        var secondRun = await world.Post(await world.NewThread(), "Hello again?");
+        var second = await world.WaitForStatus(secondRun, RunStatus.Completed, RunStatus.Failed);
+
+        first.Status.Should().Be(RunStatus.Failed);
+        first.Error!.Code.Should().Be(RunReasons.SignInEnded, "a refused key with no end is the sign-in being over, not a key to check");
+        (await world.Read(db => db.ModelConnectionCredentials.SingleAsync(RunWorld.Token))).Status.Should().Be(ModelSignInStatus.NeedsSignIn);
+        second.Error!.Code.Should().Be(RunReasons.SignInEnded);
+        world.Model.KeysSeen.Count.Should().Be(callsAfterFirst, "no model call is made once the sign-in has ended");
+    }
+
     #endregion
 
     #region Whose Sign-In

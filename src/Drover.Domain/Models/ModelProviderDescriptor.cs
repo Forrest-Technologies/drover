@@ -15,6 +15,8 @@ namespace Drover.Domain.Models;
 /// <param name="ReportsCapabilities">True when the provider's model list carries capabilities and prices.</param>
 /// <param name="NamedProviders">The providers a person can pick by name for a kind that takes an address, in the order to
 /// show them. Empty for every other kind.</param>
+/// <param name="SignIn">True for a sign-in kind: a person signs in to it, and no key is pasted. A client draws it with the
+/// sign-in screen, never with a key form.</param>
 public sealed record ModelProviderDescriptor(
     string Kind,
     string DisplayName,
@@ -23,4 +25,5 @@ public sealed record ModelProviderDescriptor(
     string? AddressHint,
     string? KeyHint,
     bool ReportsCapabilities,
-    IReadOnlyList<ModelProviderPreset>? NamedProviders = null);
+    IReadOnlyList<ModelProviderPreset>? NamedProviders = null,
+    bool SignIn = false);
