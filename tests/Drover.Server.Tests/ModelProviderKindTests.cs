@@ -16,7 +16,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, Anthropic, Gemini);
+        kinds.Select(kind => kind.Kind).Should().Equal(Venice, OpenAI, Anthropic, Gemini, ModelConnectionKinds.Compatible);
         kinds.Single(kind => kind.Kind == Anthropic).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Anthropic,
             "Anthropic",
@@ -252,7 +252,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "anthropic", "gemini");
+        kinds.Select(kind => kind.Kind).Should().Equal("venice", "openai", "anthropic", "gemini", ModelConnectionKinds.Compatible);
     }
 
     #endregion

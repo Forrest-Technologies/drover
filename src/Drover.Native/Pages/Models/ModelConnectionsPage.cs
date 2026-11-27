@@ -19,9 +19,13 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Select provider = new() { Label = "Provider" };
 
+    private readonly SegmentedControl providerSegments = new() { Label = "Provider", Fills = true };
+
+    private readonly TextBlock onlyKind = Styles.Text(string.Empty, "DvTextSecondary");
+
     private readonly TextBlock providersLoading = PageParts.Waiting(NamedProviders.LoadingWords);
 
-    private readonly StatusNote providersFailed = new() { Kind = NoteKind.Danger, Text = NamedProviders.FailedWords };
+    private readonly EmptyState providersFailed = new() { Title = NamedProviders.FailedTitle, Cause = NamedProviders.FailedCause, ActionLabel = NamedProviders.RetryWords };
 
     private readonly TextBlock reach = Styles.Text(NamedProviders.ReachWords, "DvTextSecondary");
 
@@ -43,8 +47,6 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
 
-    private readonly Button retryProviders;
-
     private readonly Button changeAddress;
 
     private readonly Button cancelAdd;
@@ -62,29 +64,23 @@ public sealed class ModelConnectionsPage : Screen
     public ModelConnectionsPage()
     {
         nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
-        baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url",
-            "Any server that speaks the chat completions API.");
+        baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url");
         keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", model.Named.KeyHint);
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
-        provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
-        {
-            if (provider.Value.Length > 0 && provider.Value != model.Named.Choice)
-            {
-                model.ChooseProvider(provider.Value);
-                UpdateAddForm();
-            }
-        });
-        retryProviders = PageParts.Action(NamedProviders.RetryWords, async () => { await model.RetryProviders(); UpdateAddForm(); }, UpdateAddForm);
+        provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) => ChooseProvider(provider.Value));
+        providerSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => ChooseProvider(providerSegments.Value));
+        providersFailed.Action += async (_, _) => { await model.RetryProviders(); UpdateAddForm(); };
         changeAddress = PageParts.Action(NamedProviders.ChangeAddressWords, () => { model.ChangeAddress(); UpdateAddForm(); return Task.CompletedTask; }, UpdateAddForm);
+        nameField.SizeChanged += (_, _) => UpdateAddForm();
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
         keyField.Submitted += (_, _) => Run(model.Add);
         newKeyField.Submitted += (_, _) => Run(ReplaceKey);
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
-        addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = PageParts.SheetBody(provider, providersLoading, providersFailed, retryProviders, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
+        addButton = PageParts.Action("Add connection", model.Add, Refresh, kind: ButtonKind.Primary);
+        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -280,10 +276,31 @@ public sealed class ModelConnectionsPage : Screen
             provider.Value = providers.Choice;
         }
 
-        provider.Disabled = busy;
+        if (!providerSegments.Options.SequenceEqual(providers.Options))
+        {
+            providerSegments.Options = providers.Options;
+        }
+
+        if (providerSegments.Value != providers.Choice)
+        {
+            providerSegments.Value = providers.Choice;
+        }
+
+        provider.Disabled = providerSegments.Disabled = busy;
+        var list = providers.UsesList || (providers.ShowsChoice && nameField.ActualWidth > 0 && providerSegments.MinimumWidth > nameField.ActualWidth);
+        provider.Visibility = providers.ShowsChoice && list ? Visibility.Visible : Visibility.Collapsed;
+        providerSegments.Visibility = providers.ShowsChoice && !list ? Visibility.Visible : Visibility.Collapsed;
+        onlyKind.Text = providers.OnlyKindWords ?? string.Empty;
+        onlyKind.Visibility = providers.OnlyKindWords is null ? Visibility.Collapsed : Visibility.Visible;
+        baseUrlField.Hint = providers.AddressHint;
+        baseUrlField.Error = model.AddressProblem;
+        keyField.Error = model.AddKeyProblem;
         providersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
-        providersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
-        retryProviders.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        providersFailed.Title = providers.StateTitle;
+        providersFailed.Cause = providers.StateCause;
+        providersFailed.Visibility = providers.ShowsState ? Visibility.Visible : Visibility.Collapsed;
+        var form = providers.ShowsForm ? Visibility.Visible : Visibility.Collapsed;
+        nameField.Visibility = form;
         reach.Text = providers.ReachNote ?? string.Empty;
         reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
         changeAddress.Visibility = providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
@@ -304,7 +321,7 @@ public sealed class ModelConnectionsPage : Screen
         addBusy.Text = busy ? "Adding the connection." : string.Empty;
         addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         cancelAdd.IsEnabled = !busy;
-        addButton.IsEnabled = !busy;
+        addButton.IsEnabled = providers.ShowsForm && !busy;
     }
 
     private void UpdateReplaceForm()
@@ -317,6 +334,15 @@ public sealed class ModelConnectionsPage : Screen
         replaceBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         cancelReplace.IsEnabled = !busy;
         saveKey.IsEnabled = !busy && model.Replacing is not null;
+    }
+
+    private void ChooseProvider(string? chosen)
+    {
+        if (chosen is { Length: > 0 } && chosen != model.Named.Choice)
+        {
+            model.ChooseProvider(chosen);
+            UpdateAddForm();
+        }
     }
 
     private Drover.Contracts.Models.ModelConnectionSummary? Replacing() =>
@@ -339,16 +365,21 @@ public sealed class ModelConnectionsPage : Screen
 
     private ListCard Connection(Drover.Contracts.Models.ModelConnectionSummary connection)
     {
-        var status = ModelConnectionsViewModel.StatusOf(connection);
+        var status = model.StatusOf(connection);
         var card = new ListCard
         {
             Title = connection.Name,
-            Facts = ModelConnectionsViewModel.Facts(connection),
+            Facts = model.Facts(connection),
             Status = new Badge { Text = status.Words, Kind = status.Kind },
             Trailing = CardMenu(connection),
         };
 
         var beneath = PageParts.Column();
+        if (model.OffWords(connection) is { } off)
+        {
+            beneath.Children.Add(Styles.Text(off, "DvTextSecondary"));
+        }
+
         if (model.Problems.TryGetValue(connection.Id, out var problem))
         {
             beneath.Children.Add(new StatusNote { Kind = NoteKind.Danger, Text = problem });
