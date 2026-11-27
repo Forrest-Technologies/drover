@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Drover.Adapters.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\ModelChatMapping.cs" Link="Models\ModelChatMapping.cs" />
+  </ItemGroup>
+</Project>

@@ -567,7 +567,8 @@ public sealed partial class RunExecutor(
             deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
-            loggers.CreateLogger<RunFiles>());
+            loggers.CreateLogger<RunFiles>(),
+            PdfReading.For(loaded.Capabilities, deployment.Value.Rules.MaxDocumentPages, deployment.Value.Rules.MaxFileBytes));
     }
 
     #endregion
