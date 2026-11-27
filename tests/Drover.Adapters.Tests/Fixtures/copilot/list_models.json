@@ -1,0 +1,46 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from Copilot's documented GET /models catalog (picker flag, policy.state, capabilities.supports). The host is a placeholder; no live account produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "id": "gpt-4.1",
+            "name": "GPT-4.1",
+            "model_picker_enabled": true,
+            "policy": { "state": "enabled" },
+            "capabilities": {
+              "supports": { "tool_calls": true, "vision": false },
+              "limits": { "max_context_window": 128000, "max_output_tokens": 16384 }
+            }
+          },
+          {
+            "id": "gpt-4o",
+            "name": "GPT-4o",
+            "model_picker_enabled": true,
+            "policy": { "state": "enabled" },
+            "capabilities": {
+              "supports": { "tool_calls": true, "vision": true }
+            }
+          },
+          {
+            "id": "disabled-model",
+            "model_picker_enabled": true,
+            "policy": { "state": "disabled" },
+            "capabilities": { "supports": { "tool_calls": true } }
+          },
+          {
+            "id": "no-tools",
+            "model_picker_enabled": true,
+            "policy": { "state": "enabled" },
+            "capabilities": { "supports": { "tool_calls": false } }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -16,7 +16,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Drover.Engine\Drover.Engine.csproj" />
     <ProjectReference Include="..\Drover.Agents\Drover.Agents.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Anthropic\Drover.Adapters.Anthropic.csproj" />
     <ProjectReference Include="..\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Gemini\Drover.Adapters.Gemini.csproj" />
     <ProjectReference Include="..\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />
     <ProjectReference Include="..\Drover.Adapters.Mcp\Drover.Adapters.Mcp.csproj" />
     <ProjectReference Include="..\Drover.Adapters.LocalFiles\Drover.Adapters.LocalFiles.csproj" />
@@ -24,6 +26,7 @@
     <ProjectReference Include="..\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\Drover.Adapters.WebPush\Drover.Adapters.WebPush.csproj" />
     <ProjectReference Include="..\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.SystemOne\Drover.Adapters.SystemOne.csproj" />
   </ItemGroup>
 
   <!-- What the browser client's former address, /native/, still answers (Clients/RetiredNativeAddress.cs). -->

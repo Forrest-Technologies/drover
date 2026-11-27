@@ -76,5 +76,8 @@ public static class RunEventTypes
     /// <summary>A rule a person wrote on the bot applied. Data is <see cref="RuleFired"/>.</summary>
     public const string RuleFired = "rule.fired";
 
+    /// <summary>A decision model checked a rule written as a sentence. Data is <see cref="RuleChecked"/>.</summary>
+    public const string RuleChecked = "rule.checked";
+
     #endregion
 }

@@ -20,6 +20,15 @@ public sealed class ScriptedProvider : IModelClientProvider
 
     public Uri? FixedAddress { get; } = new("https://scripted.example.test/v1/");
 
+    public ModelProviderDescriptor Descriptor { get; } = new(
+        ConnectionKind,
+        "Scripted",
+        ModelKeyRule.Optional,
+        ModelAddressRule.Fixed,
+        AddressHint: null,
+        KeyHint: null,
+        ReportsCapabilities: false);
+
     public Func<string?, Task<ConnectionTestResult>> OnTest { get; set; } =
         _ => Task.FromResult(ConnectionTestResult.Ok("Connected."));
 

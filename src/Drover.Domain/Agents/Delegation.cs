@@ -12,6 +12,8 @@ public sealed record DelegationRequest(Guid ParentRunId, string AgentName)
     /// <summary>The parent's tool call, as the model named it. A delegation is idempotent on it.</summary>
     public string? ParentCallId { get; init; }
 
+    public Guid? ToolId { get; init; }
+
     public Guid? BotId { get; init; }
 
     public string Task { get; init; } = string.Empty;

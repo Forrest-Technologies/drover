@@ -35,13 +35,15 @@ public sealed class RecordedExchange
         Headers.Select(header => KeyValuePair.Create(header.Key, ResolveClock(header.Value, now)));
 
     /// <summary>
-    /// A body is one of: <c>body</c> (JSON), <c>sse</c> (server events), <c>connect</c> (Connect stream frames:
+    /// A body is one of: <c>body</c> (JSON), <c>sse</c> (server events, data lines only), <c>events</c> (named server
+    /// events, each <c>{"event": name, "data": {...}}</c>), <c>connect</c> (Connect stream frames:
     /// <c>{"messages":[...],"end":{...}}</c>, where a missing <c>end</c> is a stream that stops without its end frame),
     /// or <c>bytes_base64</c> (an octet stream).
     /// </summary>
     public static RecordedExchange Parse(JsonElement element)
     {
         var sse = element.TryGetProperty("sse", out var lines) ? lines : (JsonElement?)null;
+        var named = element.TryGetProperty("events", out var events) ? events : (JsonElement?)null;
         var body = element.TryGetProperty("body", out var found) ? found : (JsonElement?)null;
         var connect = element.TryGetProperty("connect", out var frames) ? frames : (JsonElement?)null;
         var bytes = element.TryGetProperty("bytes_base64", out var encoded) ? encoded.GetBytesFromBase64() : null;
@@ -54,14 +56,17 @@ public sealed class RecordedExchange
             Headers = element.TryGetProperty("headers", out var headers)
                 ? headers.EnumerateObject().ToDictionary(header => header.Name, header => header.Value.GetString()!)
                 : [],
-            ContentType = (sse, connect, bytes) switch
+            ContentType = (sse ?? named, connect, bytes) switch
             {
                 ({ }, _, _) => "text/event-stream",
                 (_, { }, _) => "application/connect+json",
                 (_, _, { }) => "application/octet-stream",
                 _ => "application/json",
             },
-            Body = sse is { } events ? ToEventStream(events) : body is { } json ? Compact(json) : string.Empty,
+            Body = sse is { } data ? ToEventStream(data)
+                : named is { } namedEvents ? ToNamedEventStream(namedEvents)
+                : body is { } json ? Compact(json)
+                : string.Empty,
             Bytes = connect is { } stream ? ToConnectStream(stream) : bytes,
         };
     }
@@ -76,6 +81,10 @@ public sealed class RecordedExchange
     private static string ToEventStream(JsonElement events) =>
         string.Concat(events.EnumerateArray().Select(@event =>
             $"data: {(@event.ValueKind == JsonValueKind.String ? @event.GetString() : Compact(@event))}\n\n"));
+
+    private static string ToNamedEventStream(JsonElement events) =>
+        string.Concat(events.EnumerateArray().Select(@event =>
+            $"event: {@event.GetProperty("event").GetString()}\ndata: {Compact(@event.GetProperty("data"))}\n\n"));
 
     /// <summary>Connect framing: a flag byte (2 marks the end of the stream), a big-endian length, then the JSON.</summary>
     private static byte[] ToConnectStream(JsonElement stream)

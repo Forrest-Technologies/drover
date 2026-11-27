@@ -9,6 +9,7 @@ public sealed class RunMapping : IEntityTypeConfiguration<Run>
         builder.ToTable("runs");
         builder.HasKey(run => run.Id);
         builder.Property(run => run.Id).ValueGeneratedNever();
+        builder.Property(run => run.IsBotRequest).HasDefaultValue(false);
         builder.Property(run => run.StatusReason).HasMaxLength(64);
         builder.Property(run => run.LeaseOwner).HasMaxLength(200);
         builder.Property(run => run.Error).HasJsonRecord(defaultSql: null);

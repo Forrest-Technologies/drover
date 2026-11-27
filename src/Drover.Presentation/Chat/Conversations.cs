@@ -25,8 +25,6 @@ public static class Conversations
 
     private const string FileKind = "file";
 
-    private const string DelegateTool = "delegate";
-
     #endregion
 
     #region Public Methods
@@ -172,7 +170,7 @@ public static class Conversations
             && cards.Count == 0
             && files.Count == 0
             && sources.Count == 0
-            && UnusableToolRequests.IsProtocolEnvelope(words);
+            && UnusableToolRequests.IsUnusableRequest(words);
 
         var shown = new ChatMessage(message.Id.ToString(), fromPerson, words, message.IsStreaming, message.IsPending)
         {
@@ -342,7 +340,7 @@ public static class Conversations
     // not. Before either (it waits for the person's approval, or they declined), it is a call like any other.
     private static ToolCard Handed(this ToolCard card, ToolCallView call, PartView? result, Handover? handover)
     {
-        if (handover is null || call.ToolName != DelegateTool)
+        if (handover is null || call.ToolName is not ("delegate" or "message_bot"))
         {
             return card;
         }

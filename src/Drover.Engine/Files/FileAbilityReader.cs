@@ -1,7 +1,7 @@
 namespace Drover.Engine.Files;
 
 /// <summary>
-/// What a bot can do with files in a conversation right now: whether the catalog says its model reads pictures,
+/// What a bot can do with files in a conversation right now: whether the catalog says its model reads pictures and PDFs,
 /// whether it has a sandbox it may work in, which takes a sandbox provider on this server, a sandbox policy on the
 /// bot, and a sandbox tool its effective grants do not deny, and whether everyone who can reach that sandbox can see
 /// the conversation. Runs inside the caller's tenant scope.
@@ -18,9 +18,10 @@ public sealed class FileAbilityReader(
     {
         var entry = await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
         return new FileAbilities(
-            entry?.Capabilities.Vision ?? false,
+            entry?.EffectiveCapabilities.Vision ?? false,
             await HasSandbox(bot, cancellationToken),
-            await AudienceCoversSandbox(thread.SpaceId, thread.AudienceUserId, accounts, cancellationToken));
+            await AudienceCoversSandbox(thread.SpaceId, thread.AudienceUserId, accounts, cancellationToken),
+            entry?.EffectiveCapabilities.PdfInput ?? false);
     }
 
     /// <summary>

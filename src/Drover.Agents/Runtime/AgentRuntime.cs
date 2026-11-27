@@ -31,15 +31,33 @@ public sealed class AgentRuntime(
         var session = await sessions.GetOrCreateSessionAsync(agent, key, cancellationToken);
         var translator = new AgentEventTranslator(run);
 
-        await foreach (var update in agent.RunStreamingAsync(ApprovalMessages(execution), session, cancellationToken: cancellationToken))
+        var messages = ApprovalMessages(execution);
+
+        // A call cleared by a rule check is answered here, on the same session, with no release to a worker. The
+        // session is saved first, with the held requests in it, so a restart before the answer hands it over again.
+        while (true)
         {
-            foreach (var agentEvent in await translator.Translate(update, cancellationToken))
+            await foreach (var update in agent.RunStreamingAsync(messages, session, cancellationToken: cancellationToken))
+            {
+                foreach (var agentEvent in await translator.Translate(update, cancellationToken))
+                {
+                    yield return agentEvent;
+                }
+            }
+
+            await sessions.SaveSessionAsync(agent, key, session, cancellationToken);
+
+            foreach (var agentEvent in await translator.SettleHeldCalls(cancellationToken))
             {
                 yield return agentEvent;
             }
+
+            if ((messages = translator.TakeClearedAnswers()) is [])
+            {
+                break;
+            }
         }
 
-        await sessions.SaveSessionAsync(agent, key, session, cancellationToken);
         logger.LogInformation("Run {RunId} step finished, waiting: {Waiting}", execution.RunId, translator.Waiting);
         yield return new RunFinished(translator.Waiting ? RunOutcome.Waiting : RunOutcome.Completed);
     }

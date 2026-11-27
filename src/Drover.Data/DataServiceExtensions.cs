@@ -26,6 +26,8 @@ public static class DataServiceExtensions
         services.AddScoped<ServerHealthRepository>();
         services.AddScoped<SecretRepository>();
         services.AddScoped<ModelConnectionRepository>();
+        services.AddScoped<DecisionConnectionRepository>();
+        services.AddScoped<ModelConnectionCredentialRepository>();
         services.AddScoped<MessageRepository>();
         services.AddScoped<AgentSessionRepository>();
         services.AddScoped<ToolCallRepository>();
@@ -46,6 +48,7 @@ public static class DataServiceExtensions
         services.AddScoped<SandboxRepository>();
         services.AddScoped<AuditRepository>();
         services.AddSingleton(provider => new SandboxCommandLocks(appConnectionString, provider.GetRequiredService<ILogger<SandboxCommandLocks>>()));
+        services.AddSingleton(provider => new ModelCredentialLocks(appConnectionString, provider.GetRequiredService<ILogger<ModelCredentialLocks>>()));
         services.AddSingleton(provider => new RunWakeListener(appConnectionString, provider.GetRequiredService<ILogger<RunWakeListener>>()));
         services.AddDbContext<DroverDbContext>((provider, options) => options
             .UseDroverNpgsql(appConnectionString)

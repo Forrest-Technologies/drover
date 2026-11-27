@@ -129,6 +129,7 @@ public sealed class AccountMenu : Grid
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
         menu.Items.Add(Item("Notifications", model.OpenNotifications));
+        menu.Items.Add(Item(VoiceWords.PageTitle, () => model.Open(Addresses.Voice)));
         if (model.ShowsUpdates)
         {
             menu.Items.Add(Item(model.UpdatesLabel, model.OpenUpdates));

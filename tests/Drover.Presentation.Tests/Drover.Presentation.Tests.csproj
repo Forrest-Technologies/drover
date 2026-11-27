@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Drover.Presentation\Drover.Presentation.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
   </ItemGroup>
 
   <!-- The native service registration is compiled in so its share inbox lifetime is checked here, without a device.

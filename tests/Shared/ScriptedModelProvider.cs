@@ -31,9 +31,20 @@ public sealed class ScriptedModelProvider(ScriptedModel model, string kind = Scr
 
     #region Properties
 
+    public ModelTokenUsage UsagePerCall { get; set; } = new(10, 5, 15);
+
     public string Kind => kind;
 
     public Uri? FixedAddress { get; } = new("https://scripted-model.example.test/v1/");
+
+    public ModelProviderDescriptor Descriptor { get; } = new(
+        kind,
+        "Scripted model",
+        ModelKeyRule.Optional,
+        ModelAddressRule.Fixed,
+        AddressHint: null,
+        KeyHint: null,
+        ReportsCapabilities: false);
 
     public ScriptedModel Model => model;
 
@@ -126,7 +137,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model, string kind = Scr
                 yield return new ModelChatUpdate([ToContent(output)]) { Role = "assistant" };
             }
 
-            yield return new ModelChatUpdate([new ModelTokenUsage(10, 5, 15)])
+            yield return new ModelChatUpdate([provider.UsagePerCall])
             {
                 Role = "assistant",
                 FinishReason = turn.Any(output => output is ToolCallOutput) ? "tool_calls" : "stop",

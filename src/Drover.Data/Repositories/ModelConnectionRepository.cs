@@ -6,7 +6,31 @@ namespace Drover.Data.Repositories;
 /// </summary>
 public sealed class ModelConnectionRepository(DroverDbContext db)
 {
+    #region Private Fields
+
+    // Mixed into the advisory lock key so it cannot collide with another lock taken on the same space.
+    private const long KindLockSeed = 0x44524F56_4552000D;
+
+    #endregion
+
     #region Public Methods
+
+    /// <summary>
+    /// Makes the rest of the transaction the only one that adds the space's connection of a kind there is one of per
+    /// space, such as a sign-in kind. Two sign-ins that both find none would otherwise each add one. Held until the
+    /// transaction ends.
+    /// </summary>
+    public Task LockKind(string kind, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended(sys.current_space()::text || {kind}, {KindLockSeed}))",
+            cancellationToken);
+
+    /// <summary>The space's oldest connection of a kind, untracked, or null when it has none.</summary>
+    public Task<ModelConnection?> FindConnectionOfKind(string kind, CancellationToken cancellationToken) =>
+        db.ModelConnections.AsNoTracking()
+            .Where(connection => connection.Kind == kind)
+            .OrderBy(connection => connection.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public void Add(ModelConnection connection) => db.ModelConnections.Add(connection);
 
@@ -27,6 +51,29 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
         db.ModelCatalog.AsNoTracking()
             .Where(entry => entry.ModelConnectionId == connectionId)
             .OrderBy(entry => entry.DisplayName).ThenBy(entry => entry.Model)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Adds an available row for a model the catalog does not have, and does nothing when a row is already there, so two
+    /// requests that add the same model both go on to update it instead of one of them failing on the key.
+    /// </summary>
+    public Task<int> AddCatalogEntryIfMissing(Guid connectionId, string model, DateTimeOffset seenAt, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO model_catalog (space_id, model_connection_id, model, display_name, state, last_seen_at)
+            VALUES (sys.current_space(), {connectionId}, {model}, {model}, 'available', {seenAt})
+            ON CONFLICT DO NOTHING
+            """,
+            cancellationToken);
+
+    public Task<int> CountCatalog(Guid connectionId, CancellationToken cancellationToken) =>
+        db.ModelCatalog.CountAsync(entry => entry.ModelConnectionId == connectionId, cancellationToken);
+
+    /// <summary>Every catalog row of the space that is offered now, across its connections.</summary>
+    public Task<List<ModelCatalogEntry>> ListAvailableCatalog(CancellationToken cancellationToken) =>
+        db.ModelCatalog.AsNoTracking()
+            .Where(entry => entry.State == AvailabilityState.Available)
+            .OrderBy(entry => entry.Model)
             .ToListAsync(cancellationToken);
 
     public Task<ModelCatalogEntry?> FindCatalogEntry(Guid connectionId, string model, CancellationToken cancellationToken) =>

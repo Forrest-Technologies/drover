@@ -238,6 +238,7 @@ public sealed class BotService(
         bot.Handle = edit.Handle;
         bot.Avatar = edit.Avatar;
         bot.DescriptionForBots = edit.DescriptionForBots;
+        bot.AcceptsBotRequests = edit.AcceptsBotRequests ?? bot.AcceptsBotRequests;
         bot.Instructions = edit.Instructions;
         bot.ModelConnectionId = edit.ModelConnectionId;
         bot.Model = edit.Model.Trim();
@@ -295,7 +296,8 @@ public sealed class BotService(
             SandboxPolicy = source.SandboxPolicy,
             SandboxSettings = source.SandboxSettings,
             BuildLimits = source.BuildLimits,
-            RunLimits = source.RunLimits,
+            RunLimits = source.RunLimits with { UncappedUsageAcknowledged = false },
+            AcceptsBotRequests = source.AcceptsBotRequests,
             CreatedByUserId = actorUserId,
         };
         var sharedWith = await bots.ListSandboxShares(id, cancellationToken);
@@ -401,6 +403,7 @@ public sealed class BotService(
             SandboxSharedWith = sharedWith,
             bot.BuildLimits,
             bot.RunLimits,
+            bot.AcceptsBotRequests,
             bot.Status,
         });
 
@@ -485,7 +488,7 @@ public sealed class BotService(
         var own = await tools.ListOwnGrants(moved.Id, cancellationToken);
         var names = await tools.ListToolNames([.. own.Select(grant => grant.ToolId)], cancellationToken);
 
-        foreach (var grant in own)
+        foreach (var grant in own.Where(grant => !grant.IsDirect))
         {
             var lowered = ceilings.TryGetValue(grant.ToolId, out var ceiling) ? GrantRules.Min(grant.Effect, ceiling) : (GrantEffect?)null;
 
@@ -693,7 +696,7 @@ public sealed class BotService(
 
     private static string? FindCapabilityProblem(ModelSettings settings, ModelCatalogEntry known)
     {
-        var can = known.Capabilities;
+        var can = known.EffectiveCapabilities;
 
         if (settings.MaxOutputTokens > can.MaxOutputTokens)
         {
@@ -842,7 +845,7 @@ public sealed class BotService(
         return await connections.FindCatalogEntry(reader.ModelConnectionId, model, cancellationToken) switch
         {
             null => $"Drover does not know whether {model} can read images, so it cannot read the screen. Choose a model its connection lists as reading images.",
-            { Capabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
+            { EffectiveCapabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
             _ => null,
         };
     }
@@ -859,6 +862,8 @@ public sealed class BotService(
     private static string? FindRunLimitProblem(RunLimits limits, RunCeilings space) =>
         limits switch
         {
+            { UncappedUsageAcknowledged: true } when !space.CanRemoveUsageLimit => "This space requires a token limit.",
+            { UncappedUsageAcknowledged: true, MaxTokens: not null } => "Choose a token limit or unlimited tokens.",
             { MaxSteps: { } steps } when steps < 1 || steps > space.MaxSteps => space.MaxSteps is int.MaxValue
                 ? "The limit on model calls is a whole number of 1 or more."
                 : $"The limit on model calls is a whole number from 1 to {space.MaxSteps}, the most this space allows.",
@@ -867,6 +872,9 @@ public sealed class BotService(
             { MaxDelegations: { } delegations } when delegations < 0 || delegations > space.MaxDelegations => space.MaxDelegations is int.MaxValue
                 ? "The limit on handoffs is a whole number of 0 or more."
                 : $"The limit on handoffs is a whole number from 0 to {space.MaxDelegations}, the most this space allows.",
+            { MaxJudgedChecks: { } checks } when checks < 0 || checks > space.MaxJudgedChecks => space.MaxJudgedChecks is int.MaxValue
+                ? "The limit on rule checks is a whole number of 0 or more."
+                : $"The limit on rule checks is a whole number from 0 to {space.MaxJudgedChecks}, the most this space allows.",
             _ => null,
         };
 
@@ -990,7 +998,7 @@ public sealed class BotService(
 
         foreach (var held in own)
         {
-            if (ceilings is not null && !ceilings.ContainsKey(held.ToolId))
+            if (!held.IsDirect && ceilings is not null && !ceilings.ContainsKey(held.ToolId))
             {
                 continue;
             }
@@ -999,7 +1007,7 @@ public sealed class BotService(
             {
                 BotId = copy.Id,
                 ToolId = held.ToolId,
-                Effect = ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
+                Effect = held.IsDirect || ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
                 ReviewState = held.ReviewState,
                 GrantedByUserId = actorUserId,
             };

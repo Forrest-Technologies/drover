@@ -84,11 +84,13 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
             [other.Id],
             new BuildLimitsBody(3, 2),
-            new RunLimitsBody(12, 400_000, 0));
+            new RunLimitsBody(12, 400_000, 0),
+            AcceptsBotRequests: false);
 
         var saved = await PutFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition", edit);
         var read = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
 
+        untouched.AcceptsBotRequests.Should().BeTrue();
         read.Should().BeEquivalentTo(saved);
         read.Should().BeEquivalentTo(
             new
@@ -107,6 +109,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                 edit.SandboxSharedWith,
                 edit.BuildLimits,
                 edit.RunLimits,
+                AcceptsBotRequests = false,
                 Status = "active",
                 Depth = 0,
                 CreatedByUserId = (Guid?)alice.UserId,
@@ -128,11 +131,14 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var client = await SignIn(alice);
         var bot = await CreateBot(client, alice.SpaceId);
 
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        await PutFor<BotDetail>(client, route, Nothing() with { AcceptsBotRequests = false });
         var saved = await PutFor<BotDetail>(
             client,
-            $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition",
+            route,
             new UpdateBotRequest("Renamed", null, null, null, null, null, null, null, null, null, null, null, null));
 
+        saved.AcceptsBotRequests.Should().BeFalse();
         saved.Should().Match<BotDetail>(found => found.Name == "Renamed" && found.Handle == bot.Handle && found.Instructions == bot.Instructions && found.Model == bot.Model);
     }
 
@@ -498,7 +504,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
 
         var options = await GetFor<BotRunLimitOptions>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/limits/options");
 
-        options.Should().Be(new BotRunLimitOptions(null, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.SelfHostedMaxRunsPerDelegationTree));
+        options.Should().Be(new BotRunLimitOptions(null, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.SelfHostedMaxRunsPerDelegationTree, CanRemoveUsageLimit: true));
     }
 
     [Fact]
@@ -751,6 +757,102 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task An_admin_sets_connected_tools_on_a_child_without_granting_its_parent()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var atlas = await CreateBot(client, alice.SpaceId, "Atlas");
+        var child = await SeedChild(alice.SpaceId, alice.UserId, atlas.Id, "Ledger");
+        var sibling = await SeedChild(alice.SpaceId, alice.UserId, atlas.Id, "Scout");
+        var grandchild = await SeedChild(alice.SpaceId, alice.UserId, child, "Clerk");
+        var childTools = $"{Space(alice.SpaceId)}/bots/{child}/tools";
+        var ids = await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            var connection = new ToolConnection
+            {
+                Name = "Sample finance",
+                Slug = "sample-finance",
+                Url = "https://tools.example.test/mcp",
+                Trust = TrustLevel.Trusted,
+            };
+            db.ToolConnections.Add(connection);
+            var read = ConnectedTool(connection.Id, "lookup", new { readOnlyHint = true });
+            var write = ConnectedTool(connection.Id, "update", new { readOnlyHint = true, destructiveHint = true });
+            db.Tools.AddRange(read, write);
+            db.ToolGrants.Add(new ToolGrant { BotId = grandchild, ToolId = read.Id, Effect = GrantEffect.Allow, GrantedByBotId = child });
+            await db.SaveChangesAsync(Token);
+            return (read.Id, WriteId: write.Id, ConnectionId: connection.Id);
+        });
+
+        var listed = await GetFor<List<BotToolEntry>>(client, childTools);
+        listed.Single(entry => entry.ToolId == ids.Id).Should().Match<BotToolEntry>(entry =>
+            entry.Grant == "off" && entry.Ceiling == "allow" && entry.CeilingBotName == null && entry.Sensitivity == "read");
+        listed.Single(entry => entry.ToolId == ids.WriteId).Sensitivity.Should().Be("write");
+
+        await PutFor<List<BotToolEntry>>(client, childTools, new SetToolGrantsRequest([new(ids.Id, "allow"), new(ids.WriteId, "ask")]));
+        var effects = await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var grants = services.GetRequiredService<ToolRepository>();
+            return (
+                await grants.FindEffectiveGrant(child, ids.Id, Token),
+                await grants.FindEffectiveGrant(child, ids.WriteId, Token),
+                await grants.FindEffectiveGrant(atlas.Id, ids.Id, Token),
+                await grants.FindEffectiveGrant(sibling, ids.Id, Token),
+                await grants.FindEffectiveGrant(grandchild, ids.Id, Token));
+        });
+        effects.Should().Be((GrantEffect.Allow, GrantEffect.Ask, null, null, GrantEffect.Allow));
+
+        var connectionPath = $"{Space(alice.SpaceId)}/tool-connections/{ids.ConnectionId}";
+        (await GetFor<List<ConnectionToolSummary>>(client, $"{connectionPath}/tools"))
+            .Single(entry => entry.Name == "lookup").Sensitivity.Should().Be("read");
+        await InSpace(alice.SpaceId, alice.UserId, services => services.GetRequiredService<DroverDbContext>()
+            .ToolConnections.Where(connection => connection.Id == ids.ConnectionId)
+            .ExecuteUpdateAsync(update => update.SetProperty(connection => connection.Trust, TrustLevel.Untrusted), Token));
+        (await GetFor<List<BotToolEntry>>(client, childTools)).Single(entry => entry.ToolId == ids.Id)
+            .Should().Match<BotToolEntry>(entry => entry.Grant == "allow" && entry.Sensitivity == "write");
+
+        await PutFor<BotToolEntry>(client, $"{childTools}/{ids.Id}", new SetToolGrantRequest("off"));
+        var after = await InSpace(alice.SpaceId, alice.UserId, services =>
+            services.GetRequiredService<ToolRepository>().FindEffectiveGrant(grandchild, ids.Id, Token));
+        after.Should().BeNull("the inherited grant depends on the direct grant above it");
+    }
+
+    [Fact]
+    public async Task Several_tools_are_set_at_once_and_one_the_parent_lacks_keeps_all_of_them_as_they_were()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var atlas = await CreateBot(client, alice.SpaceId, "Atlas");
+        var child = await SeedChild(alice.SpaceId, alice.UserId, atlas.Id, "Scout");
+        var parentTools = $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools";
+        var childTools = $"{Space(alice.SpaceId)}/bots/{child}/tools";
+        var listed = await GetFor<List<BotToolEntry>>(client, parentTools);
+        var (time, crew) = (listed.Single(entry => entry.Name == "time.now"), listed.First(entry => entry.Name.StartsWith("crew.", StringComparison.Ordinal)));
+        await PutFor<BotToolEntry>(client, $"{parentTools}/{crew.ToolId}", new SetToolGrantRequest("off"));
+        var before = await GetFor<List<BotToolEntry>>(client, childTools);
+
+        var refused = await client.Put(childTools, new SetToolGrantsRequest([new(time.ToolId, "off"), new(crew.ToolId, "ask")]));
+        var after = await GetFor<List<BotToolEntry>>(client, childTools);
+        var set = await PutFor<List<BotToolEntry>>(client, parentTools, new SetToolGrantsRequest([new(time.ToolId, "ask"), new(crew.ToolId, "allow")]));
+        var misspelled = await client.Put(parentTools, new SetToolGrantsRequest([new(time.ToolId, "maybe")]));
+        var twice = await client.Put(parentTools, new SetToolGrantsRequest([new(time.ToolId, "off"), new(time.ToolId, "ask")]));
+        var none = await client.Put(parentTools, new SetToolGrantsRequest([]));
+        var unknown = await client.Put(parentTools, new SetToolGrantsRequest([new(time.ToolId, "off"), new(Guid.CreateVersion7(), "off")]));
+        var kept = await GetFor<List<BotToolEntry>>(client, parentTools);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Title(refused)).Should().Be("Atlas does not have this tool. Give it to Atlas first.");
+        after.Select(entry => entry.Grant).Should().Equal(before.Select(entry => entry.Grant), "the change the parent allows is not made either");
+        set.Select(entry => $"{entry.Name} {entry.Grant}").Should().Equal($"time.now ask", $"{crew.Name} allow");
+        misspelled.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        twice.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        none.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        kept.Single(entry => entry.ToolId == time.ToolId).Grant.Should().Be("ask", "a refused request changes nothing");
+    }
+
+    [Fact]
     public async Task A_changed_server_tool_is_listed_with_what_was_reviewed_and_changing_its_grant_does_not_review_it()
     {
         var alice = await SeedPerson("alice");
@@ -830,6 +932,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                     ("crew.change", "ask", "current"),
                     ("crew.list", "ask", "current"),
                     ("crew.remove", "ask", "current"),
+                    ("message_bot", "allow", "current"),
                     ("time.now", "allow", "current"));
         }
 
@@ -1142,10 +1245,28 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             };
             db.Bots.Add(child);
             db.BotAncestors.Add(new BotAncestor { AncestorBotId = child.Id, DescendantBotId = child.Id, Distance = 0 });
-            db.BotAncestors.Add(new BotAncestor { AncestorBotId = parentId, DescendantBotId = child.Id, Distance = 1 });
+            var ancestors = await db.BotAncestors.AsNoTracking().Where(path => path.DescendantBotId == parentId).ToListAsync(Token);
+            db.BotAncestors.AddRange(ancestors.Select(path => new BotAncestor
+            {
+                AncestorBotId = path.AncestorBotId,
+                DescendantBotId = child.Id,
+                Distance = path.Distance + 1,
+            }));
             await db.SaveChangesAsync(Token);
             return child.Id;
         });
+
+    private Tool ConnectedTool(Guid connectionId, string name, object annotations) => new()
+    {
+        SourceKind = ToolSourceKind.Mcp,
+        ToolConnectionId = connectionId,
+        Name = name,
+        DefinitionHash = name,
+        InputSchema = JsonSerializer.SerializeToElement(new { type = "object" }),
+        Annotations = JsonSerializer.SerializeToElement(annotations),
+        FirstSeenAt = Time.GetUtcNow(),
+        LastSeenAt = Time.GetUtcNow(),
+    };
 
     /// <summary>A tool of a tool connection whose definition changed after the bot was granted it.</summary>
     private Task<Guid> SeedChangedServerTool(Guid spaceId, Guid userId, Guid botId) =>

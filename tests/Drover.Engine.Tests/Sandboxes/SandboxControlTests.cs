@@ -2338,7 +2338,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     public async Task A_sandbox_set_to_open_network_is_refused_where_the_deployment_forbids_it()
     {
         var provider = new FakeSandboxProvider();
-        await using var world = await ControlWorld(provider, network: NetworkAccess.Open, policy: DeploymentPolicy.Hosted);
+        await using var world = await ControlWorld(provider, network: NetworkAccess.Open, policy: DeploymentPolicy.Hosted with { AllowedModelProviderKinds = [ScriptedModelProvider.ConnectionKind] });
 
         var result = await Control(world).Run(world.SpaceId, world.UserId, world.BotId, "ls", RunWorld.Token);
 

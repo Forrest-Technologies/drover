@@ -8,7 +8,9 @@ namespace Drover.Engine.Policy;
 /// and connects to the address it checked, so a second lookup cannot return a different answer. The check runs for
 /// every new connection, so a redirect to another host is checked again. Forbidden and allowed requests never share
 /// a pooled connection. HTTP/3 is refused, because it does not go through the connection check. A proxy would be
-/// asked to connect on the server's behalf, so the forbidden path does not use one.
+/// asked to connect on the server's behalf, so the forbidden path does not use one. The rule is about addresses a
+/// space, a person, or a bot supplies. A service the operator names in the server's own configuration is not one of
+/// those, so its client is built by <see cref="CreateOperatorHandler"/> and reaches that service whatever the rule says.
 /// </summary>
 public static class OutboundHttp
 {
@@ -29,8 +31,10 @@ public static class OutboundHttp
 
     /// <summary>
     /// States that this request goes to an address the operator configured for the whole server, such as its search
-    /// service, so it may reach a private address whenever the deployment allows private addresses. Never for an
-    /// address a space, a person, or a bot supplied: those carry the space's value with <see cref="ForSpace"/>.
+    /// service, so it may reach a private address. On a client built by <see cref="CreateOperatorHandler"/> that holds
+    /// whatever the deployment's rule is; on any other client it holds only where the deployment allows private
+    /// addresses. Never for an address a space, a person, or a bot supplied: those carry the space's value with
+    /// <see cref="ForSpace"/>.
     /// </summary>
     public static HttpRequestMessage ForOperatorAddress(this HttpRequestMessage request)
     {
@@ -49,6 +53,38 @@ public static class OutboundHttp
     public static HttpMessageHandler CreateHandlerWithoutRedirects(DeploymentPolicy policy) =>
         CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains, followRedirects: false, useCookies: false);
 
+    /// <summary>
+    /// Turns redirects off on a handler <see cref="CreateHandler(DeploymentPolicy)"/> built, in place, so the client
+    /// keeps whatever resolver and connection check its handler was built with. For a client whose requests carry a
+    /// credential in a header the caller names: .NET drops Authorization on a redirect to another host but not such a
+    /// header. A handler of any other kind is left as it is.
+    /// </summary>
+    public static void DisableRedirects(HttpMessageHandler handler)
+    {
+        switch (handler)
+        {
+            case RoutingHandler routing:
+                routing.DisableRedirects();
+                break;
+            case SocketsHttpHandler sockets:
+                sockets.AllowAutoRedirect = false;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The handler for the client of one service the operator named in the server's configuration, such as a search
+    /// or speech service beside the server. Its requests, marked by <see cref="OperatorAddressHandler"/>, reach that
+    /// service on a private address even where the deployment forbids private addresses: that rule keeps a space, a
+    /// person, or a bot from aiming the server at its own network, and none of them can set or change this address.
+    /// The client never follows a redirect and stores no cookie, so the permission stays with the configured origin.
+    /// A request that is not marked is checked like any other.
+    /// </summary>
+    public static HttpMessageHandler CreateOperatorHandler() =>
+        new RoutingHandler(
+            Guarded(Dns.GetHostAddressesAsync, PrivateAddresses.Contains, Connect, followRedirects: false, useCookies: false),
+            Open(followRedirects: false, useCookies: false));
+
     /// <summary>The same handler with its address lookup and its test for a refused address supplied by the caller.</summary>
     public static HttpMessageHandler CreateHandler(
         DeploymentPolicy policy,
@@ -64,7 +100,21 @@ public static class OutboundHttp
         Func<IPAddress, bool> isRefused,
         Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
         bool followRedirects = true,
-        bool useCookies = true)
+        bool useCookies = true) =>
+        new RoutingHandler(
+            Guarded(resolve, isRefused, connect, followRedirects, useCookies),
+            policy.AllowPrivateAddresses ? Open(followRedirects, useCookies) : null);
+
+    #endregion
+
+    #region Private Methods
+
+    private static SocketsHttpHandler Guarded(
+        Func<string, CancellationToken, Task<IPAddress[]>> resolve,
+        Func<IPAddress, bool> isRefused,
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>> connect,
+        bool followRedirects,
+        bool useCookies)
     {
         var guarded = new SocketsHttpHandler
         {
@@ -75,20 +125,16 @@ public static class OutboundHttp
         };
         guarded.ConnectCallback = (context, cancellationToken) =>
             ConnectToCheckedAddress(context, resolve, isRefused, connect, cancellationToken);
-        var open = policy.AllowPrivateAddresses
-            ? new SocketsHttpHandler
-            {
-                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-                AllowAutoRedirect = followRedirects,
-                UseCookies = useCookies,
-            }
-            : null;
-        return new RoutingHandler(guarded, open);
+        return guarded;
     }
 
-    #endregion
-
-    #region Private Methods
+    private static SocketsHttpHandler Open(bool followRedirects, bool useCookies) =>
+        new()
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            AllowAutoRedirect = followRedirects,
+            UseCookies = useCookies,
+        };
 
     private static async ValueTask<Stream> ConnectToCheckedAddress(
         SocketsHttpConnectionContext context,
@@ -192,6 +238,13 @@ public static class OutboundHttp
         #endregion
 
         #region Public Methods
+
+        public void DisableRedirects()
+        {
+            guarded.AllowAutoRedirect = false;
+
+            open?.AllowAutoRedirect = false;
+        }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,

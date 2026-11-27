@@ -73,12 +73,39 @@ internal static class ProtocolFailureMapping
     private static ModelProviderException? Describe(Exception exception) =>
         exception switch
         {
+            ClientResultException failure when PlanFailures.Read(failure.GetRawResponse()?.Content) is { } plan => plan,
+            ClientResultException { Status: 400 } failure when ContextLengthExceeded(failure) =>
+                new ModelProviderException(ModelFailure.TooLong, "The provider says this conversation is longer than the model can read."),
             ClientResultException failure => ModelProviderException.FromStatus(failure.Status, ReadRetryAfter(failure)),
             BrokenCircuitException => ModelProviderException.FromCircuitOpen(),
             TimeoutRejectedException => ModelProviderException.FromTimeout(),
             HttpRequestException or HttpIOException or JsonException => ModelProviderException.FromNetwork(),
             _ => null,
         };
+
+    private static bool ContextLengthExceeded(ClientResultException failure)
+    {
+        if (failure.GetRawResponse()?.Content is not { } content || content.ToMemory().Length > 65536)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(content.ToMemory());
+            return document.RootElement.ValueKind is JsonValueKind.Object && document.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind is JsonValueKind.Object && error.TryGetProperty("code", out var code)
+                && code.ValueKind is JsonValueKind.String && code.ValueEquals("context_length_exceeded");
+        }
+        // An unrecognized error body keeps the ordinary HTTP 400 mapping; its contents can contain private input.
+#pragma warning disable DRV0005
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+#pragma warning restore DRV0005
 
     private static TimeSpan? ReadRetryAfter(ClientResultException failure) =>
         failure.GetRawResponse()?.Headers.TryGetValue("Retry-After", out var value) == true

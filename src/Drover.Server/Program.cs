@@ -62,10 +62,12 @@ builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
-builder.Services.AddDroverModels();
+builder.Services.AddDroverModels(builder.Configuration);
+builder.Services.AddDroverDecisionModels();
 builder.Services.AddDroverRunEngine(builder.Configuration);
 builder.Services.AddDroverSandboxes(builder.Configuration, policy.Rules);
 builder.Services.AddDroverWebTools(builder.Configuration);
+builder.Services.AddDroverVoice(builder.Configuration);
 builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddRequestLimits();
@@ -95,6 +97,7 @@ app.UseSecurityHeaders();
 app.UseCookiePolicy();
 var client = app.UseNativeClientFiles();
 app.UseRouting();
+app.UseWebSockets();
 app.UseRequestLimits();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -107,12 +110,14 @@ api.MapAccountEndpoints();
 api.MapNativeSessionEndpoints(app);
 api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
+api.MapModelProviderKindEndpoints();
 api.MapSpaceEndpoints();
 api.MapPushEndpoints();
 api.MapAppearanceEndpoints();
 api.MapToolSignInFinish();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
+app.MapModelSignInReturn();
 
 // The API description is for building Drover; a running server does not hand it to strangers.
 if (app.Environment.IsDevelopment())

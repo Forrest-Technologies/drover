@@ -57,6 +57,7 @@ cat > "$app/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key><string>$bundle_version</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Drover uses the microphone when you record a message or call a bot.</string>
 </dict>
 </plist>
 EOF
@@ -69,6 +70,7 @@ if [[ -n "$signing_identity" ]]; then
 <plist version="1.0">
 <dict>
   <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.device.audio-input</key><true/>
 </dict>
 </plist>
 EOF

@@ -1,0 +1,85 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's Responses API reference and guides (https://developers.openai.com/api/reference/resources/responses/methods/create, https://developers.openai.com/api/docs/guides/streaming-responses, read 2026-11-26). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "body": {
+        "id": "resp_tool_1",
+        "object": "response",
+        "created_at": 1794400000,
+        "status": "completed",
+        "error": null,
+        "incomplete_details": null,
+        "model": "gpt-test-reasoner",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_weather_1",
+            "call_id": "call_weather_1",
+            "name": "get_weather",
+            "arguments": "{\"city\":\"Paris\"}",
+            "status": "completed"
+          }
+        ],
+        "parallel_tool_calls": true,
+        "store": false,
+        "usage": {
+          "input_tokens": 12,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 6,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 18
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "body": {
+        "id": "resp_tool_2",
+        "object": "response",
+        "created_at": 1794400000,
+        "status": "completed",
+        "error": null,
+        "incomplete_details": null,
+        "model": "gpt-test-reasoner",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_tool_2",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "It is sunny in Paris, 21 degrees.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": true,
+        "store": false,
+        "usage": {
+          "input_tokens": 12,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 6,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 18
+        }
+      }
+    }
+  ]
+}

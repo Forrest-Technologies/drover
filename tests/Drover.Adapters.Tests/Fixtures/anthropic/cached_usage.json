@@ -1,0 +1,124 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's API reference (https://platform.claude.com/docs/en/api/models/list, https://platform.claude.com/docs/en/api/messages, https://platform.claude.com/docs/en/build-with-claude/streaming, https://platform.claude.com/docs/en/api/errors, read 2026-11-27). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/v1/models/claude-test-model",
+      "status": 200,
+      "body": {
+        "type": "model",
+        "id": "claude-test-model",
+        "display_name": "Claude Test Model",
+        "created_at": "2026-09-21T00:00:00Z",
+        "deprecated_at": null,
+        "retires_at": null,
+        "lifecycle": "active",
+        "line": null,
+        "max_input_tokens": 1000000,
+        "max_tokens": 128000,
+        "capabilities": {
+          "batch": {
+            "supported": true
+          },
+          "citations": {
+            "supported": true
+          },
+          "code_execution": {
+            "supported": true
+          },
+          "context_management": {
+            "supported": true,
+            "clear_thinking_20251015": {
+              "supported": true
+            },
+            "clear_tool_uses_20250919": {
+              "supported": true
+            },
+            "compact_20260112": {
+              "supported": true
+            }
+          },
+          "effort": {
+            "supported": true,
+            "low": {
+              "supported": true
+            },
+            "medium": {
+              "supported": true
+            },
+            "high": {
+              "supported": true
+            },
+            "xhigh": {
+              "supported": true
+            },
+            "max": {
+              "supported": true
+            }
+          },
+          "image_input": {
+            "supported": true
+          },
+          "pdf_input": {
+            "supported": true
+          },
+          "server_tools": {
+            "supported": true,
+            "code_execution": {
+              "supported": true
+            },
+            "web_search": {
+              "supported": true
+            }
+          },
+          "structured_outputs": {
+            "supported": true
+          },
+          "thinking": {
+            "supported": true,
+            "types": {
+              "adaptive": {
+                "supported": true
+              },
+              "between_tools": {
+                "supported": false
+              },
+              "disabled": {
+                "supported": false
+              },
+              "enabled": {
+                "supported": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 200,
+      "body": {
+        "id": "msg_test_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-test-model",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello again."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 6,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 1800
+        }
+      }
+    }
+  ]
+}

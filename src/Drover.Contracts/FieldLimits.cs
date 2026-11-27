@@ -35,5 +35,8 @@ public static class FieldLimits
     /// <summary>The text or password typed into a sandbox's desktop at once.</summary>
     public const int TypedText = 2_000;
 
+    /// <summary>A currency code, as a price of a model is written in: three letters.</summary>
+    public const int CurrencyCode = 3;
+
     #endregion
 }

@@ -50,7 +50,7 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         database = await postgres.CreateDatabase();
-        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices);
+        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices, listsTestKinds: true);
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     {
         relay?.Detach();
         await factory.DisposeAsync();
-        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices);
+        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices, listsTestKinds: true);
         _ = factory.Services;
         relay?.Attach(factory.Server.CreateHandler());
     }
@@ -113,6 +113,9 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
         });
         return new ApiClient(http) { RemoteIp = remoteIp };
     }
+
+    /// <summary>A WebSocket client for the server under test. The caller adds the headers a browser or an app would send.</summary>
+    protected Microsoft.AspNetCore.TestHost.WebSocketClient NewSocketClient() => factory.Server.CreateWebSocketClient();
 
     /// <summary>Creates the first account through the API, with the code from the log.</summary>
     protected async Task<(ApiClient Client, SessionResponse Session, string Password)> SetUpFirstAccount(

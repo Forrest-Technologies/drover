@@ -251,6 +251,60 @@ public sealed class ImageToolsTests(PostgresServer postgres)
         generator.Requests.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_call_on_a_connection_of_a_kind_that_was_switched_off_is_refused_in_the_operators_words_and_never_reaches_the_provider()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var generator = new FixedImageGenerator
+        {
+            BeforeReturn = async cancellationToken =>
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            },
+        };
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "image_create", """{"prompt":"A green barn","model":"picture-one"}""")],
+            [new TextOutput("Here it is.")]);
+        await using var world = await RunWorld.Create(
+            postgres,
+            script,
+            everyHost: services => services.AddSingleton<IModelImageGenerator>(generator));
+        await SeedImageModel(world, "picture-one");
+        await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
+        var threadId = await world.NewThread();
+        world.StartHost();
+        var runId = await world.Post(threadId, "Create the barn picture.");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), RunWorld.Token);
+        var toolCall = (await world.ReadToolCalls(runId)).Should().ContainSingle().Which;
+        var switchedOff = world.IdleHost(services => services.AddSingleton<IOptions<DeploymentPolicyOptions>>(
+            Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList },
+            })));
+
+        try
+        {
+            var call = async () => await Tool(switchedOff).Run(
+                RunCall(world, switchedOff, threadId, runId, toolCall.Id) with
+                {
+                    Arguments = JsonElement.Parse("""{"prompt":"A barn","model":"picture-one"}"""),
+                },
+                RunWorld.Token);
+
+            (await call.Should().ThrowAsync<BuiltinToolException>())
+                .Which.Message.Should().Be($"The operator of this server switched {ScriptedModelProvider.ConnectionKind} off.");
+            generator.Requests.Should().ContainSingle("only the run that was already going reached the provider");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+    }
+
     #endregion
 
     #region Catalog And Limits

@@ -1,6 +1,9 @@
 namespace Drover.Domain.Runs;
 
-/// <summary>Tokens and cost for one model call. Carries the root run so cost rolls up the whole tree.</summary>
+/// <summary>
+/// Tokens and cost for one model call. Carries the root run so cost rolls up the whole tree. Cost is never below zero,
+/// and a negative count a provider reports for a run's own call is stored as zero.
+/// </summary>
 public sealed class UsageRecord : ISpaceOwned
 {
     #region Properties
@@ -15,7 +18,8 @@ public sealed class UsageRecord : ISpaceOwned
 
     public Guid BotId { get; set; }
 
-    public Guid ModelConnectionId { get; set; }
+    /// <summary>The model connection that answered. Null for a rule check by a decision model, which is not one.</summary>
+    public Guid? ModelConnectionId { get; set; }
 
     public required string Model { get; set; }
 

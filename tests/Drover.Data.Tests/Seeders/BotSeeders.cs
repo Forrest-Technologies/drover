@@ -88,7 +88,6 @@ public sealed class ExtensionInstallSeeder : PlainSeeder<ExtensionInstall>
         ["name"] = "Sample extension",
         ["description"] = string.Empty,
         ["content_hash"] = new string('0', 64),
-        ["bot_id"] = seed.Parent("bots"),
         ["tool_connection_id"] = seed.Parent("tool_connections"),
         ["installed_by_user_id"] = seed.Placement.User,
         ["installed_at"] = DateTimeOffset.UnixEpoch,

@@ -41,6 +41,7 @@ public sealed partial class NativeInterfaceRuleTests
         ("Session/AboutDrover.cs", "session dialog"),
         ("Session/AccountMenu.cs", "session dialog, install update"),
         ("Session/PushControl.cs", "session dialog, turn on notifications"),
+        ("Session/RetiredAppRequest.cs", "session dialog, uninstall the retired app"),
         ("Pages/Dev/", "gallery samples are not screens"),
         ("Device/ConnectPage.cs", "setup"),
         ("Pages/SignInPage.xaml", "sign-in"),
@@ -49,8 +50,7 @@ public sealed partial class NativeInterfaceRuleTests
         ("Pages/Projects/ProjectPage.cs", "Projects save bar"),
         ("Pages/Models/ModelConnectionsPage.cs", "Models sheets"),
         ("Pages/Tools/ToolConnectionsPage.cs", "Tools sheets and dialogs"),
-        ("Pages/Extensions/ImportExtensionForm.cs", "extension import form"),
-        ("Pages/Extensions/ExtensionEditorPage.xaml", "extension editor"),
+        ("Pages/ImportForm.cs", "bot and extension import form"),
         ("Pages/Bots/BotEditorPage.xaml.cs", "bot editor save bar"),
         ("Pages/Bots/Parts/RuleForm.cs", "bot editor rule form"),
         ("Pages/Bots/Parts/RoutinesSectionView.cs", "bot editor routine form"),
@@ -233,6 +233,34 @@ public sealed partial class NativeInterfaceRuleTests
                     select $"{file.Path}: {match.Value}";
 
         found.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void No_provider_is_named_in_client_source()
+    {
+        var names = KnownProviders.All.SelectMany(row => new[] { row.Id, row.DisplayName }).Distinct().ToList();
+        var found = from file in Repository.NativeFiles(".xaml", ".cs").Concat(Repository.PresentationFiles(".cs"))
+                    from name in names
+                    where file.Text.Contains($"\"{name}\"", StringComparison.Ordinal)
+                    select $"{file.Path}: \"{name}\"";
+
+        found.Should().BeEmpty("the names, addresses and key rules of the named providers come from the server");
+    }
+
+    [Fact]
+    public void No_provider_kind_is_named_in_client_source()
+    {
+        // The kinds are the ones the adapters name, read from their source. The one kind the client names is the
+        // compatible one, once, in NamedProviders: a named provider is a starting point for it.
+        var kinds = Repository.ProviderKinds;
+        var found = from file in Repository.NativeFiles(".xaml", ".cs").Concat(Repository.PresentationFiles(".cs"))
+                    from kind in kinds
+                    where file.Text.Contains($"\"{kind}\"", StringComparison.Ordinal)
+                    where !(kind == OpenAICompatibleProvider.ConnectionKind && file.Path.EndsWith("NamedProviders.cs", StringComparison.Ordinal))
+                    select $"{file.Path}: \"{kind}\"";
+
+        kinds.Should().Contain(OpenAICompatibleProvider.ConnectionKind).And.Contain("venice");
+        found.Should().BeEmpty("the kinds, their names and what each asks for come from the server");
     }
 
     [Fact]

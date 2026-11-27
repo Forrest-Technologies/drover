@@ -163,7 +163,7 @@ internal sealed class CheckAccount
             ModelConnectionId = connectionId,
             Model = "scripted",
             DisplayName = "scripted",
-            Capabilities = new ModelCapabilities { Vision = true, VisionSetByOperator = true },
+            OperatorCapabilities = new ModelCapabilityOverrides { Vision = true },
             LastSeenAt = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync();
