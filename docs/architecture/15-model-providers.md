@@ -261,11 +261,14 @@ The order is OpenAI, OpenRouter, Google Gemini, xAI, Groq, DeepSeek, Mistral, th
 | `groq` | Groq | `https://api.groq.com/openai/v1` | required | hosted | confirmed |
 | `deepseek` | DeepSeek | `https://api.deepseek.com` | required | hosted | confirmed |
 | `mistral` | Mistral | `https://api.mistral.ai/v1` | required | hosted | path confirmed; the page also names a preview address (`/openai/v1`), for the Live run to settle |
-| `alibaba` | Alibaba | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | required | hosted | confirmed, but the provider is moving to a workspace-specific address (slice 2 candidate) |
+| `alibaba` | Alibaba | `https://{blank}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | required | hosted | confirmed; blank: Workspace ID. Replaces the `dashscope-intl` address the provider asks to migrate from (Singapore only: a key belongs to one region) |
+| `bedrock` | Amazon Bedrock (by key) | `https://bedrock-runtime.{blank}.amazonaws.com/openai/v1` | required | hosted | confirmed; blank: Region. The endpoint has no `GET /models`, so the model name is typed |
 | `baseten` | Baseten | `https://inference.baseten.co/v1` | required | hosted | confirmed |
 | `cerebras` | Cerebras | `https://api.cerebras.ai/v1` | required | hosted | confirmed |
 | `chutes` | Chutes | `https://llm.chutes.ai/v1` | required | hosted | confirmed |
+| `cloudflare-workers-ai` | Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/{blank}/ai/v1` | required | hosted | confirmed; blank: Account ID (32 hexadecimal characters). No model list is documented |
 | `cohere` | Cohere | `https://api.cohere.ai/compatibility/v1` | required | hosted | confirmed |
+| `databricks` | Databricks | `https://{blank}/ai-gateway/mlflow/v1` | required | hosted | chat confirmed; blank: Workspace host. `GET /models` is not documented (unconfirmed) |
 | `deepinfra` | Deep Infra | `https://api.deepinfra.com/v1/openai` | required | hosted | confirmed |
 | `digitalocean` | DigitalOcean | `https://inference.do-ai.run/v1` | required | hosted | confirmed |
 | `fireworks` | Fireworks AI | `https://api.fireworks.ai/inference/v1` | required | hosted | confirmed |
@@ -285,6 +288,7 @@ The order is OpenAI, OpenRouter, Google Gemini, xAI, Groq, DeepSeek, Mistral, th
 | `sambanova` | SambaNova | `https://api.sambanova.ai/v1` | required | hosted | confirmed |
 | `scaleway` | Scaleway | `https://api.scaleway.ai/v1` | required | hosted | confirmed |
 | `siliconflow` | SiliconFlow | `https://api.siliconflow.com/v1` | required | hosted | confirmed |
+| `snowflake` | Snowflake Cortex | `https://{blank}.snowflakecomputing.com/api/v2/cortex/v1` | required | hosted | chat confirmed (key is a programmatic access token); blank: Account. `GET /models` is not documented (unconfirmed) |
 | `synthetic` | Synthetic | `https://api.synthetic.new/openai/v1` | required | hosted | confirmed |
 | `together` | Together AI | `https://api.together.ai/v1` | required | hosted | confirmed |
 | `upstage` | Upstage | `https://api.upstage.ai/v1` | required | hosted | confirmed |
@@ -296,6 +300,8 @@ The order is OpenAI, OpenRouter, Google Gemini, xAI, Groq, DeepSeek, Mistral, th
 | `ollama` | Ollama | `http://localhost:11434/v1` | none | local | confirmed |
 | `vllm` | vLLM | `http://localhost:8000/v1` | optional | local | confirmed |
 | `llamacpp` | llama.cpp | `http://localhost:9931/v1` | optional | local | confirmed |
+
+**Rows with a blank.** Some addresses hold one value only the person knows. `ModelProviderPreset.AddressBlank` (`ModelProviderAddressBlank`: a `Label` and a regular-expression `Pattern`) marks the row, and its `Address` holds `{blank}` exactly once (`AddressBlanks.Marker`). The pattern must match the whole value and allows none of `/ @ : ? #` or white space, so the value cannot end the host or start a path; a blank that is a whole host (Databricks) or part of one (Snowflake) allows letters, digits, hyphens and dots, and nothing else. `AddressBlanks.Build` (`Drover.Contracts`) is the one place the address is built: the client builds it, shows the one field in place of the address, and sends the built address as for any other row, so the server needs no new route and applies its existing address checks (no user info, query or fragment, the private-address rule) to what arrives. The response carries the label and the pattern, no secret. Azure (#530) can use the same mechanism.
 
 Left out: GitHub Models (retired on 2026-07-30) and Anthropic, which has its own kind ([Anthropic](#anthropic-first-party)). The Google Gemini row stays in the table, and the server does not list it while the `gemini` kind is offered ([Google Gemini](#google-gemini-on-generatecontent)).
 

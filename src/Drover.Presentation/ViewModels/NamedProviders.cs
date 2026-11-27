@@ -50,6 +50,8 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     private IReadOnlyList<ModelProviderKindResponse> kinds = [];
 
+    private string blankValue = string.Empty;
+
     #endregion
 
     #region Properties
@@ -98,9 +100,24 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     /// <summary>Whether a connection of the choice carries an address. A kind the list does not hold is asked for one.</summary>
     public bool TakesAddress => Kind.Length > 0 && (Descriptor?.AddressRule ?? ModelAddressRules.Required) == ModelAddressRules.Required;
 
-    public bool ShowsAddress => Selected is null ? TakesAddress : AddressRevealed;
+    /// <summary>The one value the chosen provider's address needs from the person, when it needs one.</summary>
+    public ModelProviderAddressBlankResponse? Blank => Selected?.AddressBlank;
 
-    public bool OffersAddressChange => Selected is not null && !AddressRevealed;
+    /// <summary>What the person typed for <see cref="Blank"/>.</summary>
+    public string BlankValue => blankValue;
+
+    /// <summary>The address built from the person's value, or null when the chosen provider has no blank or the value is not allowed.</summary>
+    public string? BlankAddress => Selected is { AddressBlank: { } blank } preset ? AddressBlanks.Build(preset.Address, blank.Pattern, blankValue.Trim()) : null;
+
+    /// <summary>What is wrong with the value in the blank, or null when it is fine (or there is no blank).</summary>
+    public string? BlankProblem => Blank is { } blank && BlankAddress is null ? $"{blank.Label} is not valid." : null;
+
+    /// <summary>The chosen provider's blank replaces the address field: the address is never typed whole.</summary>
+    public bool ShowsBlank => Blank is not null;
+
+    public bool ShowsAddress => Blank is null && (Selected is null ? TakesAddress : AddressRevealed);
+
+    public bool OffersAddressChange => Selected is not null && Blank is null && !AddressRevealed;
 
     public string? AddressHint => Selected is null ? Descriptor?.AddressHint : null;
 
@@ -184,9 +201,17 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         var before = Selected;
         Choice = chosen;
         AddressRevealed = false;
+        blankValue = string.Empty;
         Changed?.Invoke();
 
-        return Selected?.Address ?? (before is not null ? string.Empty : null);
+        // A provider with a blank has no address until the person fills it in.
+        return Selected is null ? (before is not null ? string.Empty : null) : Selected.AddressBlank is null ? Selected.Address : string.Empty;
+    }
+
+    public void SetBlank(string value)
+    {
+        blankValue = value;
+        Changed?.Invoke();
     }
 
     public void RevealAddress()
@@ -204,7 +229,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     /// <summary>What is missing from the form for a request, as the words under the field, or null for a field that is filled.</summary>
     public (string? Address, string? Key) Missing(string address, string key) =>
-        (ShowsAddress && address.Trim().Length == 0 ? AddressMissingWords : null,
+        (ShowsBlank ? BlankProblem : ShowsAddress && address.Trim().Length == 0 ? AddressMissingWords : null,
          ShowsKey && KeyRequired && key.Trim().Length == 0 ? KeyMissingWords : null);
 
     #endregion

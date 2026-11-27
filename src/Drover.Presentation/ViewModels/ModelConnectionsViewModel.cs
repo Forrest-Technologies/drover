@@ -178,7 +178,7 @@ public sealed partial class ModelConnectionsViewModel(
         AddKeyProblem = null;
         Notice = null;
         ApiKey = string.Empty;
-        BaseUrl = Named.Selected?.Address ?? string.Empty;
+        BaseUrl = Named.Selected is { AddressBlank: null } selected ? selected.Address : string.Empty;
         Name = string.Empty;
     }
 
@@ -187,7 +187,7 @@ public sealed partial class ModelConnectionsViewModel(
         Adding = false;
         AddProblem = null;
         ApiKey = string.Empty;
-        BaseUrl = Named.Selected?.Address ?? string.Empty;
+        BaseUrl = Named.Selected is { AddressBlank: null } selected ? selected.Address : string.Empty;
         Name = string.Empty;
     }
 
@@ -226,7 +226,7 @@ public sealed partial class ModelConnectionsViewModel(
 
         try
         {
-            var address = Named.TakesAddress ? BaseUrl.Trim() : null;
+            var address = Named.TakesAddress ? Named.BlankAddress ?? BaseUrl.Trim() : null;
             var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
             var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? Named.NameFor(address) : Name.Trim(), address, key, null));
             Connections!.Add(added);
