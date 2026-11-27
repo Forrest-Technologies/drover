@@ -224,6 +224,16 @@ public sealed class CallViewModelTests : VoiceTest
     }
 
     [Fact]
+    public async Task The_bots_voice_plays_through_the_devices_output_for_a_call()
+    {
+        await Ready();
+
+        // Played any other way, a phone does not take the voice out of its microphone and the bot answers itself.
+        Playback.Output!.ForCall.Should().BeTrue();
+        Playback.Output.SampleRate.Should().Be(PcmAudio.SampleRate);
+    }
+
+    [Fact]
     public async Task Where_the_device_cancels_echo_the_microphone_is_never_ignored()
     {
         var model = await Ready();

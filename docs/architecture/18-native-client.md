@@ -759,7 +759,13 @@ server and shows where things stand.
   permission is allowed.
 - `IAudioPlayback` is the loudspeaker. `Open(sampleRate)` gives an `IAudioOutput`: pieces of 16-bit samples of one
   channel are queued and played with no gap, `Flush` stops at once and drops what waits, `PlayedMilliseconds` counts
-  what was actually played, and `Drained` says everything queued has been played.
+  what was actually played, and `Drained` says everything queued has been played. `OpenCall(sampleRate)` opens the
+  output of a live call, and is `Open` on every head but Android. Android takes its loudspeaker out of the
+  microphone only for sound played as a conversation, so there a call's output puts the system in its communication
+  mode for as long as it is open, plays with the voice-communication usage, and sends the voice to a connected
+  headset or else the loudspeaker, never the earpiece (`AndroidAudio.CallRoute`, which needs
+  `MODIFY_AUDIO_SETTINGS`). Closing the output gives the system back as it was. Played as media the voice returns
+  through the microphone, the provider hears it as the person, and the bot interrupts and answers itself.
 
 Everything else is written once, on top of those two, and tested without a device:
 

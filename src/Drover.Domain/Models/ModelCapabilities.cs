@@ -19,6 +19,18 @@ public sealed record ModelCapabilities
     /// <summary>Whether the model reads pictures. An admin's say lives in <see cref="ModelCapabilityOverrides"/>.</summary>
     public bool Vision { get; init; }
 
+    /// <summary>
+    /// Whether the model reads a PDF as a PDF, its pages and pictures included. A model without it is given the text
+    /// the server reads out of the file. Only a provider that says so per model sets it.
+    /// </summary>
+    public bool PdfInput { get; init; }
+
+    /// <summary>The most pages of one PDF the provider takes for this model, or null when it sets no bound.</summary>
+    public int? PdfMaxPages { get; init; }
+
+    /// <summary>The most bytes of one PDF the provider takes for this model, or null when it sets no bound.</summary>
+    public long? PdfMaxBytes { get; init; }
+
     public bool Reasoning { get; init; }
 
     public IReadOnlyList<string> ReasoningEfforts { get; init; } = [];

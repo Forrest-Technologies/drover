@@ -32,7 +32,8 @@ public sealed record ModelCapabilitiesResponse(
     bool SpeechToText = false,
     bool TextToSpeech = false,
     bool RealtimeVoice = false,
-    bool VoiceSetByOperator = false);
+    bool VoiceSetByOperator = false,
+    bool PdfInput = false);
 
 /// <summary>Price per million tokens in <see cref="Currency"/>. A null price means unknown.</summary>
 public sealed record ModelPriceResponse(decimal? InputPerMillion, decimal? OutputPerMillion, decimal? CachedInputPerMillion, string Currency);
