@@ -217,7 +217,7 @@ public sealed class CallViewModel : ObservableObject, IAsyncDisposable
             }
 
             call = connected;
-            var speaker = await playback.Open(PcmAudio.SampleRate, leaving);
+            var speaker = await playback.OpenCall(PcmAudio.SampleRate, leaving);
 
             if (leaving.IsCancellationRequested)
             {

@@ -284,7 +284,7 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
     public async Task Open_network_is_refused_where_the_deployment_forbids_it_and_the_idle_time_is_capped()
     {
         var provider = new FakeSandboxProvider();
-        await using var world = await SandboxWorld(provider, policy: DeploymentPolicy.Hosted);
+        await using var world = await SandboxWorld(provider, policy: DeploymentPolicy.Hosted with { AllowedModelProviderKinds = [ScriptedModelProvider.ConnectionKind] });
         await GiveSandbox(world, world.BotId, SandboxPolicy.Private, NetworkAccess.Open);
         var broker = world.StartHost().Services.GetRequiredService<SandboxBroker>();
 

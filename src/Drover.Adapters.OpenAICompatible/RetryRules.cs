@@ -8,11 +8,15 @@ internal static class RetryRules
 {
     #region Public Methods
 
-    public static bool ShouldRetry(ResilienceContext context, Outcome<HttpResponseMessage> outcome) =>
+    /// <summary>
+    /// Whether to send the request again. <paramref name="retryRateLimits"/> is false where a limited call must not be
+    /// sent again (a person's plan), so a POST is repeated only when it never reached the server.
+    /// </summary>
+    public static bool ShouldRetry(ResilienceContext context, Outcome<HttpResponseMessage> outcome, bool retryRateLimits = true) =>
         !IsPolicyRefusal(outcome)
         && (IsRead(context)
             ? HttpClientResiliencePredicates.IsTransient(outcome)
-            : IsRateLimited(outcome) || NeverReachedTheServer(outcome));
+            : (retryRateLimits && IsRateLimited(outcome)) || NeverReachedTheServer(outcome));
 
     /// <summary>
     /// A rate limit says nothing about the provider's health, and on a shared host one caller's limit must not

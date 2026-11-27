@@ -16,10 +16,10 @@ Ordered by how much damage each could do to the plan.
 | 8 | **Volume of coding-agent output outruns review** | Most code will be agent-written. | The rules that matter are mechanical: analyzers, the isolation suite, the conformance suites, the license check. `AGENTS.md` explains the rest with reasons. | If agents repeatedly find ways around a rule, the rule becomes an analyzer or a test, not a longer paragraph in `AGENTS.md`. |
 | 9 | **Losing the key ring loses every secret** | Data Protection keys live on their own volume by design. | Status page warning until a backup is confirmed; the README's backup section covers both volumes. | Nothing changes the design; this is an operations risk to keep visible. |
 | 10 | **EF Core package lag** | `Pgvector.EntityFrameworkCore` has no release targeting EF Core 10. .NET 11 shipped yesterday and package ecosystems are mid-transition. | Track the newest generally available .NET ([ADR 0013](../adr/0013-track-the-newest-generally-available-dotnet.md)). EF Core and Npgsql stay one major behind until the provider is generally available. Vector search can fall back to one raw SQL query behind `IMemoryStore`. | Move EF Core to 11 when the Npgsql provider and `Pgvector.EntityFrameworkCore` support it. |
-| 11 | **Subscription sign-in terms change** | Two large providers prohibit it today; one permits it only for open source and locally hosted apps, with request rules that are still labeled preview; terms have moved several times this year. | Key-only is always available. Sign-in adapters are separate and can be switched off per provider without a release, through a server setting. | Any provider tightening its terms: that adapter is disabled by default in the next release. |
+| 11 | **Subscription sign-in terms change** | Two large providers prohibit it today; one permits it only for open source and locally hosted apps, with request rules that are still labeled preview; terms have moved several times this year. | Key-only is always available. Sign-in adapters are separate and can be switched off per provider without a release, through `Drover:Models:SignInOff`. The hosted preset refuses every personal plan kind (`SubscriptionSignIn`), on every route and every use. The Claude plan kind is built although its provider forbids it, on the owner's decision of 2026-11-26; the operator accepts the risk by leaving it on, and its identifiers are settings ([self-hosting.md](../self-hosting.md#signing-in-to-a-model-provider)). | Any provider tightening its terms: that adapter is disabled by default in the next release. |
 
 | 12 | **Venice on the hosted service** | Self-hosting with the user's own key is fine. For a hosted service the provider's terms require flowing their terms down to end users, and the general license wording speaks of personal use. | Venice ships for self-hosting from Phase 0 regardless. | Before enabling Venice on the hosted service: the owner reads the current terms and, if unclear, asks the provider. |
-| 13 | **ChatGPT plan sign-in needs a browser on the same machine as the callback** | The provider fixes the redirect to a loopback address and documents no device-code flow. | The desktop app or a small command completes the sign-in and hands the credential to the user's server. | The provider adds a device-code flow: use it and drop the hand-off. |
+| 13 | **ChatGPT plan sign-in needs a browser on the same machine as the callback** | The provider fixes the redirect to a loopback address and documents no device-code flow. | The sign-in starts on the server and finishes on the person's device: the device receives the browser's return on its own loopback address and hands the query string to the server, which makes the exchange. No token reaches the device. A device that cannot listen is refused until a flow without a listener exists. | The provider adds a device-code flow: use it and drop the hand-off. |
 
 ## Decisions I was least sure about
 
@@ -43,11 +43,11 @@ Chosen for correctness and a trivial resume protocol. The cost is that every eve
 
 Would change my mind: a load test in Phase 1 showing lock waits with wide trees (many children streaming at once). Then give each run its own sequence and have the tree stream merge them with a per-run cursor map. More protocol, less contention.
 
-### 4. Delegation only down the tree in Phase 1
+### 4. Action delegation follows the bot tree
 
-Chosen because it cannot escalate privilege and cannot loop. The cost is that "ask the research team" from a sibling team has to go up through a common parent, or wait for Phase 2 links.
+A direct child has no broader tool grants than its parent. A conversation can ask another bot in the same space for a reply through `message_bot`, in a run with the recipient’s instructions and without access to its private memory, project context, or action tools. The same cycle check and budget apply in both cases.
 
-Would change my mind: the owner's own crew, in daily use, keeps needing sideways handoffs. Then bring delegation links and "borrowed authority asks" forward.
+Cross-tree requests that need the recipient to take an action still need their own authority design. See [ADR 0027](../adr/0027-bot-messages-return-replies.md).
 
 ### 5. Credentials belong to users or spaces, never bots
 

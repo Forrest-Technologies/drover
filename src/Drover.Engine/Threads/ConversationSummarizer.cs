@@ -8,9 +8,10 @@ namespace Drover.Engine.Threads;
 /// it. A failure changes nothing: it is logged, the old summary stays, and a later run tries again.
 /// </summary>
 public sealed class ConversationSummarizer(
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    ModelCredentials credentials,
     TimeProvider time,
     ILogger<ConversationSummarizer> logger)
 {
@@ -64,6 +65,15 @@ public sealed class ConversationSummarizer(
         {
             if (await tenant.Transact(services => Prepare(services, run, cancellationToken), cancellationToken) is not { } pending)
             {
+                return;
+            }
+
+            // The transaction is closed: a sign-in that runs out soon is renewed here, before the call.
+            pending.Credential = await credentials.Ready(pending.Credential, cancellationToken);
+
+            if (pending.Credential.Problem is { } problem)
+            {
+                logger.LogInformation("The summary of thread {ThreadId} was not written: no credential for its model ({Problem})", run.ThreadId, problem);
                 return;
             }
 
@@ -163,7 +173,7 @@ public sealed class ConversationSummarizer(
         var connections = services.GetRequiredService<ModelConnectionRepository>();
 
         if (await connections.FindConnection(bot.ModelConnectionId, cancellationToken) is not { } connection
-            || providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind) is not { } provider
+            || catalog.Resolve(connection.Kind).Provider is not { } provider
             || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
         {
             logger.LogInformation("Thread {ThreadId} has no usable model connection for its summary", thread.Id);
@@ -171,18 +181,16 @@ public sealed class ConversationSummarizer(
         }
 
         var entry = await connections.FindCatalogEntry(connection.Id, bot.Model, cancellationToken);
-        var context = entry?.Capabilities.ContextTokens;
-        var threshold = bot.MemorySettings.CompactAtTokens ?? (context - (bot.ModelSettings.MaxOutputTokens ?? entry?.Capabilities.MaxOutputTokens ?? 4096)) / 2;
+        var context = entry?.EffectiveCapabilities.ContextTokens;
+        var threshold = bot.MemorySettings.CompactAtTokens ?? (context - (bot.ModelSettings.MaxOutputTokens ?? entry?.EffectiveCapabilities.MaxOutputTokens ?? 4096)) / 2;
         if (Plan(thread, conversation, options.Value, threshold) is not { } plan)
         {
             return null;
         }
 
-        var key = connection.SecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
+        var credential = await credentials.Read(services, connection, cancellationToken);
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
-        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, key, entry?.Pricing ?? new ModelPricing(), policy, context);
+        return new Pending(plan, provider, provider.FixedAddress ?? new Uri(connection.BaseUrl!), connection.Id, bot.Model, credential, entry?.EffectivePricing ?? new ModelPricing(), policy, context);
     }
 
     #endregion
@@ -198,10 +206,10 @@ public sealed class ConversationSummarizer(
         }
 
         var rules = deployment.Value.Rules;
-        var endpoint = new ModelEndpoint(pending.Provider.Kind, pending.Address)
+        var endpoint = pending.Credential.For(new ModelEndpoint(pending.Provider.Kind, pending.Address)
         {
             Limits = new DiscoveryLimits(rules.MaxModelListBytes, rules.MaxModelsPerConnection),
-        };
+        });
         using var client = pending.Provider.CreateChatClient(endpoint, pending.Key, pending.Model, new ModelSettings { MaxOutputTokens = MaxSummaryTokens });
         using var outbound = OutboundAttempt.Begin(pending.Policy);
         return await client.GetResponse(Request(pass, new Redactor([pending.Key])), cancellationToken);
@@ -349,7 +357,7 @@ public sealed class ConversationSummarizer(
         Uri address,
         Guid connectionId,
         string model,
-        string? key,
+        ModelCredential credential,
         ModelPricing pricing,
         EffectivePolicy policy,
         int? contextTokens)
@@ -366,7 +374,10 @@ public sealed class ConversationSummarizer(
 
         public string Model => model;
 
-        public string? Key => key;
+        /// <summary>What the call sends: the connection's key, or the run's person's own sign-in, renewed before the call.</summary>
+        public ModelCredential Credential { get; set; } = credential;
+
+        public string? Key => Credential.Value;
 
         public ModelPricing Pricing => pricing;
 

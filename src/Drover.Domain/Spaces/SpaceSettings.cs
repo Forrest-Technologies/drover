@@ -26,8 +26,14 @@ public sealed record SpaceSettings
     /// <summary>Lowers the deployment's <c>MaxStepsPerRun</c> for this space. It can never raise it.</summary>
     public int? MaxStepsPerRun { get; init; }
 
+    /// <summary>Lowers the deployment's <c>MaxUnmeteredModelCallsPerRun</c> for this space. It can never raise it.</summary>
+    public int? MaxUnmeteredModelCallsPerRun { get; init; }
+
     /// <summary>Lowers the deployment's <c>MaxTokensPerRun</c> for this space. It can never raise it.</summary>
     public int? MaxTokensPerRun { get; init; }
+
+    /// <summary>Lowers the deployment's <c>MaxJudgedChecksPerRun</c> for this space. It can never raise it.</summary>
+    public int? MaxJudgedChecksPerRun { get; init; }
 
     /// <summary>False forbids requests to private addresses from this space. True, or null, changes nothing.</summary>
     public bool? AllowPrivateAddresses { get; init; }

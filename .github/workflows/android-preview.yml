@@ -6,6 +6,8 @@ on:
       - '.github/workflows/android-preview.yml'
       - 'scripts/android-release-metadata.py'
       - 'scripts/test-android-release-metadata.py'
+      - 'scripts/android-release-notes.py'
+      - 'scripts/test-android-release-notes.py'
       - 'src/Drover.Native/**'
       - 'src/Drover.Presentation/**'
       - 'src/Shared/**'
@@ -66,6 +68,7 @@ jobs:
         shell: bash
         run: |
           python3 scripts/test-android-release-metadata.py
+          python3 scripts/test-android-release-notes.py
           python3 scripts/android-release-metadata.py
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             git merge-base --is-ancestor HEAD refs/remotes/origin/main || \
@@ -208,6 +211,10 @@ jobs:
     permissions:
       contents: write # create the GitHub prerelease and attach the signed assets
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signed-android-apk
@@ -231,7 +238,50 @@ jobs:
           else
             flags+=(--target "$GITHUB_SHA")
           fi
+          notes="$RUNNER_TEMP/notes"
+          mkdir -p "$notes"
+          warn_and_fallback() {
+            echo "::warning::$1"
+            python3 scripts/android-release-notes.py fallback > "$notes/body.md"
+          }
+          build_notes() {
+            if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$notes/releases.json"; then
+              warn_and_fallback "Could not list releases; publishing the APK with install instructions only."
+              return 0
+            fi
+            local previous
+            if ! previous=$(python3 scripts/android-release-notes.py previous "$notes/releases.json" "$CHANNEL" "$RELEASE_TAG"); then
+              warn_and_fallback "Could not read the release list; publishing the APK with install instructions only."
+              return 0
+            fi
+            : > "$notes/generated.md"
+            if [[ -z "$previous" ]]; then
+              python3 scripts/android-release-notes.py body "$notes/generated.md" "$CHANNEL" "" > "$notes/body.md"
+              return 0
+            fi
+            if ! python3 scripts/android-release-notes.py previous-tags "$notes/releases.json" "$CHANNEL" \
+                "$RELEASE_TAG" > "$notes/candidates.txt"; then
+              warn_and_fallback "Could not list previous releases; publishing the APK with install instructions only."
+              return 0
+            fi
+            local candidate
+            while IFS= read -r candidate; do
+              [[ -n "$candidate" ]] || continue
+              if gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$RELEASE_TAG" \
+                  -f target_commitish="$GITHUB_SHA" -f previous_tag_name="$candidate" --jq .body \
+                  > "$notes/candidate.md" && [[ -s "$notes/candidate.md" ]] \
+                  && [[ "$(cat "$notes/candidate.md")" != "null" ]]; then
+                cp "$notes/candidate.md" "$notes/generated.md"
+                python3 scripts/android-release-notes.py body "$notes/generated.md" "$CHANNEL" \
+                  "$candidate" > "$notes/body.md"
+                return 0
+              fi
+              echo "::warning::Could not generate notes against $candidate; trying an older release."
+            done < "$notes/candidates.txt"
+            warn_and_fallback "Could not generate release notes; publishing the APK with install instructions only."
+          }
+          build_notes
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${flags[@]}" \
             --title "Drover Android $RELEASE_TAG" \
-            --notes 'Install the APK and sign in with the HTTPS address of your Drover server. See the [Android guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
+            --notes-file "$notes/body.md" \
             "release/$apk" "release/$apk.sha256"

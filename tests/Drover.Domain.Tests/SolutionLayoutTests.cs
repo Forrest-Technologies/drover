@@ -15,7 +15,9 @@ public sealed class SolutionLayoutTests
         ["Drover.Data"] = ["Drover.Domain"],
         ["Drover.Engine"] = ["Drover.Data", "Drover.Domain", "Drover.Contracts"],
         ["Drover.Agents"] = ["Drover.Data", "Drover.Domain"],
+        ["Drover.Adapters.Anthropic"] = ["Drover.Domain"],
         ["Drover.Adapters.OpenAICompatible"] = ["Drover.Domain"],
+        ["Drover.Adapters.Gemini"] = ["Drover.Domain"],
         ["Drover.Adapters.Venice"] = ["Drover.Domain"],
         ["Drover.Adapters.Mcp"] = ["Drover.Domain"],
         ["Drover.Adapters.LocalFiles"] = ["Drover.Domain"],
@@ -23,6 +25,7 @@ public sealed class SolutionLayoutTests
         ["Drover.Adapters.E2B"] = ["Drover.Domain"],
         ["Drover.Adapters.WebPush"] = ["Drover.Domain"],
         ["Drover.Adapters.SearXng"] = ["Drover.Domain"],
+        ["Drover.Adapters.SystemOne"] = ["Drover.Domain"],
         ["Drover.Client"] = ["Drover.Contracts"],
         ["Drover.Presentation"] = ["Drover.Client", "Drover.Contracts"],
         ["Drover.Native"] = ["Drover.Presentation", "Drover.Client", "Drover.Contracts"],
@@ -30,7 +33,9 @@ public sealed class SolutionLayoutTests
         [
             "Drover.Engine",
             "Drover.Agents",
+            "Drover.Adapters.Anthropic",
             "Drover.Adapters.OpenAICompatible",
+            "Drover.Adapters.Gemini",
             "Drover.Adapters.Venice",
             "Drover.Adapters.Mcp",
             "Drover.Adapters.LocalFiles",
@@ -38,6 +43,7 @@ public sealed class SolutionLayoutTests
             "Drover.Adapters.E2B",
             "Drover.Adapters.WebPush",
             "Drover.Adapters.SearXng",
+            "Drover.Adapters.SystemOne",
         ],
     };
 

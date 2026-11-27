@@ -13,6 +13,9 @@ public sealed class ModelProviderException(
 
     public TimeSpan? RetryAfter { get; } = retryAfter;
 
+    /// <summary>The HTTP status the provider answered, where the failure came from one. A 401 and a 403 are both an invalid key to a person setting up a connection, but they are not the same to a provider.</summary>
+    public int? HttpStatus { get; init; }
+
     public IReadOnlyDictionary<string, string> ResponseHeaders { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     #endregion
@@ -21,6 +24,12 @@ public sealed class ModelProviderException(
 
     /// <summary>Maps an HTTP status every provider shares to a failure and a message the owner can act on.</summary>
     public static ModelProviderException FromStatus(int status, TimeSpan? retryAfter = null, Exception? inner = null) =>
+        status > 0 ? Describe(status, retryAfter, inner).WithStatus(status) : Describe(status, retryAfter, inner);
+
+    private ModelProviderException WithStatus(int status) =>
+        new(Failure, Message, RetryAfter, InnerException) { HttpStatus = status, ResponseHeaders = ResponseHeaders };
+
+    private static ModelProviderException Describe(int status, TimeSpan? retryAfter, Exception? inner) =>
         status switch
         {
             // A client library reports "no response arrived" as status 0.

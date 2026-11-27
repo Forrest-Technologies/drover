@@ -331,7 +331,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | Control | Takes | Raises |
 | --- | --- | --- |
 | `ToolCallCard` | `Card`, `BotName`, `Decide`, `Forget`, `Forgotten`, `MemoryHref` | |
-| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element) | |
+| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element); an unusable answer uses the same card and words as an unusable reply, with its original behind a closed disclosure | |
 | `TakeoverCard` | `BotName`, `Reason`, `Phase`, `Sending`, `Problem`, `Access`, `SetupHref`, `AnswerBesideScreen`, `TakeFocus` | `OpenScreen`, `Done`, `CouldNot` |
 | `TakeoverCall` | `Takeover`, `BotName`, `Takeovers` | |
 | `FileCard` | `File`, `ReadWhole` | |
@@ -339,7 +339,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
 | `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
 | `MessageVersions` (native only, inside `ChatEntry`) | `ShowVersion`, `OnAct`; `Show(message)` draws the message's `Versions` switch ("2 of 3" between previous and next) and Edit or Write another reply when the message offers it | |
-| `UnusableToolRequestCard` (native only, inside `ChatEntry`) | `MessageKey`, `BotName`, `OriginalResponse`, `CanRetry`; shown when a completed bot reply holds only a raw DSML tool-call protocol envelope (`UnusableToolRequests.IsProtocolEnvelope`), with a plain-word explanation, the existing retry action when available, and a collapsed disclosure of the original response | `Retry` |
+| `UnusableToolRequestCard` (native only, inside `ChatEntry` and an unusable handoff answer) | `MessageKey`, `BotName`, `OriginalResponse`, `CanRetry`; shown when a completed bot reply holds a raw DSML tool-call protocol request, whole or cut off before its closing tags (`UnusableToolRequests.IsUnusableRequest`), with a plain-word explanation, the existing retry action where the message list offers it, and a collapsed disclosure of the original response | `Retry` |
 | `ExchangedFiles` | `Bot`, `Version` | |
 | `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
 | `MemoryRail` | `Bot`, `Version` | |
@@ -759,7 +759,13 @@ server and shows where things stand.
   permission is allowed.
 - `IAudioPlayback` is the loudspeaker. `Open(sampleRate)` gives an `IAudioOutput`: pieces of 16-bit samples of one
   channel are queued and played with no gap, `Flush` stops at once and drops what waits, `PlayedMilliseconds` counts
-  what was actually played, and `Drained` says everything queued has been played.
+  what was actually played, and `Drained` says everything queued has been played. `OpenCall(sampleRate)` opens the
+  output of a live call, and is `Open` on every head but Android. Android takes its loudspeaker out of the
+  microphone only for sound played as a conversation, so there a call's output puts the system in its communication
+  mode for as long as it is open, plays with the voice-communication usage, and sends the voice to a connected
+  headset or else the loudspeaker, never the earpiece (`AndroidAudio.CallRoute`, which needs
+  `MODIFY_AUDIO_SETTINGS`). Closing the output gives the system back as it was. Played as media the voice returns
+  through the microphone, the provider hears it as the person, and the bot interrupts and answers itself.
 
 Everything else is written once, on top of those two, and tested without a device:
 

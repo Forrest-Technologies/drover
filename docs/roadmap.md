@@ -27,8 +27,8 @@ Checked against the code on the trunk, not against older documents.
 | Area | On the trunk |
 | --- | --- |
 | Server | One .NET server with PostgreSQL. A run is a durable job with a stored event log. Clients resume a stream where it stopped. One `docker compose up` deploys it, with an optional HTTPS proxy |
-| Bots | A hierarchy of bots, each with a character, instructions, a model and tool grants. Delegation to the bots beneath, with depth, run and cost limits. Tokens cap each run; the hosted preset caps each run at 50 model calls and each delegation tree at 50 runs. Self-hosted has no default model-call or delegation-tree run cap. Operators may set limits, and spaces and bots may only lower them. A stopped run or refused handoff names the limit with used against cap and links editors straight to the bot's Limits settings. Rules at four points of a run. A rule that was removed can be put back with Undo. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused. Routines on a schedule. Memory notes per person. Projects with shared files. A bot saved as a file and imported, paused, after its instructions are read. Extensions as one file of data that adds a tool server, themes, rules and its own settings for a space to pick up, and applies nothing by itself |
-| Conversations | Streaming replies with tool activity, edit and regenerate, side chats, a running summary, search across conversations, export as Markdown or JSON, attachments, document reading, safe previews. One bot turn now reads as one unit with a compact ledger of its work, with one row for each piece of work that opens to the call. A theme sets colors, type, density, shape and motion, including the corners, the yard, the live states and the characters. Every theme is checked at build time for contrast, hues, bounds, touch targets and ink. Large pictures get a static preview of at most 480 pixels on the long edge and the original can still be downloaded. Pictures can be pasted and files dropped anywhere on a conversation, with one sentence when one cannot be taken. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels. A completed reply containing only raw tool-call protocol markup shows as an unusable tool request with the original response kept for inspection, copy, export and activity and an explicit Try again action |
+| Bots | A hierarchy of bots, each with a character, instructions, a model and tool grants. Delegation to the bots beneath, with depth, run and cost limits. Tokens cap each run; the hosted preset caps each run at 50 model calls and each delegation tree at 50 runs. Self-hosted has no default model-call or delegation-tree run cap, but a run with no model-call limit stops after 200 calls that reported no token use, a bound an operator may raise or remove. Operators may set limits, and spaces and bots may only lower them. A stopped run or refused handoff names the limit with used against cap and links editors straight to the bot's Limits settings. Rules at four points of a run. A rule that was removed can be put back with Undo. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused. Routines on a schedule. Memory notes per person. Projects with shared files. A bot saved as a file and imported, paused, after its instructions are read. Extensions as one file of data that adds a tool server, themes, rules and its own settings for a space to pick up, and applies nothing by itself |
+| Conversations | Streaming replies with tool activity, edit and regenerate, side chats, a running summary, search across conversations, export as Markdown or JSON, attachments, document reading, safe previews. One bot turn now reads as one unit with a compact ledger of its work, with one row for each piece of work that opens to the call. A theme sets colors, type, density, shape and motion, including the corners, the yard, the live states and the characters. Every theme is checked at build time for contrast, hues, bounds, touch targets and ink. Large pictures get a static preview of at most 480 pixels on the long edge and the original can still be downloaded. Pictures can be pasted and files dropped anywhere on a conversation, with one sentence when one cannot be taken. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels. A completed reply holding raw tool-call protocol markup, whole or cut off before its closing tags, shows as an unusable tool request in the conversation and in a handoff card's answer, with the original response behind a closed disclosure for inspection, copy, export and activity and Try again where the reply can be written again. One set of card contracts describes every kind of card a bot can send, its limits and its plain-text fallback, while the tool, answering and drawing are still to come (#924) |
 | Code and output | Code, JSON, tables, differences, logs and bytes in a conversation are drawn from what they hold. Lines can wrap, and a block can open full screen. Past 400 lines or 64 KiB only the start is drawn until a person asks for the rest; a table past 400 rows gets a button for the rest |
 | Tools | MCP tool servers with no auth, a header or a sign-in. Built-in tools for time, web pages, web search, memory, images, delegation and the crew |
 | Sandboxes | Optional, turned on with one sandbox service key in `.env` and a restart; the status page names the setting when none is set. A sandbox runs commands, handles files, shows a screen a bot can use, and a person can watch and take over. A finger or a mouse can press, move and release a pointer, drag a window, right-click with a long press, and scroll with two fingers. Held buttons are let go after 10 seconds idle or 60 seconds in all, more than eight waiting touches are turned away, and input is bounded per person and space. Uploads use a writable directory in the image; a failed write answers 503 with `storage_unavailable` |
@@ -272,7 +272,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/7)
 
-**Goal.** A model provider or an agent runtime is added as one adapter project with one registration, and a conformance suite proves it keeps Drover's rules.
+**Goal.** A model provider, an agent runtime or a memory service is added as one adapter project with one registration, and a conformance suite proves it keeps Drover's rules.
 
 **Starts now.** This milestone does not wait for the ones before it. It shares no code with them.
 
@@ -294,6 +294,12 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #854 feat: a first external agent SDK as an agent runtime (good first issue)
 - #855 feat: choose what runs a bot in the bot editor
 
+**Memory service, first in this milestone (owner, 2026-11-27).** A bot learns about its person from their private conversations through a memory service, with Honcho as the first one. Lanes take these three, in order, before the rest of this milestone.
+
+- #1052 feat: a memory service learns about a bot's person from their conversations, through a provider seam with a conformance suite
+- #1053 feat: Honcho as the first memory service
+- #1054 feat: turn the memory service on or off per bot, and see whether it is working
+
 **Interface specs.** [providers.md](ux/providers.md)
 
 **Exit criteria.**
@@ -302,6 +308,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - The client names no provider. It draws its forms from what the server offers.
 - Three more model adapters pass the conformance suite.
 - The decision record for agent runtimes is approved, and one external agent SDK runs a bot under the tool gate.
+- A bot with memory on is given what a configured Honcho server learned about its person, and a conformance suite proves one person's memory never reaches another person or another bot.
 
 ### 08 Apple apps
 

@@ -14,7 +14,21 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
 
-    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest"];
+    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest", "SetDecisionModelRequest", "ReplaceDecisionKeyRequest"];
+
+    // A card's figure, row and answer values are the words shown on the card, not credentials. Their names are fixed
+    // by the card contract; #880 refuses a field label that names a credential, and an answer is the person's message.
+    private static readonly (Type Type, string Name)[] cardDisplayValues =
+    [
+        (typeof(Drover.Contracts.Cards.CardAnswer), nameof(Drover.Contracts.Cards.CardAnswer.Values)),
+        (typeof(Drover.Contracts.Cards.CardFigure), nameof(Drover.Contracts.Cards.CardFigure.Value)),
+        (typeof(Drover.Contracts.Cards.CardRow), nameof(Drover.Contracts.Cards.CardRow.Value)),
+
+        // A sign-in by code's user code is made to be shown to the person, who types it on the provider's page. It
+        // finishes nothing without the device code, which the server holds and never sends (#526 layer 5). This one
+        // property only: every other "code" in a contract is still refused.
+        (typeof(Drover.Contracts.Models.ModelSignInStarted), nameof(Drover.Contracts.Models.ModelSignInStarted.Code)),
+    ];
 
     #endregion
 
@@ -40,6 +54,9 @@ public sealed class ContractsCarryNoSecretsTests
         new Drover.Contracts.Models.CreateModelConnectionRequest("venice", "V", null, "a-model-key-value", null)
             .ToString().Should().NotContain("a-model-key-value");
         new Drover.Contracts.Models.UpdateModelKeyRequest("a-model-key-value").ToString().Should().NotContain("a-model-key-value");
+        new Drover.Contracts.Decisions.SetDecisionModelRequest("typesafe", null, null, "jev-latest", "a-decision-key-value")
+            .ToString().Should().NotContain("a-decision-key-value");
+        new Drover.Contracts.Decisions.ReplaceDecisionKeyRequest("a-decision-key-value").ToString().Should().NotContain("a-decision-key-value");
         new Drover.Contracts.Tools.CreateToolConnectionRequest("T", "https://tools.example.test/", "header", "X-Api-Key", "a-header-value")
             .ToString().Should().NotContain("a-header-value");
         new Drover.Contracts.Tools.ReplaceToolHeaderRequest("X-Api-Key", "a-header-value").ToString().Should().NotContain("a-header-value");
@@ -56,6 +73,7 @@ public sealed class ContractsCarryNoSecretsTests
         new Drover.Contracts.Extensions.ConnectExtensionRequest(false, "a-header-value") { Settings = new Dictionary<string, string> { ["token"] = "a-setting-value" } }
             .ToString().Should().NotContain("a-header-value").And.NotContain("a-setting-value");
         new Drover.Contracts.Tools.FinishToolSignInRequest("a-ticket-value").ToString().Should().NotContain("a-ticket-value");
+        new Drover.Contracts.Models.FinishModelSignInRequest("code=a-one-time-code&state=s").ToString().Should().NotContain("a-one-time-code");
         new Drover.Contracts.Sandboxes.CreateSandboxSecretRequest("DEPLOY_TOKEN", null, "a-sandbox-secret-value", "brokered", ["api.example.test"], false, false, "space", null, null)
             .ToString().Should().NotContain("a-sandbox-secret-value");
         new Drover.Contracts.Sandboxes.RotateSandboxSecretRequest("a-sandbox-secret-value").ToString().Should().NotContain("a-sandbox-secret-value");
@@ -76,6 +94,23 @@ public sealed class ContractsCarryNoSecretsTests
     {
         ReachableProperties(typeof(CountsTokens)).Should().BeEmpty();
         ReachableProperties(typeof(HoldsTokens)).Should().Equal("HoldsTokens.RefreshTokens", "HoldsTokens.Token");
+    }
+
+    [Fact]
+    public void The_card_value_exceptions_are_only_the_display_values()
+    {
+        ReachableProperties(typeof(Drover.Contracts.Cards.CardAnswer)).Should().BeEmpty();
+        ReachableProperties(typeof(Drover.Contracts.Cards.CardFigure)).Should().BeEmpty();
+        ReachableProperties(typeof(Drover.Contracts.Cards.CardRow)).Should().BeEmpty();
+        ReachableProperties(typeof(HoldsAValue)).Should().Equal("HoldsAValue.Value");
+    }
+
+    [Fact]
+    public void The_only_code_a_contract_may_carry_is_the_user_code_a_sign_in_shows()
+    {
+        ReachableProperties(typeof(Drover.Contracts.Models.ModelSignInStarted)).Should().BeEmpty();
+        ReachableProperties(typeof(Drover.Contracts.Models.FinishModelSignInRequest)).Should().BeEmpty("its query is input only, and is not named a code");
+        ReachableProperties(typeof(HoldsACode)).Should().Equal("HoldsACode.Code");
     }
 
     #endregion
@@ -125,8 +160,14 @@ public sealed class ContractsCarryNoSecretsTests
     private static bool LooksLikeASecret(PropertyInfo property)
     {
         var lower = property.Name.ToLowerInvariant();
-        return !allowedWords.Contains(lower) && !IsATokenCount(property) && secretWords.Any(word => lower.Contains(word, StringComparison.Ordinal));
+        return !allowedWords.Contains(lower)
+            && !IsATokenCount(property)
+            && !IsCardDisplayValue(property)
+            && secretWords.Any(word => lower.Contains(word, StringComparison.Ordinal));
     }
+
+    private static bool IsCardDisplayValue(PropertyInfo property) =>
+        Array.Exists(cardDisplayValues, item => item.Type == property.DeclaringType && item.Name == property.Name);
 
     // "Tokens" also names what a model counts its text in. A whole number called "...Tokens" is such a count, a size
     // and never a credential, and it keeps the name the data model gives it (max_output_tokens). The type is what
@@ -146,6 +187,10 @@ public sealed class ContractsCarryNoSecretsTests
     private sealed record CountsTokens(int? MaxOutputTokens, long UsedTokens);
 
     private sealed record HoldsTokens(string RefreshTokens, int Token);
+
+    private sealed record HoldsAValue(string Value);
+
+    private sealed record HoldsACode(string Code);
 
     private sealed record WrapsALeak(List<LeakyResponse> Inner);
 

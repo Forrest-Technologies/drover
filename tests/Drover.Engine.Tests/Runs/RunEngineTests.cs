@@ -576,6 +576,118 @@ public sealed class RunEngineTests(PostgresServer postgres)
         (await world.ReadEvents(runId))[^1].Type.Should().Be(RunEventTypes.RunFailed);
     }
 
+    [Fact]
+    public async Task A_run_with_missing_or_zero_token_usage_still_stops_at_a_safety_bound()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var turns = Enumerable.Range(1, 200)
+            .Select(index => (IReadOnlyList<ModelOutput>)[new ToolCallOutput($"call-{index}", "test_lookup")])
+            .ToArray();
+        var script = new ScriptedModel([.. turns]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(null, null, null);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Loop");
+        var run = await world.WaitForStatusWithin(runId, TimeSpan.FromMinutes(2), RunStatus.Failed, RunStatus.Completed);
+
+        run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
+        run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
+        run.Error.Should().Match<RunError>(error =>
+            error.Code == RunReasons.UnmeteredCallLimit
+            && error.Limit == new RunErrorLimit(FailureLimits.UnmeteredModelCalls, 200, 200));
+        run.Error!.Message.Should().Contain("200 model calls that reported no token use");
+        script.Requests.Should().HaveCount(200, "the 201st model call is never made");
+    }
+
+    [Fact]
+    public async Task A_run_that_reports_usage_is_not_counted_as_unmetered()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new TextOutput("Finished.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 2 });
+        world.StartHost();
+
+        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Loop"), RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        script.Requests.Should().HaveCount(3, "calls that report tokens are outside the unmetered count");
+    }
+
+    [Fact]
+    public async Task The_unmetered_call_bound_counts_calls_made_before_an_approval_wait()
+    {
+        var tools = new TestTools()
+            .Add("test.ask", ToolSensitivity.Write)
+            .Add("test.write", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_ask")],
+            [new ToolCallOutput("c2", "test_write")],
+            [new ToolCallOutput("c3", "test_write")],
+            [new TextOutput("Never reached.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(0, 0, 0);
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 3 });
+        await world.Grant("test.ask", GrantEffect.Ask);
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Write it");
+        await world.WaitForStatus(runId, RunStatus.Waiting);
+        var call = (await world.ReadToolCalls(runId)).Single();
+        (await world.Decide(call.Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
+        var run = await world.WaitForStatusWithin(runId, TimeSpan.FromMinutes(2), RunStatus.Failed, RunStatus.Completed);
+
+        run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
+        run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
+        run.Error!.Limit.Should().Be(new RunErrorLimit(FailureLimits.UnmeteredModelCalls, 3, 3));
+        script.Requests.Should().HaveCount(3, "the fourth model call is refused after the wait");
+    }
+
+    [Fact]
+    public async Task A_tool_model_call_that_reports_no_token_use_counts_toward_the_unmetered_bound()
+    {
+        var readerConnection = Guid.Empty;
+        var tools = new TestTools().AddWithCall("test.reader", ToolSensitivity.Read, async (call, _) =>
+        {
+            for (var index = 1; index <= 4; index++)
+            {
+                try
+                {
+                    await call.BeginModelCall();
+                    await call.RecordModelUsage(new ToolModelUsage(readerConnection, "reader", new ModelPricing(), index is 2 ? 5 : 0, 0)
+                    {
+                        HasTokenUsage = index is not 2,
+                    });
+                }
+                catch (BuiltinToolException error) when (error.Message.Contains("no token use", StringComparison.Ordinal))
+                {
+                    return JsonSerializer.SerializeToElement(new { refused = true, reason = error.Message });
+                }
+            }
+
+            return JsonSerializer.SerializeToElement(new { refused = false, reason = string.Empty });
+        });
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_reader")], [new TextOutput("Done.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        readerConnection = world.ConnectionId;
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 2 });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Read it");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        var tool = (await world.ReadToolCalls(runId)).Single();
+
+        run.Status.Should().Be(RunStatus.Failed, run.Error?.Message);
+        run.StatusReason.Should().Be(RunReasons.UnmeteredCallLimit);
+        tool.Result!.Value.GetProperty("refused").GetBoolean().Should().BeTrue("the fourth tool model call is refused after two unmetered ones");
+        tool.Result.Value.GetProperty("reason").GetString().Should().Contain("no token use");
+    }
+
     [Theory]
     [InlineData(false, RunStatus.Failed, 1)]
     [InlineData(true, RunStatus.Completed, 2)]

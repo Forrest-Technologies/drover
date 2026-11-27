@@ -1,6 +1,6 @@
 {
   "provenance": "hand-written",
-  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this.",
+  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this. The second exchange is a server with no /api/show route, which is what the adapter's one probe finds on a server that is not a local one.",
   "exchanges": [
     {
       "method": "GET",
@@ -20,6 +20,14 @@
             "owned_by": "local"
           }
         ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "status": 404,
+      "body": {
+        "error": "Not found"
       }
     }
   ]

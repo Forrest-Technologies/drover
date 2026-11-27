@@ -10,7 +10,7 @@ namespace Drover.Engine.Runs;
 public sealed partial class RunExecutor(
     RunScopes scopes,
     IAgentRuntime runtime,
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     IEnumerable<BuiltinTool> builtins,
     IEnumerable<IToolSource> toolSources,
     RunEventHub hub,
@@ -18,10 +18,12 @@ public sealed partial class RunExecutor(
     UserSignalHub signals,
     PushNotifier push,
     ConversationSummarizer summarizer,
+    ModelCredentials credentials,
     IFileStore fileStore,
     IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    FindDecisionModel findDecisionModel,
     TimeProvider time,
     ILoggerFactory loggers)
 {
@@ -73,6 +75,7 @@ public sealed partial class RunExecutor(
     /// <summary>Executes a loaded run until it ends or waits. True when it completed.</summary>
     private async Task<bool> ExecuteLoaded(LoadedRun loaded, RunTenant tenant, string workerId, CancellationToken stopping)
     {
+        loaded = await WithReadyCredential(loaded, stopping);
         await using var session = NewSession(loaded, tenant, workerId);
 
         try
@@ -217,11 +220,16 @@ public sealed partial class RunExecutor(
         var connections = services.GetRequiredService<ModelConnectionRepository>();
         var connection = bot is null ? null : await connections.FindConnection(bot.ModelConnectionId, cancellationToken);
         var entry = bot is null ? null : await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
-        var key = await RevealKey(services, connection, cancellationToken);
+        var credential = connection is null ? ModelCredential.None : await credentials.Read(services, connection, cancellationToken);
         var policies = services.GetRequiredService<PolicyService>();
         var policy = await policies.GetEffective(run.SpaceId, cancellationToken);
         var limits = (await policies.GetRuns(run.SpaceId, cancellationToken)).NarrowedBy(bot?.RunLimits ?? new RunLimits());
         var granted = bot is null ? [] : await services.GetRequiredService<ToolRepository>().ListGrantedTools(bot.Id, cancellationToken);
+
+        if (run.IsBotRequest)
+        {
+            granted = [.. granted.Where(tool => tool.Tool is { SourceKind: ToolSourceKind.Builtin, Name: DelegateTool.MessageBotName })];
+        }
         var toolConnectionRows = services.GetRequiredService<ToolConnectionRepository>();
         var toolConnections = await toolConnectionRows
             .ListConnections([.. granted.Select(tool => tool.Tool.ToolConnectionId).OfType<Guid>().Distinct()], cancellationToken);
@@ -258,6 +266,7 @@ public sealed partial class RunExecutor(
 
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
+        var unmetered = await services.GetRequiredService<RunRepository>().CountUnmeteredCalls(runId, cancellationToken);
         var openMessage = steps.Open is { } open
             ? await services.GetRequiredService<MessageRepository>().FindMessage(open.MessageId, cancellationToken)
             : null;
@@ -273,20 +282,23 @@ public sealed partial class RunExecutor(
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        // A bot that may delegate is told which bots it may hand work to: those directly beneath it.
-        var children = bot is not null && granted.Any(tool => tool.Tool is { SourceKind: ToolSourceKind.Builtin, Name: DelegateTool.Name })
-            ? await services.GetRequiredService<BotRepository>().ListChildren(bot.Id, cancellationToken)
+        var bots = services.GetRequiredService<BotRepository>();
+        var children = bot is not null && HasHandoffGrant(granted, DelegateTool.Name)
+            ? (await bots.ListChildren(bot.Id, cancellationToken)).FindAll(child => child.AcceptsBotRequests)
+            : [];
+        var recipients = bot is not null && deployment.Value.Rules.AllowBotMessaging && HasHandoffGrant(granted, DelegateTool.MessageBotName)
+            ? (await bots.ListBots(cancellationToken)).FindAll(target => target.Id != bot.Id && target.AcceptsBotRequests)
             : [];
 
         // The notes the bot keeps about the run's person, read in this transaction, as that person. Whether the run is
         // given them is decided once its tools are known: only a run offered a memory tool is.
-        var memory = bot is null || thread is null
+        var memory = bot is null || thread is null || run.IsBotRequest
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
         Project? project = null;
 
-        if (thread?.ProjectId is { } projectId)
+        if (!run.IsBotRequest && thread?.ProjectId is { } projectId)
         {
             project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
         }
@@ -296,13 +308,13 @@ public sealed partial class RunExecutor(
             thread,
             bot,
             connection,
-            key.Value,
-            key.Readable,
+            credential,
             policy,
             limits,
-            entry?.Pricing ?? new ModelPricing(),
+            entry?.EffectivePricing ?? new ModelPricing(),
             granted,
             steps,
+            unmetered,
             openMessage,
             unsettled,
             rows,
@@ -311,11 +323,16 @@ public sealed partial class RunExecutor(
             requested,
             toolConnections,
             toolModelNames,
-            entry?.Capabilities,
+            entry?.EffectiveCapabilities,
             memory,
             children,
+            recipients,
             project);
     }
+
+    private static bool HasHandoffGrant(IReadOnlyList<GrantedTool> grants, string name) =>
+        grants.Any(grant => grant.Effect is GrantEffect.Allow or GrantEffect.Ask
+            && grant.Tool.SourceKind is ToolSourceKind.Builtin && grant.Tool.Name == name);
 
     /// <summary>
     /// The run's bot, answering with the model its conversation chose when the bot may still use that model. The
@@ -332,24 +349,13 @@ public sealed partial class RunExecutor(
         return model == bot.Model ? bot : bot.AnsweringWith(model);
     }
 
-    /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
-    private async Task<(string? Value, bool Readable)> RevealKey(IServiceProvider services, ModelConnection? connection, CancellationToken cancellationToken)
-    {
-        if (connection?.SecretId is not { } secretId)
-        {
-            return (null, true);
-        }
-
-        try
-        {
-            return (await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken), true);
-        }
-        catch (Exception unreadable) when (unreadable is CryptographicException or KeyNotFoundException)
-        {
-            logger.LogError(unreadable, "The key of model connection {ConnectionId} could not be read", connection.Id);
-            return (null, false);
-        }
-    }
+    /// <summary>
+    /// The run with the credential it sends, renewed first when it is a sign-in that runs out soon. Called after the
+    /// load's transaction has closed: a renewal waits on the provider. A credential that cannot be had is not an
+    /// error here; the run is refused with its reason before any model call.
+    /// </summary>
+    private async Task<LoadedRun> WithReadyCredential(LoadedRun loaded, CancellationToken cancellationToken) =>
+        loaded with { Credential = await credentials.Ready(loaded.Credential, cancellationToken) };
 
     private static StepState ReadSteps(IReadOnlyList<RunEvent> events)
     {
@@ -482,13 +488,14 @@ public sealed partial class RunExecutor(
             tenant,
             writer,
             tools,
-            new Redactor([loaded.Key]),
+            new Redactor([loaded.Credential.Value]),
             options.Value,
             time,
             loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
-            parent);
+            parent,
+            loaded.UnmeteredCalls);
     }
 
     /// <summary>
@@ -504,6 +511,11 @@ public sealed partial class RunExecutor(
 
         if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
         {
+            if (granted.Tool.Name == DelegateTool.MessageBotName && loaded.Recipients.Count == 0)
+            {
+                return null;
+            }
+
             var builtin = builtins.FirstOrDefault(found => found.Name == granted.Tool.Name);
             var hasSandbox = builtin is not null && bot?.SandboxPolicy is not null and not SandboxPolicy.None;
 
@@ -561,6 +573,14 @@ public sealed partial class RunExecutor(
             : null;
     }
 
+    /// <summary>The rule checks of this run. The space's decision model is found before each check, outside any tenant scope.</summary>
+    private JudgedChecks NewJudgedChecks(RunSession session) =>
+        new(
+            deployment.Value.Rules.MaxJudgedRuleSeconds,
+            time,
+            session.Redactor.Redact,
+            loggers.CreateLogger<JudgedChecks>());
+
     /// <summary>
     /// The files people attached, as this run gives them to its model: by whether the model reads pictures and
     /// whether the run was given a sandbox tool, which takes a sandbox on this server, on the bot, and in its grants.
@@ -577,7 +597,8 @@ public sealed partial class RunExecutor(
             deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
-            loggers.CreateLogger<RunFiles>());
+            loggers.CreateLogger<RunFiles>(),
+            PdfReading.For(loaded.Capabilities, deployment.Value.Rules.MaxDocumentPages, deployment.Value.Rules.MaxFileBytes));
     }
 
     #endregion
@@ -614,12 +635,12 @@ public sealed partial class RunExecutor(
 
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
-        var provider = providers.First(candidate => candidate.Kind == connection.Kind);
+        var provider = catalog.Resolve(connection.Kind).Provider!;
         var endpoint = new ModelEndpoint(connection.Kind, provider.FixedAddress ?? new Uri(connection.BaseUrl!))
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
         };
-        var rules = new RunRules(session, loggers.CreateLogger<RunRules>());
+        var rules = new RunRules(session, NewJudgedChecks(session), findDecisionModel, loggers.CreateLogger<RunRules>());
         var governor = new RunGovernor(
             session,
             bot,
@@ -631,7 +652,7 @@ public sealed partial class RunExecutor(
             NewRunFiles(session, loaded),
             new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
-            provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
+            ChatClient(provider, endpoint, bot, loaded.Credential, session.Redactor, loaded.Run.IsBotRequest),
             session,
             connection.Id,
             loggers.CreateLogger<MeteredModelClient>(),
@@ -807,7 +828,12 @@ public sealed partial class RunExecutor(
     {
         ToolId = tool.Tool.Id,
         Name = tool.ModelName,
-        Description = tool.IsDelegation ? DelegateTool.DescribeFor(loaded.Children) : tool.Tool.Description,
+        Description = tool.Builtin?.Name switch
+        {
+            DelegateTool.MessageBotName => DelegateTool.DescribeMessages(loaded.Recipients),
+            DelegateTool.Name => DelegateTool.DescribeFor(loaded.Children),
+            _ => tool.Tool.Description,
+        },
         IsDelegation = tool.IsDelegation,
         IsIdempotent = tool.Builtin is { IsIdempotent: true },
         InputSchema = tool.Tool.InputSchema,
@@ -893,19 +919,70 @@ public sealed partial class RunExecutor(
             return Failed("bot_unavailable", "This bot is paused or removed, so it cannot answer.");
         }
 
-        if (loaded.Connection is not { } connection || providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind) is not { } provider
-            || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
+        if (loaded.Connection is not { } connection)
         {
             return Failed("model_unavailable", "The bot's model connection is missing or this server has no adapter for it.");
         }
 
-        if (!loaded.KeyReadable)
+        var resolution = catalog.Resolve(connection.Kind);
+
+        if (resolution.Provider is not { } provider
+            || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
         {
-            return Failed("model_unavailable", "The key of the bot's model connection could not be read. Save the key on the connection again.");
+            return Failed("model_unavailable", resolution.Refusal ?? "The bot's model connection is missing or this server has no adapter for it.");
         }
 
-        return null;
+        return loaded.Credential.Problem is { } problem ? RefusedCredential(loaded, problem) : null;
     }
+
+    /// <summary>
+    /// The run's credential cannot be had. A sign-in is the run's own person's, so the sentence speaks to them: no
+    /// other person's sign-in, and no key, is used in its place.
+    /// </summary>
+    private static Refusal RefusedCredential(LoadedRun loaded, ModelCredentialProblem problem)
+    {
+        var bot = loaded.Bot!.Name;
+        var connection = loaded.Connection!.Name;
+        return problem switch
+        {
+            ModelCredentialProblem.SignInMissing => Failed(
+                RunReasons.SignInRequired,
+                $"{bot} answers with {connection}, which each person signs in to with their own account. Sign in with yours to talk to it."),
+            ModelCredentialProblem.SignInEnded => Failed(RunReasons.SignInEnded, $"Your {connection} sign-in has ended. Sign in again to talk to {bot}."),
+            ModelCredentialProblem.Unreachable => Failed(ModelFailure.Unreachable.ToWireName(), loaded.Credential.Message ?? string.Empty),
+            ModelCredentialProblem.NotAvailable => Failed("model_unavailable", loaded.Credential.Message ?? string.Empty),
+            _ when loaded.Connection.SecretId is not null =>
+                Failed("model_unavailable", "The key of the bot's model connection could not be read. Save the key on the connection again."),
+            _ => Failed("model_unavailable", loaded.Credential.Message ?? string.Empty),
+        };
+    }
+
+    /// <summary>
+    /// The run's model client. On a sign-in connection each call gets the person's credential first, renewed when it
+    /// runs out soon, and the run scrubs every token it is handed; a key connection's client holds its key.
+    /// </summary>
+    private IModelChatClient ChatClient(
+        IModelClientProvider provider,
+        ModelEndpoint endpoint,
+        Bot bot,
+        ModelCredential credential,
+        Redactor redactor,
+        bool isBotRequest)
+    {
+        var settings = isBotRequest ? bot.ModelSettings with { WebSearch = WebSearchMode.Off } : bot.ModelSettings;
+        return credential.SignIn is null
+            ? provider.CreateChatClient(endpoint, credential.Value, bot.Model, settings)
+            : new RenewingChatClient(provider, endpoint, bot.Model, settings, credentials, credential, redactor.Remember);
+    }
+
+    private static string CodeFor(ModelCredentialProblem? problem) =>
+        problem switch
+        {
+            ModelCredentialProblem.SignInMissing => RunReasons.SignInRequired,
+            ModelCredentialProblem.SignInEnded => RunReasons.SignInEnded,
+            ModelCredentialProblem.Unreachable => ModelFailure.Unreachable.ToWireName(),
+            _ => "model_unavailable",
+        };
 
     private static string WaitingReason(RunSession session) =>
         session.WaitsForAPersonAtTheScreen ? RunReasons.AwaitingTakeover : RunReasons.AwaitingApproval;
@@ -975,6 +1052,12 @@ public sealed partial class RunExecutor(
                 RunStatus.Failed,
                 limit.Reason,
                 new RunError(limit.Reason, limit.Message, new RunErrorLimit(limit.Kind, limit.Used, limit.Cap)));
+        }
+
+        if (Find<ModelCredentialException>(failure) is { } refused)
+        {
+            logger.LogWarning("Run {RunId} lost its credential: {Problem}", session.RunId, refused.Credential.Problem);
+            return (RunStatus.Failed, null, new RunError(CodeFor(refused.Credential.Problem), refused.Credential.Message ?? string.Empty));
         }
 
         if (Find<ModelProviderException>(failure) is { } provider)
@@ -1231,13 +1314,13 @@ public sealed partial class RunExecutor(
         ChatThread? Thread,
         Bot? Bot,
         ModelConnection? Connection,
-        string? Key,
-        bool KeyReadable,
+        ModelCredential Credential,
         EffectivePolicy Policy,
         RunCeilings Limits,
         ModelPricing Pricing,
         IReadOnlyList<GrantedTool> Granted,
         StepState Steps,
+        int UnmeteredCalls,
         Message? OpenStepMessage,
         IReadOnlyList<Guid> UnsettledCalls,
         IReadOnlyList<ToolCall> UnsettledRows,
@@ -1249,6 +1332,7 @@ public sealed partial class RunExecutor(
         ModelCapabilities? Capabilities,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
+        IReadOnlyList<Bot> Recipients,
         Project? Project);
 
     #endregion

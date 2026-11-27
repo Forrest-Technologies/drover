@@ -1,0 +1,28 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's Responses API reference and guides (https://developers.openai.com/api/reference/resources/responses/methods/create, https://developers.openai.com/api/docs/guides/streaming-responses, read 2026-11-26). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "object": "list",
+        "data": [
+          {
+            "id": "gpt-test-reasoner",
+            "object": "model",
+            "created": 1794400000,
+            "owned_by": "system"
+          },
+          {
+            "id": "text-embedding-test",
+            "object": "model",
+            "created": 1794400000,
+            "owned_by": "system"
+          }
+        ]
+      }
+    }
+  ]
+}

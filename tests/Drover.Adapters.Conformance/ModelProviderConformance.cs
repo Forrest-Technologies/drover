@@ -17,6 +17,11 @@ public abstract class ModelProviderConformance
 
     public const string ReasoningPrompt = "What is 15 percent of 240?";
 
+    public const string PdfPrompt = "What does this document say?";
+
+    /// <summary>A one-page PDF with nothing on it. Its bytes only need to reach the wire unchanged.</summary>
+    private const string SamplePdf = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n";
+
     #endregion
 
     #region Adapter Hooks
@@ -51,6 +56,7 @@ public abstract class ModelProviderConformance
 
         capabilities.StructuredOutput.Should().Be(Claims.StructuredOutput);
         capabilities.Reasoning.Should().Be(Claims.ReasoningText);
+        capabilities.PdfInput.Should().Be(Claims.PdfInput);
     }
 
     [Fact]
@@ -119,16 +125,10 @@ public abstract class ModelProviderConformance
 
         Text(second.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
 
-        var chats = ChatRequests(subject);
+        var chats = subject.ChatRequests();
         chats.Should().HaveCount(2);
-        chats[0].Json.GetProperty("tools").EnumerateArray()
-            .Select(tool => tool.GetProperty("function").GetProperty("name").GetString())
-            .Should().Contain("get_weather");
-
-        var sentBack = chats[1].Json.GetProperty("messages").EnumerateArray()
-            .Single(message => message.GetProperty("role").GetString() == "tool");
-        sentBack.GetProperty("tool_call_id").GetString().Should().Be(call.CallId);
-        sentBack.GetProperty("content").GetString().Should().Be("Sunny, 21 degrees");
+        subject.SentToolNames(chats[0]).Should().Contain("get_weather");
+        subject.SentToolResult(chats[1], call.CallId).Should().Be("Sunny, 21 degrees");
     }
 
     [Fact]
@@ -149,9 +149,8 @@ public abstract class ModelProviderConformance
         report.Should().NotBeNull();
         report!.City.Should().Be("Paris");
 
-        var format = ChatRequests(subject).Single().Json.GetProperty("response_format");
-        format.GetProperty("type").GetString().Should().Be("json_schema");
-        format.GetProperty("json_schema").GetProperty("name").GetString().Should().Be("weather_report");
+        subject.SentStructuredFormat(subject.ChatRequests().Single())
+            .Should().Be(new StructuredFormat(StructuredFormatKind.JsonSchema, subject.Wire.NamesSchemas ? "weather_report" : null));
     }
 
     [Fact]
@@ -162,10 +161,23 @@ public abstract class ModelProviderConformance
         var settings = new ModelSettings { StructuredOutput = true };
 
         await plain.CreateChatClient().GetResponse(Prompt(GreetingPrompt));
-        await structured.Provider.CreateChatClient(structured.Connection, structured.ApiKey, structured.ModelId, settings).GetResponse(Prompt(GreetingPrompt));
+        var asked = () => structured.Provider.CreateChatClient(structured.Connection, structured.ApiKey, structured.ModelId, settings).GetResponse(Prompt(GreetingPrompt));
 
-        ChatRequests(plain).Single().Json.TryGetProperty("response_format", out _).Should().BeFalse("a bot that was not set to it sends no response format");
-        ChatRequests(structured).Single().Json.GetProperty("response_format").GetProperty("type").GetString().Should().Be("json_object");
+        plain.SentStructuredFormat(plain.ChatRequests().Single()).Kind
+            .Should().Be(StructuredFormatKind.None, "a bot that was not set to it sends no response format");
+
+        if (Claims.JsonObject)
+        {
+            await asked();
+            structured.SentStructuredFormat(structured.ChatRequests().Single()).Kind.Should().Be(StructuredFormatKind.JsonObject);
+        }
+        else
+        {
+            var failure = (await FluentActions.Awaiting(asked).Should().ThrowAsync<ModelProviderException>()).Which;
+            failure.Failure.Should().Be(ModelFailure.Rejected);
+            failure.Message.Should().Contain("JSON");
+            structured.ChatRequests().Should().BeEmpty("a provider that takes no bare JSON request is not sent one");
+        }
     }
 
     [Fact]
@@ -193,6 +205,73 @@ public abstract class ModelProviderConformance
 
         ReasoningText(updates.SelectMany(update => update.Contents)).Should().NotBeNullOrWhiteSpace();
         Text(updates.SelectMany(update => update.Contents)).Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Sends_protected_reasoning_back_unchanged_in_a_tool_loop_where_claimed()
+    {
+        if (!Claims.ProtectedReasoning)
+        {
+            return;
+        }
+
+        var subject = Start(ConformanceScenarios.ProtectedReasoning);
+        var client = subject.CreateChatClient();
+        var options = new ModelChatOptions { Tools = [new ModelTool("get_weather", "Weather for a city", JsonSerializer.SerializeToElement(new { type = "object", properties = new { city = new { type = "string" } } }))] };
+        List<ModelChatMessage> conversation = [new("user", [new ModelText(WeatherPrompt)])];
+
+        var first = await client.GetResponse(new ModelChatRequest(conversation, options));
+        var contents = first.Messages.SelectMany(message => message.Contents).ToList();
+        var reasoning = contents.OfType<ModelReasoning>().Where(item => item.ProtectedData is not null).Select(item => item.ProtectedData!).ToList();
+        var call = contents.OfType<ModelToolCall>().Single();
+
+        reasoning.Should().NotBeEmpty("the reply carries protected reasoning");
+
+        conversation.AddRange(first.Messages);
+        conversation.Add(new ModelChatMessage("tool", [new ModelToolResult(call.CallId, JsonSerializer.SerializeToElement("Sunny, 21 degrees"))]));
+        await client.GetResponse(new ModelChatRequest(conversation, options));
+
+        var chats = subject.ChatRequests();
+        chats.Should().HaveCount(2);
+        subject.SentProtectedReasoning(chats[0]).Should().BeEmpty("nothing was there to send back on the first call");
+        subject.SentProtectedReasoning(chats[1]).Should().Equal(reasoning, "the provider needs its own reasoning back exactly as it gave it");
+    }
+
+    [Fact]
+    public async Task Reports_cached_input_tokens_where_claimed()
+    {
+        if (!Claims.CachedUsage)
+        {
+            return;
+        }
+
+        var subject = Start(ConformanceScenarios.CachedUsage);
+
+        var response = await subject.CreateChatClient().GetResponse(Prompt(GreetingPrompt));
+
+        response.Usage.Should().NotBeNull();
+        response.Usage!.CachedInputTokens.Should().BePositive();
+        response.Usage.InputTokens.Should().BeGreaterThanOrEqualTo(response.Usage.CachedInputTokens!.Value, "input tokens include the cached ones");
+    }
+
+    [Fact]
+    public async Task Sends_a_pdf_as_a_document_where_claimed()
+    {
+        if (!Claims.PdfInput)
+        {
+            return;
+        }
+
+        var subject = Start(ConformanceScenarios.PdfInput);
+        var pdf = Encoding.ASCII.GetBytes(SamplePdf);
+        var request = new ModelChatRequest(
+            [new ModelChatMessage("user", [new ModelText(PdfPrompt), new ModelData(pdf, "application/pdf")])],
+            new ModelChatOptions());
+
+        var response = await subject.CreateChatClient().GetResponse(request);
+
+        Text(response.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
+        subject.SentPdfs(subject.ChatRequests().Single()).Should().Equal([Convert.ToBase64String(pdf)], "the PDF goes as itself, not as its text");
     }
 
     #endregion
@@ -264,10 +343,47 @@ public abstract class ModelProviderConformance
 
     #endregion
 
-    #region Helpers
+    #region Description
 
-    private static List<WireRequest> ChatRequests(ProviderUnderTest subject) =>
-        [.. subject.SentRequests().Where(request => request.Uri.AbsolutePath.EndsWith("/chat/completions"))];
+    [Fact]
+    public async Task A_provider_describes_itself_with_a_kind_a_name_and_rules_that_match_its_behavior()
+    {
+        var subject = Start(ConformanceScenarios.PlainReply);
+        var provider = subject.Provider;
+        var descriptor = provider.Descriptor;
+
+        descriptor.Kind.Should().Be(provider.Kind).And.NotBeNullOrWhiteSpace();
+        descriptor.DisplayName.Should().NotBeNullOrWhiteSpace();
+        (descriptor.AddressRule is ModelAddressRule.Fixed).Should().Be(provider.FixedAddress is not null, "a fixed address is what makes the rule fixed");
+
+        if (descriptor.AddressRule is ModelAddressRule.Fixed)
+        {
+            descriptor.AddressHint.Should().BeNull("a connection of a fixed kind has no address field");
+            (descriptor.NamedProviders ?? []).Should().BeEmpty("a fixed kind has one address, so there is nothing to pick by name");
+        }
+
+        if (descriptor.KeyRule is ModelKeyRule.None)
+        {
+            descriptor.KeyHint.Should().BeNull("a connection of a keyless kind has no key field");
+        }
+
+        var withoutKey = () => provider.CreateChatClient(subject.Connection, null, subject.ModelId, new ModelSettings()).GetResponse(Prompt(GreetingPrompt));
+
+        if (descriptor.KeyRule is ModelKeyRule.Required)
+        {
+            var failure = (await FluentActions.Awaiting(withoutKey).Should().ThrowAsync<ModelProviderException>()).Which;
+            failure.Failure.Should().Be(ModelFailure.InvalidKey);
+            failure.Message.Should().Contain("key");
+        }
+        else
+        {
+            await FluentActions.Awaiting(withoutKey).Should().NotThrowAsync("a provider whose key is optional or absent answers without one");
+        }
+    }
+
+    #endregion
+
+    #region Helpers
 
     private static ModelChatRequest Prompt(string text) => new([new ModelChatMessage("user", [new ModelText(text)])], new ModelChatOptions());
 

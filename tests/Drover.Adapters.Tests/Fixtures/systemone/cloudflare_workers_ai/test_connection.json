@@ -1,0 +1,29 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's own reference (https://developers.cloudflare.com/workers-ai/models/clef-flash/ and https://developers.cloudflare.com/workers-ai/get-started/rest-api/ (the result envelope of /ai/run; not confirmed for Clef, see 15-model-providers.md), read 2026-11-26). The answers are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 200,
+      "body": {
+        "result": {
+          "model": "clef-flash",
+          "answers": {
+            "q1": {
+              "type": "noul",
+              "noul": 0.99
+            }
+          },
+          "usage": {
+            "input_tokens": 30,
+            "output_tokens": 0
+          }
+        },
+        "success": true,
+        "errors": [],
+        "messages": []
+      }
+    }
+  ]
+}

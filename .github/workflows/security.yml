@@ -99,6 +99,7 @@ jobs:
         run: |
           python3 scripts/check-release-workflow.py
           python3 scripts/test-android-release-metadata.py
+          python3 scripts/test-android-release-notes.py
 
   dockerfile:
     name: Dockerfile (hadolint)

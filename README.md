@@ -49,7 +49,7 @@ This is what the trunk does today. Planned work is in the [roadmap](#roadmap).
 
 Bots sit in a tree. The crew list on the left is how you move around: pick a bot and you land in its main conversation. A bot can hand a task to a bot below it and wait for the answer, and you can open that handoff and read it. A conversation a bot works in for another bot refuses writes from people: posting, editing, regenerating, showing a version and retrying are refused there.
 
-If you grant the crew tools, a bot can list, create, change, and remove the bots under it. Creating a bot always asks a person first. Each run has a token cap and, on the hosted preset, a cap of 50 model calls. A chain of handoffs stops at 5 levels or its cost budget; the hosted preset also caps a tree at 50 runs. On your own server, each limit is a default you can raise, including model calls and runs in a delegation tree. When a run stops at a limit or a handoff hits its cap, the card in the conversation names the limit with what was used against the cap and links editors straight to that bot's Limits settings.
+If you grant the crew tools, a bot can list, create, change, and remove the bots under it. Creating a bot always asks a person first. Each run has a token cap and, on the hosted preset, a cap of 50 model calls. A run with no model-call limit still stops after 200 calls that reported no token use, so a server that reports none cannot keep a run going for ever; on your own server you can raise or remove that bound. A chain of handoffs stops at 5 levels or its cost budget; the hosted preset also caps a tree at 50 runs. On your own server, each limit is a default you can raise, including model calls and runs in a delegation tree. When a run stops at a limit or a handoff hits its cap, the card in the conversation names the limit with what was used against the cap and links editors straight to that bot's Limits settings.
 
 Each bot gets a character drawn from a set of parts (head, visor, top, mark, tilt, and color). The visor lights up while the bot thinks, writes, or runs a tool. The same state shows in words for screen readers and for anyone who turns motion off.
 
@@ -59,7 +59,7 @@ Replies stream in, and each tool call shows its arguments, output, and result as
 
 Search covers your conversations, and you can save one as Markdown or JSON. Attach files and pictures; Drover reads PDF and office documents as text for the model. Large pictures get a static preview of at most 480 pixels on the long edge, and Download still gives the original. You can paste a picture or drop files anywhere on a conversation; a refusal says why in one sentence. The first 100 files are taken, and a pasted picture is bounded to 64 MiB and 32 million pixels. Projects group conversations around shared files. If you set up a second domain for previews, HTML a bot writes opens there, away from your session cookies.
 
-If a conversation could not be read, the failure says so and offers Try again. Its message field stays visible but disabled, and assistive technology hears that it will be available once the conversation has loaded. The description leaves when a retry succeeds. If a model returns a completed reply containing only raw tool-call protocol markup instead of a structured tool call, Drover shows it as an unusable tool request without running any command, keeps the original response available for copy, export, and activity, and offers Try again.
+If a conversation could not be read, the failure says so and offers Try again. Its message field stays visible but disabled, and assistive technology hears that it will be available once the conversation has loaded. The description leaves when a retry succeeds. If a model returns a completed reply containing raw tool-call protocol markup instead of a structured tool call, whether the envelope is whole or cut off before its closing tags, Drover shows it as an unusable tool request in the message list and in a handoff card's answer without running any command. The original response stays behind a closed disclosure for inspection, copy, export, and activity, and Try again is offered where the reply can be written again.
 
 ### Tools
 
@@ -231,6 +231,8 @@ More detail: [solution layout](docs/architecture/01-solution-layout.md), [run li
 ## Roadmap
 
 The plan is in [docs/roadmap.md](docs/roadmap.md). Each piece of work is an issue under the [roadmap label](https://github.com/Forrest-Technologies/drover/issues?q=label%3Aroadmap), and the issue holds its status. [ROADMAP.md](ROADMAP.md) has the larger phases.
+
+The shared card contracts are in place: one shape for every kind a bot can send, its limits and its fallback as plain text ([#924](https://github.com/Forrest-Technologies/drover/issues/924)). The tool, answering and drawing are still to come.
 
 A few things people ask about, none of them built yet:
 

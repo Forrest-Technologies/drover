@@ -46,8 +46,6 @@ public sealed class ModelSectionViewModel(BotEditorViewModel editor)
 
     public static string StructuredOutputLabel => "Answer as a JSON object";
 
-    public static string AppliesWithoutTools => "Applies when tools are unavailable.";
-
     public static string TemperatureLabel => "Temperature";
 
     public static string TemperatureHint => "0 is steady, 2 is loose.";
@@ -121,9 +119,6 @@ public sealed class ModelSectionViewModel(BotEditorViewModel editor)
     public bool WebSearchShown => Known is { WebSearch: true };
 
     public bool StructuredOutputShown => Known is { StructuredOutput: true };
-
-    public bool AppliesWithoutToolsShown =>
-        Draft.StructuredOutput && editor.Connections.FirstOrDefault(connection => connection.Id == Draft.ModelConnectionId)?.Kind is "venice";
 
     public string? MaxOutputHint => Known?.MaxOutputSize is { } most ? $"This model writes at most {most}." : null;
 

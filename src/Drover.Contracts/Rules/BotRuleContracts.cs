@@ -4,7 +4,8 @@ namespace Drover.Contracts.Rules;
 /// One condition of a rule. The kind says which of the other parts are read: "tool_is" (tools), "tool_kind"
 /// (tool kinds: "read", "write", "critical"), "text_contains" (entries), "text_matches" (pattern), "not_in_list"
 /// (argument and entries), "text_holds" (builtin: "email_address", "card_number", "key"), "time_is" (from and to as
-/// HH:mm, weekdays, time zone), "run_exceeds" (counter: "tool_calls" or "tokens", and limit).
+/// HH:mm, weekdays, time zone), "run_exceeds" (counter: "tool_calls" or "tokens", and limit), "judged" (statement,
+/// the sentence a decision model judges, and min confidence, from 0.50 to 0.99, 0.80 when left out).
 /// </summary>
 public sealed record RuleConditionBody(string? Kind)
 {
@@ -33,6 +34,10 @@ public sealed record RuleConditionBody(string? Kind)
     public string? Counter { get; init; }
 
     public long? Limit { get; init; }
+
+    public string? Statement { get; init; }
+
+    public double? MinConfidence { get; init; }
 
     #endregion
 }
@@ -104,6 +109,15 @@ public sealed record TryRulesResponse(
     /// there, and the editor says so beside the answer.
     /// </summary>
     public bool CatchesCommonForms { get; init; }
+
+    /// <summary>
+    /// How the check of the deciding rule came out when it is written as a sentence: "applies", "passes", "unsure",
+    /// or "failed". Null when the deciding rule is not judged, or no rule applies.
+    /// </summary>
+    public string? Judgment { get; init; }
+
+    /// <summary>The probability the decision model gave that the deciding rule applies, from 0 to 1, when it gave one.</summary>
+    public double? Probability { get; init; }
 
     #endregion
 }

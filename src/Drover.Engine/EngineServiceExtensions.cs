@@ -30,6 +30,7 @@ public static class EngineServiceExtensions
         services.AddScoped<PasswordService>();
         services.AddScoped<SpaceService>();
         services.AddScoped<StatusService>();
+        services.AddSingleton<ModelProviderCatalog>();
         return services;
     }
 
@@ -53,11 +54,20 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunEventFeed>();
         services.AddSingleton<ConversationSummarizer>();
         services.AddSingleton<RunExecutor>();
+
+        // A space's decision model is found before every rule check; a space with none ready has its judged rules unsure.
+        services.AddSingleton<SpaceDecisionModels>();
+        services.AddSingleton<FindDecisionModel>(provider => provider.GetRequiredService<SpaceDecisionModels>().Find);
+        services.AddScoped<DecisionConnectionService>();
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();
         services.AddScoped<ToolConnectionService>();
         services.AddSingleton<ToolSignIns>();
         services.AddSingleton<ToolSignInRenewal>();
+        services.AddOptions<ModelSignInOptions>();
+        services.AddSingleton<ModelCredentials>();
+        services.AddSingleton<ModelSignIns>();
+        services.AddSingleton<ModelSignInRenewal>();
         services.AddScoped<AuditLog>();
         services.AddScoped<AllowAllService>();
         services.AddScoped<BotService>();

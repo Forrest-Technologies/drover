@@ -2,7 +2,9 @@
 
 Download the APK from the [GitHub prereleases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter the HTTPS address of your Drover server and sign in with your existing account.
 
-The preview remembers the server. With native sessions available on your server, the app stays signed in when Android stops the process. Older servers require signing in again. To change servers, sign out and choose **Use another server** on the sign-in screen; the same choice is offered when the server does not answer. Signing in to a tool server opens your browser and brings you back to the connection in the app; on an older server, finish it in the browser. Share text, links, images, or documents to **Drover Preview** from another app, choose the bot, then review the draft and send it. In a conversation’s file card, choose **Save** for Android’s file picker or **Share** for the Android Sharesheet.
+The app is named **Drover** on the home screen. An earlier app named **Drover Preview** (`com.forresttechnologies.drover.preview`) is retired: it had its own package, so installing Drover never replaced it, and it no longer updates. While it is still installed, Drover asks at each start to remove it and opens its system page, where you choose **Uninstall**.
+
+The preview remembers the server. With native sessions available on your server, the app stays signed in when Android stops the process. Older servers require signing in again. To change servers, sign out and choose **Use another server** on the sign-in screen; the same choice is offered when the server does not answer. Signing in to a tool server opens your browser and brings you back to the connection in the app; on an older server, finish it in the browser. Share text, links, images, or documents to **Drover** from another app, choose the bot, then review the draft and send it. In a conversation’s file card, choose **Save** for Android’s file picker or **Share** for the Android Sharesheet.
 
 ## Notifications
 
@@ -14,7 +16,7 @@ If alerts arrive late, open **If notifications arrive late → Open battery sett
 
 ## Build and release
 
-The Uno Android app uses the `net11.0-android` target in `Drover.Native.slnx`. It installs alongside the earlier Android preview, so enter your server address and sign in on first launch.
+The Uno Android app uses the `net11.0-android` target in `Drover.Native.slnx`. It does not replace the retired Drover Preview app, which had another package, so enter your server address and sign in on first launch.
 
 Install JDK 21, the Android workload, and the SDK packages pinned in the Android preview workflow. Build the APK with:
 
@@ -24,6 +26,8 @@ dotnet publish src/Drover.Native -f net11.0-android -c Release \
 ```
 
 Merging a reviewed pull request into `develop` publishes a signed Android prerelease. Promoting `develop` into `main` publishes a signed stable Android release. There is no separate `preview` branch.
+
+Each release lists what changed. Its notes count and list the pull requests merged since the previous release of the same channel, so a prerelease is compared with the last prerelease and a stable release with the last stable release. Every release is considered, not only the most recent page of releases. If GitHub cannot supply the change list, the APK still publishes with the install line and no misleading summary.
 
 Each run uses its workflow run number as the Android version code. The display versions are `0.1.<run>-preview.<run>` on `develop` and `0.1.<run>` on `main`; tags start with `android-v`. Keep the existing workflow file so its run numbers continue increasing. Both channels use the same package ID (`com.forresttechnologies.drover.client`) and certificate, so a later build can update an earlier installation.
 

@@ -15,6 +15,7 @@ public sealed class VoiceService(
     ServerVoiceOptions server,
     IOptions<DeploymentPolicyOptions> deployment,
     UserSignalHub signals,
+    RunEventFeed feed,
     TimeProvider time,
     ILogger<VoiceService> logger)
 {
@@ -26,6 +27,28 @@ public sealed class VoiceService(
     public const string BotIsWorking = "The bot is still working in this conversation. Call when it has finished.";
 
     public const int CallHistoryMessages = 20;
+
+    /// <summary>What the voice of a call is told when it was handed work and the person had said nothing to do.</summary>
+    public const string NothingAsked = "Nothing the person asked for was heard. Ask them to say it again.";
+
+    public const string WorkNotSent = "The request could not be given to the bot. Ask the person to try again.";
+
+    public const string WaitingForApproval =
+        "The bot needs the person's approval before it goes on. The request is in the conversation on their screen.";
+
+    public const string WaitingForTakeover =
+        "The bot needs the person to take over its screen before it goes on. The request is in the conversation on their screen.";
+
+    public const string WorkFailed = "The bot could not finish this. What went wrong is in the conversation.";
+
+    public const string WorkStopped = "The bot was stopped before it finished.";
+
+    public const string NoReply = "The bot finished and wrote no reply.";
+
+    public const string RestIsWritten = "The rest of the reply is in the conversation.";
+
+    /// <summary>The most of a reply that is handed to the voice to say. A longer reply is read from the conversation.</summary>
+    public const int MaxSpokenReplyCharacters = 4000;
 
     private const int MaxHistoryCharacters = 4000;
 
@@ -125,6 +148,11 @@ public sealed class VoiceService(
             return new VoiceProblem(VoiceProblemKind.NotFound, "That model is not marked for speech in this space.");
         }
 
+        if (IsSwitchedOff(found.Call))
+        {
+            return NoAdapter(found.Call);
+        }
+
         if (found.IsLive)
         {
             return new VoiceOutcome<IReadOnlyList<VoiceOption>>(
@@ -134,7 +162,7 @@ public sealed class VoiceService(
 
         if (Endpoint(found.Call, speakers.FirstOrDefault(adapter => adapter.Kind == found.Call.Candidate.Kind)) is not var (adapter, endpoint))
         {
-            return NoAdapter;
+            return NoAdapter(found.Call);
         }
 
         try
@@ -175,7 +203,7 @@ public sealed class VoiceService(
 
         if (Endpoint(prepared, listeners.FirstOrDefault(adapter => adapter.Kind == prepared.Candidate.Kind)) is not var (adapter, endpoint))
         {
-            return NoAdapter;
+            return NoAdapter(prepared);
         }
 
         var bounded = new BoundedAudio(audio, Rules.MaxVoiceRecordingBytes);
@@ -280,7 +308,7 @@ public sealed class VoiceService(
 
         if (Endpoint(call, speakers.FirstOrDefault(candidate => candidate.Kind == call.Candidate.Kind)) is not var (adapter, endpoint))
         {
-            return NoAdapter;
+            return NoAdapter(call);
         }
 
         var spoken = string.IsNullOrWhiteSpace(voice) ? call.Voice : voice.Trim();
@@ -428,10 +456,11 @@ public sealed class VoiceService(
 
                 if (Endpoint(call, callers.FirstOrDefault(candidate => candidate.Kind == call.Candidate.Kind)) is not var (adapter, endpoint))
                 {
-                    return NoAdapter;
+                    return NoAdapter(call);
                 }
 
                 var voice = call.Voice ?? (adapter.ListVoices(call.Candidate.Model) is [var first, ..] ? first.Id : null);
+                var handsOver = adapter.HandsWorkOver(call.Candidate.Model);
 
                 if (voice is null)
                 {
@@ -460,7 +489,8 @@ public sealed class VoiceService(
                         Endpoint = endpoint,
                         Key = call.Key,
                         Policy = call.Policy,
-                        Options = new RealtimeVoiceOptions(call.Candidate.Model, voice, SpokenInstructions(bot))
+                        HandsWorkOver = handsOver,
+                        Options = new RealtimeVoiceOptions(call.Candidate.Model, voice, handsOver ? VoiceInstructions(bot) : SpokenInstructions(bot))
                         {
                             History = [.. history.Select(ToTurn).OfType<RealtimeTurn>()],
                             TranscriptionModel = transcriber,
@@ -554,6 +584,89 @@ public sealed class VoiceService(
 
     #endregion
 
+    #region Handed-Over Work
+
+    /// <summary>
+    /// Does what the voice of a call handed over: <paramref name="asked"/> becomes the person's message in the
+    /// conversation, exactly as if they had sent it, and the bot answers it in a run like any other, with its own
+    /// model, rules, tools and limits. Each item is something for the voice to tell the person: that the bot waits
+    /// for them, and at the end what the bot replied or why there is no reply. No transaction is open while the run
+    /// is waited for. Stopping the wait does not stop the run.
+    /// </summary>
+    public async IAsyncEnumerable<string> DoWork(CallPlan plan, string? asked, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(asked))
+        {
+            yield return NothingAsked;
+            yield break;
+        }
+
+        MessagePost? post = null;
+        var tenant = scopes.For(plan.SpaceId, plan.UserId);
+        await tenant.InScope(async services =>
+            post = await services.GetRequiredService<RunService>().PostMessage(plan.ThreadId, Clip(asked), [], steer: true, plan.UserId, cancellationToken));
+
+        if (post is not { Problem: PostProblem.None, Run: { } run })
+        {
+            logger.LogWarning("A live call could not hand its work to the bot in thread {ThreadId}: {Problem}", plan.ThreadId, post?.Problem);
+            yield return post?.Detail ?? WorkNotSent;
+            yield break;
+        }
+
+        logger.LogInformation("A live call handed work to run {RunId} in thread {ThreadId}", run.Id, plan.ThreadId);
+
+        // A message sent while the bot works can be answered by a run that follows the one it joined.
+        for (var watched = run; watched is not null;)
+        {
+            run = watched;
+
+            await foreach (var happened in feed.Watch(plan.SpaceId, plan.UserId, run.RootRunId, run.LastEventSeq, cancellationToken))
+            {
+                if (happened is { Type: RunEventTypes.RunWaiting } && happened.RunId == run.RootRunId && Waiting(happened) is { } why)
+                {
+                    yield return why;
+                }
+            }
+
+            watched = await tenant.Transact(
+                services => services.GetRequiredService<RunRepository>().FindActiveRun(plan.ThreadId, cancellationToken),
+                cancellationToken);
+        }
+
+        yield return await tenant.Transact(services => ReadOutcome(services, plan.ThreadId, run.Id, cancellationToken), cancellationToken);
+    }
+
+    private static string? Waiting(RunEventResponse waiting) =>
+        RunEventTypes.Read<RunStatusChanged>(waiting).Reason switch
+        {
+            RunReasons.AwaitingApproval => WaitingForApproval,
+            RunReasons.AwaitingTakeover => WaitingForTakeover,
+            _ => null,
+        };
+
+    /// <summary>What the run came to, for the voice to say: the reply's text made plain for speech, or one sentence.</summary>
+    private static async Task<string> ReadOutcome(IServiceProvider services, Guid threadId, Guid runId, CancellationToken cancellationToken)
+    {
+        var ended = await services.GetRequiredService<RunRepository>().FindRun(runId, cancellationToken);
+
+        if (ended is not { Status: RunStatus.Completed })
+        {
+            return ended is { Status: RunStatus.Cancelled } ? WorkStopped : WorkFailed;
+        }
+
+        var reply = await services.GetRequiredService<MessageRepository>().FindLatestReply(threadId, cancellationToken);
+        var text = reply is not null && reply.RunId == runId ? SpeechText.Plain(TextOf(reply)).Trim() : string.Empty;
+
+        return text.Length switch
+        {
+            0 => NoReply,
+            > MaxSpokenReplyCharacters => $"{text[..MaxSpokenReplyCharacters]}\n\n{RestIsWritten}",
+            _ => text,
+        };
+    }
+
+    #endregion
+
     #region Reading The Space
 
     /// <summary>The space's connections with their offered models, and its voice settings. Runs in the caller's transaction.</summary>
@@ -603,11 +716,18 @@ public sealed class VoiceService(
         var connection = candidate.ConnectionId is { } id
             ? await services.GetRequiredService<ModelConnectionRepository>().FindConnection(id, cancellationToken)
             : null;
-        var key = connection?.SecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
+        var credentials = services.GetRequiredService<ModelCredentials>();
+
+        // Speech adapters serve key connections only: a person's sign-in is refused without being read.
+        var credential = connection switch
+        {
+            null => ModelCredential.None,
+            _ when credentials.IsSignInKind(connection.Kind) =>
+                ModelCredential.Refused(ModelCredentialProblem.NotAvailable, "Speech is not available through a sign-in connection."),
+            _ => await credentials.Read(services, connection, cancellationToken),
+        };
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
-        return new PreparedCall(candidate, voice, key, policy);
+        return new PreparedCall(candidate, voice, credential, policy);
     }
 
     /// <summary>The adapter with the address it is called at, or null when this server has no adapter or address for the candidate.</summary>
@@ -622,13 +742,28 @@ public sealed class VoiceService(
             _ => null,
         };
 
-        return adapter is not null && (fixedAddress ?? call.Candidate.Address) is { } address
+        // Speech adapters serve key connections only. A credential that could not be had, or a person's sign-in,
+        // which only a run renews, is refused here, before anything is sent.
+        if (call.Credential is { Problem: not null } or { SignIn: not null })
+        {
+            return null;
+        }
+
+        return adapter is not null && !IsSwitchedOff(call) && (fixedAddress ?? call.Candidate.Address) is { } address
             ? (adapter, new ModelEndpoint(call.Candidate.Kind, address) { Limits = new DiscoveryLimits(Rules.MaxModelListBytes, Rules.MaxModelsPerConnection) })
             : null;
     }
 
-    private static VoiceProblem NoAdapter { get; } =
-        new(VoiceProblemKind.NotReady, "This server has no speech adapter for that connection.");
+    /// <summary>Whether the candidate is a stored connection of a kind the operator switched off.</summary>
+    private bool IsSwitchedOff(PreparedCall call) =>
+        call.Candidate.ConnectionId is not null && !Rules.OffersModelProvider(call.Candidate.Kind);
+
+    private VoiceProblem NoAdapter(PreparedCall call) =>
+        new(
+            VoiceProblemKind.NotReady,
+            IsSwitchedOff(call)
+                ? ModelProviderCatalog.SwitchedOff(call.Candidate.Kind)
+                : "This server has no speech adapter for that connection.");
 
     #endregion
 
@@ -697,6 +832,13 @@ public sealed class VoiceService(
     private static string SpokenInstructions(Bot bot) =>
         string.IsNullOrWhiteSpace(bot.Instructions) ? SpokenReplyInstruction : $"{bot.Instructions.Trim()}\n\n{SpokenReplyInstruction}";
 
+    /// <summary>
+    /// What a model that hands its work over is told. It is the bot's voice and not the bot: the bot's instructions
+    /// stay with its runs, so the bot's own model, rules and tools answer for it.
+    /// </summary>
+    private static string VoiceInstructions(Bot bot) =>
+        $"You are the voice of {Clip(bot.Name, MaxVoiceLength)}, an assistant. {SpokenReplyInstruction}";
+
     private static string Clip(string text, int length = RunService.MaxMessageLength)
     {
         var trimmed = text.Trim();
@@ -742,7 +884,7 @@ public sealed class VoiceService(
     private sealed record Loaded(IReadOnlyList<VoiceSource> Sources, VoiceSettings? Settings);
 
     /// <summary>A class, not a record: it holds a key, which a record would print.</summary>
-    private sealed class PreparedCall(VoiceCandidate candidate, string? voice, string? key, EffectivePolicy policy)
+    private sealed class PreparedCall(VoiceCandidate candidate, string? voice, ModelCredential credential, EffectivePolicy policy)
     {
         #region Properties
 
@@ -750,7 +892,10 @@ public sealed class VoiceService(
 
         public string? Voice => voice;
 
-        public string? Key => key;
+        /// <summary>What the call sends, from <see cref="ModelCredentials"/>.</summary>
+        public ModelCredential Credential => credential;
+
+        public string? Key => credential.Value;
 
         public EffectivePolicy Policy => policy;
 

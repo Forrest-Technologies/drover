@@ -12,6 +12,8 @@ public static class DelegateTool
 
     public const string Name = "delegate";
 
+    public const string MessageBotName = "message_bot";
+
     public const string BotIdArgument = "bot_id";
 
     public const string TaskArgument = "task";
@@ -19,31 +21,21 @@ public static class DelegateTool
     private const string Description =
         "Hands a task to a bot directly beneath this one and returns its answer. The bot works on its own, with its own tools, and sees only the task, so say everything it needs.";
 
+    private const string MessageDescription =
+        "Sends a request to another bot in this space and returns its reply. Use it to ask questions, review drafts, or get advice. The recipient sees the request and uses its own instructions. It can reply or ask another bot for advice.";
+
     #endregion
 
     #region Public Methods
 
     public static IServiceCollection AddDelegateTool(this IServiceCollection services) =>
-        services.AddSingleton(_ => Delegate());
+        services.AddSingleton(_ => Delegate()).AddSingleton(_ => MessageBot());
 
-    public static BuiltinTool Delegate() =>
-        new(
-            Name,
-            "Hand work to a bot",
-            Description,
-            JsonElement.Parse(
-                $$"""
-                {
-                  "type": "object",
-                  "properties": {
-                    "{{BotIdArgument}}": { "type": "string", "format": "uuid", "description": "The id of a bot directly beneath this one, as this tool's description lists them." },
-                    "{{TaskArgument}}": { "type": "string", "description": "The task, in full: the bot sees nothing else of this conversation." }
-                  },
-                  "required": ["{{BotIdArgument}}", "{{TaskArgument}}"]
-                }
-                """),
-            ToolSensitivity.Write,
-            (_, _) => throw new BuiltinToolException("A delegation is run by the runtime, not as a plain tool."));
+    public static BuiltinTool Delegate() => Build(
+        Name, "Hand work to a bot", Description, "The id of a bot directly beneath this one, as this tool's description lists them.");
+
+    public static BuiltinTool MessageBot() => Build(
+        MessageBotName, "Message a bot", MessageDescription, "The id of a bot listed in this tool's description.");
 
     /// <summary>
     /// What the model is told about the tool: what it does, and the bots it may hand work to, each with what it is for.
@@ -54,9 +46,31 @@ public static class DelegateTool
             ? $"{Description} No bot is beneath this one yet, so there is nobody to hand work to."
             : $"{Description} The bots beneath this one:\n{string.Join("\n", children.Select(Describe))}";
 
+    public static string DescribeMessages(IReadOnlyList<Bot> recipients) =>
+        $"{MessageDescription} Bots accepting requests:\n{string.Join("\n", recipients.Select(Describe))}";
+
     #endregion
 
     #region Private Methods
+
+    private static BuiltinTool Build(string name, string title, string description, string targetDescription) =>
+        new(
+            name,
+            title,
+            description,
+            JsonElement.Parse(
+                $$"""
+                {
+                  "type": "object",
+                  "properties": {
+                    "{{BotIdArgument}}": { "type": "string", "format": "uuid", "description": "{{targetDescription}}" },
+                    "{{TaskArgument}}": { "type": "string", "description": "The task, in full: the bot sees nothing else of this conversation." }
+                  },
+                  "required": ["{{BotIdArgument}}", "{{TaskArgument}}"]
+                }
+                """),
+            ToolSensitivity.Write,
+            (_, _) => throw new BuiltinToolException("A delegation is run by the runtime, not as a plain tool."));
 
     private static string Describe(Bot bot)
     {

@@ -193,10 +193,7 @@ internal sealed class ProtocolSpeech(HttpClient client)
     {
         var request = new HttpRequestMessage(method, new Uri(WithTrailingSlash(connection.BaseAddress), path));
 
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
+        ProtocolKey.Apply(request, connection.BaseAddress, apiKey);
 
         return request;
     }

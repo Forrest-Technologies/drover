@@ -10,7 +10,7 @@ public static class BuiltinTools
     /// "every tool that only reads": a later built-in that reads the web, a file, or memory must not reach every new
     /// bot by default. Adding a name here is a product decision.
     /// </summary>
-    public static IReadOnlyList<string> GrantedToNewBots { get; } = ["time.now"];
+    public static IReadOnlyList<string> GrantedToNewBots { get; } = ["time.now", DelegateTool.MessageBotName];
 
     /// <summary>
     /// The built-in tools a bot a person creates at the top of the tree is granted as well, as ask, so a person

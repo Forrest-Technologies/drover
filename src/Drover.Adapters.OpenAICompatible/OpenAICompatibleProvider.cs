@@ -2,7 +2,7 @@ namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
 /// Any endpoint that speaks the OpenAI chat protocol: a hosted provider or a local model server.
-/// A key is optional. Capabilities are conservative until the operator says more.
+/// A key is optional. Capabilities are conservative until the server says more or an admin does.
 /// </summary>
 public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
     : IModelClientProvider, IModelImageGenerator, ISpeechToText, ITextToSpeech, IRealtimeVoice
@@ -29,6 +29,16 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
     #region Properties
 
     public string Kind => ConnectionKind;
+
+    public ModelProviderDescriptor Descriptor { get; } = new(
+        ConnectionKind,
+        "Compatible endpoint",
+        ModelKeyRule.Optional,
+        ModelAddressRule.Required,
+        AddressHint: "The address of the server, starting with http:// or https://. For Azure OpenAI, paste your resource's endpoint.",
+        KeyHint: "Leave this empty if the server needs no key.",
+        ReportsCapabilities: false,
+        NamedProviders: KnownProviders.All);
 
     #endregion
 
@@ -79,18 +89,29 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
 
     public IReadOnlyList<VoiceOption> ListVoices(string model) => KnownVoices.For(placeholderAddress, model);
 
+    public bool HandsWorkOver(string model) => KnownVoices.IsLive(model);
+
     public Task<IRealtimeVoiceSession> Open(
         ModelEndpoint connection,
         string? apiKey,
         RealtimeVoiceOptions options,
         CancellationToken cancellationToken) =>
-        ProtocolRealtimeVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, cancellationToken);
+        KnownVoices.IsLive(options.Model)
+            ? ProtocolLiveVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, TimeProvider.System, cancellationToken)
+            : ProtocolRealtimeVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, cancellationToken);
 
+    /// <summary>
+    /// The server's models, with what the list says about each. A server that keeps abilities and context lengths
+    /// apart from its list is then asked for them, one model at a time, with no switch: see <see cref="OllamaProbe"/>.
+    /// </summary>
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
         ModelEndpoint connection,
         string? apiKey,
-        CancellationToken cancellation) =>
-        await ReadModels(connection, apiKey, cancellation) ?? [];
+        CancellationToken cancellation)
+    {
+        var models = await ReadModels(connection, apiKey, cancellation) ?? [];
+        return await OllamaProbe.Fill(httpClients.CreateClient(HttpClientName), connection, apiKey, models, cancellation);
+    }
 
     public async Task<ConnectionTestResult> TestConnection(
         ModelEndpoint connection,
@@ -101,9 +122,13 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
         {
             var models = await ReadModels(connection, apiKey, cancellation);
 
+            // Azure's model list describes the provider's models, not the deployments a resource holds, and a
+            // deployment's own name is the model value (https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/endpoints).
+            var deployment = ProtocolKey.IsAzure(connection.BaseAddress) ? " Type your deployment name as the model." : string.Empty;
+
             return models is null
-                ? ConnectionTestResult.Ok("Connected. This endpoint does not list models, so type the model name.")
-                : ConnectionTestResult.Ok($"Connected. The endpoint lists {models.Count} models.");
+                ? ConnectionTestResult.Ok($"Connected. This endpoint does not list models, so type the model name.{deployment}")
+                : ConnectionTestResult.Ok($"Connected. The endpoint lists {models.Count} models.{deployment}");
         }
         catch (ModelProviderException failure)
         {
@@ -119,62 +144,18 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
     private async Task<List<ModelInfo>?> ReadModels(
         ModelEndpoint connection,
         string? apiKey,
-        CancellationToken cancellation)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(WithTrailingSlash(connection.BaseAddress), "models"));
-
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        try
-        {
-            using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
-
-            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed
-                or HttpStatusCode.NotImplemented)
-            {
-                return null;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var retryAfter = ProtocolFailureMapping.ParseRetryAfter(
-                    response.Headers.TryGetValues("Retry-After", out var values) ? values.FirstOrDefault() : null,
-                    DateTimeOffset.UtcNow);
-
-                throw ModelProviderException.FromStatus((int)response.StatusCode, retryAfter);
-            }
-
-            using var document = await BoundedResponse.ReadJson(response.Content, connection.Limits.MaxBytes, "model list", cancellation);
-
-            return ParseModels(document.RootElement);
-        }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
-        {
-            throw ModelProviderException.FromMalformedResponse();
-        }
-        catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
-        {
-            throw mapped;
-        }
-    }
-
-    private static List<ModelInfo> ParseModels(JsonElement root) =>
-        root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
-            ? [.. data.EnumerateArray()
-                .Select(model => model.TryGetProperty("id", out var id) ? id.GetString() : null)
-                .OfType<string>()
-                .Select(id => new ModelInfo(id, id, KnownVoices.Mark(new ModelCapabilities(), id), []))]
-            : [];
+        CancellationToken cancellation) =>
+        await ProtocolModelList.Read(
+            httpClients.CreateClient(HttpClientName),
+            connection.BaseAddress,
+            apiKey,
+            connection.Limits,
+            PublishedModelFacts.Read,
+            cancellation);
 
     #endregion
 
     #region Private Methods
-
-    private static Uri WithTrailingSlash(Uri address) =>
-        address.AbsoluteUri.EndsWith('/') ? address : new Uri($"{address.AbsoluteUri}/");
 
     private static string KeyOrPlaceholder(string? apiKey) => string.IsNullOrEmpty(apiKey) ? PlaceholderKey : apiKey;
 

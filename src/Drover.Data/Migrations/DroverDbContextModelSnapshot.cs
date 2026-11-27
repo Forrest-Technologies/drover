@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126044407_ExtensionsWithoutBots";
+    public override string LastMigrationId => "20261127075731_DecisionConnections";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -358,6 +358,12 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("uuid")
                     .HasColumnName("id");
 
+                b.Property<bool>("AcceptsBotRequests")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true)
+                    .HasColumnName("accepts_bot_requests");
+
                 b.Property<string>("Avatar")
                     .IsRequired()
                     .ValueGeneratedOnAdd()
@@ -631,6 +637,79 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                         t.HasCheckConstraint("ck_bot_schedules_last_outcome", "last_outcome IN ('started', 'waiting_for_reply', 'bot_paused', 'bot_removed', 'owner_left')");
 
                         t.HasCheckConstraint("ck_bot_schedules_thread_mode", "thread_mode IN ('new_thread', 'same_thread')");
+                    });
+            });
+
+        modelBuilder.Entity("Drover.Domain.Decisions.DecisionConnection", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<string>("Account")
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("account");
+
+                b.Property<string>("Address")
+                    .HasMaxLength(2048)
+                    .HasColumnType("character varying(2048)")
+                    .HasColumnName("address");
+
+                b.Property<Guid?>("CreatedByUserId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("created_by_user_id");
+
+                b.Property<decimal?>("InputPricePerMillion")
+                    .HasPrecision(18, 6)
+                    .HasColumnType("numeric(18,6)")
+                    .HasColumnName("input_price_per_million");
+
+                b.Property<Guid?>("KeySecretId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("key_secret_id");
+
+                b.Property<string>("Kind")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("kind");
+
+                b.Property<string>("LastError")
+                    .HasMaxLength(1000)
+                    .HasColumnType("character varying(1000)")
+                    .HasColumnName("last_error");
+
+                b.Property<string>("Model")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("model");
+
+                b.Property<Guid>("SpaceId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("space_id");
+
+                b.Property<string>("Status")
+                    .IsRequired()
+                    .HasMaxLength(32)
+                    .HasColumnType("character varying(32)")
+                    .HasColumnName("status");
+
+                b.Property<DateTimeOffset?>("TestedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("tested_at");
+
+                b.HasKey("Id")
+                    .HasName("pk_decision_connections");
+
+                b.HasIndex("SpaceId")
+                    .IsUnique()
+                    .HasDatabaseName("ix_decision_connections_space_id");
+
+                b.ToTable("decision_connections", t =>
+                    {
+                        t.HasCheckConstraint("ck_decision_connections_status", "status IN ('pending', 'ready', 'failed', 'disabled')");
                     });
             });
 
@@ -1045,6 +1124,14 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("last_seen_at");
 
+                b.Property<string>("OperatorCapabilities")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_capabilities");
+
+                b.Property<string>("OperatorPricing")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_pricing");
+
                 b.Property<string>("Pricing")
                     .IsRequired()
                     .ValueGeneratedOnAdd()
@@ -1154,6 +1241,66 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                         t.HasCheckConstraint("ck_model_connections_credential_scope", "credential_scope IN ('space', 'per_user')");
 
                         t.HasCheckConstraint("ck_model_connections_status", "status IN ('pending', 'ready', 'failed', 'disabled')");
+                    });
+            });
+
+        modelBuilder.Entity("Drover.Domain.Models.ModelConnectionCredential", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<string>("AccountLabel")
+                    .HasMaxLength(320)
+                    .HasColumnType("character varying(320)")
+                    .HasColumnName("account_label");
+
+                b.Property<Guid>("AudienceUserId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("audience_user_id");
+
+                b.Property<DateTimeOffset?>("ExpiresAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("expires_at");
+
+                b.Property<Guid>("ModelConnectionId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("model_connection_id");
+
+                b.Property<DateTimeOffset?>("RenewAttemptedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renew_attempted_at");
+
+                b.Property<DateTimeOffset?>("RenewedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renewed_at");
+
+                b.Property<Guid>("SecretId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("secret_id");
+
+                b.Property<Guid>("SpaceId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("space_id");
+
+                b.Property<string>("Status")
+                    .IsRequired()
+                    .HasMaxLength(32)
+                    .HasColumnType("character varying(32)")
+                    .HasColumnName("status");
+
+                b.HasKey("Id")
+                    .HasName("pk_model_connection_credentials");
+
+                b.HasIndex("SpaceId", "ModelConnectionId", "AudienceUserId")
+                    .IsUnique()
+                    .HasDatabaseName("ix_model_connection_credentials_space_id_model_connection_id_a");
+
+                b.ToTable("model_connection_credentials", t =>
+                    {
+                        t.HasCheckConstraint("ck_model_connection_credentials_one_person", "audience_user_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                        t.HasCheckConstraint("ck_model_connection_credentials_status", "status IN ('active', 'needs_sign_in')");
                     });
             });
 
@@ -1555,6 +1702,12 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("finished_at");
 
+                b.Property<bool>("IsBotRequest")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("is_bot_request");
+
                 b.Property<long>("LastEventSeq")
                     .HasColumnType("bigint")
                     .HasColumnName("last_event_seq");
@@ -1886,7 +2039,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("character varying(200)")
                     .HasColumnName("model");
 
-                b.Property<Guid>("ModelConnectionId")
+                b.Property<Guid?>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
 
@@ -2198,7 +2351,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
 
                 b.ToTable("secrets", t =>
                     {
-                        t.HasCheckConstraint("ck_secrets_kind", "kind IN ('model_key', 'tool_header', 'oauth_tokens', 'oauth_client_secret', 'sandbox_provider_key', 'sandbox_token', 'push_key', 'sandbox_environment')");
+                        t.HasCheckConstraint("ck_secrets_kind", "kind IN ('model_key', 'tool_header', 'oauth_tokens', 'oauth_client_secret', 'sandbox_provider_key', 'sandbox_token', 'push_key', 'sandbox_environment', 'decision_key')");
                     });
             });
 
@@ -3060,6 +3213,17 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasConstraintName("fk_model_catalog_model_connections_space_id_model_connection_id");
             });
 
+        modelBuilder.Entity("Drover.Domain.Models.ModelConnectionCredential", b =>
+            {
+                b.HasOne("Drover.Domain.Models.ModelConnection", null)
+                    .WithMany()
+                    .HasForeignKey("SpaceId", "ModelConnectionId")
+                    .HasPrincipalKey("SpaceId", "Id")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired()
+                    .HasConstraintName("fk_model_connection_credentials_model_connections_space_id_mod");
+            });
+
         modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
             {
                 b.HasOne("Drover.Domain.Bots.Bot", null)
@@ -3282,7 +3446,6 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasForeignKey("SpaceId", "ModelConnectionId")
                     .HasPrincipalKey("SpaceId", "Id")
                     .OnDelete(DeleteBehavior.Restrict)
-                    .IsRequired()
                     .HasConstraintName("fk_usage_records_model_connections_space_id_model_connection_id");
 
                 b.HasOne("Drover.Domain.Runs.Run", null)

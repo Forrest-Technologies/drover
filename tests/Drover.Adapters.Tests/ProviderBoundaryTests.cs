@@ -17,6 +17,16 @@ public sealed class ProviderBoundaryTests
     }
 
     [Fact]
+    public void Gemini_calls_the_provider_directly_and_references_no_vendor_package_and_no_other_adapter()
+    {
+        typeof(GeminiProvider).Assembly.GetReferencedAssemblies().Should().NotContain(assembly =>
+            assembly.Name!.StartsWith("OpenAI", StringComparison.Ordinal)
+            || assembly.Name.StartsWith("Microsoft.Extensions.AI", StringComparison.Ordinal)
+            || assembly.Name.StartsWith("Google.", StringComparison.Ordinal)
+            || assembly.Name.StartsWith("Drover.Adapters.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Public_registration_resolves_both_providers_with_the_shared_protocol()
     {
         var services = new ServiceCollection();
@@ -63,7 +73,7 @@ public sealed class ProviderBoundaryTests
     {
         var handler = new ScriptedHandler((_, _, _) => Task.FromResult(Reply(null)));
         using var httpClient = new FixtureHttpClientFactory(handler).CreateClient("timeout-proof");
-        var options = ProtocolChatClient.CreateOptions(httpClient, new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address));
+        var options = ProtocolChatClient.CreateOptions(httpClient, CompatibleRig.Address);
         var capture = new TimeoutCapture();
         options.AddPolicy(capture, PipelinePosition.PerCall);
         var client = new OpenAI.OpenAIClient(new ApiKeyCredential(TestKeys.Generate()), options).GetChatClient("m").AsIChatClient();
