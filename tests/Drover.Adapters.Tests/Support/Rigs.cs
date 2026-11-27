@@ -36,8 +36,7 @@ public static class CopilotRig
         var clients = new FixtureHttpClientFactory(handler);
         var provider = new CopilotPlanProvider(
             clients,
-            Microsoft.Extensions.Options.Options.Create(new CopilotPlanOptions()),
-            NullLogger<CopilotPlanProvider>.Instance);
+            Microsoft.Extensions.Options.Options.Create(new CopilotPlanOptions()));
         var connection = new ModelEndpoint(ModelConnectionKinds.CopilotSignIn, provider.FixedAddress!);
 
         return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);

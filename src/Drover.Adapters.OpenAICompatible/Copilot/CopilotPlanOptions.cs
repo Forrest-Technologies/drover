@@ -1,9 +1,9 @@
 namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
-/// What the Copilot plan adapter sends to GitHub. The client id is the public VS Code Copilot Chat application
-/// id, which is the one GitHub authorizes to exchange a GitHub token for a Copilot session token. It is not a
-/// secret. An operator who needs another id sets <c>Drover:Models:Copilot:ClientId</c>.
+/// What the Copilot plan adapter sends to GitHub. The client id is the public Copilot client id, which is the
+/// one GitHub authorizes to exchange a GitHub token for a Copilot session token. It is not a secret. An operator
+/// who needs another id sets <c>Drover:Models:Copilot:ClientId</c>.
 /// </summary>
 public sealed class CopilotPlanOptions
 {
@@ -11,14 +11,14 @@ public sealed class CopilotPlanOptions
 
     public const string Section = "Drover:Models:Copilot";
 
-    /// <summary>Base64 of the public VS Code Copilot Chat client id, so scanners do not treat it as a secret.</summary>
-    private const string DefaultClientIdText = "SXYxLmI1MDdhMDhjODdlY2ZlOTg=";
+    /// <summary>The public Copilot client id. It is not a secret.</summary>
+    public const string DefaultClientId = "Iv1.b507a08c87ecfe98";
 
     #endregion
 
     #region Properties
 
-    public string ClientId { get; set; } = Encoding.UTF8.GetString(Convert.FromBase64String(DefaultClientIdText));
+    public string ClientId { get; set; } = DefaultClientId;
 
     public Uri DeviceCodeAddress { get; set; } = new("https://github.com/login/device/code");
 

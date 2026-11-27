@@ -30,7 +30,7 @@ public sealed class CopilotPlanSignInTests : ModelSignInPollConformance
 
         var started = github.Requests.Should().ContainSingle(request => request.Uri.AbsolutePath == "/login/device/code").Subject;
         started.Method.Should().Be(HttpMethod.Post);
-        started.Body.Should().Contain("client_id=").And.Contain("scope=read%3Auser");
+        started.Body.Should().Contain($"client_id={CopilotPlanOptions.DefaultClientId}").And.Contain("scope=read%3Auser");
         started.Headers.Should().ContainKey("User-Agent");
         started.Headers.Keys.Should().NotContain("Editor-Version", "GitHub's login endpoints take only the user agent");
     }

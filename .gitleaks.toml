@@ -7,3 +7,8 @@ condition = "AND"
 paths = ['''^src/Drover\.Native/Theme/Tokens\.xaml$''']
 regexTarget = "line"
 regexes = ['''^\s*<SolidColorBrush x:Key="DvHead(?:[0-9]|1[01])Brush" Color="\{StaticResource DvHead(?:[0-9]|1[01])\}" />\s*$''']
+
+[[allowlists]]
+description = "Public Copilot OAuth client id compiled into the Copilot plan adapter; it is not a secret"
+paths = ['''^src/Drover\.Adapters\.OpenAICompatible/Copilot/CopilotPlanOptions\.cs$''']
+regexes = ['''Iv1\.b507a08c87ecfe98''']

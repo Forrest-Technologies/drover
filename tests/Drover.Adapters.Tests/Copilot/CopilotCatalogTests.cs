@@ -48,13 +48,5 @@ public sealed class CopilotCatalogTests
         parsing.Should().Throw<ModelProviderException>();
     }
 
-    [Fact]
-    public void The_fallback_catalog_names_known_chat_models()
-    {
-        CopilotCatalog.Fallback.Should().NotBeEmpty();
-        CopilotCatalog.Fallback.Should().OnlyContain(model => model.Capabilities.ToolCalling && model.Capabilities.Streaming);
-        CopilotCatalog.Fallback.Select(model => model.Id).Should().Contain("gpt-4.1");
-    }
-
     #endregion
 }

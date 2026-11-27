@@ -7,19 +7,6 @@ namespace Drover.Adapters.OpenAICompatible;
 /// </summary>
 internal static class CopilotCatalog
 {
-    #region Private Fields
-
-    internal static readonly ModelInfo[] Fallback =
-    [
-        new("gpt-4.1", "gpt-4.1", new ModelCapabilities { ToolCalling = true, Streaming = true }, []),
-        new("gpt-4o", "gpt-4o", new ModelCapabilities { ToolCalling = true, Streaming = true, Vision = true }, []),
-        new("o3-mini", "o3-mini", new ModelCapabilities { ToolCalling = true, Streaming = true, Reasoning = true }, []),
-        new("claude-sonnet-4", "claude-sonnet-4", new ModelCapabilities { ToolCalling = true, Streaming = true }, []),
-        new("gemini-2.5-pro", "gemini-2.5-pro", new ModelCapabilities { ToolCalling = true, Streaming = true }, []),
-    ];
-
-    #endregion
-
     #region Public Methods
 
     public static IReadOnlyList<ModelInfo> Parse(JsonElement root, bool allowPolicyFallback)
