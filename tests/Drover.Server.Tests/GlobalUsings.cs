@@ -81,6 +81,7 @@ global using Drover.Engine.Accounts;
 global using Drover.Engine.Audit;
 global using Drover.Engine.Bots;
 global using Drover.Engine.Files;
+global using Drover.Engine.Memory;
 global using Drover.Engine.Models;
 global using Drover.Engine.Policy;
 global using Drover.Engine.Rules;

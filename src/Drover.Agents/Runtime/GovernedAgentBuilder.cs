@@ -76,6 +76,11 @@ public static class GovernedAgentBuilder
             chatClient = chatClient.AsBuilder().UseAIContextProviders(new ProjectInstructionSource(project)).Build();
         }
 
+        if (run.Execution.ServiceMemory is { } serviceMemory)
+        {
+            chatClient = chatClient.AsBuilder().UseAIContextProviders(new ServiceRecall(serviceMemory)).Build();
+        }
+
         if (run.Execution.Memory is { } memory)
         {
             chatClient = chatClient.AsBuilder().UseAIContextProviders(new NoteRecall(memory)).Build();

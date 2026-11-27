@@ -18,6 +18,23 @@ public sealed class ThreadRepository(DroverDbContext db)
     public void Add(ChatThread thread) => db.Threads.Add(thread);
 
     /// <summary>
+    /// Deletes a thread and every conversation-owned child row that references it, inside the caller's tenant scope.
+    /// </summary>
+    public async Task Delete(Guid threadId, CancellationToken cancellationToken)
+    {
+        await db.AgentSessions.Where(session => session.ThreadId == threadId).ExecuteDeleteAsync(cancellationToken);
+        await db.ToolCalls.Where(call => call.ThreadId == threadId).ExecuteDeleteAsync(cancellationToken);
+        await db.RunEvents.Where(stored => stored.ThreadId == threadId).ExecuteDeleteAsync(cancellationToken);
+        await db.Files.Where(file => file.ThreadId == threadId).ExecuteDeleteAsync(cancellationToken);
+        await db.Messages
+            .Where(message => message.ThreadId == threadId && message.ParentId != null)
+            .ExecuteUpdateAsync(set => set.SetProperty(message => message.ParentId, (Guid?)null), cancellationToken);
+        await db.Messages.Where(message => message.ThreadId == threadId).ExecuteDeleteAsync(cancellationToken);
+        await db.ThreadReads.Where(read => read.ThreadId == threadId).ExecuteDeleteAsync(cancellationToken);
+        await db.Threads.Where(thread => thread.Id == threadId).ExecuteDeleteAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Makes a shared thread private to its owner. Child rows follow, because their foreign key updates with this
     /// one. False when the thread is missing or already private.
     /// </summary>

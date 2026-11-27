@@ -23,6 +23,7 @@ public static class DataServiceExtensions
         services.AddScoped<AppearanceRepository>();
         services.AddScoped<FileRepository>();
         services.AddScoped<MemoryRepository>();
+        services.AddScoped<MemoryForgetRepository>();
         services.AddScoped<ServerHealthRepository>();
         services.AddScoped<SecretRepository>();
         services.AddScoped<ModelConnectionRepository>();

@@ -100,3 +100,14 @@ public sealed class ToolSeeder : PlainSeeder<Tool>
         ["last_seen_at"] = DateTimeOffset.UtcNow,
     };
 }
+
+
+public sealed class MemoryForgetRequestSeeder : PlainSeeder<MemoryForgetRequest>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["kind"] = "person",
+        ["person_id"] = seed.Placement.User,
+    };
+}

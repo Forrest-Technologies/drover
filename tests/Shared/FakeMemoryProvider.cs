@@ -9,7 +9,7 @@ public sealed record RecordedRecall(MemoryScope Scope, MemoryRecallRequest Reque
 
 
 /// <summary>
-/// An in-memory reference <see cref="IMemoryProvider"/> that passes <see cref="MemoryProviderConformance"/> and lets
+/// An in-memory reference <see cref="IMemoryProvider"/> that passes <c>MemoryProviderConformance</c> and lets
 /// engine tests inspect every call, inject failures or delays, and assert that no tenant transaction is open during
 /// any provider call.
 /// </summary>

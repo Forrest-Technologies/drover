@@ -96,6 +96,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<MemoryNote> Memories => Set<MemoryNote>();
 
+    public DbSet<MemoryForgetRequest> MemoryForgetRequests => Set<MemoryForgetRequest>();
+
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
     #endregion

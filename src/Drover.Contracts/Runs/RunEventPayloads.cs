@@ -83,3 +83,10 @@ public sealed record DelegationStarted(Guid ToolCallId, Guid ChildRunId, Guid Ch
 /// and the start of the result its parent was given, redacted.
 /// </summary>
 public sealed record DelegationCompleted(Guid ToolCallId, Guid ChildRunId, Guid ChildBotId, string Outcome, string Summary);
+
+
+/// <summary>
+/// Data of <c>memory_service_unavailable</c>: the configured provider kind and why recall failed, with no message
+/// text, fact, or secret.
+/// </summary>
+public sealed record MemoryServiceUnavailable(string Provider, string Reason);

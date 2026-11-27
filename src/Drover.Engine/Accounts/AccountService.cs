@@ -10,9 +10,13 @@ public sealed class AccountService(
     IPasswordHasher<User> hasher,
     AccountRepository accounts,
     SandboxRepository sandboxes,
+    MemoryForgetRepository forgets,
+    PolicyService policies,
     TenantScope scope,
     TenantContext tenant,
     IServiceScopeFactory scopes,
+    RunScopes runScopes,
+    MemoryFeed memoryFeed,
     ToolCatalog catalog,
     IOptions<IdentityOptions> identity,
     TimeProvider time)
@@ -204,6 +208,71 @@ public sealed class AccountService(
         accounts.Add(new Membership { SpaceId = spaceId, UserId = memberId, Role = role });
         await work.Commit(cancellationToken);
         return memberId;
+    }
+
+    /// <summary>
+    /// Removes <paramref name="memberUserId"/> from <paramref name="spaceId"/> when <paramref name="actorUserId"/> is
+    /// allowed to do so and the space keeps at least one owner. Records a durable memory forget request in the same
+    /// transaction when a memory service is active, then tells the provider after the commit with no tenant
+    /// transaction open.
+    /// </summary>
+    public async Task<bool> RemoveMember(
+        Guid spaceId,
+        Guid actorUserId,
+        Guid memberUserId,
+        CancellationToken cancellationToken)
+    {
+        MemoryForgetRequest? forget = null;
+        EffectivePolicy? policy = null;
+        tenant.Set(spaceId, actorUserId);
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            var actorRole = await accounts.FindRole(spaceId, actorUserId, cancellationToken);
+            var target = await accounts.FindMembershipForUpdate(spaceId, memberUserId, cancellationToken);
+
+            if (actorRole is null || target is null)
+            {
+                return false;
+            }
+
+            var allowed = actorUserId == memberUserId
+                || actorRole is MembershipRole.Owner
+                || (actorRole is MembershipRole.Admin && target.Role is MembershipRole.Member);
+
+            if (!allowed)
+            {
+                return false;
+            }
+
+            if (target.Role is MembershipRole.Owner && await accounts.CountOwners(spaceId, cancellationToken) <= 1)
+            {
+                return false;
+            }
+
+            accounts.Remove(target);
+
+            if (memoryFeed.IsActive)
+            {
+                forget = new MemoryForgetRequest
+                {
+                    Kind = MemoryForgetKind.Person,
+                    PersonId = memberUserId,
+                    CreatedAt = time.GetUtcNow(),
+                };
+                forgets.Add(forget);
+                policy = await policies.GetEffective(spaceId, cancellationToken);
+            }
+
+            await work.Commit(cancellationToken);
+        }
+
+        if (forget is not null)
+        {
+            await memoryFeed.TryForget(runScopes, forget, policy!, cancellationToken);
+        }
+
+        return true;
     }
 
     /// <summary>

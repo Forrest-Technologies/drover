@@ -18,6 +18,7 @@ public sealed partial class RunExecutor(
     UserSignalHub signals,
     PushNotifier push,
     ConversationSummarizer summarizer,
+    MemoryFeed memoryFeed,
     ModelCredentials credentials,
     IFileStore fileStore,
     IEnumerable<SandboxBroker> sandboxBrokers,
@@ -61,9 +62,14 @@ public sealed partial class RunExecutor(
             return;
         }
 
-        if (await ExecuteLoaded(loaded, tenant, workerId, stopping) && loaded.Thread is { IsMain: true })
+        if (await ExecuteLoaded(loaded, tenant, workerId, stopping))
         {
-            await summarizer.Summarize(tenant, loaded.Run, stopping);
+            await memoryFeed.Remember(tenant, loaded.Run, stopping);
+
+            if (loaded.Thread is { IsMain: true })
+            {
+                await summarizer.Summarize(tenant, loaded.Run, stopping);
+            }
         }
     }
 
@@ -285,6 +291,13 @@ public sealed partial class RunExecutor(
         var memory = bot is null || thread is null
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
+        var memoryUnavailableNoted = (await events.ListEventsOfRun(runId, [RunEventTypes.MemoryServiceUnavailable], cancellationToken)).Count > 0;
+        var latestPersonMessage = bot is { MemorySettings.Enabled: true }
+            && thread is { Origin: not ThreadOrigin.Delegation }
+            && thread.AudienceUserId == run.PrincipalUserId
+            && run.ParentRunId is null
+            ? await ReadLatestPersonMessage(services, thread.Id, run.TriggerMessageId, cancellationToken)
+            : null;
 
         Project? project = null;
 
@@ -314,8 +327,42 @@ public sealed partial class RunExecutor(
             toolModelNames,
             entry?.Capabilities,
             memory,
+            memoryUnavailableNoted,
+            latestPersonMessage,
             children,
             project);
+    }
+
+    private static async Task<string?> ReadLatestPersonMessage(
+        IServiceProvider services,
+        Guid threadId,
+        Guid? triggerMessageId,
+        CancellationToken cancellationToken)
+    {
+        var messages = services.GetRequiredService<MessageRepository>();
+
+        if (await messages.FindLatestPersonMessage(threadId, cancellationToken) is { } latest)
+        {
+            var text = MemoryFeed.SpokenText(latest);
+
+            if (text.Length > 0)
+            {
+                return text;
+            }
+        }
+
+        if (triggerMessageId is { } triggerId
+            && await messages.FindMessage(triggerId, cancellationToken) is { Role: MessageRole.User, Withheld: false, ShelvedAt: null } trigger)
+        {
+            var text = MemoryFeed.SpokenText(trigger);
+
+            if (text.Length > 0)
+            {
+                return text;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -637,12 +684,15 @@ public sealed partial class RunExecutor(
         try
         {
             // The messages that started this run are checked before the model is given anything.
-            if (await rules.CheckArrivals(await Arrived(session, loaded, placed), cancellation.Token) is not null)
+            var arrived = await Arrived(session, loaded, placed);
+
+            if (await rules.CheckArrivals(arrived, cancellation.Token) is not null)
             {
                 return await FinishAfterFailure(session, new OperationCanceledException(), serverStopping);
             }
 
-            var outcome = await DriveToAStop(session, loaded, model, governor, rules, cancellation.Token);
+            var serviceMemory = await RecallServiceMemory(session, loaded, arrived, cancellation.Token);
+            var outcome = await DriveToAStop(session, loaded, model, governor, rules, serviceMemory, cancellation.Token);
 
             // A rule can end the run while its last model call still returns normally.
             if (session.EndedByRule is not null)
@@ -670,10 +720,42 @@ public sealed partial class RunExecutor(
         IModelChatClient model,
         RunGovernor governor,
         RunRules rules,
+        RecalledServiceMemory? serviceMemory,
         CancellationToken cancellationToken)
     {
         session.RulesAtBuild = await rules.Load(cancellationToken);
-        return await Drive(session, BuildExecution(session, loaded, model) with { Responses = loaded.Answers }, governor, cancellationToken);
+        return await Drive(session, BuildExecution(session, loaded, model, serviceMemory) with { Responses = loaded.Answers }, governor, cancellationToken);
+    }
+
+    private async Task<RecalledServiceMemory?> RecallServiceMemory(
+        RunSession session,
+        LoadedRun loaded,
+        IReadOnlyList<Message> arrived,
+        CancellationToken cancellationToken)
+    {
+        if (!memoryFeed.IsActive
+            || loaded.Run.ParentRunId is not null
+            || loaded.Thread is not { Origin: not ThreadOrigin.Delegation } thread
+            || thread.AudienceUserId != loaded.Run.PrincipalUserId
+            || loaded.Bot is not { MemorySettings.Enabled: true } bot)
+        {
+            return null;
+        }
+
+        var latestFromArrived = arrived
+            .Where(message => message.Role is MessageRole.User && !message.Withheld && message.ShelvedAt is null)
+            .Select(MemoryFeed.SpokenText)
+            .LastOrDefault(text => text.Length > 0);
+        var latestMessage = latestFromArrived ?? loaded.LatestPersonMessage;
+        var scope = new MemoryScope(loaded.Run.SpaceId, bot.Id, loaded.Run.PrincipalUserId, thread.Id);
+        var (recalled, unavailable) = await memoryFeed.Recall(scope, loaded.Policy, latestMessage, loaded.Run.Id, cancellationToken);
+
+        if (unavailable is not null && !loaded.MemoryUnavailableNoted)
+        {
+            await session.Writer.Append(session.RunId, RunEventTypes.MemoryServiceUnavailable, unavailable);
+        }
+
+        return recalled;
     }
 
     private async Task<RunOutcome> Drive(RunSession session, RunExecution execution, RunGovernor governor, CancellationToken cancellationToken)
@@ -756,32 +838,38 @@ public sealed partial class RunExecutor(
         return [.. held, .. placed.Where(message => held.All(known => known.Id != message.Id))];
     }
 
-    private static RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()
-    {
-        RunId = loaded.Run.Id,
-        SpaceId = loaded.Run.SpaceId,
-        ThreadId = loaded.Run.ThreadId,
-        PrincipalUserId = loaded.Run.PrincipalUserId,
-        Bot = new BotDefinition
+    private static RunExecution BuildExecution(
+        RunSession session,
+        LoadedRun loaded,
+        IModelChatClient model,
+        RecalledServiceMemory? serviceMemory) =>
+        new()
         {
-            BotId = loaded.Bot!.Id,
-            Name = loaded.Bot.Name,
-            Instructions = loaded.Bot.Instructions,
-            ModelConnectionId = loaded.Bot.ModelConnectionId,
-            Model = loaded.Bot.Model,
-            Compaction = loaded.Bot.MemorySettings.Compaction,
-            CompactAtTokens = loaded.Bot.MemorySettings.CompactAtTokens ?? loaded.Capabilities?.ContextTokens,
-            KeepRecentMessages = loaded.Bot.MemorySettings.KeepRecentMessages,
-        },
-        Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, loaded, tool))],
-        Model = model,
-        Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
-            ? memory with { CanList = offered.Contains("memory.list") }
-            : null,
-        Project = loaded.Project is null
-            ? null
-            : new ProjectBrief(loaded.Project.Id, loaded.Project.Name, loaded.Project.Instructions),
-    };
+            RunId = loaded.Run.Id,
+            SpaceId = loaded.Run.SpaceId,
+            ThreadId = loaded.Run.ThreadId,
+            PrincipalUserId = loaded.Run.PrincipalUserId,
+            Bot = new BotDefinition
+            {
+                BotId = loaded.Bot!.Id,
+                Name = loaded.Bot.Name,
+                Instructions = loaded.Bot.Instructions,
+                ModelConnectionId = loaded.Bot.ModelConnectionId,
+                Model = loaded.Bot.Model,
+                Compaction = loaded.Bot.MemorySettings.Compaction,
+                CompactAtTokens = loaded.Bot.MemorySettings.CompactAtTokens ?? loaded.Capabilities?.ContextTokens,
+                KeepRecentMessages = loaded.Bot.MemorySettings.KeepRecentMessages,
+            },
+            Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, loaded, tool))],
+            Model = model,
+            Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
+                ? memory with { CanList = offered.Contains("memory.list") }
+                : null,
+            ServiceMemory = serviceMemory,
+            Project = loaded.Project is null
+                ? null
+                : new ProjectBrief(loaded.Project.Id, loaded.Project.Name, loaded.Project.Instructions),
+        };
 
     /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
     private static List<string> OfferedMemoryTools(RunSession session, LoadedRun loaded) =>
@@ -1285,6 +1373,8 @@ public sealed partial class RunExecutor(
         IReadOnlyDictionary<Guid, string> ToolModelNames,
         ModelCapabilities? Capabilities,
         RecalledMemory? Memory,
+        bool MemoryUnavailableNoted,
+        string? LatestPersonMessage,
         IReadOnlyList<Bot> Children,
         Project? Project);
 

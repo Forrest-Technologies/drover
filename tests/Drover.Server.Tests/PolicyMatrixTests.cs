@@ -243,6 +243,21 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void AllowMemoryService_is_on_self_hosted_and_off_hosted()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        var expected = Setting(nameof(DeploymentPolicy.AllowMemoryService)) == "true";
+
+        rules.AllowMemoryService.Should().Be(expected);
+
+        if (!expected)
+        {
+            Services.GetServices<IMemoryProvider>().Should().BeEmpty("hosted servers never register a memory provider");
+            Services.GetRequiredService<MemoryFeed>().IsActive.Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public void The_file_rules_bound_one_file_one_message_and_one_spaces_total()
     {
         var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;

@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "model_sign_ins_due", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "model_sign_ins_due", "memory_forget_requests_due", "forget_tool_credentials", "clear_project_threads", "sandboxes_to_sweep", "queue_upload_deletion", "expired_uploads", "claim_pending_upload_deletions", "claim_due_schedules", "purge_expired", "health"];
 
     #endregion
 
@@ -312,6 +312,56 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Memory Forget Requests Due
+
+    [Fact]
+    public async Task Memory_forget_requests_due_take_turns_across_spaces_and_skip_recently_attempted_rows()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        var aFirst = await SaveMemoryForgetRequest(provider, world.SpaceA, world.UserA1, now.AddHours(-3), null);
+        var aSecond = await SaveMemoryForgetRequest(provider, world.SpaceA, world.UserA2, now.AddHours(-2), null);
+        await SaveMemoryForgetRequest(provider, world.SpaceA, world.Traveler, now.AddHours(-4), now.AddMinutes(-5));
+        var bFirst = await SaveMemoryForgetRequest(provider, world.SpaceB, world.UserB1, now.AddHours(-1), now.AddHours(-2));
+        const string Sql = "SELECT space_id, request_id FROM sys.memory_forget_requests_due(@since, @limit)";
+
+        var due = await Query(scratch.AppConnectionString, Sql, ("since", now.AddMinutes(-30).UtcDateTime), ("limit", 10));
+        var shape = await Query(scratch.AppConnectionString, "SELECT * FROM sys.memory_forget_requests_due(@since, @limit)", ("since", now.AddMinutes(-30).UtcDateTime), ("limit", 1));
+
+        due.Select(row => ((Guid)row[0]!, (Guid)row[1]!)).Should().Equal(
+            [
+                (world.SpaceA, aFirst),
+                (world.SpaceB, bFirst),
+                (world.SpaceA, aSecond),
+            ],
+            "one from each space before a second from any, skipping the row attempted five minutes ago");
+        shape.Single().Should().HaveCount(2, "ids only: never person, bot, or thread ids");
+    }
+
+    private static async Task<Guid> SaveMemoryForgetRequest(
+        IServiceProvider provider,
+        Guid spaceId,
+        Guid personId,
+        DateTimeOffset createdAt,
+        DateTimeOffset? attemptedAt)
+    {
+        await using var session = await TenantSession.Open(provider, spaceId, personId);
+        var row = new MemoryForgetRequest
+        {
+            Kind = MemoryForgetKind.Person,
+            PersonId = personId,
+            CreatedAt = createdAt,
+            AttemptedAt = attemptedAt,
+        };
+        session.Db.MemoryForgetRequests.Add(row);
+        await session.Commit();
+        return row.Id;
+    }
+
+    #endregion
+
     #region Sandboxes To Sweep
 
     [Fact]
@@ -428,6 +478,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
             ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("renewed", DateTime.UtcNow), ("limit", 10)]),
             ("model_sign_ins_due", "SELECT * FROM sys.model_sign_ins_due(@renewed, @since, @limit)", 0, [("renewed", DateTime.UtcNow), ("since", DateTime.UtcNow), ("limit", 10)]),
+            ("memory_forget_requests_due", "SELECT * FROM sys.memory_forget_requests_due(@since, @limit)", 0, [("since", DateTime.UtcNow), ("limit", 10)]),
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("clear_project_threads", "SELECT sys.clear_project_threads(@project)", 0, [("as_space", world.SpaceA), ("as_user", world.UserA1), ("project", Guid.CreateVersion7())]),
             ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
@@ -541,6 +592,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("pending_upload_deletions", "UPDATE", "cleanup_claim_until"),
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
             .. Columns("model_connection_credentials", "SELECT", "id space_id audience_user_id model_connection_id status expires_at renewed_at renew_attempted_at"),
+            .. Columns("memory_forget_requests", "SELECT", "id space_id attempted_at created_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
             .. Columns("threads", "SELECT", "id space_id project_id"),

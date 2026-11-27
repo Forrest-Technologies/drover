@@ -100,6 +100,7 @@ global using Markdig.Syntax.Inlines;
 global using Microsoft.AspNetCore.Identity;
 global using Microsoft.Extensions.Caching.Memory;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.DependencyInjection.Extensions;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Options;
 global using SkiaSharp;

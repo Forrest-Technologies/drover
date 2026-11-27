@@ -227,6 +227,18 @@ public sealed class AccountRepository(DroverDbContext db)
 
     public void Add(Membership membership) => db.Memberships.Add(membership);
 
+    public Task<Membership?> FindMembershipForUpdate(Guid spaceId, Guid userId, CancellationToken cancellationToken) =>
+        db.Memberships.SingleOrDefaultAsync(
+            membership => membership.SpaceId == spaceId && membership.UserId == userId,
+            cancellationToken);
+
+    public Task<int> CountOwners(Guid spaceId, CancellationToken cancellationToken) =>
+        db.Memberships.CountAsync(
+            membership => membership.SpaceId == spaceId && membership.Role == MembershipRole.Owner,
+            cancellationToken);
+
+    public void Remove(Membership membership) => db.Memberships.Remove(membership);
+
     /// <summary>Makes a personal space shared. Zero when it is missing or already shared.</summary>
     public Task<int> MakeShared(Guid spaceId, CancellationToken cancellationToken) =>
         db.Spaces
