@@ -126,18 +126,36 @@ public sealed class OpenAIPlanSignInTests
         server.TokenRequests.Should().HaveCount(before);
     }
 
-    [Fact]
-    public async Task A_sign_in_that_did_not_allow_plan_use_is_refused_with_its_own_sentence()
+    [Theory]
+    [InlineData("email openid profile offline_access")]
+    [InlineData("")]
+    public async Task A_sign_in_that_did_not_allow_plan_use_keeps_the_registration_revokes_the_session_and_asks_again_for_consent(string granted)
     {
-        var server = new OpenAIPlanAuthServer { GrantedScope = "email openid profile offline_access" };
+        var server = new OpenAIPlanAuthServer { GrantedScope = granted };
         var signIn = ObservedPlanSignIn.Over(server);
         var attempt = Attempt(server);
         await signIn.Begin(attempt, Token);
 
         var finishing = () => signIn.Finish(attempt, server.Approve(attempt.State), Token);
 
-        (await finishing.Should().ThrowAsync<ModelSignInRefusedException>()).Which.Message
-            .Should().Be("ChatGPT signed you in but did not allow plan use. Try again and allow it.");
+        var refused = (await finishing.Should().ThrowAsync<ModelSignInRefusedException>()).Which;
+        refused.Message.Should().Be("ChatGPT signed you in but did not allow plan use. Try again and allow it.");
+        refused.Kept.Should().Contain(OpenAIPlanSignIn.ClientIdDetail, OpenAIPlanAuthServer.IssuedClientId)
+            .And.Contain(OpenAIPlanSignIn.SubjectDetail, OpenAIPlanAuthServer.Subject)
+            .And.Contain(OpenAIPlanSignIn.PlanUseDetail, OpenAIPlanSignIn.PlanUseNotAllowedValue)
+            .And.ContainKey(OpenAIPlanSignIn.HostIdDetail);
+        server.Sent.Should().Contain(form => form.Address == server.Settings.RevokeAddress, "the unused session is ended");
+
+        server.GrantedScope = "chatgpt.tokens.use.direct email offline_access openid profile resource.invoke";
+        var again = Attempt(server) with { Earlier = refused.Kept };
+        var step = await signIn.Begin(again, Token);
+        var tokens = await signIn.Finish(again, server.Approve(again.State), Token);
+
+        var query = OpenAIPlanAuthServer.Parse(step.Address.Query);
+        query["client_id"].Should().Be(OpenAIPlanAuthServer.IssuedClientId, "no new registration is made");
+        query["prompt"].Should().Be("consent");
+        query["scope"].Should().Contain("chatgpt.tokens.use.direct", "the complete scope set is asked for again");
+        tokens!.Details.Should().NotContainKey(OpenAIPlanSignIn.PlanUseDetail);
     }
 
     [Theory]
@@ -157,6 +175,7 @@ public sealed class OpenAIPlanSignInTests
         var finishing = () => signIn.Finish(attempt, server.Approve(attempt.State), Token);
 
         (await finishing.Should().ThrowAsync<ModelSignInRefusedException>()).Which.Message.Should().Be("Sign-in was cancelled.");
+        server.Sent.Should().Contain(form => form.Address == server.Settings.RevokeAddress, "a session that is not kept is ended");
     }
 
     [Fact]
@@ -171,7 +190,9 @@ public sealed class OpenAIPlanSignInTests
 
         var finishing = () => signIn.Finish(again, server.Approve(again.State), Token);
 
-        await finishing.Should().ThrowAsync<ModelSignInRefusedException>();
+        (await finishing.Should().ThrowAsync<ModelSignInRefusedException>()).Which.Message
+            .Should().Be("That is a different ChatGPT account. Sign out first.");
+        server.Sent[^1].Address.Should().Be(server.Settings.RevokeAddress);
     }
 
     [Fact]

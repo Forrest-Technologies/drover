@@ -192,22 +192,68 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
     }
 
     [Fact]
-    public async Task Signing_out_tells_the_provider_and_removes_the_token_set_and_the_row()
+    public async Task Signing_out_tells_the_provider_keeps_only_what_it_registered_and_a_second_sign_out_removes_everything()
     {
         var owner = await SeedPerson("owner");
         var client = await SignedIn(owner.Email, owner.Password);
         var summary = await SignInThrough(client, owner.SpaceId);
 
+        var signedOut = await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
+        var afterSignOut = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
+        await SignInThrough(client, owner.SpaceId);
+        await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
         var removed = await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
         var again = await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
         var list = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
 
+        signedOut.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        plan.Revoked.Should().HaveCount(2, "each sign-out with tokens tells the provider, and one with none sends nothing");
+        afterSignOut.Should().ContainSingle().Which.SignIn!.Status.Should().Be(ModelSignInStatuses.NeedsSignIn);
+        plan.Earliers[1].Should().ContainKey("client", "what the provider registered for the person outlives a sign-out, so signing in again does not register anew");
         removed.StatusCode.Should().Be(HttpStatusCode.NoContent);
         again.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        plan.Revoked.Should().ContainSingle();
         (await ReadCredentialCount(owner.SpaceId, owner.UserId)).Should().Be(0);
         (await ReadSecrets(owner.SpaceId, owner.UserId)).Should().NotContain(secret => secret.Kind == SecretKind.OauthTokens);
         list.Should().ContainSingle().Which.SignIn!.Status.Should().Be(ModelSignInStatuses.None);
+        Logs.AllText().Should().NotContainAny(plan.Issued);
+    }
+
+    [Fact]
+    public async Task A_sign_in_the_provider_made_but_that_is_not_used_keeps_only_its_registration_for_the_next()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        plan.RefusalSentence = "ChatGPT signed you in but did not allow plan use. Try again and allow it.";
+        plan.RefusalKeeps = true;
+        var started = await Start(client, owner.SpaceId, FakeModelSignIn.RedirectUri.AbsoluteUri);
+
+        var finish = await client.Post(
+            $"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}/finish",
+            new FinishModelSignInRequest(plan.Approve(FakeModelSignIn.StateOf(new Uri(started.Address))).Text));
+        var list = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
+        plan.RefusalSentence = null;
+        await SignInThrough(client, owner.SpaceId);
+
+        finish.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        list.Should().ContainSingle().Which.SignIn!.Status.Should().Be(ModelSignInStatuses.NeedsSignIn);
+        plan.Earliers[^1].Should().ContainKey("client");
+    }
+
+    [Fact]
+    public async Task A_return_too_long_to_be_a_sign_ins_is_refused_and_the_attempt_still_waits()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        var started = await Start(client, owner.SpaceId, FakeModelSignIn.RedirectUri.AbsoluteUri);
+
+        var finish = await client.Post(
+            $"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}/finish",
+            new FinishModelSignInRequest(new string('a', FinishModelSignInRequest.MostLength + 1)));
+        var read = await client.Get($"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}");
+
+        finish.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await read.Content.ReadFromJsonAsync<ModelSignInProgress>(Token))!.Status.Should().Be(ModelSignInStatuses.Waiting);
+        plan.Received.Should().BeEmpty();
     }
 
     [Fact]

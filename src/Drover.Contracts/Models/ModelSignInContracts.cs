@@ -12,7 +12,18 @@ public sealed record ModelSignInStarted(Guid AttemptId, string Address, string W
 /// <summary>Input only: the query string the person's device received from the provider's page. It holds a one-time code.</summary>
 public sealed record FinishModelSignInRequest(string? Query)
 {
+    #region Private Fields
+
+    /// <summary>The longest return the server takes, in characters: 8 KB, as a browser's request line is bounded.</summary>
+    public const int MostLength = 8192;
+
+    #endregion
+
+    #region Public Methods
+
     public override string ToString() => nameof(FinishModelSignInRequest);
+
+    #endregion
 }
 
 /// <summary>Where a sign-in stands (<see cref="ModelSignInStatuses"/>), and the connection once it is done.</summary>

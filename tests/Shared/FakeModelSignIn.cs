@@ -89,6 +89,9 @@ public sealed class FakeModelSignIn(
     /// <summary>When set, an approval is refused with this sentence, as a provider that signed the person in but allowed too little.</summary>
     public string? RefusalSentence { get; set; }
 
+    /// <summary>When true, a refusal with <see cref="RefusalSentence"/> keeps what the provider registered, as a sign-in that did not allow plan use.</summary>
+    public bool RefusalKeeps { get; set; }
+
     /// <summary>Every access and refresh token this provider has handed out.</summary>
     public IReadOnlyList<string> Issued => [.. issued];
 
@@ -148,7 +151,10 @@ public sealed class FakeModelSignIn(
 
         if (RefusalSentence is { } sentence)
         {
-            throw new ModelSignInRefusedException(sentence);
+            throw new ModelSignInRefusedException(sentence)
+            {
+                Kept = RefusalKeeps ? new Dictionary<string, string> { ["client"] = $"fake-client-{Guid.NewGuid():N}" } : [],
+            };
         }
 
         received.Enqueue(new FakeTokenRequest("authorization_code", code, attempt.Verifier, null));

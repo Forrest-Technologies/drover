@@ -16,7 +16,7 @@ public sealed class DesktopModelSignInListenerTests
         var answer = await Visit(listening.RedirectUri, "/auth/callback?code=sample&state=sample");
 
         listening.RedirectUri.ToString().Should().MatchRegex(@"^http://127\.0\.0\.1:\d+/auth/callback$", "the provider takes only this form, on any port");
-        answer.Should().StartWith("HTTP/1.1 200 OK\r\n").And.Contain("Signed in. You can close this tab.");
+        answer.Should().StartWith("HTTP/1.1 200 OK\r\n").And.Contain("You can close this tab.").And.NotContain("Signed in", "the server has not finished yet");
         answer.Should().NotContain("sample", "the page repeats nothing from the address");
         (await listening.Returned.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Should().Be("code=sample&state=sample");
     }
@@ -26,6 +26,8 @@ public sealed class DesktopModelSignInListenerTests
     [InlineData("/auth/callback")]
     [InlineData("/auth/callbackx?code=sample")]
     [InlineData("/tool-sign-in?ticket=sample")]
+    [InlineData("/auth/callback?code=sample")]
+    [InlineData("/auth/callback?favicon=1")]
     public async Task Any_other_path_is_not_found_and_hands_nothing_on(string path)
     {
         using var listening = new DesktopModelSignInListener(NullLogger<DesktopModelSignInListener>.Instance).Open();
@@ -34,6 +36,19 @@ public sealed class DesktopModelSignInListenerTests
 
         answer.Should().StartWith("HTTP/1.1 404 Not Found\r\n");
         listening.Returned.IsCompleted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_stray_visit_is_not_found_and_the_listener_keeps_waiting_for_the_return()
+    {
+        using var listening = new DesktopModelSignInListener(NullLogger<DesktopModelSignInListener>.Instance).Open();
+
+        var stray = await Visit(listening.RedirectUri, "/auth/callback?favicon=1");
+        var answer = await Visit(listening.RedirectUri, "/auth/callback?code=c&state=s");
+
+        stray.Should().StartWith("HTTP/1.1 404 Not Found\r\n");
+        answer.Should().StartWith("HTTP/1.1 200 OK\r\n");
+        (await listening.Returned.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Should().Be("code=c&state=s");
     }
 
     [Fact]
@@ -47,10 +62,12 @@ public sealed class DesktopModelSignInListenerTests
     }
 
     [Theory]
-    [InlineData("GET /auth/callback?code=a HTTP/1.1", "code=a")]
-    [InlineData("POST /auth/callback?code=a HTTP/1.1", null)]
+    [InlineData("GET /auth/callback?code=a&state=s HTTP/1.1", "code=a&state=s")]
+    [InlineData("GET /auth/callback?error=access_denied&state=s HTTP/1.1", "error=access_denied&state=s")]
+    [InlineData("GET /auth/callback?code=a HTTP/1.1", null)]
+    [InlineData("POST /auth/callback?code=a&state=s HTTP/1.1", null)]
     [InlineData("GET /auth/callback? HTTP/1.1", null)]
-    [InlineData("GET /auth/callback?code=a", null)]
+    [InlineData("GET /auth/callback?code=a&state=s", null)]
     public void Only_a_get_of_the_return_path_with_a_query_carries_one(string requestLine, string? query)
     {
         DesktopModelSignInListener.QueryIn(requestLine).Should().Be(query);

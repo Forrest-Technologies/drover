@@ -4,7 +4,8 @@ namespace Drover.Native.Platform;
 /// Listens on this computer's loopback address for the browser's return from a model provider's sign-in page. The
 /// provider takes a return on <c>127.0.0.1</c> at <see cref="ReturnPath"/>, where only the port may vary, so the
 /// listener asks for <see cref="PreferredPort"/> and takes any free port when that one is in use. One listener waits
-/// for one return and stops once the screen that started it is done.
+/// for one return and stops once the screen that started it is done. The page the browser gets back does not say the
+/// person is signed in: the server has not finished yet when it is drawn.
 /// </summary>
 internal sealed class DesktopModelSignInListener(ILogger<DesktopModelSignInListener> logger) : IModelSignInListener
 {
@@ -59,13 +60,23 @@ internal sealed class DesktopModelSignInListener(ILogger<DesktopModelSignInListe
         }
     }
 
-    /// <summary>The query string in a request line such as <c>GET /auth/callback?code=... HTTP/1.1</c>, or null for any other request.</summary>
-    internal static string? QueryIn(string requestLine) =>
-        requestLine.Split(' ') is ["GET", var target, ['H', 'T', 'T', 'P', '/', ..]]
-        && target.StartsWith($"{ReturnPath}?", StringComparison.Ordinal)
-        && target.Length > ReturnPath.Length + 1
-            ? target[(ReturnPath.Length + 1)..]
-            : null;
+    /// <summary>
+    /// The query string in a request line such as <c>GET /auth/callback?code=...&amp;state=... HTTP/1.1</c>, or null for
+    /// any other request. A return names its <c>state</c> and either a <c>code</c> or an <c>error</c>; anything else, such
+    /// as a stray visit to the address, is not one and the listener keeps waiting.
+    /// </summary>
+    internal static string? QueryIn(string requestLine)
+    {
+        if (requestLine.Split(' ') is not ["GET", var target, ['H', 'T', 'T', 'P', '/', ..]]
+            || !target.StartsWith($"{ReturnPath}?", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var query = target[(ReturnPath.Length + 1)..];
+        HashSet<string> names = [.. query.Split('&', StringSplitOptions.RemoveEmptyEntries).Select(pair => pair.Split('=', 2)[0])];
+        return names.Contains("state") && (names.Contains("code") || names.Contains("error")) ? query : null;
+    }
 
     #endregion
 
@@ -137,7 +148,7 @@ internal sealed class DesktopModelSignInListener(ILogger<DesktopModelSignInListe
                     var query = QueryIn(await DesktopSignInReturn.ReadRequestLine(stream, patience.Token));
                     var page = query is null
                         ? DesktopSignInReturn.Page("404 Not Found", "Nothing here", "This address only brings a sign-in back into the Drover app.")
-                        : DesktopSignInReturn.Page("200 OK", "Signed in", "Signed in. You can close this tab.");
+                        : DesktopSignInReturn.Page("200 OK", "Return to Drover", "You can close this tab. Drover is finishing the sign-in.");
                     await stream.WriteAsync(page, patience.Token);
 
                     if (query is not null)

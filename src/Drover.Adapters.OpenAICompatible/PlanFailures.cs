@@ -18,6 +18,12 @@ internal static class PlanFailures
     public const string UnsupportedRequest =
         "ChatGPT does not take part of this request on a personal plan. Leave out the file, tool or setting and try again.";
 
+    public const string RouteNotSupported = "ChatGPT does not take this kind of request on a personal plan.";
+
+    public const string SignInAgain = "ChatGPT did not accept your sign-in. Sign in again.";
+
+    public const string NotAuthorized = "ChatGPT did not allow this request for your sign-in. Sign in again and allow plan use.";
+
     #endregion
 
     #region Public Methods
@@ -35,6 +41,10 @@ internal static class PlanFailures
             "subscription_sharing_usage_unavailable" or "subscription_sharing_user_unavailable" =>
                 new(ModelFailure.RetryLater, Unavailable),
             "subscription_sharing_unsupported_capability" => ModelProviderException.FromRefusal(UnsupportedRequest),
+            "subscription_sharing_route_not_supported" => ModelProviderException.FromRefusal(RouteNotSupported),
+            "subscription_sharing_invalid_user" => new(ModelFailure.InvalidKey, SignInAgain),
+            "chatpass_v2_scope_not_authorized" or "chatpass_v2_invalid_authorization_context" =>
+                ModelProviderException.FromRefusal(NotAuthorized),
             _ => null,
         };
 

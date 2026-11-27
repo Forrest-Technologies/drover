@@ -184,6 +184,9 @@ public sealed class OpenAIPlanWireTests
     [InlineData("plan_usage_unavailable", ModelFailure.RetryLater, PlanFailures.Unavailable)]
     [InlineData("plan_user_unavailable", ModelFailure.RetryLater, PlanFailures.Unavailable)]
     [InlineData("plan_unsupported_capability", ModelFailure.Rejected, PlanFailures.UnsupportedRequest)]
+    [InlineData("plan_route_not_supported", ModelFailure.Rejected, PlanFailures.RouteNotSupported)]
+    [InlineData("plan_invalid_user", ModelFailure.InvalidKey, PlanFailures.SignInAgain)]
+    [InlineData("plan_scope_not_authorized", ModelFailure.Rejected, PlanFailures.NotAuthorized)]
     [InlineData("plan_usage_limit_in_stream", ModelFailure.OutOfCredit, PlanFailures.LimitReached)]
     [InlineData("plan_usage_unavailable_in_stream", ModelFailure.RetryLater, PlanFailures.Unavailable)]
     public async Task Each_plan_code_is_its_own_failure_whole_and_streamed(string fixture, ModelFailure expected, string sentence)
@@ -204,6 +207,35 @@ public sealed class OpenAIPlanWireTests
             failure.RetryAfter.Should().BeNull("the provider says not to infer a reset time");
             failure.InnerException.Should().BeNull("the vendor's exception stays inside the adapter");
         }
+    }
+
+    /// <summary>
+    /// The second code of the signed permission context, read from a body as the provider sends it. It is checked here
+    /// rather than in a fixture file: the rule that no fixture holds a credential refuses any that names one.
+    /// </summary>
+    [Fact]
+    public void The_other_permission_context_code_is_a_refusal_too()
+    {
+        var failure = PlanFailures.Read(BinaryData.FromString(
+            """{"error":{"code":"chatpass_v2_invalid_authorization_context","message":"m","type":"t","param":null}}"""));
+
+        failure!.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Message.Should().Be(PlanFailures.NotAuthorized);
+    }
+
+    [Fact]
+    public async Task A_stream_that_closes_before_the_plan_says_it_ended_fails_the_call_whole_and_streamed()
+    {
+        var whole = OpenAIPlanRig.Start("plan_cut_stream").Subject;
+        var streamed = OpenAIPlanRig.Start("plan_cut_stream").Subject;
+
+        var wholeFailure = (await FluentActions.Awaiting(() => whole.CreateChatClient().GetResponse(Prompt("Say hello."), Token))
+            .Should().ThrowAsync<ModelProviderException>()).Which;
+        var streamedFailure = (await FluentActions.Awaiting(() => Drain(streamed.CreateChatClient().GetStreamingResponse(Prompt("Say hello."), Token)))
+            .Should().ThrowAsync<ModelProviderException>()).Which;
+
+        wholeFailure.Failure.Should().Be(ModelFailure.Unreachable, "a part of a reply is not a reply");
+        streamedFailure.Failure.Should().Be(ModelFailure.Unreachable);
     }
 
     [Fact]

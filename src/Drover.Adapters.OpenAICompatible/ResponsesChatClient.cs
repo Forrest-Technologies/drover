@@ -95,6 +95,7 @@ internal sealed class ResponsesChatClient(
         var updates = Stream(client, request, askForSummary, cancellation);
         var started = false;
         var refused = false;
+        var ended = false;
 
         try
         {
@@ -125,11 +126,18 @@ internal sealed class ResponsesChatClient(
 
                 if (!hasNext)
                 {
+                    // A plan's answer is only whole once the stream says it ended ("Wait for completed inference").
+                    if (rules is ResponsesRules.Plan && !ended)
+                    {
+                        throw ProtocolChatClient.WithHeaders(CutShort(), headers.Headers);
+                    }
+
                     yield break;
                 }
 
                 started = true;
                 var update = updates.Current;
+                ended |= IsEnding(update);
                 SettleEnding(update, headers.Headers);
                 refused |= ReplaceRefusals(update.Contents, headers.Headers);
 
@@ -390,7 +398,15 @@ internal sealed class ResponsesChatClient(
         }
     }
 
+    /// <summary>The stream's own end: <c>response.completed</c> or <c>response.incomplete</c>. A failed one throws first.</summary>
+    private static bool IsEnding(ChatResponseUpdate update) =>
+        update.RawRepresentation is OpenAI.Responses.StreamingResponseCompletedUpdate or OpenAI.Responses.StreamingResponseIncompleteUpdate;
+
 #pragma warning restore OPENAI001
+
+    /// <summary>A stream that closed before the provider said the answer ended. What arrived is not a whole reply.</summary>
+    internal static ModelProviderException CutShort() =>
+        new(ModelFailure.Unreachable, "The provider's answer stopped before it was finished. Try again.");
 
     /// <summary>
     /// Error codes a response or a stream reports in its body. The provider's message is not repeated: it can quote

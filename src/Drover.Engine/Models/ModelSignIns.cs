@@ -153,9 +153,10 @@ public sealed class ModelSignIns(
         Find(spaceId, userId, attemptId) is { } pending ? Outcome(pending, null, 200) : ModelSignInOutcome.NotFound;
 
     /// <summary>
-    /// Signs the caller out of a connection: tells the provider where it can be told, then deletes the token set and
-    /// the row. False when the caller has no sign-in to it. Where this server refuses the kind, nothing is sent and the
-    /// sign-in is still removed, so a person can always take their own tokens off the server.
+    /// Signs the caller out of a connection: tells the provider where it can be told, then drops every token. What the
+    /// provider registered for the person stays, with no token, until they sign out again (<see cref="Retire"/>). False
+    /// when the caller has no sign-in to it. Where this server refuses the kind, nothing is sent and the tokens still go,
+    /// so a person can always take their own tokens off the server.
     /// </summary>
     public async Task<bool> SignOut(Guid spaceId, Guid userId, Guid connectionId, CancellationToken cancellationToken)
     {
@@ -178,12 +179,12 @@ public sealed class ModelSignIns(
             return false;
         }
 
-        if (found.SignIn is { } signIn && credentials.FindRefusal(signIn) is null && found.Tokens is { } tokens)
+        if (found.SignIn is { } signIn && credentials.FindRefusal(signIn) is null && found.Tokens is { AccessToken.Length: > 0 } tokens)
         {
             await Revoke(signIn, found.Policy!, tokens, connectionId, cancellationToken);
         }
 
-        await tenant.Transact(services => Forget(services, connectionId, userId, CancellationToken.None), CancellationToken.None);
+        await tenant.Transact(services => Retire(services, connectionId, userId, found.Tokens, CancellationToken.None), CancellationToken.None);
         logger.LogInformation("Signed out of model connection {ConnectionId}", connectionId);
         return true;
     }
@@ -206,11 +207,20 @@ public sealed class ModelSignIns(
 
         if (tokens is null)
         {
+            if (pending.Kept is { } kept)
+            {
+                // The provider signed the person in but the sign-in is not used: what it registered for them is kept,
+                // with no token, so the next attempt asks with the same registration.
+                await tenant.Transact(
+                    services => Store(services, pending, signIn, Retained(kept, null), ModelSignInStatus.NeedsSignIn, CancellationToken.None),
+                    CancellationToken.None);
+            }
+
             return Outcome(pending, pending.Problem ?? Cancelled, 400);
         }
 
         // The one-time code is spent: the tokens are kept whatever happens to the request now.
-        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, CancellationToken.None), CancellationToken.None);
+        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, ModelSignInStatus.Active, CancellationToken.None), CancellationToken.None);
         pending.Done(connectionId);
         await ListModels(tenant, connectionId, cancellationToken);
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} finished for connection {ConnectionId}", pending.Attempt.Id, pending.Kind, connectionId);
@@ -237,6 +247,7 @@ public sealed class ModelSignIns(
             // Only the kind of failure: its text could hold what the provider sent.
             logger.LogInformation("Model sign-in {AttemptId} to {Kind} ended without tokens: {Failure}", pending.Attempt.Id, pending.Kind, failure.GetType().Name);
             pending.End(ModelSignInState.Refused, failure is ModelSignInRefusedException refused ? refused.Message : null);
+            pending.Kept = failure is ModelSignInRefusedException { Kept.Count: > 0 } keeping ? keeping.Kept : null;
             return null;
         }
     }
@@ -246,7 +257,13 @@ public sealed class ModelSignIns(
     /// if there is none. A person who signs in again gets a new secret and the old one is deleted, so a renewal still
     /// waiting on the provider can tell its tokens were replaced.
     /// </summary>
-    private async Task<Guid> Store(IServiceProvider services, Pending pending, IModelSignIn signIn, ModelTokens tokens, CancellationToken cancellationToken)
+    private async Task<Guid> Store(
+        IServiceProvider services,
+        Pending pending,
+        IModelSignIn signIn,
+        ModelTokens tokens,
+        ModelSignInStatus status,
+        CancellationToken cancellationToken)
     {
         var connections = services.GetRequiredService<ModelConnectionRepository>();
         var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
@@ -271,6 +288,7 @@ public sealed class ModelSignIns(
                 ModelConnectionId = connection.Id,
                 AudienceUserId = pending.UserId,
                 SecretId = secretId,
+                Status = status,
                 AccountLabel = tokens.AccountLabel,
                 ExpiresAt = tokens.ExpiresAt,
                 RenewedAt = time.GetUtcNow(),
@@ -280,8 +298,8 @@ public sealed class ModelSignIns(
 
         var previous = credential.SecretId;
         credential.SecretId = secretId;
-        credential.Status = ModelSignInStatus.Active;
-        credential.AccountLabel = tokens.AccountLabel;
+        credential.Status = status;
+        credential.AccountLabel = tokens.AccountLabel ?? credential.AccountLabel;
         credential.ExpiresAt = tokens.ExpiresAt;
         credential.RenewedAt = time.GetUtcNow();
         await vault.Delete(previous, cancellationToken);
@@ -362,6 +380,32 @@ public sealed class ModelSignIns(
         }
     }
 
+    /// <summary>
+    /// Ends the caller's sign-in. Where the provider registered something for the person that it asks a later sign-in to
+    /// send again (<see cref="ModelTokens.Details"/>, such as a client id it issued), the row stays as needing a sign-in
+    /// and the secret keeps only that, with no token, so signing in again does not register anew. A sign-in that already
+    /// holds no token, or kept nothing, is removed with its secret: signing out twice takes everything off the server.
+    /// </summary>
+    private static async Task Retire(IServiceProvider services, Guid connectionId, Guid userId, ModelTokens? tokens, CancellationToken cancellationToken)
+    {
+        var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
+
+        if (tokens is not { AccessToken.Length: > 0, Details.Count: > 0 }
+            || await signIns.GetCredential(connectionId, userId, cancellationToken) is not { } credential)
+        {
+            await Forget(services, connectionId, userId, cancellationToken);
+            return;
+        }
+
+        await services.GetRequiredService<ISecretVault>().Replace(credential.SecretId, ModelCredentials.Write(Retained(tokens.Details, tokens.AccountLabel)), cancellationToken);
+        credential.Status = ModelSignInStatus.NeedsSignIn;
+        credential.ExpiresAt = null;
+    }
+
+    /// <summary>A token set that holds no token: only what the provider asks a later sign-in to send again.</summary>
+    private static ModelTokens Retained(IReadOnlyDictionary<string, string> details, string? accountLabel) =>
+        new() { AccessToken = string.Empty, Details = details, AccountLabel = accountLabel };
+
     private static async Task Forget(IServiceProvider services, Guid connectionId, Guid userId, CancellationToken cancellationToken)
     {
         var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
@@ -439,6 +483,9 @@ public sealed class ModelSignIns(
 
         /// <summary>Drover's own sentence for why the sign-in ended without tokens, or null for a plain cancel.</summary>
         public string? Problem { get; private set; }
+
+        /// <summary>What the provider registered for the person in a sign-in that is not used, to keep with no token.</summary>
+        public IReadOnlyDictionary<string, string>? Kept { get; set; }
 
         #endregion
 

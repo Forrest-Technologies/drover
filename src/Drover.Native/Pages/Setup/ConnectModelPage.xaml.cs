@@ -19,6 +19,7 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(Provider.Value);
             }
         });
+        SignInNoteHolder.LostFocus += (_, _) => SignInNoteHolder.IsTabStop = false;
         Model.PropertyChanged += (_, _) => Refresh();
         Refresh();
     }
@@ -76,8 +77,7 @@ public sealed partial class ConnectModelPage : Screen
     }
 
     /// <summary>
-    /// A sign-in kind is one line, one sentence for where it stands, and one button: no key, no address, no test. The
-    /// sentence is a polite live region, so a screen reader hears each change.
+    /// A sign-in kind is one line, one sentence for where it stands, and one button: no key, no address, no test.
     /// </summary>
     private void RefreshSignIn()
     {
@@ -94,6 +94,7 @@ public sealed partial class ConnectModelPage : Screen
         Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
         PlanLine.Text = flow.PlanLine;
         PlanLine.Visibility = flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
+        var changed = flow.Sentence is { Length: > 0 } && SignInNote.Text != flow.Sentence;
         SignInNote.Text = flow.Sentence ?? string.Empty;
         SignInNote.Kind = flow.Stage switch
         {
@@ -106,6 +107,13 @@ public sealed partial class ConnectModelPage : Screen
         AutomationProperties.SetName(SignInAction, flow.ActionWords ?? string.Empty);
         SignInAction.Visibility = flow.ActionWords is null ? Visibility.Collapsed : Visibility.Visible;
         SignInAction.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
+
+        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
+        if (changed)
+        {
+            SignInNoteHolder.IsTabStop = true;
+            SignInNoteHolder.Focus(FocusState.Programmatic);
+        }
     }
 
     // The flow says in its own sentence when the page could not be opened.

@@ -25,7 +25,11 @@ namespace Drover.Adapters.OpenAICompatible;
 /// </list>
 /// No request is retried here: a code is spent once and a refresh token rotates, so a repeat could end the sign-in.
 /// </remarks>
-public sealed class OpenAIPlanSignIn(IHttpClientFactory httpClients, IOptionsMonitor<OpenAIPlanOptions> options, TimeProvider time) : IModelSignIn
+public sealed class OpenAIPlanSignIn(
+    IHttpClientFactory httpClients,
+    IOptionsMonitor<OpenAIPlanOptions> options,
+    TimeProvider time,
+    ILogger<OpenAIPlanSignIn> logger) : IModelSignIn
 {
     #region Private Fields
 
@@ -39,6 +43,14 @@ public sealed class OpenAIPlanSignIn(IHttpClientFactory httpClients, IOptionsMon
 
     /// <summary>The account's validated <c>sub</c>, kept in <see cref="ModelTokens.Details"/>.</summary>
     public const string SubjectDetail = "subject";
+
+    /// <summary>Kept in <see cref="ModelTokens.Details"/> when the person signed in but did not allow plan use.</summary>
+    public const string PlanUseDetail = "plan_use";
+
+    public const string PlanUseNotAllowedValue = "not_allowed";
+
+    /// <summary>What the person is told when a sign-in with their own registration came back as another account.</summary>
+    public const string AnotherAccount = "That is a different ChatGPT account. Sign out first.";
 
     /// <summary>What the person is told when the account signed in but did not allow plan use.</summary>
     public const string PlanUseNotAllowed = "ChatGPT signed you in but did not allow plan use. Try again and allow it.";
@@ -110,6 +122,13 @@ public sealed class OpenAIPlanSignIn(IHttpClientFactory httpClients, IOptionsMon
             query.Insert(1, new("agent_name_hint", settings.AgentName));
         }
 
+        // After a sign-in that did not allow plan use, the provider asks for the whole scope set again with consent
+        // ("ChatGPT plan use isn't enabled": prompt=consent until force_reconsent is confirmed for the integration).
+        if (attempt.Earlier.GetValueOrDefault(PlanUseDetail) == PlanUseNotAllowedValue)
+        {
+            query.Add(new("prompt", "consent"));
+        }
+
         var address = new UriBuilder(settings.AuthorizeAddress) { Query = Encode(query) }.Uri;
         return Task.FromResult(new ModelSignInStep(address, null, ModelSignInWait.Return));
     }
@@ -131,29 +150,16 @@ public sealed class OpenAIPlanSignIn(IHttpClientFactory httpClients, IOptionsMon
         var clientId = ClientIdFor(attempt, returned, settings);
         var answer = await Exchange(settings, clientId, code, attempt.Verifier, redirect, cancellation);
 
-        if (!answer.Scopes.Contains(settings.RequiredScope, StringComparer.Ordinal))
+        try
         {
-            throw new ModelSignInRefusedException(PlanUseNotAllowed);
+            return await Accept(settings, attempt, clientId, answer, cancellation);
         }
-
-        var identity = await Validate(settings, answer.IdToken, clientId, attempt.Nonce, cancellation);
-
-        if (attempt.Earlier.TryGetValue(SubjectDetail, out var earlier) && earlier != identity.Subject)
+        catch (ModelSignInRefusedException)
         {
-            // A sign-in with the person's issued client came back as another account: their registration is not replaced.
-            throw new ModelSignInRefusedException();
+            // The code is spent and the provider issued a renewable session nobody will use: end it.
+            await Abandon(settings, clientId, answer.RefreshToken);
+            throw;
         }
-
-        return answer.ToTokens(time.GetUtcNow(), refreshToken: null) with
-        {
-            AccountLabel = identity.Email,
-            Details = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                [ClientIdDetail] = clientId,
-                [HostIdDetail] = HostIdFor(attempt),
-                [SubjectDetail] = identity.Subject,
-            },
-        };
     }
 
     public async Task<ModelTokens> Refresh(ModelTokens current, CancellationToken cancellation)
@@ -193,7 +199,12 @@ public sealed class OpenAIPlanSignIn(IHttpClientFactory httpClients, IOptionsMon
             return;
         }
 
-        using var request = Form(options.CurrentValue.RevokeAddress, [
+        await RevokeAt(options.CurrentValue.RevokeAddress, clientId, refreshToken, cancellation);
+    }
+
+    private async Task RevokeAt(Uri address, string clientId, string refreshToken, CancellationToken cancellation)
+    {
+        using var request = Form(address, [
             new("token", refreshToken),
             new("token_type_hint", "refresh_token"),
             new("client_id", clientId),
@@ -209,6 +220,56 @@ public sealed class OpenAIPlanSignIn(IHttpClientFactory httpClients, IOptionsMon
     #endregion
 
     #region Exchange
+
+    /// <summary>
+    /// What a successful exchange comes to. The ID token is checked first ("Validate the ID token"), then that it is the
+    /// person's own account, then the plan scope. A valid sign-in without the plan scope is kept as the provider asks
+    /// ("ChatGPT plan use isn't enabled": retain the sign-in, mark plan use disabled): the issued client id, host id and
+    /// subject, with no token, so the next attempt asks again with the same registration and for consent.
+    /// </summary>
+    private async Task<ModelTokens> Accept(OpenAIPlanOptions settings, ModelSignInAttempt attempt, string clientId, TokenAnswer answer, CancellationToken cancellation)
+    {
+        var identity = await Validate(settings, answer.IdToken, clientId, attempt.Nonce, cancellation);
+
+        if (attempt.Earlier.TryGetValue(SubjectDetail, out var earlier) && earlier != identity.Subject)
+        {
+            // A sign-in with the person's issued client came back as another account: their registration is not replaced.
+            throw new ModelSignInRefusedException(AnotherAccount);
+        }
+
+        Dictionary<string, string> details = new(StringComparer.Ordinal)
+        {
+            [ClientIdDetail] = clientId,
+            [HostIdDetail] = HostIdFor(attempt),
+            [SubjectDetail] = identity.Subject,
+        };
+
+        if (!answer.Scopes.Contains(settings.RequiredScope, StringComparer.Ordinal))
+        {
+            details[PlanUseDetail] = PlanUseNotAllowedValue;
+            throw new ModelSignInRefusedException(PlanUseNotAllowed) { Kept = details };
+        }
+
+        return answer.ToTokens(time.GetUtcNow(), refreshToken: null) with { AccountLabel = identity.Email, Details = details };
+    }
+
+    /// <summary>Revokes a refresh token that will not be kept. It is a courtesy to the provider: a failure is logged by kind and passes.</summary>
+    private async Task Abandon(OpenAIPlanOptions settings, string clientId, string? refreshToken)
+    {
+        if (refreshToken is not { Length: > 0 })
+        {
+            return;
+        }
+
+        try
+        {
+            await RevokeAt(settings.RevokeAddress, clientId, refreshToken, CancellationToken.None);
+        }
+        catch (Exception failure) when (failure is ModelProviderException or HttpRequestException or IOException or OperationCanceledException)
+        {
+            logger.LogInformation("A refused ChatGPT plan sign-in's session could not be revoked: {Failure}", failure.GetType().Name);
+        }
+    }
 
     /// <summary>
     /// The issued client id to exchange with. A person who signed in before is asked with theirs, and a return that

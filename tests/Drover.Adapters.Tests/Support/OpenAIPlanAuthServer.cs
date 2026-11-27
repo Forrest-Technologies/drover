@@ -311,7 +311,7 @@ public sealed class ObservedPlanSignIn(OpenAIPlanSignIn signIn, OpenAIPlanAuthSe
 
     /// <summary>A sign-in on <paramref name="server"/>'s settings, over it as the network.</summary>
     public static ObservedPlanSignIn Over(OpenAIPlanAuthServer server, TimeProvider? time = null, IOptionsMonitor<OpenAIPlanOptions>? settings = null) =>
-        new(new OpenAIPlanSignIn(new FixtureHttpClientFactory(server), settings ?? new SettableOptions<OpenAIPlanOptions>(server.Settings), time ?? TimeProvider.System), server);
+        new(new OpenAIPlanSignIn(new FixtureHttpClientFactory(server), settings ?? new SettableOptions<OpenAIPlanOptions>(server.Settings), time ?? TimeProvider.System, NullLogger<OpenAIPlanSignIn>.Instance), server);
 
     #endregion
 }

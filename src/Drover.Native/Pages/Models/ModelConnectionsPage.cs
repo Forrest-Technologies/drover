@@ -31,6 +31,8 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly StatusNote signInNote = new() { Kind = NoteKind.Info };
 
+    private readonly ContentControl signInNoteHolder = new() { IsTabStop = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+
     private readonly Button signInAction = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
 
     private readonly Field nameField;
@@ -91,7 +93,9 @@ public sealed class ModelConnectionsPage : Screen
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
         signInAction.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
-        addSheet.Body = PageParts.SheetBody(provider, providersLoading, providersFailed, retryProviders, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, planLine, signInNote, signInAction, addProblem, addBusy);
+        signInNoteHolder.Content = signInNote;
+        signInNoteHolder.LostFocus += (_, _) => signInNoteHolder.IsTabStop = false;
+        addSheet.Body = PageParts.SheetBody(provider, providersLoading, providersFailed, retryProviders, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, planLine, signInNoteHolder, signInAction, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -331,7 +335,15 @@ public sealed class ModelConnectionsPage : Screen
 
         planLine.Text = flow.PlanLine;
         planLine.Visibility = shown && flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
+        var changed = shown && flow.Sentence is { Length: > 0 } && signInNote.Text != flow.Sentence;
         ShowSignInState(signInNote, signInAction, shown);
+
+        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
+        if (changed && addSheet.Open)
+        {
+            signInNoteHolder.IsTabStop = true;
+            signInNoteHolder.Focus(FocusState.Programmatic);
+        }
     }
 
     private void ShowSignInState(StatusNote note, Button action, bool shown)

@@ -23,7 +23,9 @@
       <dv:Link x:Name="KeyLink" />
       <StackPanel x:Name="SignInPanel" Spacing="{StaticResource DvSpace3}">
         <TextBlock x:Name="PlanLine" Style="{StaticResource DvTextSecondary}" TextWrapping="Wrap" />
-        <dv:StatusNote x:Name="SignInNote" AutomationProperties.LiveSetting="Polite" />
+        <ContentControl x:Name="SignInNoteHolder" IsTabStop="False" HorizontalContentAlignment="Stretch">
+          <dv:StatusNote x:Name="SignInNote" />
+        </ContentControl>
         <dv:Button x:Name="SignInAction" HorizontalAlignment="Stretch" Click="ActOnSignIn" />
       </StackPanel>
       <dv:StatusNote x:Name="Outcome" Text="{x:Bind Model.Outcome, Mode=OneWay}" />
