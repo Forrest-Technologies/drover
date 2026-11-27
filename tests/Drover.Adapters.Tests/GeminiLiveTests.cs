@@ -41,7 +41,7 @@ public sealed class GeminiLiveTests
     }
 
     [Fact(Explicit = true)]
-    public async Task Accepts_the_owners_key_and_lists_only_models_that_generate_content()
+    public async Task Accepts_the_owners_key_and_lists_chat_models()
     {
         var provider = BuildProvider();
 
@@ -52,6 +52,23 @@ public sealed class GeminiLiveTests
         models.Select(model => model.Id).Should().Contain(ReadModel()).And.OnlyHaveUniqueItems();
         models.Should().OnlyContain(model => !model.Id.StartsWith("models/", StringComparison.Ordinal));
         Note($"{models.Count} models listed; {models.Count(model => model.Capabilities.Reasoning)} think");
+    }
+
+    #endregion
+
+    #region Voice
+
+    [Fact(Explicit = true)]
+    public async Task Opens_a_voice_session_with_the_owners_key()
+    {
+        var cancellation = TestContext.Current.CancellationToken;
+        var provider = BuildProvider();
+        var key = ReadKey();
+        var models = await provider.ListModels(connection, key, cancellation);
+        var live = models.First(model => model.Capabilities.RealtimeVoice);
+        var voice = provider.ListVoices(live.Id)[0].Id;
+        await using var call = await provider.Open(connection, key, new(live.Id, voice, "Speak clearly."), cancellation);
+        Note($"Opened voice session on {live.Id}.");
     }
 
     #endregion

@@ -11,6 +11,9 @@ public static class ConnectionChoice
             .ThenByDescending(connection => connection.LastCheckedAt)
             .FirstOrDefault();
 
+    public static bool IsChatModel(ModelCatalogResponse entry) =>
+        entry.State is "available" && !entry.Traits.Contains("voice-only", StringComparer.Ordinal);
+
     #endregion
 
     #region Private Methods

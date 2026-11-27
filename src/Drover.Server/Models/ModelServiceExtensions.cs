@@ -20,7 +20,8 @@ public static class ModelServiceExtensions
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
-        services.AddModelProvider<GeminiProvider>(adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName);
+        services.AddModelProvider<GeminiProvider>(
+            adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName, GeminiProvider.LiveHttpClientName);
         services.AddModelProvider<OpenAIPlanProvider>(
             adapter => adapter.AddOpenAIPlanProvider(),
             OpenAIPlanProvider.HttpClientName,
