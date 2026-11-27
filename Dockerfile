@@ -1,7 +1,7 @@
 # Builds Drover from source. Nothing here is published as an image (docs/adr/0009).
 # Base images are pinned by digest; dependabot proposes new digests.
 
-FROM mcr.microsoft.com/dotnet/sdk:11.0@sha256:65f3c7c6a25a239ab3e6719f2896147e7b68242ff2d8818dd70498bde6ef8bea AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0@sha256:2794448a07118a6eaf00f29ab5d2bf44928517ce5ff86505a63a69230374f599 AS build
 WORKDIR /src
 
 # Keep peak memory low on a small machine, at the cost of some build time (docs/architecture/13-deployment-and-push.md).
