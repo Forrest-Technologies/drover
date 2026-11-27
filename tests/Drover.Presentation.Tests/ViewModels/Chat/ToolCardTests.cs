@@ -266,6 +266,38 @@ public sealed class ToolCardTests
         card.Running.Should().BeTrue("a line travels around the card while the tool runs");
     }
 
+    [Fact]
+    public async Task Answering_a_question_hands_the_focus_to_the_card_that_takes_its_place()
+    {
+        var card = Shown(Call("sandbox.run", """{"command":"ls"}""", "awaiting_approval").ToCard());
+        card.Decide = (_, _) => Task.FromResult<string?>(null);
+
+        card.TakeFocusForAnswer().Should().BeFalse("nothing moves while the question still stands");
+        await card.Answer(approved: true);
+        card.IsAsk.Should().BeTrue("the card changes only when the run's log says what happened");
+        card.TakeFocusForAnswer().Should().BeFalse("the answer button keeps the focus until the question goes");
+
+        card.Card = Call("sandbox.run", """{"command":"ls"}""", "running").ToCard();
+        card.ParametersSet();
+
+        card.IsAsk.Should().BeFalse();
+        card.TakeFocusForAnswer().Should().BeTrue("the focus moves to the card that replaced the question");
+        card.TakeFocusForAnswer().Should().BeFalse("once");
+    }
+
+    [Fact]
+    public async Task An_answer_that_was_not_sent_leaves_the_focus_with_the_question()
+    {
+        var card = Shown(Call("sandbox.run", """{"command":"ls"}""", "awaiting_approval").ToCard());
+        card.Decide = (_, _) => Task.FromResult<string?>("This request was answered already.");
+
+        await card.Answer(approved: true);
+        card.Card = Call("sandbox.run", """{"command":"ls"}""", "running").ToCard();
+        card.ParametersSet();
+
+        card.TakeFocusForAnswer().Should().BeFalse("a refused answer never sent the focus away");
+    }
+
     #endregion
 
     #region Announcements

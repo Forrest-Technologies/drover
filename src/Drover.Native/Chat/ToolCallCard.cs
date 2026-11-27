@@ -235,6 +235,11 @@ public sealed class ToolCallCard : Grid
         else
         {
             DrawCard();
+            if (model.TakeFocusForAnswer())
+            {
+                // The answer button went with the question. The card that took its place is the place to land.
+                Pieces.FocusWhenShown(section, section.TakeFocus);
+            }
         }
 
         drawn = model.Card;
