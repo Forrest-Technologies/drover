@@ -44,6 +44,9 @@ public static class ModelSignInReturnEndpoint
             return TypedResults.NotFound();
         }
 
+        // The address holds a one-time code: the page is not kept, and nothing is sent on from it.
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers["Referrer-Policy"] = "no-referrer";
         return Page(outcome.ConnectionId is not null && outcome.Status == 200);
     }
 

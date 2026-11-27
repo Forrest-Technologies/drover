@@ -16,7 +16,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, Anthropic);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, OpenRouterSignIn.ConnectionKind, Anthropic);
         kinds.Single(kind => kind.Kind == Anthropic).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Anthropic,
             "Anthropic",
@@ -49,6 +49,17 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         compatible.AddressRule.Should().Be(ModelAddressRules.Required);
         compatible.AddressHint.Should().NotBeNullOrWhiteSpace();
         compatible.ReportsCapabilities.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_sign_in_kind_says_so_and_a_key_kind_does_not()
+    {
+        var client = await SignedInClient();
+
+        var kinds = (await (await client.Get(Route)).Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
+
+        kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).SignIn.Should().BeTrue();
+        kinds.Where(kind => kind.Kind != OpenRouterSignIn.ConnectionKind).Should().OnlyContain(kind => !kind.SignIn);
     }
 
     [Fact]
@@ -242,7 +253,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "anthropic");
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", OpenRouterSignIn.ConnectionKind, "anthropic");
     }
 
     #endregion

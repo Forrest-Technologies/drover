@@ -35,7 +35,7 @@ public sealed class RenewingChatClient(
         {
             return await client.GetResponse(request, cancellation);
         }
-        catch (ModelProviderException failure) when (failure.Failure is ModelFailure.InvalidKey && current.ExpiresAt is null)
+        catch (ModelProviderException failure) when (failure is { Failure: ModelFailure.InvalidKey, HttpStatus: 401 } && current.ExpiresAt is null)
         {
             throw await Rejected(failure, cancellation);
         }
@@ -58,7 +58,7 @@ public sealed class RenewingChatClient(
                     yield break;
                 }
             }
-            catch (ModelProviderException failure) when (failure.Failure is ModelFailure.InvalidKey && current.ExpiresAt is null)
+            catch (ModelProviderException failure) when (failure is { Failure: ModelFailure.InvalidKey, HttpStatus: 401 } && current.ExpiresAt is null)
             {
                 throw await Rejected(failure, cancellation);
             }
@@ -74,7 +74,8 @@ public sealed class RenewingChatClient(
     #region Private Methods
 
     /// <summary>
-    /// The provider refused a key that has no end. For a sign-in that is the sign-in being over, so it is ended and the
+    /// The provider refused a key that has no end, with a 401. A 403 is not this: some providers answer it for a
+    /// blocked or moderated request, which says nothing about the key. For a sign-in that is the sign-in being over, so it is ended and the
     /// call fails as such; for anything else the provider's own failure stands.
     /// </summary>
     private async Task<Exception> Rejected(ModelProviderException failure, CancellationToken cancellation)

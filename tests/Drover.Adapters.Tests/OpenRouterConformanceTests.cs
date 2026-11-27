@@ -33,6 +33,22 @@ public sealed class OpenRouterConformanceTests : ModelProviderConformance
         sent.Headers["Authorization"].Should().Be($"Bearer {rig.Subject.ApiKey}");
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, 401)]
+    [InlineData(HttpStatusCode.Forbidden, 403)]
+    public async Task A_refused_call_carries_the_status_so_a_401_can_be_told_from_a_403(HttpStatusCode answer, int status)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ScriptedHandler.Json(answer, """{"error":{"message":"no"}}""")));
+        var provider = new OpenRouterProvider(new FixtureHttpClientFactory(handler), new ChangingOptions<OpenRouterSignInOptions>(new OpenRouterSignInOptions()));
+        var client = provider.CreateChatClient(new ModelEndpoint(OpenRouterProvider.ConnectionKind, new Uri("https://openrouter.ai/api/v1/")), TestKeys.Generate(), OpenRouterRig.ModelId, new ModelSettings());
+
+        var asking = () => client.Ask("Hi");
+
+        var failure = (await asking.Should().ThrowAsync<ModelProviderException>()).Which;
+        failure.Failure.Should().Be(ModelFailure.InvalidKey);
+        failure.HttpStatus.Should().Be(status);
+    }
+
     [Fact]
     public async Task A_call_with_no_key_is_refused_before_anything_is_sent()
     {

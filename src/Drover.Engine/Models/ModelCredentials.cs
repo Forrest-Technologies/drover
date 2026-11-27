@@ -320,7 +320,7 @@ public sealed class ModelCredentials(
         if (credential.SecretId != secretId)
         {
             return await RevealTokens(services.GetRequiredService<ISecretVault>(), credential, cancellationToken) is { } current
-                ? SignedIn(current, handle)
+                ? SignedIn(current, handle with { SecretId = credential.SecretId })
                 : Unreadable(handle.ConnectionName);
         }
 

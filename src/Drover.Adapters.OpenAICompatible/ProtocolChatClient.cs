@@ -106,7 +106,7 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
     };
 
     internal static ModelProviderException WithHeaders(ModelProviderException failure, IReadOnlyDictionary<string, string> headers) =>
-        new(failure.Failure, failure.Message, failure.RetryAfter) { ResponseHeaders = headers };
+        new(failure.Failure, failure.Message, failure.RetryAfter) { ResponseHeaders = headers, HttpStatus = failure.HttpStatus };
 
     private static JsonElement ReadData(BinaryData data)
     {

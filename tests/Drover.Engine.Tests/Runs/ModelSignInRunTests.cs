@@ -64,6 +64,22 @@ public sealed class ModelSignInRunTests(PostgresServer postgres)
         world.Model.KeysSeen.Count.Should().Be(callsAfterFirst, "no model call is made once the sign-in has ended");
     }
 
+    [Fact]
+    public async Task A_403_does_not_end_the_sign_in_because_the_provider_also_answers_it_for_a_blocked_request()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hi.")]), new TestTools());
+        var signIn = new FakeModelSignIn(ScriptedModelProvider.ConnectionKind) { NoEnd = true };
+        var host = world.StartHost(replaceServices: services => services.AddSingleton<IModelSignIn>(signIn));
+        await ModelCredentialsTests.SignIn(world, host, signIn, world.UserId);
+        world.Model.BeforeCall = _ => Task.FromException(ModelProviderException.FromStatus(403));
+
+        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Hello?"), RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Failed);
+        run.Error!.Code.Should().NotBe(RunReasons.SignInEnded);
+        (await world.Read(db => db.ModelConnectionCredentials.SingleAsync(RunWorld.Token))).Status.Should().Be(ModelSignInStatus.Active);
+    }
+
     #endregion
 
     #region Whose Sign-In
