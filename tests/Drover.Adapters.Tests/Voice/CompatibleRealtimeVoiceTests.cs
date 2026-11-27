@@ -60,7 +60,7 @@ public sealed class CompatibleRealtimeVoiceTests : IAsyncLifetime
     public async Task Configures_the_call_and_translates_a_whole_turn()
     {
         var key = TestKeys.Generate();
-        await using var session = await Open(key, new RealtimeVoiceOptions("gpt-realtime-2.1", "marin", "You are Atlas.")
+        await using var session = await Open(key, new RealtimeVoiceOptions("gpt-realtime-2.1", "marin", "You are Atlas. You help plan trips.")
         {
             History = [new RealtimeTurn(false, "Hi"), new RealtimeTurn(true, "Hello Sam.")],
             TranscriptionModel = "gpt-transcribe",
@@ -100,7 +100,7 @@ public sealed class CompatibleRealtimeVoiceTests : IAsyncLifetime
         setup.GetProperty("type").GetString().Should().Be("session.update");
         var configured = setup.GetProperty("session");
         configured.GetProperty("type").GetString().Should().Be("realtime");
-        configured.GetProperty("instructions").GetString().Should().Be("You are Atlas.");
+        configured.GetProperty("instructions").GetString().Should().Be("You are Atlas. You help plan trips.");
         configured.GetProperty("audio").GetProperty("output").GetProperty("voice").GetString().Should().Be("marin");
         configured.GetProperty("audio").GetProperty("input").GetProperty("format").GetProperty("rate").GetInt32().Should().Be(24_000);
         configured.GetProperty("audio").GetProperty("input").GetProperty("transcription").GetProperty("model").GetString().Should().Be("gpt-transcribe");
@@ -110,6 +110,7 @@ public sealed class CompatibleRealtimeVoiceTests : IAsyncLifetime
         configured.GetProperty("audio").GetProperty("input").TryGetProperty("noise_reduction", out _).Should().BeFalse();
         sent[1].GetProperty("item").GetProperty("role").GetString().Should().Be("user");
         sent[2].GetProperty("item").GetProperty("content")[0].GetProperty("type").GetString().Should().Be("output_text");
+        sent[2].GetProperty("item").GetProperty("content")[0].GetProperty("text").GetString().Should().Be("Hello Sam.");
         sent[3].GetProperty("type").GetString().Should().Be("input_audio_buffer.append");
         Convert.FromBase64String(sent[3].GetProperty("audio").GetString()!).Should().Equal(1, 0, 2, 0);
     }
