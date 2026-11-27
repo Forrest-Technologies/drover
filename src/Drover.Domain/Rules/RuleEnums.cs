@@ -58,6 +58,12 @@ public enum RuleConditionKind
 
     /// <summary>The run has used more tool calls or tokens than a number.</summary>
     RunExceeds,
+
+    /// <summary>
+    /// A sentence a person wrote, which a decision model judges. The model returns probabilities and code compares
+    /// them with the rule's own numbers. Judged rules only narrow, and they are not a guarantee.
+    /// </summary>
+    Judged,
 }
 
 /// <summary>The kinds of text a rule can look for without a pattern being written.</summary>

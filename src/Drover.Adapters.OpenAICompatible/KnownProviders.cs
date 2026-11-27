@@ -40,8 +40,8 @@ public static class KnownProviders
         // https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion
         Hosted("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "https://openrouter.ai/settings/keys"),
 
-        // https://ai.google.dev/gemini-api/docs/openai. When #529 offers its own kind with this id, the server stops
-        // listing this row, as it does for openai.
+        // https://ai.google.dev/gemini-api/docs/openai. Not listed while the server offers the gemini kind (the provider's
+        // own generateContent API, GeminiProvider). The row stays as the way in when an operator switches that kind off.
         Hosted("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "https://aistudio.google.com/apikey"),
 
         // https://docs.x.ai/developers/model-capabilities/legacy/chat-completions

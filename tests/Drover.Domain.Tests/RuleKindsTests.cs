@@ -557,6 +557,7 @@ public sealed class RuleKindsTests
         RuleConditionKind.NotInList => new() { Kind = kind, Argument = anywhere ? null : "text, list, deep", Entries = ["example.org"] },
         RuleConditionKind.TimeIs => new() { Kind = kind, From = "00:00", To = "23:59", TimeZone = "UTC" },
         RuleConditionKind.RunExceeds => new() { Kind = kind, Counter = RunCounter.ToolCalls, Limit = 1 },
+        RuleConditionKind.Judged => new() { Kind = kind, Statement = new string('a', RuleValidator.MaxValueLength) },
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Add the new condition kind to the hostile inputs test."),
     };
 

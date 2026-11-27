@@ -14,6 +14,12 @@ public sealed record RuleTrial(RuleOutcome? Outcome, string? Problem, bool BotMi
     /// <summary>Whether a rule tried at this moment looks for something in text, whether or not any rule applied.</summary>
     public bool TriedAPattern { get; init; }
 
+    /// <summary>
+    /// How the check of the rule written as a sentence came out: the draft's when the draft is one, otherwise the
+    /// deciding rule's, otherwise the first one checked. Null when no such rule was tried.
+    /// </summary>
+    public JudgedSettlement? Judged { get; init; }
+
     #endregion
 }
 
@@ -27,6 +33,9 @@ public sealed class RuleService(
     ToolRepository tools,
     PolicyService policy,
     AuditLog audit,
+    TenantScope scope,
+    TenantContext tenant,
+    FindDecisionModel findDecisionModel,
     TimeProvider time,
     ILogger<RuleService> logger)
 {
@@ -46,10 +55,14 @@ public sealed class RuleService(
             found.Rule.BotId)
         {
             WrittenPatternsOff = !deployment.AllowWrittenRulePatterns,
+            JudgedOff = !deployment.AllowJudgedRules,
         })];
 
     /// <summary>Whether a rule on this server may look for text with a pattern a person wrote.</summary>
     public bool AllowsWrittenPatterns => policy.Deployment.AllowWrittenRulePatterns;
+
+    /// <summary>Whether a rule on this server may be written as a sentence that a decision model judges.</summary>
+    public bool AllowsJudgedRules => policy.Deployment.AllowJudgedRules;
 
     /// <summary>Every rule the bot follows, inherited ones first, or null when there is no such bot.</summary>
     public async Task<List<InheritedRule>?> ListRules(Guid botId, CancellationToken cancellationToken) =>
@@ -64,7 +77,10 @@ public sealed class RuleService(
     public async Task<List<BotRuleResponse>> Describe(IReadOnlyList<InheritedRule> found, CancellationToken cancellationToken)
     {
         var known = (await tools.ListAllToolNames(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return [.. found.Select(rule => rule.ToResponse() with { Notes = Notes(rule.Rule, known, AllowsWrittenPatterns) })];
+        var decisionModel = AllowsJudgedRules && found.Any(rule => rule.Rule.Conditions.Any(condition => condition.IsJudged)) && tenant.SpaceId is { } spaceId
+            ? await findDecisionModel(spaceId, cancellationToken)
+            : null;
+        return [.. found.Select(rule => rule.ToResponse() with { Notes = Notes(rule.Rule, known, AllowsWrittenPatterns, AllowsJudgedRules, decisionModel is not null) })];
     }
 
     public async Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
@@ -175,58 +191,36 @@ public sealed class RuleService(
 
     /// <summary>
     /// What a run would do with a sample, by the evaluator a run uses, over the rules the bot follows. A draft rule
-    /// is checked like a saved one and tried as the bot's last.
+    /// is checked like a saved one and tried as the bot's last. A rule written as a sentence goes through the same two
+    /// steps as in a run: the rules are read in a short scope, the space's decision model is asked with no scope open,
+    /// and the evaluator decides. The caller opens no scope: this opens its own.
     /// </summary>
     public async Task<RuleTrial> Try(Guid botId, TryRulesRequest request, CancellationToken cancellationToken)
     {
-        if (await FindBot(botId, cancellationToken) is null)
-        {
-            return new RuleTrial(null, null, BotMissing: true);
-        }
+        RuleSample sample;
 
-        if ((request.Text?.Length ?? 0) + (request.Json?.Length ?? 0) > MaxSampleLength)
+        await using (var work = await scope.Begin(cancellationToken))
         {
-            return new RuleTrial(null, $"A sample can be up to {MaxSampleLength:N0} characters. Try a shorter one.");
-        }
+            var (read, problem) = await ReadSample(botId, request, cancellationToken);
+            await work.Commit(cancellationToken);
 
-        if (Words.Read<RuleCheckpoint>(request.Checkpoint) is not { } checkpoint)
-        {
-            return new RuleTrial(null, "Choose the moment to try: before_tool, after_tool, before_reply, or message_arrives.");
-        }
-
-        var active = Active(await rules.ListRulesAlongPath(botId, cancellationToken), policy.Deployment).ToList();
-
-        if (request.Draft is { } draft)
-        {
-            if (Read(draft) is not { Rule: { } read })
+            if (read is null)
             {
-                return new RuleTrial(null, Read(draft).Problem);
+                return problem!;
             }
 
-            active.Add(new ActiveRule(Guid.Empty, read.Name, read.Checkpoint, read.Effect, read.Conditions, botId) { WrittenPatternsOff = !AllowsWrittenPatterns });
+            sample = read;
         }
 
-        var atATool = checkpoint is RuleCheckpoint.BeforeTool or RuleCheckpoint.AfterTool;
-        var (json, unreadable) = atATool ? ReadJson(request.Json) : (null, null);
-
-        if (unreadable is not null)
+        var due = RuleEvaluator.FindJudgmentsDue(sample.Rules, sample.Subject);
+        var verdicts = due.Rules.Count == 0 ? new Dictionary<ActiveRule, JudgedVerdict>() : await Judge(due, sample.Subject, cancellationToken);
+        var outcome = RuleEvaluator.Evaluate(sample.Rules, sample.Subject, verdicts);
+        var tried = new[] { sample.Draft, outcome?.Rule }.FirstOrDefault(rule => rule is { Judged: not null } && due.Rules.Contains(rule))
+            ?? (due.Rules.Count > 0 ? due.Rules[0] : null);
+        return new RuleTrial(outcome, null)
         {
-            return new RuleTrial(null, unreadable);
-        }
-
-        var tool = atATool && !string.IsNullOrWhiteSpace(request.Tool) ? await tools.FindToolByName(request.Tool.Trim(), cancellationToken) : null;
-        var subject = new RuleSubject
-        {
-            Checkpoint = checkpoint,
-            ToolName = atATool ? request.Tool?.Trim() : null,
-            ToolKind = tool?.Sensitivity,
-            Json = json,
-            Text = atATool ? null : request.Text ?? string.Empty,
-            Now = time.GetUtcNow(),
-        };
-        return new RuleTrial(RuleEvaluator.Evaluate(active, subject), null)
-        {
-            TriedAPattern = active.Any(rule => rule.Checkpoint == checkpoint && rule.Conditions.Any(condition => condition.IsPattern)),
+            TriedAPattern = sample.Rules.Any(rule => rule.Checkpoint == sample.Subject.Checkpoint && rule.Conditions.Any(condition => condition.IsPattern)),
+            Judged = tried is null ? null : JudgedRules.Settle(tried, sample.Subject.Checkpoint, verdicts.GetValueOrDefault(tried)),
         };
     }
 
@@ -262,7 +256,76 @@ public sealed class RuleService(
 
     #region Private Methods
 
-    private static List<string> Notes(BotRule rule, HashSet<string> knownTools, bool writtenPatterns)
+    // The sample as the evaluator takes it, with the rules the bot follows and the draft, or why it cannot be tried.
+    private async Task<(RuleSample? Sample, RuleTrial? Problem)> ReadSample(Guid botId, TryRulesRequest request, CancellationToken cancellationToken)
+    {
+        if (await FindBot(botId, cancellationToken) is null)
+        {
+            return (null, new RuleTrial(null, null, BotMissing: true));
+        }
+
+        if ((request.Text?.Length ?? 0) + (request.Json?.Length ?? 0) > MaxSampleLength)
+        {
+            return (null, new RuleTrial(null, $"A sample can be up to {MaxSampleLength:N0} characters. Try a shorter one."));
+        }
+
+        if (Words.Read<RuleCheckpoint>(request.Checkpoint) is not { } checkpoint)
+        {
+            return (null, new RuleTrial(null, "Choose the moment to try: before_tool, after_tool, before_reply, or message_arrives."));
+        }
+
+        var active = Active(await rules.ListRulesAlongPath(botId, cancellationToken), policy.Deployment).ToList();
+        ActiveRule? drafted = null;
+
+        if (request.Draft is { } draft)
+        {
+            if (Read(draft) is not { Rule: { } read })
+            {
+                return (null, new RuleTrial(null, Read(draft).Problem));
+            }
+
+            drafted = new ActiveRule(Guid.Empty, read.Name, read.Checkpoint, read.Effect, read.Conditions, botId)
+            {
+                WrittenPatternsOff = !AllowsWrittenPatterns,
+                JudgedOff = !AllowsJudgedRules,
+            };
+            active.Add(drafted);
+        }
+
+        var atATool = checkpoint is RuleCheckpoint.BeforeTool or RuleCheckpoint.AfterTool;
+        var (json, unreadable) = atATool ? ReadJson(request.Json) : (null, null);
+
+        if (unreadable is not null)
+        {
+            return (null, new RuleTrial(null, unreadable));
+        }
+
+        var tool = atATool && !string.IsNullOrWhiteSpace(request.Tool) ? await tools.FindToolByName(request.Tool.Trim(), cancellationToken) : null;
+        var subject = new RuleSubject
+        {
+            Checkpoint = checkpoint,
+            ToolName = atATool ? request.Tool?.Trim() : null,
+            ToolKind = tool?.Sensitivity,
+            Json = json,
+            Text = atATool ? null : request.Text ?? string.Empty,
+            Now = time.GetUtcNow(),
+        };
+        return (new RuleSample(active, subject, drafted), null);
+    }
+
+    // "Try it" asks the space's decision model as a run does, with the sample as the action and nothing else: a
+    // sample has no person's messages and no tool results.
+    private async Task<IReadOnlyDictionary<ActiveRule, JudgedVerdict>> Judge(JudgmentsDue due, RuleSubject subject, CancellationToken cancellationToken)
+    {
+        var model = tenant.SpaceId is { } spaceId ? await findDecisionModel(spaceId, cancellationToken) : null;
+        var checks = new JudgedChecks(model, policy.Deployment.MaxJudgedRuleSeconds, time, text => text, logger);
+        var action = subject.Checkpoint is RuleCheckpoint.BeforeTool
+            ? JsonSerializer.Serialize(new { tool = subject.ToolName, kind = subject.ToolKind is { } kind ? Words.Of(kind) : null, arguments = due.Hard?.RedactedJson ?? subject.Json })
+            : due.Hard?.RedactedText ?? subject.Text ?? string.Empty;
+        return (await checks.Check(due.Rules, new JudgedState(action, string.Empty, string.Empty), cancellationToken)).Verdicts;
+    }
+
+    private static List<string> Notes(BotRule rule, HashSet<string> knownTools, bool writtenPatterns, bool judgedRules, bool hasDecisionModel)
     {
         List<string> notes =
         [
@@ -278,6 +341,11 @@ public sealed class RuleService(
             && !rule.Conditions.Any(condition => condition.Kind is RuleConditionKind.ToolIs))
         {
             notes.Add("This rule checks a named input and does not say for which tools, so it does not apply when the input is missing. Change it to add the tools it is about.");
+        }
+
+        if (rule.Conditions.Any(condition => condition.IsJudged))
+        {
+            notes.Add(JudgedNote(judgedRules, hasDecisionModel));
         }
 
         foreach (var condition in rule.Conditions.Where(condition => condition.Kind is RuleConditionKind.TextMatches))
@@ -298,6 +366,15 @@ public sealed class RuleService(
 
         return notes;
     }
+
+    // A judged rule is not a guarantee, and one that cannot be checked goes to a person: the read-back says which.
+    private static string JudgedNote(bool judgedRules, bool hasDecisionModel) =>
+        (judgedRules, hasDecisionModel) switch
+        {
+            (false, _) => $"{JudgedRules.TurnedOff} Until that changes, this rule is never checked: before a tool a person is asked, and before a reply the reply is held back.",
+            (_, false) => "No decision model is connected, so this rule cannot be checked: before a tool a person is asked, and before a reply the reply is held back.",
+            _ => "A decision model checks this rule. It is judged, not guaranteed: never let it be the only thing between a bot and a tool that cannot be undone.",
+        };
 
     private static JsonObject About(BotRule rule) => new() { ["rule_id"] = rule.Id };
 
@@ -322,6 +399,11 @@ public sealed class RuleService(
     private (ReadRule? Rule, string? Problem) Read(BotRuleBody body)
     {
         var (rule, problem) = ReadWords(body);
+
+        if (rule is not null && !AllowsJudgedRules && rule.Conditions.Any(condition => condition.IsJudged))
+        {
+            return (null, JudgedRules.TurnedOff);
+        }
 
         return rule is not null && !AllowsWrittenPatterns && rule.Conditions.Any(condition => condition.Kind is RuleConditionKind.TextMatches)
             ? (null, WrittenPatternsOff)
@@ -374,6 +456,8 @@ public sealed class RuleService(
     #region Nested Types
 
     private sealed record ReadRule(string Name, RuleCheckpoint Checkpoint, RuleEffect Effect, List<RuleCondition> Conditions);
+
+    private sealed record RuleSample(List<ActiveRule> Rules, RuleSubject Subject, ActiveRule? Draft);
 
     #endregion
 }
