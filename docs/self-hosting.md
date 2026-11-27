@@ -142,7 +142,8 @@ Eligible Google AI Pro and Ultra plans include monthly Google Cloud developer cr
 
 1. Claim your cloud credits and apply them to a Cloud Billing account. Select **Always use this billing account** to apply future monthly credits to it. [Google Developer Program benefits page](https://me.developers.google.com/benefits)
 2. In Google AI Studio, use a project linked to that billing account and create a Gemini API key for it. If the account uses Prepay, Google requires a positive prepaid balance before it applies eligible cloud credits. [Gemini API keys](https://aistudio.google.com/docs/api-key) · [Gemini API billing](https://aistudio.google.com/docs/billing#cloud-credits-prepay)
-3. In Drover, open **Models → Add a connection**. Select **Google Gemini**, paste the key, and choose **Test connection**. When the test passes, choose **Add connection**.
+3. In Drover, open **Models → Add a model connection**. Select **Google Gemini**, enter a connection name, paste the key, and choose **Add connection**.
+4. Open **More** on the saved connection and choose **Test connection**.
 
 ## Backup
 
