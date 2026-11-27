@@ -61,7 +61,8 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
 
     #region Private Methods
 
-    private ModelChatOptions WithDefaults(ModelChatOptions options) => options with
+    /// <summary>The bot's settings fill what the call leaves unset.</summary>
+    internal static ModelChatOptions WithDefaults(ModelChatOptions options, ModelSettings settings) => options with
     {
         Temperature = options.Temperature ?? (float?)settings.Temperature,
         MaxOutputTokens = options.MaxOutputTokens ?? settings.MaxOutputTokens,
@@ -71,7 +72,7 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
 
     private ChatOptions ToChatOptions(ModelChatOptions options)
     {
-        var effective = WithDefaults(options);
+        var effective = WithDefaults(options, settings);
         var effort = effective.ReasoningEffort?.ToLowerInvariant();
         if (effort is not ("max" or "minimal"))
         {
@@ -91,20 +92,20 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
 
     private IChatClient CreateClient(ProtocolHeaderCapture headers)
     {
-        var options = CreateOptions(httpClient, endpoint);
+        var options = CreateOptions(httpClient, endpoint.BaseAddress);
         options.AddPolicy(headers, PipelinePosition.PerCall);
         return new OpenAIClient(new ApiKeyCredential(apiKey), options).GetChatClient(modelId).AsIChatClient();
     }
 
-    internal static OpenAIClientOptions CreateOptions(HttpClient client, ModelEndpoint destination) => new()
+    internal static OpenAIClientOptions CreateOptions(HttpClient client, Uri address) => new()
     {
-        Endpoint = destination.BaseAddress.AbsoluteUri.EndsWith('/') ? destination.BaseAddress : new Uri($"{destination.BaseAddress.AbsoluteUri}/"),
+        Endpoint = address.AbsoluteUri.EndsWith('/') ? address : new Uri($"{address.AbsoluteUri}/"),
         Transport = new HttpClientPipelineTransport(client),
         RetryPolicy = new ClientRetryPolicy(0),
         NetworkTimeout = Timeout.InfiniteTimeSpan,
     };
 
-    private static ModelProviderException WithHeaders(ModelProviderException failure, IReadOnlyDictionary<string, string> headers) =>
+    internal static ModelProviderException WithHeaders(ModelProviderException failure, IReadOnlyDictionary<string, string> headers) =>
         new(failure.Failure, failure.Message, failure.RetryAfter) { ResponseHeaders = headers };
 
     private static JsonElement ReadData(BinaryData data)

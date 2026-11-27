@@ -53,7 +53,7 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-Until the kinds come from the server (#850), the provider choice is Venice, the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
+Until the kinds come from the server (#850), the provider choice is Venice, then each other kind the server offers with its own wire (such as `openai`, the provider's Responses API), then the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
 
 | Choice | Drawn as |
 | --- | --- |
@@ -62,6 +62,7 @@ Until the kinds come from the server (#850), the provider choice is Venice, the 
 | Key rule: optional | The field labeled `Key (optional)` |
 | A key page | One `Link` under the key field: `Get a key from {name}`, opened in the browser. The text and address are drawn as plain values from the server, never as markup |
 | A local provider | One line: `Drover's server must be able to reach this address.` |
+| A kind with its own wire | No address field. The key field and its hint as the server describes the kind. The kind's name is the connection's name |
 | Another compatible server | The address field, as before |
 
 | State | Words |

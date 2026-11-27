@@ -21,13 +21,15 @@ public static class KnownProviders
     /// <summary>Every row, in the order offered.</summary>
     public static IReadOnlyList<ModelProviderPreset> All { get; } =
     [
-        // https://platform.openai.com/docs/api-reference/introduction
+        // https://platform.openai.com/docs/api-reference/introduction. Not listed while the server offers the openai
+        // kind (the provider's Responses API, OpenAIProvider): a named provider whose own kind is offered is left out.
         Hosted("openai", "OpenAI", "https://api.openai.com/v1", "https://platform.openai.com/api-keys"),
 
         // https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion
         Hosted("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "https://openrouter.ai/settings/keys"),
 
-        // https://ai.google.dev/gemini-api/docs/openai. #529 removes this row when its own kind lands.
+        // https://ai.google.dev/gemini-api/docs/openai. When #529 offers its own kind with this id, the server stops
+        // listing this row, as it does for openai.
         Hosted("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "https://aistudio.google.com/apikey"),
 
         // https://docs.x.ai/developers/model-capabilities/legacy/chat-completions

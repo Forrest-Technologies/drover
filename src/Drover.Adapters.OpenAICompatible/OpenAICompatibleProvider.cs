@@ -136,59 +136,18 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
     private async Task<List<ModelInfo>?> ReadModels(
         ModelEndpoint connection,
         string? apiKey,
-        CancellationToken cancellation)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(WithTrailingSlash(connection.BaseAddress), "models"));
-
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        try
-        {
-            using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
-
-            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed
-                or HttpStatusCode.NotImplemented)
-            {
-                return null;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var retryAfter = ProtocolFailureMapping.ParseRetryAfter(
-                    response.Headers.TryGetValues("Retry-After", out var values) ? values.FirstOrDefault() : null,
-                    DateTimeOffset.UtcNow);
-
-                throw ModelProviderException.FromStatus((int)response.StatusCode, retryAfter);
-            }
-
-            using var document = await BoundedResponse.ReadJson(response.Content, connection.Limits.MaxBytes, "model list", cancellation);
-
-            return ParseModels(document.RootElement);
-        }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
-        {
-            throw ModelProviderException.FromMalformedResponse();
-        }
-        catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
-        {
-            throw mapped;
-        }
-    }
-
-    private static List<ModelInfo> ParseModels(JsonElement root) =>
-        root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
-            ? [.. data.EnumerateArray().Select(PublishedModelFacts.Read).OfType<ModelInfo>()]
-            : [];
+        CancellationToken cancellation) =>
+        await ProtocolModelList.Read(
+            httpClients.CreateClient(HttpClientName),
+            connection.BaseAddress,
+            apiKey,
+            connection.Limits,
+            PublishedModelFacts.Read,
+            cancellation);
 
     #endregion
 
     #region Private Methods
-
-    private static Uri WithTrailingSlash(Uri address) =>
-        address.AbsoluteUri.EndsWith('/') ? address : new Uri($"{address.AbsoluteUri}/");
 
     private static string KeyOrPlaceholder(string? apiKey) => string.IsNullOrEmpty(apiKey) ? PlaceholderKey : apiKey;
 
