@@ -275,11 +275,13 @@ public sealed partial class RunExecutor(
         List<Guid> requested = [.. toolEvents.Where(stored => stored.Type == RunEventTypes.ToolRequested).Select(stored => RunEventTypes.Read<ToolRequested>(stored.Data.GetRawText()).ToolCallId)];
         var toolCalls = services.GetRequiredService<ToolCallRepository>();
         var rows = await toolCalls.ListToolCalls(unsettled, cancellationToken);
-        var asked = ReadLastApprovalRequests(await events.ListEventsOfRun(runId, approvalEventTypes, cancellationToken));
+        var approvalEvents = await events.ListEventsOfRun(runId, approvalEventTypes, cancellationToken);
+        var asked = ReadLastApprovalRequests(approvalEvents);
         var answered = asked.Count == 0 ? [] : await services.GetRequiredService<MessageRepository>().ListAnsweredCalls(run.ThreadId, cancellationToken);
         var answers = ToAnswers(
             [.. asked.Where(request => !answered.Contains(request.ToolCallId))],
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
+        answers.AddRange(HeldWithoutAPerson(await toolCalls.ListHeldWithoutAPerson(runId, cancellationToken), ReadAskedCalls(approvalEvents)));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
         var bots = services.GetRequiredService<BotRepository>();
@@ -441,6 +443,24 @@ public sealed partial class RunExecutor(
             .Select(request => (Request: request, Row: rows.FirstOrDefault(row => row.Id == request.ToolCallId)))
             .Where(pair => pair.Row is { Status: not ToolCallStatus.PendingApproval })
             .Select(pair => new ToolApproval(pair.Request.RequestId, pair.Request.CallId, pair.Row!.Status is not ToolCallStatus.Denied)),
+    ];
+
+    /// <summary>
+    /// The held calls no person is asked about: those a rule check cleared, and those a restart cut off before they
+    /// were checked. Each is handed over as a yes, and the gate decides about it at call time as about any call, so
+    /// the check is made again: a yes here runs nothing the grant and the rules would not let run with no person.
+    /// </summary>
+    private static IEnumerable<PendingResponse> HeldWithoutAPerson(IReadOnlyList<ToolCall> held, HashSet<Guid> asked) =>
+        held
+            .Where(row => row is { ApprovalRequestId: not null, ModelCallId: not null } && !asked.Contains(row.Id))
+            .Select(row => new ToolApproval(row.ApprovalRequestId!, row.ModelCallId!, true));
+
+    /// <summary>Every call a person was ever asked about in this run. None of them is handed over without its person's answer.</summary>
+    private static HashSet<Guid> ReadAskedCalls(IReadOnlyList<RunEvent> events) =>
+    [
+        .. events
+            .Where(stored => stored.Type == RunEventTypes.ToolApprovalRequested)
+            .Select(stored => RunEventTypes.Read<ToolApprovalRequested>(stored.Data.GetRawText()).ToolCallId),
     ];
 
     private RunSession NewSession(LoadedRun loaded, RunTenant tenant, string workerId, RunSession? parent = null)
@@ -839,7 +859,7 @@ public sealed partial class RunExecutor(
         InputSchema = tool.Tool.InputSchema,
         DefinitionHash = tool.Tool.DefinitionHash,
         Sensitivity = tool.Sensitivity,
-        RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
+        RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool) || session.JudgedRuleReaches(tool),
         DefinedByServer = tool.Builtin is null,
     };
 

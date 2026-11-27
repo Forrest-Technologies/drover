@@ -27,9 +27,10 @@ public sealed class SpaceDecisionModelTests(PostgresServer postgres)
 
         var runId = await world.Post(await world.NewThread(), "Send it");
 
-        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed, RunStatus.Waiting);
         provider.Model.Requests.Should().HaveCount(asked ? 1 : 0);
-        world.Tools.Count("email.send").Should().Be(asked ? 1 : 0, "a rule nobody could check goes to a person, and no person is asked here");
+        world.Tools.Count("email.send").Should().Be(asked ? 1 : 0, "a rule nobody could check goes to a person");
+        run.Status.Should().Be(asked ? RunStatus.Completed : RunStatus.Waiting);
     }
 
     [Fact]
@@ -40,7 +41,7 @@ public sealed class SpaceDecisionModelTests(PostgresServer postgres)
 
         var runId = await world.Post(await world.NewThread(), "Send it");
 
-        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed, RunStatus.Waiting)).Status.Should().Be(RunStatus.Waiting);
         provider.Model.Requests.Should().BeEmpty();
     }
 
@@ -68,9 +69,9 @@ public sealed class SpaceDecisionModelTests(PostgresServer postgres)
 
         var runId = await world.Post(await world.NewThread(), "Send both");
 
-        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed, RunStatus.Waiting)).Status.Should().Be(RunStatus.Waiting);
         provider.Model.Requests.Should().ContainSingle("the second check finds no decision model");
-        tools.Count("email.send").Should().Be(1, "the second call was unsure, and went to a person");
+        tools.Count("email.send").Should().Be(1, "the second call was unsure, and waits for a person");
         var checks = (await world.ReadEvents(runId)).Where(stored => stored.Type == RunEventTypes.RuleChecked).Select(RunWorld.Data<RuleChecked>);
         checks.Select(check => check.Outcome).Should().Equal("passes", "unsure");
     }

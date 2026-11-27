@@ -13,6 +13,8 @@ public sealed class ToolCallMapping : IEntityTypeConfiguration<ToolCall>
         builder.Property(call => call.ToolDefinitionHash).HasMaxLength(128);
         builder.Property(call => call.Arguments).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
         builder.Property(call => call.Result).HasColumnType("jsonb");
+        builder.Property(call => call.ApprovalRequestId).HasMaxLength(200);
+        builder.Property(call => call.ModelCallId).HasMaxLength(200);
         builder.HasEnumColumn(call => call.Status);
 
         // The approval inbox.

@@ -46,6 +46,18 @@ public sealed class ToolCall : ISpaceOwned, IAudienceScoped
 
     public DateTimeOffset? DecidedAt { get; set; }
 
+    /// <summary>
+    /// When a rule check let a call that was held for approval go on with no person: its grant allowed it and no rule
+    /// asked. Written by the engine only, for this call and these arguments; it never stands for a person's approval.
+    /// </summary>
+    public DateTimeOffset? ClearedAt { get; set; }
+
+    /// <summary>The framework's id for the approval request that held this call, so its answer can be handed over after a restart.</summary>
+    public string? ApprovalRequestId { get; set; }
+
+    /// <summary>The call's id as the model wrote it, kept with the approval request id.</summary>
+    public string? ModelCallId { get; set; }
+
     public Guid? ChildRunId { get; set; }
 
     public Guid? SandboxId { get; set; }
