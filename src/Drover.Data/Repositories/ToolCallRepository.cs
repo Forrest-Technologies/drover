@@ -29,6 +29,18 @@ public sealed class ToolCallRepository(DroverDbContext db)
             .Where(call => call.RunId == runId && call.Status == ToolCallStatus.Running && call.StartedAt != null)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The run's latest calls that have a result, oldest first: what a rule check reads as evidence.</summary>
+    public async Task<IReadOnlyList<ToolCall>> ListLatestFinishedCalls(Guid runId, int count, CancellationToken cancellationToken)
+    {
+        var latest = await db.ToolCalls.AsNoTracking()
+            .Where(call => call.RunId == runId && call.FinishedAt != null)
+            .OrderByDescending(call => call.FinishedAt)
+            .Take(count)
+            .ToListAsync(cancellationToken);
+        latest.Reverse();
+        return latest;
+    }
+
     public void AddToolCall(ToolCall call) => db.ToolCalls.Add(call);
 
     /// <summary>Records which sandbox a call worked in. A call whose row is not there yet is left as it is.</summary>

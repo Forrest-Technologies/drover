@@ -33,6 +33,8 @@ public static class RuleViews
             TimeZone = condition.TimeZone,
             Counter = condition.Counter is { } counter ? Words.Of(counter) : null,
             Limit = condition.Limit,
+            Statement = condition.Statement,
+            MinConfidence = condition.MinConfidence,
         };
 
     /// <summary>
@@ -58,6 +60,8 @@ public static class RuleViews
             TimeZone = kind is RuleConditionKind.TimeIs ? body.TimeZone?.Trim() : null,
             Counter = kind is RuleConditionKind.RunExceeds ? Words.Read<RunCounter>(body.Counter) : null,
             Limit = kind is RuleConditionKind.RunExceeds ? body.Limit : null,
+            Statement = kind is RuleConditionKind.Judged ? body.Statement?.Trim() : null,
+            MinConfidence = kind is RuleConditionKind.Judged ? body.MinConfidence : null,
         };
     }
 

@@ -1,0 +1,66 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's generateContent reference and guides (https://ai.google.dev/api/generate-content, https://ai.google.dev/api/models, https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking/thought-signatures, read 2026-11-27). The model id and every value are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": ":streamGenerateContent",
+      "status": 200,
+      "sse": [
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Hello"
+                  }
+                ]
+              },
+              "index": 0
+            }
+          ],
+          "modelVersion": "gemini-test-thinker",
+          "responseId": "resp_stream"
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": " there"
+                  }
+                ]
+              },
+              "index": 0
+            }
+          ]
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "!"
+                  }
+                ]
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 8,
+            "candidatesTokenCount": 3,
+            "totalTokenCount": 11
+          }
+        }
+      ]
+    }
+  ]
+}
