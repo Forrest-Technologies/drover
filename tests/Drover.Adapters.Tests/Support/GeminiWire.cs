@@ -11,6 +11,8 @@ public sealed class GeminiWire : IChatWire
 
     public static GeminiWire Instance { get; } = new();
 
+    public bool NamesSchemas => false;
+
     #endregion
 
     #region Interface Implementations

@@ -15,6 +15,7 @@ public sealed class SolutionLayoutTests
         ["Drover.Data"] = ["Drover.Domain"],
         ["Drover.Engine"] = ["Drover.Data", "Drover.Domain", "Drover.Contracts"],
         ["Drover.Agents"] = ["Drover.Data", "Drover.Domain"],
+        ["Drover.Adapters.Anthropic"] = ["Drover.Domain"],
         ["Drover.Adapters.OpenAICompatible"] = ["Drover.Domain"],
         ["Drover.Adapters.Gemini"] = ["Drover.Domain"],
         ["Drover.Adapters.Venice"] = ["Drover.Domain"],
@@ -31,6 +32,7 @@ public sealed class SolutionLayoutTests
         [
             "Drover.Engine",
             "Drover.Agents",
+            "Drover.Adapters.Anthropic",
             "Drover.Adapters.OpenAICompatible",
             "Drover.Adapters.Gemini",
             "Drover.Adapters.Venice",

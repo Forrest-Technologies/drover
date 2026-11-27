@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Drover.Adapters.Anthropic\Drover.Adapters.Anthropic.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.Gemini\Drover.Adapters.Gemini.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />

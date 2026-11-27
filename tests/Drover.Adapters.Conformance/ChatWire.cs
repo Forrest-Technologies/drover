@@ -30,6 +30,12 @@ public interface IChatWire
 
     /// <summary>The protected reasoning values a model call sent back, in order. Empty for a wire that has none.</summary>
     IReadOnlyList<string> SentProtectedReasoning(WireRequest request);
+
+    /// <summary>The PDFs a model call sent as documents, as their base64 data. Empty for a wire that has none.</summary>
+    IReadOnlyList<string> SentPdfs(WireRequest request) => [];
+
+    /// <summary>Whether this wire names the schema a request asks for. A wire that sends the schema alone does not.</summary>
+    bool NamesSchemas => true;
 }
 
 /// <summary>The common chat completions wire: <c>POST .../chat/completions</c> with <c>messages</c>.</summary>

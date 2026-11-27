@@ -24,6 +24,7 @@ global using System.Threading;
 global using System.Threading.Channels;
 global using System.Threading.Tasks;
 global using AwesomeAssertions;
+global using Drover.Adapters.Anthropic;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.Conformance.Tools;
 global using Drover.Adapters.DataProtection;
