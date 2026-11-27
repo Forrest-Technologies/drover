@@ -3,6 +3,13 @@ namespace Drover.Native.Pages;
 /// <summary>Connect and test the model provider before making the first bot.</summary>
 public sealed partial class ConnectModelPage : Screen
 {
+    #region Private Fields
+
+    /// <summary>The sign-in's state: its sentence, a code to enter or a field to paste one, and its actions.</summary>
+    private readonly ModelSignInPanel signInState;
+
+    #endregion
+
     #region Constructors
 
     public ConnectModelPage()
@@ -20,7 +27,8 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(Provider.Value);
             }
         });
-        SignInNoteHolder.LostFocus += (_, _) => SignInNoteHolder.IsTabStop = false;
+        signInState = new ModelSignInPanel(Model.SignIn, () => Model.ActOnSignIn(PlatformShell.OpenOutside), stretch: true);
+        SignInStateHolder.Content = signInState;
         ProviderSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
         {
             if (ProviderSegments.Value is { Length: > 0 } chosen && chosen != Model.Named.Choice)
@@ -142,30 +150,8 @@ public sealed partial class ConnectModelPage : Screen
         Blank.Visibility = Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
         PlanLine.Text = flow.PlanLine;
         PlanLine.Visibility = flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
-        var changed = flow.Sentence is { Length: > 0 } && SignInNote.Text != flow.Sentence;
-        SignInNote.Text = flow.Sentence ?? string.Empty;
-        SignInNote.Kind = flow.Stage switch
-        {
-            ModelSignInStage.Done => NoteKind.Ok,
-            ModelSignInStage.Waiting => NoteKind.Info,
-            _ => NoteKind.Danger,
-        };
-        SignInNote.Visibility = flow.Sentence is null ? Visibility.Collapsed : Visibility.Visible;
-        SignInAction.Content = flow.ActionWords;
-        AutomationProperties.SetName(SignInAction, flow.ActionWords ?? string.Empty);
-        SignInAction.Visibility = flow.ActionWords is null ? Visibility.Collapsed : Visibility.Visible;
-        SignInAction.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
-
-        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
-        if (changed)
-        {
-            SignInNoteHolder.IsTabStop = true;
-            SignInNoteHolder.Focus(FocusState.Programmatic);
-        }
+        signInState.Refresh(shown: true, takeFocus: true);
     }
-
-    // The flow says in its own sentence when the page could not be opened.
-    private void ActOnSignIn(object sender, RoutedEventArgs args) => _ = Model.ActOnSignIn(PlatformShell.OpenOutside);
 
     private bool IsPhone() => XamlRoot is { Size.Width: > 0 } root && root.Size.Width < (double)Styles.Dictionary["DvBreakPhone"];
 

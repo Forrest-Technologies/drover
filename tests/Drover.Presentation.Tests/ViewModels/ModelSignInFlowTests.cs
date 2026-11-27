@@ -171,14 +171,164 @@ public sealed class ModelSignInFlowTests : IDisposable
     }
 
     [Fact]
-    public async Task A_head_that_cannot_listen_needs_the_desktop_app_for_now_and_offers_a_key()
+    public async Task A_head_that_cannot_listen_shows_the_code_opens_the_page_and_ends_signed_in_with_nothing_pasted()
     {
         listener.CanListen = false;
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/device", ModelSignInWaits.Poll, "WXYZ-1234"));
+        server.AnswerInTurn("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Waiting, null), new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
         var model = await Chosen();
 
-        model.SignIn.Stage.Should().Be(ModelSignInStage.CannotListen);
-        model.SignIn.Sentence.Should().Be("Signing in with a Sample plan needs the Drover desktop app for now. You can add an API key here.");
-        model.SignIn.ActionWords.Should().Be("Add a key");
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Ready, "a head that cannot listen offers the same one entry and button");
+        model.SignIn.ActionWords.Should().Be("Continue with Sample");
+        var running = model.ActOnSignIn(Open);
+        await Until(() => model.SignIn.Stage is ModelSignInStage.Code);
+
+        model.SignIn.Sentence.Should().Be("Enter this code at auth.example.test/device:");
+        model.SignIn.Code.Should().Be("WXYZ-1234");
+        model.SignIn.ActionWords.Should().Be("Cancel");
+        model.SignIn.ShowsPaste.Should().BeFalse("nothing is pasted for a code");
+        await Until(() => opened.Count == 1);
+        opened.Should().Equal("https://auth.example.test/device");
+        await running;
+
+        JsonSerializer.Deserialize<StartModelSignInRequest>(server.Sent("POST", $"{space}/sign-in").Single(), JsonSerializerOptions.Web)
+            .Should().Be(new StartModelSignInRequest("sample_plan_signin", null));
+        listener.Opened.Should().Be(0);
+        server.Sent("POST", $"{space}/sign-in/{attemptId}/finish").Should().BeEmpty("the server finishes a code by itself");
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Done);
+        model.SignIn.Sentence.Should().Be("Signed in as sam@example.test. Your bots can use your Sample plan.");
+        model.SignIn.Code.Should().BeNull();
+        model.Connection.Should().BeEquivalentTo(signedIn);
+    }
+
+    [Fact]
+    public async Task A_code_that_runs_out_says_so_and_get_a_new_code_starts_again()
+    {
+        listener.CanListen = false;
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/device", ModelSignInWaits.Poll, "WXYZ-1234"));
+        server.AnswerInTurn("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Expired, null), new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
+        var model = await Chosen();
+
+        await model.ActOnSignIn(Open);
+
+        model.SignIn.Stage.Should().Be(ModelSignInStage.CodeRanOut);
+        model.SignIn.Sentence.Should().Be("The code ran out.");
+        model.SignIn.ActionWords.Should().Be("Get a new code");
+        model.SignIn.Code.Should().BeNull();
+        await model.ActOnSignIn(Open);
+        server.Sent("POST", $"{space}/sign-in").Should().HaveCount(2, "a new code is a new attempt");
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Done);
+    }
+
+    [Fact]
+    public async Task A_code_the_provider_refused_shows_the_servers_sentence_and_starts_again()
+    {
+        listener.CanListen = false;
+        const string TurnItOn = "ChatGPT refused the code. Turn on device code sign-in in ChatGPT's security settings, then try again.";
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/device", ModelSignInWaits.Poll, "WXYZ-1234"));
+        server.Answer("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Refused, null, TurnItOn));
+        var model = await Chosen();
+
+        await model.ActOnSignIn(Open);
+
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Ended);
+        model.SignIn.Sentence.Should().Be(TurnItOn);
+        model.SignIn.ActionWords.Should().Be("Continue with Sample");
+    }
+
+    [Fact]
+    public async Task A_page_the_device_will_not_open_by_itself_still_leaves_the_code_on_the_screen()
+    {
+        listener.CanListen = false;
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/device", ModelSignInWaits.Poll, "WXYZ-1234"));
+        server.Answer("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
+        var model = await Chosen();
+
+        await model.ActOnSignIn(_ => throw new DeviceCallFailedException("A browser blocked the window."));
+
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Done);
+    }
+
+    [Fact]
+    public async Task A_kind_that_shows_a_code_to_paste_takes_it_says_when_it_did_not_work_and_takes_another()
+    {
+        listener.CanListen = false;
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/authorize?state=sample", ModelSignInWaits.Paste));
+        server.Refuse("POST", $"{space}/sign-in/{attemptId}/finish", HttpStatusCode.BadRequest, "Sign-in was cancelled.");
+        server.Answer("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Waiting, null));
+        var model = await Chosen();
+
+        var running = model.ActOnSignIn(Open);
+        await Until(() => model.SignIn.Stage is ModelSignInStage.Paste);
+        model.SignIn.Sentence.Should().Be("Sign in in your browser, then paste the code it shows.");
+        model.SignIn.ShowsPaste.Should().BeTrue();
+        model.SignIn.OffersCancel.Should().BeTrue();
+        model.SignIn.ActionWords.Should().Be("Continue");
+        model.SignIn.PageWords.Should().Be("auth.example.test/authorize", "the page is named without its address's query");
+        await model.ActOnSignIn(Open);
+        server.Sent("POST", $"{space}/sign-in/{attemptId}/finish").Should().BeEmpty("an empty field sends nothing");
+
+        model.SignIn.PastedCode = "typo";
+        await model.ActOnSignIn(Open);
+        await Until(() => model.SignIn.Sentence == "That code did not work. Copy it again from the browser page.");
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Paste);
+        model.SignIn.ActionWords.Should().Be("Continue");
+
+        server.Answer("POST", $"{space}/sign-in/{attemptId}/finish", signedIn);
+        model.SignIn.PastedCode = "  sample-code#sample  ";
+        await model.ActOnSignIn(Open);
+        await running;
+
+        JsonSerializer.Deserialize<FinishModelSignInRequest>(server.Sent("POST", $"{space}/sign-in/{attemptId}/finish").Last(), JsonSerializerOptions.Web)!
+            .Query.Should().Be("sample-code#sample");
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Done);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_paste_ends_with_its_sentence()
+    {
+        listener.CanListen = false;
+        server.Answer("POST", $"{space}/sign-in", new ModelSignInStarted(attemptId, "https://auth.example.test/authorize?state=sample", ModelSignInWaits.Paste));
+        var model = await Chosen();
+
+        var running = model.ActOnSignIn(Open);
+        await Until(() => model.SignIn.Stage is ModelSignInStage.Paste);
+        model.SignIn.Cancel();
+        await running;
+
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Ended);
+        model.SignIn.Sentence.Should().Be("Sign-in was cancelled.");
+    }
+
+    [Fact]
+    public async Task A_kind_that_returns_to_the_server_is_followed_on_a_head_that_cannot_listen()
+    {
+        listener.CanListen = false;
+        server.Answer("GET", $"{space}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));
+        var model = await Chosen();
+
+        await model.ActOnSignIn(Open);
+
+        opened.Should().Equal("https://auth.example.test/authorize?state=sample");
+        server.Sent("POST", $"{space}/sign-in/{attemptId}/finish").Should().BeEmpty("the browser came back to the server");
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Done);
+    }
+
+    [Fact]
+    public async Task A_desktop_listens_where_the_kind_says_its_provider_sends_the_browser_back()
+    {
+        server.Answer("GET", KindsPath, (ModelProviderKindResponse[])[
+            .. SampleProviders.WithOwnWire(),
+            new("sample_plan_signin", "Sample plan", "required", "fixed", null, null, false, [], SignIn: true, SignInName: "Sample", SignInReturn: "http://localhost:53692/callback"),
+        ]);
+        var model = await Chosen();
+
+        var running = model.ActOnSignIn(Open);
+        await Until(() => opened.Count == 1);
+        listener.Current!.Bring("code=sample-code&state=sample");
+        await running;
+
+        listener.Wanted.Should().Be(new Uri("http://localhost:53692/callback"));
     }
 
     [Fact]

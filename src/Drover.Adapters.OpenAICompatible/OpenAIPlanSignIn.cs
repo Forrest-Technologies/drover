@@ -49,6 +49,22 @@ public sealed class OpenAIPlanSignIn(
 
     public const string PlanUseNotAllowedValue = "not_allowed";
 
+    /// <summary>Which flow made the token set, kept in <see cref="ModelTokens.Details"/>: <see cref="CodeFlow"/>, or absent for the browser.</summary>
+    public const string FlowDetail = "flow";
+
+    public const string CodeFlow = "code";
+
+    /// <summary>The ChatGPT account a sign-in by code calls as, kept in <see cref="ModelTokens.Details"/>.</summary>
+    public const string AccountDetail = "account_id";
+
+    /// <summary>What the person is told when ChatGPT will not give or take a code.</summary>
+    public const string CodeRefused = "ChatGPT refused the code. Turn on device code sign-in in ChatGPT's security settings, then try again.";
+
+    /// <summary>What a sign-in by code keeps between starting and finishing (<see cref="ModelSignInStep.Kept"/>).</summary>
+    private const string DeviceAuthKept = "device_auth_id";
+
+    private const string UserCodeKept = "user_code";
+
     /// <summary>What the person is told when a sign-in with their own registration came back as another account.</summary>
     public const string AnotherAccount = "That is a different ChatGPT account. Sign out first.";
 
@@ -83,13 +99,13 @@ public sealed class OpenAIPlanSignIn(
 
     /// <summary>
     /// The configured loopback address on any port, and nothing else: the provider matches the scheme, the host and
-    /// the path exactly ("Do not substitute with localhost").
+    /// the path exactly ("Do not substitute with localhost"). A device that cannot listen (null) signs in by code.
     /// </summary>
     public bool AcceptsRedirect(Uri? redirectUri)
     {
         var configured = options.CurrentValue.RedirectUri;
 
-        return redirectUri is { IsAbsoluteUri: true }
+        return redirectUri is null || redirectUri is { IsAbsoluteUri: true }
             && redirectUri.Scheme == configured.Scheme
             && redirectUri.Host == configured.Host
             && redirectUri.AbsolutePath == configured.AbsolutePath
@@ -101,7 +117,12 @@ public sealed class OpenAIPlanSignIn(
     public Task<ModelSignInStep> Begin(ModelSignInAttempt attempt, CancellationToken cancellation)
     {
         var settings = options.CurrentValue;
-        var redirect = attempt.RedirectUri ?? throw new ModelSignInRefusedException();
+
+        if (attempt.RedirectUri is not { } redirect)
+        {
+            return BeginByCode(settings.Code, cancellation);
+        }
+
         var issued = attempt.Earlier.GetValueOrDefault(ClientIdDetail);
         List<KeyValuePair<string, string>> query =
         [
@@ -136,6 +157,12 @@ public sealed class OpenAIPlanSignIn(
     public async Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation)
     {
         var settings = options.CurrentValue;
+
+        if (attempt.RedirectUri is null)
+        {
+            return await FinishByCode(settings, attempt, cancellation);
+        }
+
         var returned = ParseQuery(arrived.Text);
 
         if (attempt.RedirectUri is not { } redirect
@@ -166,6 +193,11 @@ public sealed class OpenAIPlanSignIn(
     {
         var settings = options.CurrentValue;
 
+        if (IsByCode(current))
+        {
+            return await RefreshByCode(settings.Code, current, cancellation);
+        }
+
         if (current.RefreshToken is not { Length: > 0 } refreshToken || !current.Details.TryGetValue(ClientIdDetail, out var clientId))
         {
             throw new SignInEndedException();
@@ -194,6 +226,12 @@ public sealed class OpenAIPlanSignIn(
     /// <summary>An empty 200 is success, also for a token that was already invalid.</summary>
     public async Task Revoke(ModelTokens current, CancellationToken cancellation)
     {
+        if (IsByCode(current))
+        {
+            await RevokeByCode(options.CurrentValue.Code, current.RefreshToken, cancellation);
+            return;
+        }
+
         if (current.RefreshToken is not { Length: > 0 } refreshToken || !current.Details.TryGetValue(ClientIdDetail, out var clientId))
         {
             return;
@@ -307,9 +345,12 @@ public sealed class OpenAIPlanSignIn(
     /// (<paramref name="ended"/>) or the attempt; anything else is a failure that may pass. Nothing the provider sent
     /// goes into an exception.
     /// </summary>
-    private async Task<TokenAnswer> PostToken(Uri address, List<KeyValuePair<string, string>> fields, bool ended, CancellationToken cancellation)
+    private Task<TokenAnswer> PostToken(Uri address, List<KeyValuePair<string, string>> fields, bool ended, CancellationToken cancellation) =>
+        PostToken(address, new FormUrlEncodedContent(fields), ended, cancellation);
+
+    private async Task<TokenAnswer> PostToken(Uri address, HttpContent content, bool ended, CancellationToken cancellation)
     {
-        using var request = Form(address, fields);
+        using var request = new HttpRequestMessage(HttpMethod.Post, address) { Content = content };
         using var response = await Send(request, cancellation);
         using var document = await ReadJson(response, cancellation);
 
@@ -359,13 +400,252 @@ public sealed class OpenAIPlanSignIn(
 
     #endregion
 
+    #region Sign-In By Code
+
+    private static bool IsByCode(ModelTokens tokens) => tokens.Details.GetValueOrDefault(FlowDetail) == CodeFlow;
+
+    /// <summary>
+    /// Asks the provider for a code the person enters on its page. A provider that will not give one is told to the
+    /// person in plain words; the answer's own text is never kept.
+    /// </summary>
+    private async Task<ModelSignInStep> BeginByCode(OpenAIPlanCodeOptions settings, CancellationToken cancellation)
+    {
+        using var request = Json(settings.StartAddress, new JsonObject { ["client_id"] = settings.ClientId });
+        using var response = await Send(request, cancellation);
+        using var document = await ReadJson(response, cancellation);
+        var status = (int)response.StatusCode;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw status is >= 400 and < 500 and not 408 and not 429
+                ? new ModelSignInRefusedException(CodeRefused)
+                : ModelProviderException.FromStatus(status);
+        }
+
+        var body = document?.RootElement ?? default;
+
+        if (Text(body, "device_auth_id") is not { Length: > 0 } deviceAuthId
+            || (Text(body, "user_code") ?? Text(body, "usercode")) is not { Length: > 0 } userCode)
+        {
+            throw ModelProviderException.FromMalformedResponse();
+        }
+
+        return new ModelSignInStep(settings.PageAddress, userCode, ModelSignInWait.Poll)
+        {
+            Interval = Seconds(body, "interval"),
+            Lifetime = settings.CodeLifetime,
+            Kept = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [DeviceAuthKept] = deviceAuthId,
+                [UserCodeKept] = userCode,
+            },
+        };
+    }
+
+    /// <summary>
+    /// One ask: null while the person has not approved (a 403 or 404, or the provider's pending code), and once they
+    /// have, the exchange of the code it hands back. A refusal ends the attempt with the sentence that says what to do.
+    /// </summary>
+    private async Task<ModelTokens?> FinishByCode(OpenAIPlanOptions settings, ModelSignInAttempt attempt, CancellationToken cancellation)
+    {
+        var code = settings.Code;
+
+        if (attempt.Begun.GetValueOrDefault(DeviceAuthKept) is not { Length: > 0 } deviceAuthId
+            || attempt.Begun.GetValueOrDefault(UserCodeKept) is not { Length: > 0 } userCode)
+        {
+            throw new ModelSignInRefusedException();
+        }
+
+        using var request = Json(code.PollAddress, new JsonObject { ["device_auth_id"] = deviceAuthId, ["user_code"] = userCode });
+        using var response = await Send(request, cancellation);
+        using var document = await ReadJson(response, cancellation);
+        var body = document?.RootElement ?? default;
+        var status = (int)response.StatusCode;
+        var said = ErrorCodes(body).ToList();
+
+        if (said.Contains("slow_down") || status is 429)
+        {
+            throw new ModelSignInSlowDownException(Seconds(body, "interval"));
+        }
+
+        if (status is 403 or 404 || said.Contains("deviceauth_authorization_pending") || said.Contains("authorization_pending"))
+        {
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw status is >= 400 and < 500 and not 408 ? new ModelSignInRefusedException(CodeRefused) : ModelProviderException.FromStatus(status);
+        }
+
+        if (Text(body, "authorization_code") is not { Length: > 0 } authorizationCode || Text(body, "code_verifier") is not { Length: > 0 } verifier)
+        {
+            throw ModelProviderException.FromMalformedResponse();
+        }
+
+        var answer = await PostToken(
+            code.TokenAddress,
+            [
+                new("grant_type", "authorization_code"),
+                new("client_id", code.ClientId),
+                new("code", authorizationCode),
+                new("code_verifier", verifier),
+                new("redirect_uri", code.RedirectUri.AbsoluteUri),
+            ],
+            ended: false,
+            cancellation);
+
+        try
+        {
+            return await AcceptByCode(settings, attempt, answer, cancellation);
+        }
+        catch (ModelSignInRefusedException)
+        {
+            // The code is spent and the provider issued a renewable session nobody will use: end it.
+            await AbandonByCode(code, answer.RefreshToken);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// What an exchange by code comes to: the ID token checked as on the browser flow (with no nonce, which the device
+    /// flow does not take), and the account the access token names, which every call is sent as. What the person's
+    /// browser sign-in registered (an issued client id, a host id, the subject) is kept beside it, so signing in on a
+    /// desktop later does not register anew.
+    /// </summary>
+    private async Task<ModelTokens> AcceptByCode(OpenAIPlanOptions settings, ModelSignInAttempt attempt, TokenAnswer answer, CancellationToken cancellation)
+    {
+        var identity = await Validate(settings, answer.IdToken, settings.Code.ClientId, nonce: null, cancellation);
+
+        if ((PlanAccount.Of(answer.AccessToken) ?? PlanAccount.Of(answer.IdToken)) is not { } account)
+        {
+            throw new ModelSignInRefusedException();
+        }
+
+        Dictionary<string, string> details = new(StringComparer.Ordinal)
+        {
+            [FlowDetail] = CodeFlow,
+            [AccountDetail] = account,
+        };
+
+        foreach (var kept in (string[])[ClientIdDetail, HostIdDetail, SubjectDetail])
+        {
+            if (attempt.Earlier.GetValueOrDefault(kept) is { } value)
+            {
+                details[kept] = value;
+            }
+        }
+
+        return answer.ToTokens(time.GetUtcNow(), refreshToken: null) with
+        {
+            ExpiresAt = ExpiryOf(answer),
+            AccountLabel = identity.Email,
+            Details = details,
+        };
+    }
+
+    /// <summary>
+    /// A new token set for a sign-in by code. The refresh token rotates; an answer for another ChatGPT account than the
+    /// one signed in ends the sign-in, so a person's calls never go out as someone else.
+    /// </summary>
+    private async Task<ModelTokens> RefreshByCode(OpenAIPlanCodeOptions settings, ModelTokens current, CancellationToken cancellation)
+    {
+        if (current.RefreshToken is not { Length: > 0 } refreshToken)
+        {
+            throw new SignInEndedException();
+        }
+
+        var body = new JsonObject { ["client_id"] = settings.ClientId, ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken };
+        var answer = await PostToken(settings.TokenAddress, JsonContent(body), ended: true, cancellation);
+
+        if (PlanAccount.Of(answer.AccessToken) is { } account && account != current.Details.GetValueOrDefault(AccountDetail))
+        {
+            await AbandonByCode(settings, answer.RefreshToken);
+            throw new SignInEndedException();
+        }
+
+        return answer.ToTokens(time.GetUtcNow(), refreshToken) with
+        {
+            ExpiresAt = ExpiryOf(answer),
+            AccountLabel = current.AccountLabel,
+            Details = current.Details,
+            Scopes = answer.Scopes.Count > 0 ? answer.Scopes : current.Scopes,
+        };
+    }
+
+    private async Task RevokeByCode(OpenAIPlanCodeOptions settings, string? refreshToken, CancellationToken cancellation)
+    {
+        if (refreshToken is not { Length: > 0 })
+        {
+            return;
+        }
+
+        var body = new JsonObject { ["token"] = refreshToken, ["token_type_hint"] = "refresh_token", ["client_id"] = settings.ClientId };
+        using var request = new HttpRequestMessage(HttpMethod.Post, settings.RevokeAddress) { Content = JsonContent(body) };
+        using var response = await Send(request, cancellation);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw ModelProviderException.FromStatus((int)response.StatusCode);
+        }
+    }
+
+    /// <summary>Revokes a refresh token by code that will not be kept. A courtesy to the provider: a failure is logged by kind and passes.</summary>
+    private async Task AbandonByCode(OpenAIPlanCodeOptions settings, string? refreshToken)
+    {
+        try
+        {
+            await RevokeByCode(settings, refreshToken, CancellationToken.None);
+        }
+        catch (Exception failure) when (failure is ModelProviderException or HttpRequestException or IOException or OperationCanceledException)
+        {
+            logger.LogInformation("A ChatGPT plan session by code that is not kept could not be revoked: {Failure}", failure.GetType().Name);
+        }
+    }
+
+    /// <summary>When the access token runs out: the answer's <c>expires_in</c>, else the token's own <c>exp</c>, else an hour.</summary>
+    private DateTimeOffset ExpiryOf(TokenAnswer answer) =>
+        answer.ExpiresIn is { } seconds
+            ? time.GetUtcNow().AddSeconds(seconds)
+            : PlanAccount.ExpiryOf(answer.AccessToken) ?? time.GetUtcNow().AddHours(1);
+
+    /// <summary>A number of seconds the provider sent as a number or as text, or null when it sent none.</summary>
+    private static TimeSpan? Seconds(JsonElement body, string name)
+    {
+        if (body.ValueKind is not JsonValueKind.Object || !body.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        var seconds = value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var number) => number,
+            JsonValueKind.String when int.TryParse(value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var number) => number,
+            _ => 0,
+        };
+
+        return seconds is > 0 and <= 300 ? TimeSpan.FromSeconds(seconds) : null;
+    }
+
+    private static string? Text(JsonElement body, string name) =>
+        body.ValueKind is JsonValueKind.Object && body.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.String ? value.GetString() : null;
+
+    private static HttpRequestMessage Json(Uri address, JsonObject body) =>
+        new(HttpMethod.Post, address) { Content = JsonContent(body) };
+
+    private static StringContent JsonContent(JsonObject body) =>
+        new(body.ToJsonString(), Encoding.UTF8, "application/json");
+
+    #endregion
+
     #region Identity
 
     /// <summary>
     /// Checks the ID token against the keys the provider publishes, with nothing taken from the token itself to find
-    /// them: only RS256, the configured issuer, the issued client id as audience, an expiry, and the attempt's nonce.
+    /// them: only RS256, the configured issuer, the issued client id as audience, an expiry, and the attempt's nonce. A
+    /// sign-in by code sends no nonce (the provider's device flow takes none), so it has none to check.
     /// </summary>
-    private async Task<Identity> Validate(OpenAIPlanOptions settings, string? idToken, string clientId, string nonce, CancellationToken cancellation)
+    private async Task<Identity> Validate(OpenAIPlanOptions settings, string? idToken, string clientId, string? nonce, CancellationToken cancellation)
     {
         if (string.IsNullOrEmpty(idToken))
         {
@@ -385,7 +665,7 @@ public sealed class OpenAIPlanSignIn(
             LifetimeValidator = (notBefore, expires, _, _) => IsCurrent(notBefore, expires),
         });
 
-        if (!result.IsValid || result.SecurityToken is not JsonWebToken token || !HasNonce(token, nonce) || string.IsNullOrEmpty(token.Subject))
+        if (!result.IsValid || result.SecurityToken is not JsonWebToken token || (nonce is not null && !HasNonce(token, nonce)) || string.IsNullOrEmpty(token.Subject))
         {
             throw new ModelSignInRefusedException();
         }

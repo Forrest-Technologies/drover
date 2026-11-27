@@ -33,11 +33,11 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly TextBlock planLine = Styles.Text(string.Empty, "DvTextSecondary");
 
-    private readonly StatusNote signInNote = new() { Kind = NoteKind.Info };
+    /// <summary>The sign-in's state in "Add a connection": its sentence, a code or a pasted one, and its actions.</summary>
+    private readonly ModelSignInPanel signInState;
 
-    private readonly ContentControl signInNoteHolder = new() { IsTabStop = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-
-    private readonly Button signInAction = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    /// <summary>The sign-in's state on the card it was started from, while it is drawn there.</summary>
+    private ModelSignInPanel? cardSignIn;
 
     private readonly Field nameField;
 
@@ -98,10 +98,16 @@ public sealed class ModelConnectionsPage : Screen
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add connection", model.Add, Refresh, kind: ButtonKind.Primary);
-        signInAction.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
-        signInNoteHolder.Content = signInNote;
-        signInNoteHolder.LostFocus += (_, _) => signInNoteHolder.IsTabStop = false;
-        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, blankField, baseUrlField, changeAddress, keyField, keyLink, planLine, signInNoteHolder, signInAction, addProblem, addBusy);
+        signInState = SignInPanel(stretch: true);
+
+        // A sign-in by code changes state while it waits (the code, then done or ran out): both drawings follow it at
+        // once, without rebuilding the cards, so a code being pasted keeps its field and its focus.
+        model.SignIn.PropertyChanged += (_, _) =>
+        {
+            UpdateSignInForm();
+            cardSignIn?.Refresh(shown: true, takeFocus: true);
+        };
+        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, blankField, baseUrlField, changeAddress, keyField, keyLink, planLine, signInState, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -160,6 +166,7 @@ public sealed class ModelConnectionsPage : Screen
     private void Refresh()
     {
         headerContent.Children.Clear();
+        cardSignIn = null;
 
         var header = new ScreenHeader { Title = "Model connections" };
         if (model.CanEdit && model.Connections is { Count: > 0 })
@@ -371,33 +378,16 @@ public sealed class ModelConnectionsPage : Screen
 
         planLine.Text = flow.PlanLine;
         planLine.Visibility = shown && flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
-        var changed = shown && flow.Sentence is { Length: > 0 } && signInNote.Text != flow.Sentence;
-        ShowSignInState(signInNote, signInAction, shown);
-
-        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
-        if (changed && addSheet.Open)
-        {
-            signInNoteHolder.IsTabStop = true;
-            signInNoteHolder.Focus(FocusState.Programmatic);
-        }
+        signInState.Refresh(shown, takeFocus: addSheet.Open);
     }
 
-    private void ShowSignInState(StatusNote note, Button action, bool shown)
-    {
-        var flow = model.SignIn;
-        note.Text = flow.Sentence ?? string.Empty;
-        note.Kind = flow.Stage switch
+    /// <summary>A drawing of the sign-in's state whose main action is the screen's own.</summary>
+    private ModelSignInPanel SignInPanel(bool stretch) =>
+        new(model.SignIn, () =>
         {
-            ModelSignInStage.Done => NoteKind.Ok,
-            ModelSignInStage.Waiting => NoteKind.Info,
-            _ => NoteKind.Danger,
-        };
-        note.Visibility = shown && flow.Sentence is not null ? Visibility.Visible : Visibility.Collapsed;
-        action.Content = flow.ActionWords;
-        AutomationProperties.SetName(action, flow.ActionWords ?? string.Empty);
-        action.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
-        action.Visibility = shown && flow.ActionWords is not null ? Visibility.Visible : Visibility.Collapsed;
-    }
+            Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
+            return Task.CompletedTask;
+        }, stretch);
 
     private void UpdateReplaceForm()
     {
@@ -500,12 +490,8 @@ public sealed class ModelConnectionsPage : Screen
 
         if (model.SigningInTo == connection.Id)
         {
-            var note = new StatusNote();
-            var action = new Button { HorizontalAlignment = HorizontalAlignment.Left };
-            action.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
-            ShowSignInState(note, action, shown: true);
-            beneath.Children.Add(note);
-            beneath.Children.Add(action);
+            cardSignIn = SignInPanel(stretch: false);
+            beneath.Children.Add(cardSignIn);
             return;
         }
 

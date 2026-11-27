@@ -12,10 +12,12 @@ public interface IModelSignInListener
     bool CanListen { get; }
 
     /// <summary>
-    /// Starts listening for one return. Throws <see cref="DeviceCallFailedException"/> when the device cannot listen
-    /// now, for example because no port is free.
+    /// Starts listening for one return at <paramref name="wanted"/>, the kind's loopback return address: its host and
+    /// path as they are, its port when free and any free port otherwise. Null listens where the first plan kind's
+    /// provider sends the browser back. Throws <see cref="DeviceCallFailedException"/> when the device cannot listen
+    /// now, for example because no port is free, or when <paramref name="wanted"/> is not a loopback address.
     /// </summary>
-    IModelSignInReturn Open();
+    IModelSignInReturn Open(Uri? wanted = null);
 }
 
 
@@ -41,7 +43,7 @@ public sealed class NoModelSignInListener : IModelSignInListener
 
     #region Interface Implementations
 
-    public IModelSignInReturn Open() => throw new DeviceCallFailedException("This device cannot listen for a sign-in.");
+    public IModelSignInReturn Open(Uri? wanted = null) => throw new DeviceCallFailedException("This device cannot listen for a sign-in.");
 
     #endregion
 }

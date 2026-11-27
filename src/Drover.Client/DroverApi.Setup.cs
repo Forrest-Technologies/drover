@@ -176,6 +176,13 @@ public sealed partial class DroverApi
         return await response.ReadValue<ModelConnectionSummary>(cancellationToken);
     }
 
+    /// <summary>Where the caller's own sign-in stands, read while the server finishes a sign-in by code.</summary>
+    public async Task<ModelSignInProgress> ReadModelSignIn(Guid spaceId, Guid attemptId, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"api/spaces/{spaceId}/model-connections/sign-in/{attemptId}", cancellationToken);
+        return await response.ReadValue<ModelSignInProgress>(cancellationToken);
+    }
+
     /// <summary>Signs the caller out of their own sign-in to a connection.</summary>
     public async Task SignOutOfModelConnection(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default)
     {

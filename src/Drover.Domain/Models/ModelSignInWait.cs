@@ -5,4 +5,16 @@ public enum ModelSignInWait
 {
     /// <summary>The person's device receives the browser's return and hands on the query string it received.</summary>
     Return,
+
+    /// <summary>
+    /// The provider's own page shows what to copy, and the person pastes it into Drover, which hands it on. For a device
+    /// that cannot listen for the browser's return.
+    /// </summary>
+    Paste,
+
+    /// <summary>
+    /// The person enters a short code on the provider's page; Drover asks the provider until they approve, refuse, or
+    /// the code runs out. Nothing comes back to the device.
+    /// </summary>
+    Poll,
 }

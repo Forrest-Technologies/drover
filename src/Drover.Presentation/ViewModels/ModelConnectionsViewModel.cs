@@ -190,7 +190,7 @@ public sealed partial class ModelConnectionsViewModel(
     {
         switch (SignIn.Action)
         {
-            case ModelSignInAction.Continue or ModelSignInAction.TryAgain:
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain or ModelSignInAction.GetNewCode:
                 await SignIn.Start(SpaceId, open);
                 await SettleSignIn();
                 break;

@@ -43,6 +43,12 @@ public sealed class OpenAIPlanAuthServer : HttpMessageHandler
 
     private readonly ConcurrentQueue<SentForm> sent = new();
 
+    /// <summary>The codes handed out for sign-ins by code, by device id.</summary>
+    private readonly ConcurrentDictionary<string, string> devices = new(StringComparer.Ordinal);
+
+    /// <summary>The authorization codes an approved device poll handed back, with their verifiers.</summary>
+    private readonly ConcurrentDictionary<string, string> deviceCodes = new(StringComparer.Ordinal);
+
     #endregion
 
     #region Properties
@@ -65,6 +71,22 @@ public sealed class OpenAIPlanAuthServer : HttpMessageHandler
 
     /// <summary>The time the server's tokens are made at.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
+
+    public const string AccountId = "acct-test-sam";
+
+    /// <summary>How the next polls of a sign-in by code are answered.</summary>
+    public DeviceAnswer Device { get; set; } = DeviceAnswer.Pending;
+
+    /// <summary>When true, a sign-in by code is refused at the start, as an account with device code sign-in off.</summary>
+    public bool CodeStartRefused { get; set; }
+
+    /// <summary>When set, a refresh by code answers for this account instead.</summary>
+    public string? RefreshAccountId { get; set; }
+
+    /// <summary>The requests to the token address of the sign-in by code, in the suite's shape.</summary>
+    public IReadOnlyList<SignInTokenRequest> CodeTokenRequests =>
+        [.. Sent.Where(form => form.Address == Settings.Code.TokenAddress)
+            .Select(form => new SignInTokenRequest(form.Field("grant_type") ?? string.Empty, form.Field("code"), form.Field("code_verifier"), form.Field("refresh_token")))];
 
     /// <summary>Every form the server received, in order, at any address.</summary>
     public IReadOnlyList<SentForm> Sent => [.. sent];
@@ -108,12 +130,18 @@ public sealed class OpenAIPlanAuthServer : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
-        var form = new SentForm(request.Method, request.RequestUri!, Parse(body));
+        var isJson = request.Content?.Headers.ContentType?.MediaType == "application/json";
+        var form = new SentForm(request.Method, request.RequestUri!, isJson ? ParseJson(body) : Parse(body)) { IsJson = isJson };
         sent.Enqueue(form);
 
         if (request.Method == HttpMethod.Get && request.RequestUri == Settings.KeysAddress)
         {
             return Json(HttpStatusCode.OK, Keys(signingKey));
+        }
+
+        if (ByCode(form) is { } byCode)
+        {
+            return byCode;
         }
 
         if (request.RequestUri == Settings.RevokeAddress)
@@ -197,7 +225,7 @@ public sealed class OpenAIPlanAuthServer : HttpMessageHandler
         return Json(HttpStatusCode.OK, answer.ToJsonString());
     }
 
-    private string IdToken(string clientId, string nonce)
+    private string IdToken(string clientId, string? nonce)
     {
         var now = Clock.GetUtcNow().UtcDateTime;
         var expired = Flaw is IdTokenFlaw.Expired;
@@ -210,19 +238,168 @@ public sealed class OpenAIPlanAuthServer : HttpMessageHandler
             IssuedAt = expired ? now.AddHours(-3) : now,
             NotBefore = expired ? now.AddHours(-3) : now,
             Expires = expired ? now.AddHours(-2) : now.AddHours(1),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = TokenSubject,
-                ["email"] = Email,
-                ["nonce"] = Flaw is IdTokenFlaw.WrongNonce ? Random() : nonce,
-            },
+            Claims = nonce is null
+                ? new Dictionary<string, object> { ["sub"] = TokenSubject, ["email"] = Email }
+                : new Dictionary<string, object>
+                {
+                    ["sub"] = TokenSubject,
+                    ["email"] = Email,
+                    ["nonce"] = Flaw is IdTokenFlaw.WrongNonce ? Random() : nonce,
+                },
             SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256),
         });
     }
 
     #endregion
 
+    #region Sign-In By Code
+
+    /// <summary>
+    /// The provider's device flow, as its command line tool's published source shows it (read 2026-11-27): a code for a
+    /// client id, polls that answer 403 until the person approves, then an authorization code and a verifier the
+    /// exchange spends once, form encoded; refresh as JSON, rotating; revoke as JSON. Access tokens name the account.
+    /// </summary>
+    private HttpResponseMessage? ByCode(SentForm form)
+    {
+        var code = Settings.Code;
+
+        if (form.Address == code.StartAddress)
+        {
+            if (!form.IsJson || form.Field("client_id") != code.ClientId || CodeStartRefused)
+            {
+                return Json(HttpStatusCode.NotFound, """{"error":"not_found"}""");
+            }
+
+            var deviceAuthId = Random();
+            devices[deviceAuthId] = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(4)).ToUpperInvariant();
+            return Json(HttpStatusCode.OK, new JsonObject { ["device_auth_id"] = deviceAuthId, ["user_code"] = devices[deviceAuthId], ["interval"] = "7" }.ToJsonString());
+        }
+
+        if (form.Address == code.PollAddress)
+        {
+            if (!form.IsJson || form.Field("device_auth_id") is not { } id || !devices.TryGetValue(id, out var userCode) || form.Field("user_code") != userCode)
+            {
+                return Json(HttpStatusCode.BadRequest, """{"error":"invalid_request"}""");
+            }
+
+            switch (Device)
+            {
+                case DeviceAnswer.SlowDown:
+                    Device = DeviceAnswer.Pending;
+                    return Json(HttpStatusCode.BadRequest, """{"error":"slow_down"}""");
+                case DeviceAnswer.Pending:
+                    return Json(HttpStatusCode.Forbidden, """{"error":{"code":"deviceauth_authorization_pending"}}""");
+                case DeviceAnswer.Refused:
+                    return Json(HttpStatusCode.BadRequest, """{"error":"access_denied"}""");
+            }
+
+            devices.TryRemove(id, out _);
+            var verifier = Random();
+            var authorization = Random();
+            deviceCodes[authorization] = verifier;
+            return Json(HttpStatusCode.OK, new JsonObject { ["authorization_code"] = authorization, ["code_challenge"] = Challenge(verifier), ["code_verifier"] = verifier }.ToJsonString());
+        }
+
+        if (form.Address == code.RevokeAddress)
+        {
+            return form.IsJson ? new HttpResponseMessage(HttpStatusCode.OK) : Json(HttpStatusCode.BadRequest, "{}");
+        }
+
+        if (form.Address != code.TokenAddress)
+        {
+            return null;
+        }
+
+        return form.Field("grant_type") switch
+        {
+            "authorization_code" when !form.IsJson && form.Field("code") is { } spent && deviceCodes.TryRemove(spent, out var verifierFor)
+                && form.Field("code_verifier") == verifierFor && form.Field("client_id") == code.ClientId
+                && form.Field("redirect_uri") == code.RedirectUri.AbsoluteUri => CodeTokens(AccountId),
+            "refresh_token" when form.IsJson && form.Field("client_id") == code.ClientId => RefreshByCode(form),
+            _ => Json(HttpStatusCode.BadRequest, """{"error":"invalid_grant"}"""),
+        };
+    }
+
+    private HttpResponseMessage RefreshByCode(SentForm form)
+    {
+        switch (RefreshAnswer)
+        {
+            case SignInServerAnswer.ServerError:
+                return Json(HttpStatusCode.InternalServerError, "{}");
+            case SignInServerAnswer.Unreachable:
+                throw new HttpRequestException(HttpRequestError.ConnectionError, "unreachable");
+            case SignInServerAnswer.Ended:
+                return Json(HttpStatusCode.BadRequest, EndedCode == "invalid_grant"
+                    ? """{"error":"invalid_grant"}"""
+                    : new JsonObject { ["error"] = new JsonObject { ["code"] = EndedCode, ["message"] = "Made-up message for a test." } }.ToJsonString());
+        }
+
+        if (form.Field("refresh_token") is not { } token || !refreshTokens.TryUpdate(token, true, false))
+        {
+            return Json(HttpStatusCode.BadRequest, """{"error":{"code":"refresh_token_reused","message":"Made-up message for a test."}}""");
+        }
+
+        return CodeTokens(RefreshAccountId ?? AccountId, withIdToken: false);
+    }
+
+    private HttpResponseMessage CodeTokens(string account, bool withIdToken = true)
+    {
+        var refresh = Random();
+        refreshTokens[refresh] = false;
+        var answer = new JsonObject
+        {
+            ["access_token"] = AccessToken(account),
+            ["refresh_token"] = refresh,
+        };
+
+        if (withIdToken && Flaw is not IdTokenFlaw.Missing)
+        {
+            answer["id_token"] = IdToken(Settings.Code.ClientId, nonce: null);
+        }
+
+        return Json(HttpStatusCode.OK, answer.ToJsonString());
+    }
+
+    /// <summary>An access token by code: a signed token that names the account and runs out in an hour.</summary>
+    private string AccessToken(string account)
+    {
+        var now = Clock.GetUtcNow().UtcDateTime;
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Settings.Issuer,
+            IssuedAt = now,
+            NotBefore = now,
+            Expires = now.AddHours(1),
+            Claims = new Dictionary<string, object>
+            {
+                ["jti"] = Random(),
+                ["https://api.openai.com/auth"] = new Dictionary<string, object> { ["chatgpt_account_id"] = account },
+            },
+            SigningCredentials = new SigningCredentials(new RsaSecurityKey(signingKey) { KeyId = "test-key" }, SecurityAlgorithms.RsaSha256),
+        });
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static Dictionary<string, string> ParseJson(string text)
+    {
+        Dictionary<string, string> fields = [];
+
+        if (text.Length > 0 && JsonNode.Parse(text) is JsonObject root)
+        {
+            foreach (var (name, value) in root)
+            {
+                if (value is JsonValue scalar && scalar.TryGetValue<string>(out var word))
+                {
+                    fields[name] = word;
+                }
+            }
+        }
+
+        return fields;
+    }
 
     private static string Keys(RSA key)
     {
@@ -268,7 +445,20 @@ public sealed class OpenAIPlanAuthServer : HttpMessageHandler
 /// <summary>One request the fake server received: where it went and its form fields.</summary>
 public sealed record SentForm(HttpMethod Method, Uri Address, IReadOnlyDictionary<string, string> Fields)
 {
+    /// <summary>True when the body was JSON rather than a form.</summary>
+    public bool IsJson { get; init; }
+
     public string? Field(string name) => Fields.TryGetValue(name, out var value) ? value : null;
+}
+
+
+/// <summary>How the fake server answers the next poll of a sign-in by code.</summary>
+public enum DeviceAnswer
+{
+    Pending,
+    Approved,
+    Refused,
+    SlowDown,
 }
 
 
@@ -294,7 +484,12 @@ public sealed class ObservedPlanSignIn(OpenAIPlanSignIn signIn, OpenAIPlanAuthSe
     public async Task<ModelSignInStep> Begin(ModelSignInAttempt attempt, CancellationToken cancellation)
     {
         var step = await signIn.Begin(attempt, cancellation);
-        server.Saw(step.Address);
+
+        if (step.Wait is ModelSignInWait.Return)
+        {
+            server.Saw(step.Address);
+        }
+
         return step;
     }
 

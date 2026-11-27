@@ -206,10 +206,10 @@ public sealed class ConversationSummarizer(
         }
 
         var rules = deployment.Value.Rules;
-        var endpoint = new ModelEndpoint(pending.Provider.Kind, pending.Address)
+        var endpoint = pending.Credential.For(new ModelEndpoint(pending.Provider.Kind, pending.Address)
         {
             Limits = new DiscoveryLimits(rules.MaxModelListBytes, rules.MaxModelsPerConnection),
-        };
+        });
         using var client = pending.Provider.CreateChatClient(endpoint, pending.Key, pending.Model, new ModelSettings { MaxOutputTokens = MaxSummaryTokens });
         using var outbound = OutboundAttempt.Begin(pending.Policy);
         return await client.GetResponse(Request(pass, new Redactor([pending.Key])), cancellationToken);

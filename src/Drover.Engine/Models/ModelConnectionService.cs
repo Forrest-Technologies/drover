@@ -376,7 +376,7 @@ public sealed class ModelConnectionService(
         var credential = provider is null ? read : await credentials.Ready(read, cancellationToken);
         var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
         var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
-        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits };
+        var endpoint = address is null ? null : credential.For(new ModelEndpoint(connection.Kind, address) { Limits = limits });
         return new PreparedCall(connection, provider, endpoint, credential, effective, resolution.Refusal);
     }
 

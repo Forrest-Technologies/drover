@@ -181,10 +181,10 @@ public sealed class ScreenDescriber(
     /// <summary>One request, bounded in time, under the space's rule on private addresses. Cancelling the run cancels it.</summary>
     private async Task<ModelChatResponse> Ask(Reader reader, ModelChatRequest request, CancellationToken cancellationToken)
     {
-        var endpoint = new ModelEndpoint(reader.Provider.Kind, reader.Address)
+        var endpoint = reader.Credential.For(new ModelEndpoint(reader.Provider.Kind, reader.Address)
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
-        };
+        });
         using var client = reader.Provider.CreateChatClient(endpoint, reader.Key, reader.Model, new ModelSettings { MaxOutputTokens = MaxAnswerTokens });
         using var outbound = OutboundAttempt.Begin(reader.Policy);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

@@ -193,7 +193,7 @@ public static class ModelConnectionEndpoints
         var begun = await signIns.Begin(access.SpaceId, access.UserId, request.Kind ?? string.Empty, redirect, context.RequestAborted);
 
         return begun.Address is { } address
-            ? TypedResults.Ok(new ModelSignInStarted(begun.AttemptId, address.AbsoluteUri, ToWireName(begun.Wait)))
+            ? TypedResults.Ok(new ModelSignInStarted(begun.AttemptId, address.AbsoluteUri, ToWireName(begun.Wait), begun.Code))
             : TypedResults.Problem(title: begun.Problem, statusCode: begun.Status);
     }
 
@@ -240,7 +240,7 @@ public static class ModelConnectionEndpoints
         }
 
         var connection = outcome.ConnectionId is { } connectionId ? await Summarize(scopes, access, connectionId, context.RequestAborted) : null;
-        return TypedResults.Ok(new ModelSignInProgress(ToWireName(state), connection));
+        return TypedResults.Ok(new ModelSignInProgress(ToWireName(state), connection, outcome.Problem));
     }
 
     private static async Task<Results<NoContent, NotFound>> SignOut(Guid connectionId, HttpContext context, ModelSignIns signIns)
@@ -278,6 +278,8 @@ public static class ModelConnectionEndpoints
     private static string ToWireName(ModelSignInWait wait) =>
         wait switch
         {
+            ModelSignInWait.Paste => ModelSignInWaits.Paste,
+            ModelSignInWait.Poll => ModelSignInWaits.Poll,
             _ => ModelSignInWaits.Return,
         };
 

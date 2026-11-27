@@ -37,6 +37,10 @@ internal static class PlanFailures
         code switch
         {
             "subscription_sharing_usage_limit_exceeded" => new(ModelFailure.OutOfCredit, LimitReached),
+
+            // A plan signed in by code answers with the provider's command line tool's codes, in error.type on a 429 and
+            // in error.code inside a stream (that tool's published error mapping, read 2026-11-27).
+            "usage_limit_reached" or "usage_not_included" => new(ModelFailure.OutOfCredit, LimitReached),
             "subscription_sharing_user_not_eligible" => ModelProviderException.FromRefusal(NotEligible),
             "subscription_sharing_usage_unavailable" or "subscription_sharing_user_unavailable" =>
                 new(ModelFailure.RetryLater, Unavailable),
@@ -48,7 +52,10 @@ internal static class PlanFailures
             _ => null,
         };
 
-    /// <summary>The failure for the plan code in an error body (<c>{"error":{"code":...}}</c>), or null when it carries none.</summary>
+    /// <summary>
+    /// The failure for the plan code in an error body (<c>{"error":{"code":...}}</c>, or <c>{"error":{"type":...}}</c> as a
+    /// plan signed in by code answers), or null when it carries none.
+    /// </summary>
     public static ModelProviderException? Read(BinaryData? body)
     {
         if (body is null || body.ToMemory().Length is 0 or > 65536)
@@ -60,10 +67,8 @@ internal static class PlanFailures
         {
             using var document = JsonDocument.Parse(body.ToMemory());
             var root = document.RootElement;
-            return root.ValueKind is JsonValueKind.Object && root.TryGetProperty("error", out var error)
-                && error.ValueKind is JsonValueKind.Object && error.TryGetProperty("code", out var code)
-                && code.ValueKind is JsonValueKind.String
-                ? For(code.GetString())
+            return root.ValueKind is JsonValueKind.Object && root.TryGetProperty("error", out var error) && error.ValueKind is JsonValueKind.Object
+                ? For(Text(error, "code")) ?? For(Text(error, "type"))
                 : null;
         }
         // A body that is not the provider's error object (admission can answer {"detail":"..."}) has no plan code.
@@ -74,6 +79,13 @@ internal static class PlanFailures
         }
 #pragma warning restore DRV0005
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.String ? value.GetString() : null;
 
     #endregion
 }

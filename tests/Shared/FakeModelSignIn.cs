@@ -51,6 +51,11 @@ public sealed class FakeModelSignIn(
 
     private readonly ConcurrentQueue<IReadOnlyDictionary<string, string>> earliers = new();
 
+    private readonly ConcurrentQueue<DateTimeOffset> polls = new();
+
+    /// <summary>The code the person enters on <see cref="DevicePage"/>.</summary>
+    public const string DeviceCode = "ABCD-EFGH";
+
     #endregion
 
     #region Properties
@@ -58,6 +63,9 @@ public sealed class FakeModelSignIn(
     public static Uri AuthorizeAddress { get; } = new("https://auth.example.test/authorize");
 
     public static Uri RedirectUri { get; } = new("http://127.0.0.1:1455/auth/callback");
+
+    /// <summary>Where the person enters the code of a sign-in the server polls for.</summary>
+    public static Uri DevicePage { get; } = new("https://auth.example.test/device");
 
     public string Kind => kind;
 
@@ -92,6 +100,30 @@ public sealed class FakeModelSignIn(
     /// <summary>When true, a refusal with <see cref="RefusalSentence"/> keeps what the provider registered, as a sign-in that did not allow plan use.</summary>
     public bool RefusalKeeps { get; set; }
 
+    /// <summary>How a device that cannot listen signs in: by a code the server polls for, by a pasted code, or (null) not at all.</summary>
+    public ModelSignInWait? CodeWait { get; set; }
+
+    /// <summary>The provider's interval between polls, for <see cref="ModelSignInWait.Poll"/>.</summary>
+    public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long the provider's code lasts, for <see cref="ModelSignInWait.Poll"/>.</summary>
+    public TimeSpan CodeLifetime { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>True once the person has entered the code and approved on the provider's page.</summary>
+    public bool DeviceApproved { get; set; }
+
+    /// <summary>True once the person has refused on the provider's page.</summary>
+    public bool DeviceRefused { get; set; }
+
+    /// <summary>When true, the next poll is told to slow down.</summary>
+    public bool SlowDownOnce { get; set; }
+
+    /// <summary>When true, the next poll cannot reach the provider.</summary>
+    public bool UnreachableOnce { get; set; }
+
+    /// <summary>When each poll reached the provider.</summary>
+    public IReadOnlyList<DateTimeOffset> Polls => [.. polls];
+
     /// <summary>Every access and refresh token this provider has handed out.</summary>
     public IReadOnlyList<string> Issued => [.. issued];
 
@@ -121,8 +153,9 @@ public sealed class FakeModelSignIn(
     #region Interface Implementations
 
     public bool AcceptsRedirect(Uri? redirectUri) =>
-        redirectUri is not null
-        && redirectUri.Scheme == RedirectUri.Scheme
+        redirectUri is null
+            ? CodeWait is not null
+            : redirectUri.Scheme == RedirectUri.Scheme
         && redirectUri.Host == RedirectUri.Host
         && redirectUri.AbsolutePath == RedirectUri.AbsolutePath
         && redirectUri.Query.Length == 0;
@@ -137,11 +170,27 @@ public sealed class FakeModelSignIn(
         {
             Query = $"response_type=code&code_challenge={challenge}&code_challenge_method=S256&state={Uri.EscapeDataString(attempt.State)}&redirect_uri={Uri.EscapeDataString(attempt.RedirectUri?.AbsoluteUri ?? string.Empty)}",
         }.Uri;
-        return Task.FromResult(new ModelSignInStep(address, null, ModelSignInWait.Return));
+
+        return Task.FromResult(attempt.RedirectUri is not null ? new ModelSignInStep(address, null, ModelSignInWait.Return) : CodeWait switch
+        {
+            ModelSignInWait.Poll => new ModelSignInStep(DevicePage, DeviceCode, ModelSignInWait.Poll)
+            {
+                Interval = PollInterval,
+                Lifetime = CodeLifetime,
+                Kept = new Dictionary<string, string> { ["device"] = $"device-{Guid.NewGuid():N}" },
+            },
+            ModelSignInWait.Paste => new ModelSignInStep(address, null, ModelSignInWait.Paste),
+            _ => throw new ModelSignInRefusedException(),
+        });
     }
 
     public Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation)
     {
+        if (attempt.Begun.ContainsKey("device"))
+        {
+            return Poll();
+        }
+
         var answer = Read(arrived.Text);
 
         if (answer.ContainsKey("error") || answer.GetValueOrDefault("state") != attempt.State || answer.GetValueOrDefault("code") is not { } code)
@@ -197,6 +246,37 @@ public sealed class FakeModelSignIn(
     #endregion
 
     #region Private Methods
+
+    /// <summary>One poll of the provider's device flow.</summary>
+    private Task<ModelTokens?> Poll()
+    {
+        polls.Enqueue(clock.GetUtcNow());
+
+        if (SlowDownOnce)
+        {
+            SlowDownOnce = false;
+            throw new ModelSignInSlowDownException();
+        }
+
+        if (UnreachableOnce)
+        {
+            UnreachableOnce = false;
+            throw ModelProviderException.FromNetwork();
+        }
+
+        if (DeviceRefused)
+        {
+            throw new ModelSignInRefusedException();
+        }
+
+        if (!DeviceApproved)
+        {
+            return Task.FromResult<ModelTokens?>(null);
+        }
+
+        received.Enqueue(new FakeTokenRequest("device_code", null, null, null));
+        return Task.FromResult<ModelTokens?>(NewTokens() with { Details = new Dictionary<string, string> { ["flow"] = "code" } });
+    }
 
     private ModelTokens NewTokens()
     {

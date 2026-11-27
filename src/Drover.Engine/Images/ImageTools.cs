@@ -128,10 +128,10 @@ public static class ImageTools
         try
         {
             using var outbound = OutboundAttempt.Begin(prepared.Policy);
-            var endpoint = new ModelEndpoint(prepared.Connection.Kind, address)
+            var endpoint = credential.For(new ModelEndpoint(prepared.Connection.Kind, address)
             {
                 Limits = new DiscoveryLimits(rules.MaxModelListBytes, rules.MaxModelsPerConnection),
-            };
+            });
             var generated = await generator.Generate(
                 endpoint,
                 credential.Value,
