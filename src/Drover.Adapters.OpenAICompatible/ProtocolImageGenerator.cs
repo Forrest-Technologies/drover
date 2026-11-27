@@ -31,10 +31,7 @@ internal sealed class ProtocolImageGenerator(HttpClient client)
             output_format = "png",
         });
 
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
+        ProtocolKey.Apply(request, connection.BaseAddress, apiKey);
 
         try
         {

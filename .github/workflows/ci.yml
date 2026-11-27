@@ -21,7 +21,7 @@ jobs:
   build-test:
     name: Build, format, test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:

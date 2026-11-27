@@ -21,9 +21,9 @@ internal sealed class VoiceSocket(ClientWebSocket socket) : IDisposable
     {
         var socket = new ClientWebSocket();
 
-        if (!string.IsNullOrEmpty(apiKey))
+        foreach (var (name, value) in ProtocolKey.Headers(address, apiKey))
         {
-            socket.Options.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+            socket.Options.SetRequestHeader(name, value);
         }
 
         try
