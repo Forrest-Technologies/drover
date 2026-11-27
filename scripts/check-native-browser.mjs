@@ -789,7 +789,8 @@ try {
                     const serverTools = page.getByRole('group', { name: 'Every tool in Sample tools for Sample bot', exact: true });
                     await serverTools.waitFor({ state: 'attached' });
                     await page.getByText('No tools in this group are marked read-only.', { exact: true }).waitFor({ state: 'attached' });
-                    assert(await serverTools.getByRole('radio', { name: 'Read only', exact: true }).isDisabled());
+                    await serverTools.locator('input[aria-label="Read only"][aria-disabled="true"]')
+                        .waitFor({ state: 'attached', timeout: 5000 });
                     assert(await serverTools.getByRole('radio', { name: 'Ask', exact: true }).isEnabled());
                     assert(await serverTools.getByRole('radio', { name: 'Allow', exact: true }).isEnabled());
                     await serverTools.scrollIntoViewIfNeeded();
