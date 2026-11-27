@@ -20,6 +20,7 @@ global using System.Text.RegularExpressions;
 global using System.Threading;
 global using System.Threading.Tasks;
 global using AwesomeAssertions;
+global using Drover.Adapters.Anthropic;
 global using Drover.Adapters.Conformance;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.Conformance.Files;

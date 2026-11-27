@@ -5,6 +5,9 @@ namespace Drover.Server.Voice;
 /// person's audio and commands go up to the model, the model's audio and words come down, and one sender writes
 /// to the socket from a bounded queue. Whichever of them finishes first ends the call. Audio passes through and is
 /// never kept; the words are added to the conversation after each exchange, in a short transaction of their own.
+/// A model that hands its work over (<see cref="CallPlan.HandsWorkOver"/>) answers nothing of substance itself: what
+/// the person asked becomes their message, the bot answers it in a run, and the run's reply is given to the model to
+/// say. The run is waited for beside the call and never holds it up.
 /// </summary>
 public sealed class VoiceCallSession(
     CallPlan plan,
@@ -54,6 +57,12 @@ public sealed class VoiceCallSession(
 
     private int exchanges;
 
+    // The runs waited for on behalf of work the model handed over.
+    private readonly List<Task> works = [];
+
+    // After work was handed over, what the model says is about that work until the person speaks again.
+    private bool speakingOfWork;
+
     #endregion
 
     #region Public Methods
@@ -97,6 +106,9 @@ public sealed class VoiceCallSession(
         await running.CancelAsync();
         await Settle(sides);
         await Finish(sending, sendStop);
+
+        // Waiting for a run stops with the call; the run itself goes on, and its reply is in the conversation.
+        await Settle(works);
         logger.LogInformation(
             "Live call in thread {ThreadId} ended ({Reason}) after {Seconds} s and {Exchanges} exchanges; {InputTokens} tokens in, {OutputTokens} out",
             plan.ThreadId,
@@ -181,6 +193,7 @@ public sealed class VoiceCallSession(
                 RealtimePersonSaid said => await PersonSaid(said.Text, cancellationToken),
                 RealtimeBotSaying saying => Queue(new VoiceCallFrame(VoiceCallMessages.BotSaying) { Text = saying.Text }),
                 RealtimeBotSaid said => await BotSaid(said.Text, cancellationToken),
+                RealtimeWorkHandedOver work => HandedOver(work.WorkId, cancellationToken),
                 RealtimeTurnUsage usage => Count(usage),
                 RealtimeFailed failed => Queue(new VoiceCallFrame(VoiceCallMessages.Failed) { Message = failed.Message }),
                 _ => true,
@@ -252,6 +265,11 @@ public sealed class VoiceCallSession(
             return false;
         }
 
+        if (plan.HandsWorkOver)
+        {
+            return await NextExchange(text, cancellationToken);
+        }
+
         if (botWaiting is not null)
         {
             return await Write(text, Take(ref botWaiting), cancellationToken);
@@ -268,6 +286,13 @@ public sealed class VoiceCallSession(
             return false;
         }
 
+        if (plan.HandsWorkOver)
+        {
+            // What the model says about handed-over work is the run's reply in other words, and that is already written.
+            botWaiting = speakingOfWork ? botWaiting : botWaiting is null ? text : $"{botWaiting} {text}";
+            return true;
+        }
+
         if (personWaiting is not null)
         {
             return await Write(Take(ref personWaiting), text, cancellationToken);
@@ -277,6 +302,54 @@ public sealed class VoiceCallSession(
         var written = await Write(null, Take(ref botWaiting), cancellationToken);
         botWaiting = text;
         return written;
+    }
+
+    /// <summary>
+    /// With a model that hands work over, an exchange is only known to be small talk once the next one begins: until
+    /// then its words may turn out to be what work was asked with. So it is written when the person speaks again,
+    /// and words that follow words with no answer between them are one thing said.
+    /// </summary>
+    private async Task<bool> NextExchange(string text, CancellationToken cancellationToken)
+    {
+        speakingOfWork = false;
+
+        if (botWaiting is null)
+        {
+            personWaiting = personWaiting is null ? text : $"{personWaiting} {text}";
+            return true;
+        }
+
+        var written = await Write(Take(ref personWaiting), Take(ref botWaiting), cancellationToken);
+        personWaiting = text;
+        return written;
+    }
+
+    /// <summary>
+    /// The model handed work over. What the person said since the last exchange is what they asked, and it goes to
+    /// the bot as their message. Work handed over a second time for the same words adds nothing while the first is
+    /// still being done.
+    /// </summary>
+    private bool HandedOver(string workId, CancellationToken cancellationToken)
+    {
+        var asked = Take(ref personWaiting);
+        botWaiting = null;
+        speakingOfWork = true;
+        works.RemoveAll(work => work.IsCompletedSuccessfully);
+
+        if (asked is not null || works.Count == 0)
+        {
+            works.Add(Work(workId, asked, cancellationToken));
+        }
+
+        return true;
+    }
+
+    private async Task Work(string workId, string? asked, CancellationToken cancellationToken)
+    {
+        await foreach (var outcome in voice.DoWork(plan, asked, cancellationToken))
+        {
+            await model.Report(workId, outcome, cancellationToken);
+        }
     }
 
     /// <summary>False when the conversation can no longer take the call's words, which ends the call.</summary>
@@ -292,6 +365,12 @@ public sealed class VoiceCallSession(
         if (written is CallWrite.Written)
         {
             exchanges++;
+            return true;
+        }
+
+        // The bot is working on what the call handed it: small talk meanwhile is said and not kept.
+        if (written is CallWrite.RunActive && plan.HandsWorkOver)
+        {
             return true;
         }
 
@@ -321,7 +400,7 @@ public sealed class VoiceCallSession(
     private void End(string reason) => Interlocked.CompareExchange(ref endReason, reason, null);
 
     /// <summary>Waits for the sides to stop. Each was cancelled, so what they throw now is only that.</summary>
-    private async Task Settle(Task[] sides)
+    private async Task Settle(IReadOnlyList<Task> sides)
     {
         foreach (var side in sides)
         {

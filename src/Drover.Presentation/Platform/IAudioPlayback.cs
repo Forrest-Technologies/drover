@@ -38,4 +38,11 @@ public interface IAudioPlayback
     /// <see cref="DeviceCallFailedException"/>.
     /// </summary>
     Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Opens the output a live call speaks through. A device that takes its loudspeaker out of the microphone only
+    /// for sound it plays as a conversation plays the call that way; every other device plays it as <see cref="Open"/>
+    /// does.
+    /// </summary>
+    Task<IAudioOutput> OpenCall(int sampleRate, CancellationToken cancellationToken = default) => Open(sampleRate, cancellationToken);
 }

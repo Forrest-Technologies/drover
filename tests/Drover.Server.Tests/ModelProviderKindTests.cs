@@ -16,7 +16,16 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, OpenAIPlan);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, Anthropic, OpenAIPlan);
+        kinds.Single(kind => kind.Kind == Anthropic).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            Anthropic,
+            "Anthropic",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            "Paste an API key from your Anthropic account. A personal plan cannot be used here.",
+            false,
+            []));
         kinds.Single(kind => kind.Kind == OpenAIPlan).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAIPlan,
             "ChatGPT plan",
@@ -65,7 +74,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
 
         kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
         var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
-        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com");
+        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com")
+            .And.NotContain("api.anthropic.com");
         JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible), JsonSerializerOptions.Web)
             .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
     }
@@ -104,6 +114,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     private const string Venice = "venice";
 
     private const string OpenAI = "openai";
+
+    private const string Anthropic = "anthropic";
 
     private const string OpenAIPlan = "openai_signin";
 
@@ -245,7 +257,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "openai_signin");
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "anthropic", "openai_signin");
     }
 
     #endregion
