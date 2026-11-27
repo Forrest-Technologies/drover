@@ -145,7 +145,7 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     #region Private Methods
 
     private ModelConnectionsViewModel Models() =>
-        new(server.CreateApi(), session, new(server.CreateApi(), session, NullLogger<SpaceVoice>.Instance), NullLogger<ModelConnectionsViewModel>.Instance);
+        new(server.CreateApi(), session, new(server.CreateApi(), session, NullLogger<SpaceVoice>.Instance), new NoModelSignInListener(), NullLogger<ModelConnectionsViewModel>.Instance);
 
     #endregion
 }

@@ -242,7 +242,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
     #region Private Methods
 
-    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), NullLogger<ConnectModelViewModel>.Instance);
+    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
 
     #endregion
 }

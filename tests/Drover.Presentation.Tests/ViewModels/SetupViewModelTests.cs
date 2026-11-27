@@ -308,7 +308,7 @@ public sealed class SetupViewModelTests : IDisposable
 
     private CreateAccountViewModel Account() => new(server.CreateApi(), session, navigator, NullLogger<CreateAccountViewModel>.Instance);
 
-    private ConnectModelViewModel ConnectionStep() => new(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+    private ConnectModelViewModel ConnectionStep() => new(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
 
     private MeetBotViewModel MeetStep() => new(server.CreateApi(), session, NullLogger<MeetBotViewModel>.Instance);
 

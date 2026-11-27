@@ -19,10 +19,11 @@ A provider is a `Drover.Adapters.*` project compiled into the server and added b
 | `openai_compatible` | Compatible endpoint | Optional | Required | No |
 | `venice` | Venice | Required | Fixed | Yes |
 | `openai` | OpenAI | Required | Fixed | No |
+| `openai_signin` | ChatGPT plan (each person signs in) | Required (the person's token) | Fixed | No |
 
 **The catalog.** `ModelProviderCatalog` (`Drover.Engine`, a singleton) holds the registered providers in registration order and answers which are offered. It is built when the server starts (`ModelProviderStartupCheck`): two providers with one kind, or a provider whose descriptor names another kind, stop the server with a sentence that names the kind. Every place that picks a provider for a connection asks it, so the deployment policy applies to a test, a refresh, a run, a screen reader, a summary, an image, and speech alike.
 
-**The route.** `GET /api/model-provider-kinds` answers a signed-in person with the kinds this server offers, in registration order, as `ModelProviderKindResponse` (`Kind`, `DisplayName`, `KeyRule` and `AddressRule` as the words in `ModelKeyRules` and `ModelAddressRules`, the two hints, `ReportsCapabilities`). It is the same for everyone and is not in a space. A signed-out caller gets 401. `DroverApi.ListModelProviderKinds` is the client's call.
+**The route.** `GET /api/model-provider-kinds` answers a signed-in person with the kinds this server offers, in registration order, as `ModelProviderKindResponse` (`Kind`, `DisplayName`, `KeyRule` and `AddressRule` as the words in `ModelKeyRules` and `ModelAddressRules`, the two hints, `ReportsCapabilities`, and for a sign-in kind `SignIn`, its `SignInName` for the button and the provider's public `UsagePage`, from the descriptor). It is the same for everyone and is not in a space. A signed-out caller gets 401. `DroverApi.ListModelProviderKinds` is the client's call.
 
 **Which kinds are offered.** The deployment policy rules `ModelProviders` and `AllowedModelProviderKinds` ([16-deployment-policies.md](16-deployment-policies.md)): under `All` every registered kind is offered; under `OperatorList` (the hosted preset, or an operator's choice) only the kinds in the list. A kind that is not registered or not offered cannot be given to a new connection (`POST /api/spaces/{spaceId}/model-connections` answers 400 with "The kind {kind} is not available on this server." or "The operator of this server switched {kind} off."). A connection that already exists keeps being listed, and its next call fails with "The operator of this server switched {kind} off." without reaching the provider. The rule only narrows: no space setting turns a kind back on.
 
@@ -59,7 +60,7 @@ The boundary preserves text, images, reasoning (including opaque protected reaso
 | `venice` | API key | `Drover.Adapters.Venice` | 0 |
 | `openai` | API key, on the Responses API ([OpenAI](#openai-on-the-responses-api)) | `Drover.Adapters.OpenAICompatible` | 1 |
 | `anthropic` | API key | `Drover.Adapters.Anthropic` | 1 |
-| `openai_signin` | The user's own ChatGPT plan, self-hosted only | `Drover.Adapters.OpenAICompatible` | 1 |
+| `openai_signin` | The person's own ChatGPT plan, signed in by browser ([ChatGPT plan](#chatgpt-plan)) | `Drover.Adapters.OpenAICompatible` | 1 |
 | `openrouter_signin`, `huggingface_signin`, `copilot_signin` | OAuth to the user's own account | One adapter each | 2 |
 
 Every adapter must pass the model provider conformance suite: list models, plain reply, streaming, tool call round trip, structured output where claimed, reasoning text where claimed, protected reasoning sent back unchanged in a tool loop where claimed, cached input tokens reported where claimed, a rate-limit response mapped to "retry later", an invalid key mapped to a clear setup message. The suite reads the wire through `IChatWire` (`tests/Drover.Adapters.Conformance/ChatWire.cs`), which each adapter's test class gives on its `ProviderUnderTest`: which requests are model calls, the tool names offered, the text sent back for a tool call, the structured output asked for, and the protected reasoning sent back. `ChatCompletionsWire` is the default and serves the compatible and Venice adapters; `ResponsesWire` serves OpenAI. `ConformanceClaims` says which optional features an adapter's test model has: `StructuredOutput`, `ReasoningText`, `ProtectedReasoning` and `CachedUsage`.
@@ -281,7 +282,7 @@ Live calls are described in [03-run-lifecycle.md](03-run-lifecycle.md#live-calls
 
 ## Signing in with a subscription
 
-A person signs in to a model provider with their own account, and Drover uses that account in place of an API key. The token set is always the signing-in person's own, never a space credential ([ADR 0006](../adr/0006-credentials-belong-to-users-or-spaces.md)). The server side is built (issue #526, layer 1); the provider adapters and the connect screen follow, one provider at a time.
+A person signs in to a model provider with their own account, and Drover uses that account in place of an API key. The token set is always the signing-in person's own, never a space credential ([ADR 0006](../adr/0006-credentials-belong-to-users-or-spaces.md)). The server side (issue #526, layer 1), the ChatGPT plan and the connect screen on the desktop head (layers 2 and 3) are built; the other providers follow, one at a time.
 
 ### Shape
 
@@ -315,30 +316,25 @@ Each waits on the provider, so none sits under the tenant scope filter; the serv
 
 A sign-in kind is a provider kind too: its `IModelClientProvider` registers through `AddModelProvider` with a descriptor like any other, and the provider catalog decides first. A sign-in kind with no provider in the catalog, or one the deployment does not offer (`ModelProviders`, `AllowedModelProviderKinds`), is refused on every route, every use and the renewal with the catalog's sentence, before anything is sent. The deployment rule `SubscriptionSignIn` ([16-deployment-policies.md](16-deployment-policies.md)) is `Available` on a self-hosted server: every sign-in kind is on with nothing to set. Under the hosted preset it is `OnlyWithOperatorApproval`: every route and every use refuses a kind that uses a personal plan with "Signing in with a personal plan is not available on this server. You can add an API key instead.", before any request leaves; a flow the provider offers to any app stays on. Signing out is never refused: it deletes the person's own tokens and, for a refused kind, sends nothing. The operator's `Drover:Models:SignInOff` (a list of kinds, empty by default) switches a kind off the same way on any server, without a release.
 
-### ChatGPT plan, for self-hosted servers
+### ChatGPT plan
 
-OpenAI documents plan usage for open source and locally hosted apps, including an app on the user's own remote machine. A paid or remotely hosted app needs separate admission. Drover supports it for self-hosting and leaves it off on the hosted service until admitted.
+The kind `openai_signin`: `OpenAIPlanProvider` and `OpenAIPlanSignIn` in `Drover.Adapters.OpenAICompatible`, on the flow the provider documents for open source and locally hosted apps (https://developers.openai.com/siwc/token-sharing-open-source and its pages, read 2026-11-27 from the export https://developers.openai.com/siwc/llms-full.txt, and the discovery document https://auth.openai.com/.well-known/openid-configuration). Every address, scope and name is a setting under `Drover:Models:SignIn:openai_signin` (`OpenAIPlanOptions`), read for each request, so following a change at the provider needs no release.
 
-| Aspect | Fact | Design |
-| --- | --- | --- |
-| Client registration | No application or secret. A client id is issued dynamically, bound to the signed-in user. | Nothing for the operator to set up |
-| Sign-in flow | Authorization code with PKCE. The redirect must be a fixed loopback address on the machine where the browser runs. No device-code flow. | See below |
-| Tokens | Access one hour, refresh thirty days and rotating | Stored in the vault, private to the user. Refresh is serialized per credential so two runs cannot race the rotation. |
-| What it can call | Only the Responses endpoint and the model list | The adapter uses the Responses client and lists models from the plan |
-| Request rules | Streaming required, no storage, no system-role items, several common parameters must be omitted, tools grouped in a namespace | A request-shaping step in the adapter. Bot instructions travel in the instructions field. Settings the plan does not allow are hidden for these connections. |
-| Not available | Hosted tools such as file search and code execution, image generation, audio input | Capability record says so; Drover's own tools are unaffected |
-| Limits | The plan's usage window is shared across all apps; the user can cap each app | Limit errors, including one that arrives mid-stream, become a clear message on the run with the reset time |
-| Who | Each person signs in with their own plan | Credential scope is always per user. It is never a shared space credential. |
-
-**The loopback redirect** means the sign-in has to finish on the machine with the browser, which is often not the server.
-
-| Where Drover runs | How sign-in works |
+| Step | What Drover does |
 | --- | --- |
-| Same machine as the browser | The server listens on the loopback address for the callback. The compose file publishes that port to localhost only. |
-| A remote server, user has the desktop app | The desktop app runs the loopback step and sends the resulting credential to the user's server over the API. The server owns refreshes from then on. This matches the provider's own guidance for remote machines. |
-| A remote server, no desktop app | A small command, `drover connect openai`, does the same from a terminal. |
+| Approve | The browser goes to `https://auth.openai.com/api/accounts/authorize` with `client_id=dynamic_agent_client` and `agent_name_hint=Drover` on a person's first sign-in, or the client id the provider issued to them on a later one; `ext_agent_host_id`, `response_type=code`, the device's `redirect_uri` (`http://127.0.0.1:<port>/auth/callback`, only the port may vary), the identity and plan scopes, `resource=https://api.openai.com/v1`, a fresh `state` and `nonce`, and an `S256` PKCE challenge. No client secret exists. |
+| Return | The device hands the query string to `/finish`. A wrong or repeated `state`, an `error`, a first registration that comes back without an issued client id, or a later one that names another client id, is refused and nothing is exchanged. |
+| Exchange | On the server: `POST https://auth.openai.com/api/accounts/oauth/token`, form encoded, with the issued client id, the code, the verifier, the same `redirect_uri` and `resource`. Nothing is kept unless the answer grants `chatgpt.tokens.use.direct` ("ChatGPT signed you in but did not allow plan use. Try again and allow it."), and the ID token passes the platform's token handler against the provider's published keys (RS256 only, issuer, audience is the issued client id, expiry) with the attempt's nonce. A later sign-in must be the same account (`sub`). The token set keeps the issued client id, the host id and the subject in `Details`, and the email as the account label. |
+| Host id | The provider asks for a stable, opaque `ext_agent_host_id` per host and leaves what a host is to the app. Drover counts each person's sign-in on a server as one host: a `urn:uuid:` made once, kept in the token set and sent again on every later sign-in, so it never names the person. A person who signs out and back in is a new host. |
+| Refresh | Form `grant_type=refresh_token`, the issued client id, the refresh token and `resource`, no `scope`. Refresh tokens rotate (30 days), access tokens last an hour. `invalid_grant`, `invalid_refresh_token`, `token_expired` and any `refresh_token_*` code end the sign-in; anything else may pass. No request of the sign-in is retried. |
+| Sign out | `POST https://auth.openai.com/api/accounts/oauth/revoke` (the discovery document's `revocation_endpoint`) with the refresh token, `token_type_hint=refresh_token` and the issued client id. |
+| Runs | #528's `ResponsesChatClient` under its plan rules: only `GET /v1/models` and `POST /v1/responses` on the API address, the person's access token as the bearer. Every call streams (a whole answer is the stream put together) and `PlanRequestShaping` shapes each body: `store: false`, `stream: true`, no system-role item (their words go to `instructions`), none of the fields the plan refuses (`background`, `conversation`, `max_output_tokens`, `max_tool_calls`, `metadata`, `moderation`, `multi_agent`, `prompt`, `prompt_cache_retention`, `safety_identifier`, `temperature`, `top_logprobs`, `top_p`, `truncation`, `user`, `previous_response_id`), and function tools grouped in one namespace, `drover`, with each function call sent back naming it. A call the plan limited is not sent again. |
+| Models | The plan's own list, `{"models":[{slug, display_name, visibility}]}`: entries whose `visibility` is `list`, in the provider's order, with no price. Each starts with tools, streaming, pictures, structured output and reasoning, and claims no image generation, web search or speech, so the bot editor does not offer them. |
+| Failures | `subscription_sharing_usage_limit_exceeded` (429, or inside a stream as `response.failed`) is out of credit with "Your ChatGPT plan has reached its limit for now." and no time to try again; `subscription_sharing_user_not_eligible` (403) is a refusal, not retried and not a reason to sign in again; `subscription_sharing_usage_unavailable` and `subscription_sharing_user_unavailable` (503) are retry later; `subscription_sharing_unsupported_capability` is a refusal in words. The provider's own message is never repeated. |
 
-On a phone-only setup this sign-in is not possible; the UI says so and offers the key option.
+The return is a loopback address on the machine with the browser, so the sign-in finishes on a device that can listen there: today the desktop app. The server makes the exchange and owns every refresh from then on, which matches the provider's guidance for a tool on a remote machine. A phone or a browser tab says so and offers a key; layer 5 adds the code flow for them.
+
+**On the connect screen** (`ModelSignInFlow` in `Drover.Presentation`, `IModelSignInListener` in `Drover.Presentation/Platform`, `DesktopModelSignInListener` on the desktop head) a sign-in kind is one more entry in the provider list. Choosing it shows one line and one button, "Continue with {SignInName}". The desktop head listens on `127.0.0.1` (port 1455 if free, else any free port) at `/auth/callback`, starts the sign-in, opens the page in the system browser, answers the return with "Signed in. You can close this tab.", hands the query string to the server and stops listening. The states and their sentences are in [docs/ux/providers.md](../ux/providers.md). On Models, a sign-in connection's card says the caller's own sign-in only ("Using ChatGPT plan" with their account, ended, or not made), with "Manage usage" (the provider's usage page) while it is in use, "Sign in again" or "Continue with" otherwise, and "Sign out" in its More menu.
 
 ### Others
 
