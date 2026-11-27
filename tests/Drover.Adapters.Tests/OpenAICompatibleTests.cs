@@ -282,7 +282,7 @@ public sealed class OpenAICompatibleTests
         await lookalike.Subject.Provider.ListModels(lookalike.Subject.Connection, lookalike.Subject.ApiKey, TestContext.Current.CancellationToken);
 
         chat.Handler.Requests.Single().Headers.Should().NotContainKey("api-key");
-        lookalike.Handler.Requests.Single().Headers.Should().NotContainKey("api-key");
+        lookalike.Handler.Requests.Should().OnlyContain(request => !request.Headers.ContainsKey("api-key"));
     }
 
     [Fact]

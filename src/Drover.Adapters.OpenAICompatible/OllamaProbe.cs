@@ -31,7 +31,8 @@ internal static class OllamaProbe
         List<ModelInfo> models,
         CancellationToken cancellation)
     {
-        if (models.Count == 0)
+        // Azure's hosts never answer as a local server does, so they are not asked.
+        if (models.Count == 0 || ProtocolKey.IsAzure(connection.BaseAddress))
         {
             return models;
         }
@@ -94,10 +95,7 @@ internal static class OllamaProbe
             Content = JsonContent.Create(new { model = model.Id }),
         };
 
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
+        ProtocolKey.Apply(request, connection.BaseAddress, apiKey);
 
         try
         {
