@@ -133,6 +133,25 @@ public sealed class SystemOneTests
     }
 
     [Fact]
+    public void Each_kind_says_what_a_connection_gives_and_where_its_calls_go()
+    {
+        var providers = SystemOneKinds.All.ToDictionary(kind => kind.Kind, kind => (IDecisionModelProvider)new SystemOneProvider(kind, new FixtureHttpClientFactory(new RecordedHandler(RecordedFixture.Load(Path.Combine("systemone", kind.Kind), DecisionScenarios.YesOrNo)))));
+
+        providers.Values.Select(provider => (provider.Kind, provider.AddressRule, provider.KeyRule)).Should().Equal(
+            ("typesafe", DecisionAddressRule.Fixed, ModelKeyRule.Required),
+            ("cloudflare_workers_ai", DecisionAddressRule.Account, ModelKeyRule.Required),
+            ("openrouter", DecisionAddressRule.Fixed, ModelKeyRule.Required),
+            ("microsoft_foundry", DecisionAddressRule.Address, ModelKeyRule.Required),
+            ("systemone_compatible", DecisionAddressRule.Address, ModelKeyRule.Optional));
+        providers["typesafe"].AddressFor("https://ignored.example.test/", null).Should().Be(new Uri("https://api.typesafe.ai/"));
+        providers["cloudflare_workers_ai"].AddressFor(null, " abc123 ").Should().Be(new Uri("https://api.cloudflare.com/client/v4/accounts/abc123/"));
+        providers["cloudflare_workers_ai"].AddressFor(null, null).Should().BeNull();
+        providers["microsoft_foundry"].AddressFor("https://res.services.ai.azure.com", null).Should().Be(new Uri("https://res.services.ai.azure.com"));
+        providers["systemone_compatible"].AddressFor("ftp://judge.example.test/", null).Should().BeNull("only http and https are addresses");
+        providers.Values.Should().OnlyContain(provider => provider.DisplayName.Length > 0);
+    }
+
+    [Fact]
     public async Task A_local_server_with_no_key_is_sent_no_key()
     {
         var (subject, handler) = SystemOneRig.Start(SystemOneKinds.Compatible, DecisionScenarios.YesOrNo);

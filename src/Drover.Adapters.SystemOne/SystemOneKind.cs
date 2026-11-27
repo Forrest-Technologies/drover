@@ -19,6 +19,13 @@ public sealed record SystemOneKind
     /// <summary>The address every connection of this kind uses, or null when a connection gives its own.</summary>
     public Uri? FixedAddress { get; init; }
 
+    /// <summary>For a kind whose connections give an account: the address that account's calls go to.</summary>
+    public Func<string, Uri>? AccountAddress { get; init; }
+
+    public DecisionAddressRule AddressRule => FixedAddress is not null ? DecisionAddressRule.Fixed
+        : AccountAddress is not null ? DecisionAddressRule.Account
+        : DecisionAddressRule.Address;
+
     /// <summary>Where a request for a model goes, from the connection's address.</summary>
     public required Func<Uri, string, Uri> RequestAddress { get; init; }
 
@@ -62,11 +69,12 @@ public static class SystemOneKinds
         KeyHeader = bearer,
     };
 
-    /// <summary>The address of a connection is the account's: <c>https://api.cloudflare.com/client/v4/accounts/{account}/</c>.</summary>
+    /// <summary>A connection gives its account id; its address is the account's under Cloudflare's REST API.</summary>
     public static SystemOneKind CloudflareWorkersAi { get; } = new()
     {
         Kind = "cloudflare_workers_ai",
         DisplayName = "Cloudflare Workers AI",
+        AccountAddress = account => new($"https://api.cloudflare.com/client/v4/accounts/{Uri.EscapeDataString(account)}/"),
         RequestAddress = (address, model) => Under(address, $"ai/run/@cf/cloudflare/{Uri.EscapeDataString(model)}"),
         KeyHeader = bearer,
         Enveloped = true,

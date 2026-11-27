@@ -25,6 +25,12 @@ public sealed class SystemOneProvider(SystemOneKind kind, IHttpClientFactory cli
 
     public string Kind => kind.Kind;
 
+    public string DisplayName => kind.DisplayName;
+
+    public ModelKeyRule KeyRule => kind.KeyRequired ? ModelKeyRule.Required : ModelKeyRule.Optional;
+
+    public DecisionAddressRule AddressRule => kind.AddressRule;
+
     public Uri? FixedAddress => kind.FixedAddress;
 
     public SystemOneKind Definition => kind;
@@ -32,6 +38,13 @@ public sealed class SystemOneProvider(SystemOneKind kind, IHttpClientFactory cli
     #endregion
 
     #region Interface Implementations
+
+    public Uri? AddressFor(string? address, string? account) => kind.AddressRule switch
+    {
+        DecisionAddressRule.Fixed => kind.FixedAddress,
+        DecisionAddressRule.Account => string.IsNullOrWhiteSpace(account) ? null : kind.AccountAddress!(account.Trim()),
+        _ => Uri.TryCreate(address?.Trim(), UriKind.Absolute, out var given) && given.Scheme is "http" or "https" ? given : null,
+    };
 
     public IDecisionModel CreateClient(ModelEndpoint endpoint, string? apiKey, string model) =>
         new SystemOneClient(kind, clients.CreateClient(HttpClientName), kind.FixedAddress ?? endpoint.BaseAddress, apiKey, model, maxAnswerBytes);
