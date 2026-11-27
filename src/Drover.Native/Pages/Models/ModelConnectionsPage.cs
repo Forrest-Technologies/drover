@@ -47,6 +47,8 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Button changeAddress;
 
+    private readonly Field blankField;
+
     private readonly Button cancelAdd;
 
     private readonly Button addButton;
@@ -64,6 +66,13 @@ public sealed class ModelConnectionsPage : Screen
         nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
         baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url",
             "Any server that speaks the chat completions API.");
+        blankField = PageParts.Field(string.Empty, string.Empty, value =>
+        {
+            if (value != model.Named.BlankValue)
+            {
+                model.Named.SetBlank(value);
+            }
+        });
         keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", model.Named.KeyHint);
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
@@ -79,12 +88,13 @@ public sealed class ModelConnectionsPage : Screen
         changeAddress = PageParts.Action(NamedProviders.ChangeAddressWords, () => { model.ChangeAddress(); UpdateAddForm(); return Task.CompletedTask; }, UpdateAddForm);
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
+        blankField.Submitted += (_, _) => Run(model.Add);
         keyField.Submitted += (_, _) => Run(model.Add);
         newKeyField.Submitted += (_, _) => Run(ReplaceKey);
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = PageParts.SheetBody(provider, providersLoading, providersFailed, retryProviders, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
+        addSheet.Body = PageParts.SheetBody(provider, providersLoading, providersFailed, retryProviders, nameField, reach, blankField, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -300,6 +310,14 @@ public sealed class ModelConnectionsPage : Screen
         keyField.Disabled = busy;
         keyField.Hint = providers.KeyHint;
         baseUrlField.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
+        blankField.Visibility = providers.ShowsBlank ? Visibility.Visible : Visibility.Collapsed;
+        blankField.Label = providers.Blank?.Label ?? string.Empty;
+        blankField.Disabled = busy;
+        if (blankField.Value != providers.BlankValue)
+        {
+            blankField.Value = providers.BlankValue;
+        }
+
         addProblem.Text = model.AddProblem;
         addBusy.Text = busy ? "Adding the connection." : string.Empty;
         addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;

@@ -19,6 +19,13 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(Provider.Value);
             }
         });
+        Blank.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) =>
+        {
+            if (Blank.Value != Model.Named.BlankValue)
+            {
+                Model.Named.SetBlank(Blank.Value);
+            }
+        });
         Model.PropertyChanged += (_, _) => Refresh();
         Refresh();
     }
@@ -56,6 +63,13 @@ public sealed partial class ConnectModelPage : Screen
         Reach.Text = providers.ReachNote ?? string.Empty;
         Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
         Address.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
+        Blank.Visibility = providers.ShowsBlank ? Visibility.Visible : Visibility.Collapsed;
+        Blank.Label = providers.Blank?.Label ?? string.Empty;
+        if (Blank.Value != providers.BlankValue)
+        {
+            Blank.Value = providers.BlankValue;
+        }
+
         ChangeAddress.Visibility = providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
         Key.Label = providers.KeyLabel;
         Key.Hint = providers.KeyHint;

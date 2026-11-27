@@ -36,6 +36,8 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     private IReadOnlyList<ModelProviderKindResponse> ownWire = [];
 
+    private string blankValue = string.Empty;
+
     #endregion
 
     #region Properties
@@ -72,9 +74,24 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         new(CompatibleKind, "Another compatible server"),
     ];
 
-    public bool ShowsAddress => Kind == CompatibleKind && (Selected is null || AddressRevealed);
+    /// <summary>The one value the chosen provider's address needs from the person, when it needs one.</summary>
+    public ModelProviderAddressBlankResponse? Blank => Selected?.AddressBlank;
 
-    public bool OffersAddressChange => Selected is not null && !AddressRevealed;
+    /// <summary>What the person typed for <see cref="Blank"/>.</summary>
+    public string BlankValue => blankValue;
+
+    /// <summary>The address built from the person's value, or null when the chosen provider has no blank or the value is not allowed.</summary>
+    public string? BlankAddress => Selected is { AddressBlank: { } blank } preset ? AddressBlanks.Build(preset.Address, blank.Pattern, blankValue.Trim()) : null;
+
+    /// <summary>What is wrong with the value in the blank, or null when it is fine (or there is no blank).</summary>
+    public string? BlankProblem => Blank is { } blank && BlankAddress is null ? $"{blank.Label} is not valid." : null;
+
+    /// <summary>The chosen provider's blank replaces the address field: the address is never typed whole.</summary>
+    public bool ShowsBlank => Kind == CompatibleKind && Blank is not null;
+
+    public bool ShowsAddress => Kind == CompatibleKind && Blank is null && (Selected is null || AddressRevealed);
+
+    public bool OffersAddressChange => Selected is not null && Blank is null && !AddressRevealed;
 
     public bool ShowsKey => Selected?.KeyRule != ModelProviderKeyRules.None && OwnWire?.KeyRule != ModelKeyRules.None;
 
@@ -146,9 +163,17 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         var before = Selected;
         Choice = chosen;
         AddressRevealed = false;
+        blankValue = string.Empty;
         Changed?.Invoke();
 
-        return Selected?.Address ?? (before is not null ? string.Empty : null);
+        // A provider with a blank has no address until the person fills it in.
+        return Selected is null ? (before is not null ? string.Empty : null) : Selected.AddressBlank is null ? Selected.Address : string.Empty;
+    }
+
+    public void SetBlank(string value)
+    {
+        blankValue = value;
+        Changed?.Invoke();
     }
 
     public void RevealAddress()

@@ -151,7 +151,7 @@ public sealed partial class ModelConnectionsViewModel(
         AddProblem = null;
         Notice = null;
         ApiKey = string.Empty;
-        BaseUrl = Named.Selected?.Address ?? string.Empty;
+        BaseUrl = Named.Selected is { AddressBlank: null } selected ? selected.Address : string.Empty;
         Name = string.Empty;
     }
 
@@ -160,7 +160,7 @@ public sealed partial class ModelConnectionsViewModel(
         Adding = false;
         AddProblem = null;
         ApiKey = string.Empty;
-        BaseUrl = Named.Selected?.Address ?? string.Empty;
+        BaseUrl = Named.Selected is { AddressBlank: null } selected ? selected.Address : string.Empty;
         Name = string.Empty;
     }
 
@@ -186,12 +186,17 @@ public sealed partial class ModelConnectionsViewModel(
 
     public async Task Add()
     {
+        AddProblem = Named.BlankProblem;
+        if (AddProblem is not null)
+        {
+            return;
+        }
+
         AddingBusy = true;
-        AddProblem = null;
 
         try
         {
-            var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+            var address = Kind == CompatibleKind ? Named.BlankAddress ?? BaseUrl.Trim() : null;
             var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
             var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? Named.NameFor(address) : Name.Trim(), address, key, null));
             Connections!.Add(added);

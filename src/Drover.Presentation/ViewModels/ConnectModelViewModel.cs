@@ -81,9 +81,14 @@ public sealed partial class ConnectModelViewModel(
     [RelayCommand]
     public async Task Test()
     {
-        Busy = true;
-        Problem = null;
         Result = null;
+        Problem = Named.BlankProblem;
+        if (Problem is not null)
+        {
+            return;
+        }
+
+        Busy = true;
         try
         {
             Connection = await SaveConnection();
@@ -106,7 +111,7 @@ public sealed partial class ConnectModelViewModel(
     // second row for the same provider and address would sit on the Models screen as another one.
     private async Task<ModelConnectionSummary> SaveConnection()
     {
-        var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+        var address = Kind == CompatibleKind ? Named.BlankAddress ?? BaseUrl.Trim() : null;
         var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
 
         if (Connection is null || Connection.Kind != Kind || !string.Equals(Connection.BaseUrl, address, StringComparison.Ordinal))

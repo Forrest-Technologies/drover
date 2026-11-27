@@ -16,6 +16,18 @@ namespace Drover.Adapters.OpenAICompatible;
 /// </summary>
 public static class KnownProviders
 {
+    #region Patterns
+
+    // None of these allows / @ : ? # or white space, so a value cannot end the host or start a path.
+
+    private const string Word = "^[A-Za-z0-9-]{1,63}\\z";
+
+    private const string Host = "^[A-Za-z0-9-]+";
+
+    private const string Region = "^[a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}\\z";
+
+    #endregion
+
     #region Rows
 
     /// <summary>Every row, in the order offered.</summary>
@@ -46,9 +58,15 @@ public static class KnownProviders
         // clients; the GA address is kept. Which one answers the compatible protocol is settled by KnownProvidersLiveTests.
         Hosted("mistral", "Mistral", "https://api.mistral.ai/v1", "https://console.mistral.ai/api-keys"),
 
-        // https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope names this domain as one to migrate from;
-        // the new address is specific to a workspace, so this row is a candidate for slice 2 (a value only the person knows).
-        Hosted("alibaba", "Alibaba", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+        // https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope and
+        // https://www.alibabacloud.com/help/en/model-studio/base-url (Singapore, workspace-dedicated domain). The page asks to migrate
+        // from dashscope-intl.aliyuncs.com, which stays available, to this address; the Workspace ID is on the workspace details page of
+        // the console. A key belongs to one region, so this row is the Singapore one.
+        Hosted("alibaba", "Alibaba", "https://{blank}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1", blank: new("Workspace ID", Word)),
+
+        // https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions.html (bedrock-runtime, recommended; API key as a
+        // Bearer token). That endpoint has no GET /models, so a test reports that the endpoint lists no models and the model name is typed.
+        Hosted("bedrock", "Amazon Bedrock (by key)", "https://bedrock-runtime.{blank}.amazonaws.com/openai/v1", blank: new("Region", Region)),
 
         // https://docs.baseten.co/reference/inference-api/chat-completions
         Hosted("baseten", "Baseten", "https://inference.baseten.co/v1"),
@@ -59,8 +77,16 @@ public static class KnownProviders
         // https://chutes.ai/llms.txt
         Hosted("chutes", "Chutes", "https://llm.chutes.ai/v1"),
 
+        // https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/ (POST .../ai/v1/chat/completions, Bearer API token).
+        // The account ID is 32 hexadecimal characters. No GET /models is documented, so the model name is typed.
+        Hosted("cloudflare-workers-ai", "Cloudflare Workers AI", "https://api.cloudflare.com/client/v4/accounts/{blank}/ai/v1", blank: new("Account ID", "^[0-9a-fA-F]{32}\\z")),
+
         // https://docs.cohere.com/docs/compatibility-api
         Hosted("cohere", "Cohere", "https://api.cohere.ai/compatibility/v1", "https://dashboard.cohere.com/api-keys"),
+
+        // https://docs.databricks.com/aws/en/ai-gateway/query-model-services (base_url https://<workspace-url>/ai-gateway/mlflow/v1, Bearer
+        // personal access token). The workspace host has dots, so its pattern needs one. GET /models is not documented there: unconfirmed.
+        Hosted("databricks", "Databricks", "https://{blank}/ai-gateway/mlflow/v1", blank: new("Workspace host", Host + "(?:\\.[A-Za-z0-9-]+)+\\z")),
 
         // https://deepinfra.com/docs/openai_api
         Hosted("deepinfra", "Deep Infra", "https://api.deepinfra.com/v1/openai"),
@@ -122,6 +148,11 @@ public static class KnownProviders
         // https://docs.siliconflow.com/en/userguide/quickstart
         Hosted("siliconflow", "SiliconFlow", "https://api.siliconflow.com/v1", "https://cloud.siliconflow.com/account/ak"),
 
+        // https://docs.snowflake.com/en/user-guide/snowflake-cortex/open_ai_sdk (base_url https://<account-identifier>.snowflakecomputing.com/api/v2/cortex/v1,
+        // a programmatic access token as the key). An account identifier may hold dots (the locator form) and hyphens. GET /models is not
+        // documented there: unconfirmed.
+        Hosted("snowflake", "Snowflake Cortex", "https://{blank}.snowflakecomputing.com/api/v2/cortex/v1", blank: new("Account", Host + "(?:\\.[A-Za-z0-9-]+)*\\z")),
+
         // https://dev.synthetic.new/docs/api/overview
         Hosted("synthetic", "Synthetic", "https://api.synthetic.new/openai/v1"),
 
@@ -161,8 +192,8 @@ public static class KnownProviders
 
     #region Private Methods
 
-    private static ModelProviderPreset Hosted(string id, string name, string address, string? keyPage = null) =>
-        new(id, name, address, ModelProviderKeyRule.Required, keyPage, Local: false);
+    private static ModelProviderPreset Hosted(string id, string name, string address, string? keyPage = null, ModelProviderAddressBlank? blank = null) =>
+        new(id, name, address, ModelProviderKeyRule.Required, keyPage, Local: false, blank);
 
     private static ModelProviderPreset OnThisMachine(string id, string name, string address, ModelProviderKeyRule keyRule) =>
         new(id, name, address, keyRule, KeyPage: null, Local: true);
