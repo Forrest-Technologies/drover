@@ -107,7 +107,11 @@ A kind each person signs in to (the server marks it `SignIn`) is one more entry 
 | Plan use not allowed | the server's "ChatGPT signed you in but did not allow plan use. Try again and allow it." | "Continue with {Name}" |
 | Took over 10 minutes | "Sign-in took too long." | "Continue with {Name}" |
 | Listener could not start | "Drover could not listen for the sign-in on this device. Close other apps that are signing in and try again." | "Try again" |
-| Phone or browser head, until the code flow | "Signing in with a {Name} plan needs the Drover desktop app for now. You can add an API key here." | "Add a key" |
+| Code (a head that cannot listen, kind polls) | "Enter this code at {page}:" and the code in mono, selectable, with a copy button "Copy code" | "Cancel" (`Quiet`) |
+| Code ran out | "The code ran out." | "Get a new code" |
+| Paste (a head that cannot listen, kind shows a code) | "Sign in in your browser, then paste the code it shows." and a field "Code" | "Continue", "Cancel" |
+| Pasted code refused | "That code did not work. Copy it again from the browser page." | "Continue" |
+| Code refused by ChatGPT | the server's "ChatGPT refused the code. Turn on device code sign-in in ChatGPT's security settings, then try again." | "Continue with {Name}" |
 | Hosted server, or the kind is switched off | the server's "Signing in with a personal plan is not available on this server. You can add an API key instead." | "Add a key" |
 
 "Add a key" moves the choice to the first provider the server offers that takes a key, in the server's order. Each sentence is a `StatusNote`. On Models, a sign-in connection's card reads "Using {Name} plan · {account}" with a `Link` "Manage usage" to the provider's usage page while the caller's own sign-in is in use, "Your {Name} sign-in has ended." with "Sign in again" (which starts the flow at once), or "Sign in with your own {Name} plan to use it." with "Continue with {Name}". "Sign out" is a text item in the card's More menu and asks nothing; it keeps only what the provider registered for the person, so the card then reads "Signed out of your {Name} plan." with "Continue with {Name}", and signing out again removes the sign-in entirely. Focus moves to the sentence when the state changes. A card never says who else has signed in.

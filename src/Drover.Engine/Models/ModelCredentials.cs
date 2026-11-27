@@ -121,7 +121,7 @@ public sealed class ModelCredentials(
             return Unreadable(connection.Name);
         }
 
-        return SignedIn(tokens, new(connection.SpaceId, userId, connection.Id, credential.Id, connection.Kind, connection.Name));
+        return SignedIn(tokens, new(connection.SpaceId, userId, connection.Id, credential.Id, connection.Kind, connection.Name, credential.SecretId));
     }
 
     /// <summary>
@@ -208,6 +208,24 @@ public sealed class ModelCredentials(
         // The provider has rotated the tokens and the old refresh token is spent: the new set is kept whatever
         // happens to the call now, or the next refresh would send a spent token and end the sign-in.
         return await tenant.Transact(services => StoreRenewed(services, handle, stored.SecretId, renewed, CancellationToken.None), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// A call with this credential was refused as having an invalid key. For a sign-in whose credential has no end (a
+    /// key the provider made, which the person can delete or let lapse) that is the provider saying the sign-in is
+    /// over: it is marked <c>needs_sign_in</c> and the call ends as an ended sign-in, not as a key to check. A
+    /// sign-in with an end is left alone, because renewing it may mend it. Call it with no transaction open.
+    /// </summary>
+    public async Task<ModelCredential?> EndAfterRejection(ModelCredential credential, CancellationToken cancellationToken)
+    {
+        if (credential is not { SignIn: { SecretId: { } secretId } handle, ExpiresAt: null })
+        {
+            return null;
+        }
+
+        logger.LogInformation("The provider refused the key of sign-in {CredentialId} to model connection {ConnectionId}", handle.CredentialId, handle.ConnectionId);
+        await scopes.For(handle.SpaceId, handle.UserId).Transact(services => MarkEnded(services, handle, secretId, CancellationToken.None), CancellationToken.None);
+        return Ended(handle.ConnectionName);
     }
 
     /// <summary>The token set as it is kept in the vault.</summary>
@@ -303,7 +321,7 @@ public sealed class ModelCredentials(
         if (credential.SecretId != secretId)
         {
             return await RevealTokens(services.GetRequiredService<ISecretVault>(), credential, cancellationToken) is { } current
-                ? SignedIn(current, handle)
+                ? SignedIn(current, handle with { SecretId = credential.SecretId })
                 : Unreadable(handle.ConnectionName);
         }
 

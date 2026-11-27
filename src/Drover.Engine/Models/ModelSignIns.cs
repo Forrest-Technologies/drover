@@ -45,6 +45,7 @@ public sealed class ModelSignIns(
     RunScopes scopes,
     ModelCredentials credentials,
     ModelCredentialLocks locks,
+    IOptions<ToolSignInOptions> serverAddress,
     TimeProvider time,
     ILogger<ModelSignIns> logger)
 {
@@ -77,6 +78,9 @@ public sealed class ModelSignIns(
 
     private const string Cancelled = "Sign-in was cancelled.";
 
+    /// <summary>Where the anonymous route that ends an attempt whose browser came back to this server is mounted.</summary>
+    public const string ServerReturnPath = "/api/model-sign-in/return";
+
     private readonly ConcurrentDictionary<Guid, Pending> attempts = new();
 
     #endregion
@@ -96,7 +100,15 @@ public sealed class ModelSignIns(
             return ModelSignInBegun.Refused(refusal, 403);
         }
 
-        if (!signIn.AcceptsRedirect(redirectUri))
+        // 128 random bits, not a time-ordered id: the route a browser returns to takes the id as its only secret.
+        var attemptId = new Guid(RandomNumberGenerator.GetBytes(16));
+        var viaServer = redirectUri is null && signIn.CanReturnToServer && ServerReturn(attemptId) is not null;
+
+        if (viaServer)
+        {
+            redirectUri = ServerReturn(attemptId);
+        }
+        else if (!signIn.AcceptsRedirect(redirectUri))
         {
             return ModelSignInBegun.Refused(WrongReturn, 400);
         }
@@ -105,8 +117,7 @@ public sealed class ModelSignIns(
         var tenant = scopes.For(spaceId, userId);
         var (policy, left) = await tenant.Transact(services => ReadBeginning(services, spaceId, userId, kind, cancellationToken), cancellationToken);
 
-        // A random id, not a time-ordered one: a later return route takes the id as its only secret.
-        var attempt = new ModelSignInAttempt(Guid.NewGuid(), Random(), Random(), Random(), redirectUri) { Earlier = left };
+        var attempt = new ModelSignInAttempt(attemptId, Random(), Random(), Random(), redirectUri) { Earlier = left };
 
         // One sign-in per person and kind in a space: starting another ends the first.
         foreach (var (id, earlier) in attempts)
@@ -124,7 +135,7 @@ public sealed class ModelSignIns(
             return ModelSignInBegun.Refused(started.Problem ?? ProviderUnreachable, started.Status);
         }
 
-        var pending = new Pending(attempt with { Begun = step.Kept }, spaceId, userId, kind, step.Wait, time.GetUtcNow() + LifetimeOf(step))
+        var pending = new Pending(attempt with { Begun = step.Kept }, spaceId, userId, kind, step.Wait, time.GetUtcNow() + LifetimeOf(step), viaServer)
         {
             Interval = IntervalOf(step),
         };
@@ -178,6 +189,29 @@ public sealed class ModelSignIns(
             logger.LogWarning("Model sign-in {AttemptId} to {Kind} failed: {Failure}", attemptId, pending.Kind, failure.GetType().Name);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Ends an attempt whose browser came back to this server's own address. The route that calls it has no signed-in
+    /// person: the attempt id, 128 random bits only the starting device holds, names the attempt, and the provider's
+    /// <c>state</c> is checked as on any return. It ends only an attempt that was started to return here, once.
+    /// An attempt that is not waiting any more, whether finished, refused or ran out, is not found, so an id works once.
+    /// </summary>
+    public async Task<ModelSignInOutcome> FinishFromReturn(Guid attemptId, string? arrived, Guid? callerUserId, CancellationToken cancellationToken)
+    {
+        if (!attempts.TryGetValue(attemptId, out var pending) || !pending.ViaServer || StateOf(pending) is not ModelSignInState.Waiting)
+        {
+            return ModelSignInOutcome.NotFound;
+        }
+
+        // A browser signed in to Drover as somebody else is not the person who started this: it was handed the address,
+        // so nothing is exchanged, and the attempt stays for the person it belongs to.
+        if (callerUserId is { } caller && caller != pending.UserId)
+        {
+            return new ModelSignInOutcome(ModelSignInState.Waiting, null, "This sign-in was started by someone else.", 403);
+        }
+
+        return await Finish(pending.SpaceId, pending.UserId, attemptId, arrived, cancellationToken);
     }
 
     /// <summary>
@@ -618,6 +652,12 @@ public sealed class ModelSignIns(
     private bool IsCurrent(Pending pending) =>
         attempts.TryGetValue(pending.Attempt.Id, out var current) && ReferenceEquals(current, pending);
 
+    /// <summary>This server's own return address for an attempt, or null where it has no <c>https</c> public address.</summary>
+    private Uri? ServerReturn(Guid attemptId) =>
+        serverAddress.Value.PublicUrl is { IsAbsoluteUri: true, Scheme: "https", UserInfo: "" } publicUrl
+            ? new Uri(new Uri(publicUrl.GetLeftPart(UriPartial.Authority)), $"{ServerReturnPath}/{attemptId:D}")
+            : null;
+
     private static string Random() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 
     #endregion
@@ -696,7 +736,7 @@ public sealed class ModelSignIns(
     /// One sign-in waiting for the person. Its state changes once, from waiting, under its own lock. A poll's wait
     /// between asks only grows.
     /// </summary>
-    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, ModelSignInWait wait, DateTimeOffset deadline)
+    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, ModelSignInWait wait, DateTimeOffset deadline, bool viaServer)
     {
         #region Private Fields
 
@@ -725,6 +765,9 @@ public sealed class ModelSignIns(
 
         /// <summary>How long a poll waits before it asks the provider again.</summary>
         public TimeSpan Interval { get; set; } = DefaultPollInterval;
+
+        /// <summary>True when the browser was sent back to this server's own address, not to the person's device.</summary>
+        public bool ViaServer => viaServer;
 
         public ModelSignInState State { get; private set; } = ModelSignInState.Waiting;
 

@@ -27,7 +27,7 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(Provider.Value);
             }
         });
-        signInState = new ModelSignInPanel(Model.SignIn, () => Model.ActOnSignIn(PlatformShell.OpenOutside), stretch: true);
+        signInState = new ModelSignInPanel(Model.SignIn, () => Model.ActOnSignIn(PlatformShell.OpenOutside), stretch: true, ButtonKind.Primary);
         SignInStateHolder.Content = signInState;
         ProviderSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
         {

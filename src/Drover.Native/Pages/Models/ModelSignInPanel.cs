@@ -13,6 +13,9 @@ internal sealed class ModelSignInPanel : StackPanel
 
     private readonly ModelSignInFlow flow;
 
+    /// <summary>The kind the host gives the action that starts or sends: the host's form or sheet holds its one primary action.</summary>
+    private readonly ButtonKind startKind;
+
     private readonly ContentControl noteHolder = new() { IsTabStop = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
 
     private readonly StatusNote note = new();
@@ -38,9 +41,11 @@ internal sealed class ModelSignInPanel : StackPanel
     /// <param name="flow">The sign-in it draws.</param>
     /// <param name="act">What the host does for the state's main action: start, send a pasted code, cancel, or add a key.</param>
     /// <param name="stretch">True to fill the width with the buttons, as the connect step does; false to keep them at their own width.</param>
-    public ModelSignInPanel(ModelSignInFlow flow, Func<Task> act, bool stretch)
+    /// <param name="startKind">The kind of the button that starts the sign-in or sends a pasted code; the rest are quiet.</param>
+    public ModelSignInPanel(ModelSignInFlow flow, Func<Task> act, bool stretch, ButtonKind startKind)
     {
         this.flow = flow;
+        this.startKind = startKind;
         Spacing = Tokens.Number("DvSpace3");
         noteHolder.Content = note;
         noteHolder.LostFocus += (_, _) => noteHolder.IsTabStop = false;
@@ -112,7 +117,7 @@ internal sealed class ModelSignInPanel : StackPanel
 
         action.Content = flow.ActionWords;
         AutomationProperties.SetName(action, flow.ActionWords ?? string.Empty);
-        action.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain or ModelSignInAction.GetNewCode ? ButtonKind.Primary : ButtonKind.Quiet;
+        action.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain or ModelSignInAction.GetNewCode ? startKind : ButtonKind.Quiet;
         action.Visibility = flow.ActionWords is null ? Visibility.Collapsed : Visibility.Visible;
         cancel.Visibility = flow.OffersCancel ? Visibility.Visible : Visibility.Collapsed;
 

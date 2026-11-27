@@ -42,7 +42,7 @@ public static class ModelResponses
             preset.Local,
             preset.AddressBlank is { } blank ? new ModelProviderAddressBlankResponse(blank.Label, blank.Pattern) : null);
 
-    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor, bool signIn = false) =>
+    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor, bool signIn = false, bool personalPlan = false) =>
         new(
             descriptor.Kind,
             descriptor.DisplayName,
@@ -60,6 +60,7 @@ public static class ModelResponses
             signIn,
             signIn ? descriptor.SignInName ?? descriptor.DisplayName : null,
             signIn ? descriptor.UsagePage?.AbsoluteUri : null,
+            signIn && personalPlan,
             signIn ? descriptor.SignInReturn?.AbsoluteUri : null);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>

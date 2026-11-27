@@ -445,6 +445,21 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task SubscriptionSignIn_leaves_the_registered_OpenRouter_sign_in_on_under_every_preset_because_its_flow_is_open_to_any_app()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("router");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var started = await client.Post(
+            $"/api/spaces/{spaceId}/model-connections/sign-in",
+            new StartModelSignInRequest(OpenRouterSignIn.ConnectionKind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+
+        started.StatusCode.Should().Be(HttpStatusCode.OK, await started.Content.ReadAsStringAsync(Token));
+        new Uri((await started.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!.Address).Host.Should().Be("openrouter.ai");
+    }
+
+    [Fact]
     public async Task SubscriptionSignIn_decides_whether_the_claude_plan_may_be_signed_in_to_from_a_device_that_pastes()
     {
         var (email, password, _, spaceId) = await SeedPerson("claude-planner");

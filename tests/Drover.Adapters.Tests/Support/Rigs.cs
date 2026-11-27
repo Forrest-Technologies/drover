@@ -41,6 +41,25 @@ public static class CompatibleRig
     #endregion
 }
 
+public static class OpenRouterRig
+{
+    #region Public Methods
+
+    public const string ModelId = "local-model";
+
+    public static Rig Start(string fixtureName)
+    {
+        var handler = new RecordedHandler(RecordedFixture.Load("openrouter_signin", fixtureName));
+        var settings = new ChangingOptions<OpenRouterSignInOptions>(new OpenRouterSignInOptions());
+        var provider = new OpenRouterProvider(new FixtureHttpClientFactory(handler), settings);
+        var connection = new ModelEndpoint(OpenRouterProvider.ConnectionKind, settings.CurrentValue.ApiAddress);
+
+        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
+    }
+
+    #endregion
+}
+
 public static class OpenAIPlanRig
 {
     #region Public Methods

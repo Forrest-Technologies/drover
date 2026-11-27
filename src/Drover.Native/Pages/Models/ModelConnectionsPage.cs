@@ -387,7 +387,7 @@ public sealed class ModelConnectionsPage : Screen
         {
             Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
             return Task.CompletedTask;
-        }, stretch);
+        }, stretch, ButtonKind.Primary);
 
     private void UpdateReplaceForm()
     {
