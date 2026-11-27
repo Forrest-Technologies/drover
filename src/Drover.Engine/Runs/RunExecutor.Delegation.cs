@@ -1,7 +1,7 @@
 namespace Drover.Engine.Runs;
 
 /// <summary>
-/// Delegation: a run hands a task to a bot directly beneath its own, which works it as a child run. The child is a
+/// Delegation: a run hands a task to another bot, which works it as a child run. The child is a
 /// row of its own, with its own thread, grants, history, session, status, usage, and events, executed here by the
 /// worker that holds the tree's root, inside the parent's tool call. Nothing in memory is needed after a restart:
 /// the parent's call is asked again and resolves to the same child run, which goes on from its own rows.
@@ -15,7 +15,7 @@ public sealed partial class RunExecutor
     /// already begun for that call. The checks come first and the first that fails is the answer: the grant, the
     /// target, a loop, and the tree's budget.
     /// </summary>
-    private async Task<ChildRun> BeginChild(RunSession parent, DelegationRequest request, Guid delegateToolId, CancellationToken cancellationToken)
+    private async Task<ChildRun> BeginChild(RunSession parent, DelegationRequest request, RunTool tool, CancellationToken cancellationToken)
     {
         var callRowId = ToolCallIds.For(parent.RunId, request.ParentCallId!);
         return await parent.Writer.Write(async (services, produced) =>
@@ -35,14 +35,14 @@ public sealed partial class RunExecutor
                 return await FindChild(services, request, existing, cancellationToken);
             }
 
-            var (target, refusal) = await CheckDelegation(services, parent, request, delegateToolId, cancellationToken);
+            var (target, refusal) = await CheckDelegation(services, parent, request, tool, cancellationToken);
 
             if (refusal is not null)
             {
                 return refusal;
             }
 
-            var child = await AddChild(services, parent, request, target!, callRowId, cancellationToken);
+            var child = await AddChild(services, parent, request, target!, callRowId, tool, cancellationToken);
             call.ChildRunId = child.Id;
             produced.Add(RunEventWriter.Event(parent.RunId, RunEventTypes.DelegationStarted, new DelegationStarted(callRowId, child.Id, target!.Id, child.ThreadId)));
             logger.LogInformation("Run {RunId} handed a task to bot {BotId} as child run {ChildRunId}", parent.RunId, target.Id, child.Id);
@@ -63,12 +63,12 @@ public sealed partial class RunExecutor
         IServiceProvider services,
         RunSession parent,
         DelegationRequest request,
-        Guid delegateToolId,
+        RunTool tool,
         CancellationToken cancellationToken)
     {
         var bots = services.GetRequiredService<BotRepository>();
         var caller = await bots.FindBot(parent.BotId, cancellationToken);
-        var grant = await services.GetRequiredService<ToolRepository>().FindEffectiveGrant(parent.BotId, delegateToolId, cancellationToken);
+        var grant = await services.GetRequiredService<ToolRepository>().FindEffectiveGrant(parent.BotId, tool.Tool.Id, cancellationToken);
 
         if (caller is not { Status: BotStatus.Active } || grant is not (GrantEffect.Allow or GrantEffect.Ask))
         {
@@ -77,9 +77,21 @@ public sealed partial class RunExecutor
 
         var target = request.BotId is { } targetId ? await bots.FindBot(targetId, cancellationToken) : null;
 
-        if (target is null || target.ParentBotId != caller.Id)
+        var isMessage = tool.Tool.Name == DelegateTool.MessageBotName;
+
+        if (isMessage && !deployment.Value.Rules.AllowBotMessaging)
         {
-            return (null, Refused(request, "not_beneath", "That is not a bot directly beneath this one. Hand work only to the bots this tool lists."));
+            return (null, Refused(request, "no_grant", "This server has turned off bot messaging."));
+        }
+
+        if (target is null || (!isMessage && target.ParentBotId != caller.Id))
+        {
+            return (null, Refused(request, "not_beneath", "Use a bot listed by this tool."));
+        }
+
+        if (!target.AcceptsBotRequests)
+        {
+            return (null, Refused(request, "requests_disabled", $"{target.Name} has turned off requests from other bots."));
         }
 
         if (target.Status is not BotStatus.Active)
@@ -90,11 +102,9 @@ public sealed partial class RunExecutor
 
         var runs = services.GetRequiredService<RunRepository>();
 
-        // Down the tree only, so a loop cannot happen while the tree stands still. The run's own ancestors are the
-        // guard for a tree that changed while the chain was working.
         if ((await runs.ListSelfAndAncestors(parent.RunId, cancellationToken)).Any(run => run.BotId == target.Id))
         {
-            return (null, Refused(request, RunReasons.LoopDetected, $"{target.Name} is already working on this chain of tasks, above this bot. Handing it this task would make a loop."));
+            return (null, Refused(request, RunReasons.LoopDetected, $"{target.Name} is already working on this chain of tasks. Handing it this task would make a loop."));
         }
 
         var limits = await services.GetRequiredService<PolicyService>().GetDelegation(parent.Tenant.SpaceId, cancellationToken);
@@ -137,7 +147,14 @@ public sealed partial class RunExecutor
     /// thread, so exactly the people who can see the root can see it. The run acts for the same person and starts
     /// working at once inside the parent's call.
     /// </summary>
-    private async Task<Run> AddChild(IServiceProvider services, RunSession parent, DelegationRequest request, Bot target, Guid callRowId, CancellationToken cancellationToken)
+    private async Task<Run> AddChild(
+        IServiceProvider services,
+        RunSession parent,
+        DelegationRequest request,
+        Bot target,
+        Guid callRowId,
+        RunTool tool,
+        CancellationToken cancellationToken)
     {
         var runs = services.GetRequiredService<RunRepository>();
         var root = await runs.FindRun(parent.RootRunId, cancellationToken)
@@ -165,6 +182,7 @@ public sealed partial class RunExecutor
             ParentRunId = parent.RunId,
             RootRunId = parent.RootRunId,
             ParentToolCallId = callRowId,
+            IsBotRequest = tool.Tool.Name == DelegateTool.MessageBotName,
             Depth = parent.Depth + 1,
             Status = RunStatus.Running,
             StartedAt = now,
@@ -329,19 +347,19 @@ public sealed partial class RunExecutor
     {
         #region Private Fields
 
-        private readonly ConcurrentDictionary<Guid, string> calls = new();
+        private readonly ConcurrentDictionary<Guid, (string CallId, RunTool Tool)> calls = new();
 
         #endregion
 
         #region Public Methods
 
-        public async Task<ChildRun> Begin(DelegationRequest request, Guid delegateToolId, CancellationToken cancellationToken)
+        public async Task<ChildRun> Begin(DelegationRequest request, RunTool tool, CancellationToken cancellationToken)
         {
-            var child = await executor.BeginChild(parent, request, delegateToolId, cancellationToken);
+            var child = await executor.BeginChild(parent, request, tool, cancellationToken);
 
             if (child.Refusal is null)
             {
-                calls[child.RunId] = request.ParentCallId!;
+                calls[child.RunId] = (request.ParentCallId!, tool);
             }
 
             return child;
@@ -351,8 +369,8 @@ public sealed partial class RunExecutor
             executor.ExecuteChild(parent, child.RunId, serverStopping, cancellationToken);
 
         /// <summary>The parent's call, as the model named it, that began the child run.</summary>
-        public string CallOf(ChildRun child) =>
-            calls.TryGetValue(child.RunId, out var callId) ? callId : throw new InvalidOperationException($"Child run {child.RunId} was not begun by run {parent.RunId}.");
+        public (string CallId, RunTool Tool) CallOf(ChildRun child) =>
+            calls.TryGetValue(child.RunId, out var call) ? call : throw new InvalidOperationException($"Child run {child.RunId} was not begun by run {parent.RunId}.");
 
         /// <summary>Whether somebody asked the parent itself to stop, as the database says now.</summary>
         public Task<bool> IsParentCancelRequested() =>

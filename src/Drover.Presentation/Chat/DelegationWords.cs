@@ -161,7 +161,7 @@ public static partial class DelegationWords
         ("budget_exceeded", _) => DelegationRefusal.OverBudget,
         ("target_unavailable", "paused") => DelegationRefusal.TargetPaused,
         ("target_unavailable", _) => DelegationRefusal.TargetRemoved,
-        ("no_grant" or "not_beneath", _) => DelegationRefusal.NotAllowed,
+        ("no_grant" or "not_beneath" or "requests_disabled", _) => DelegationRefusal.NotAllowed,
         _ => DelegationRefusal.None,
     };
 

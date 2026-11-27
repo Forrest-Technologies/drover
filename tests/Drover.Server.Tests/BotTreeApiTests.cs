@@ -192,7 +192,9 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
         rows.Should().Contain(underAllow.Id, GrantEffect.Allow);
         rows.Should().Contain(underAsk.Id, GrantEffect.Ask, "a child is lowered to what its parent holds");
         rows.Should().NotContainKey(underOff.Id, "a tool the parent does not have is not given to the child");
-        askedFor.Data.GetProperty("changes").GetProperty("grants").GetProperty("after")[0].GetProperty("effect").GetString().Should().Be("ask");
+        var auditedGrants = askedFor.Data.GetProperty("changes").GetProperty("grants").GetProperty("after");
+        auditedGrants.EnumerateArray().Single(grant => grant.GetProperty("tool").GetString() == tool.Name)
+            .GetProperty("effect").GetString().Should().Be("ask");
     }
 
     #endregion
@@ -305,6 +307,7 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
         var tools = await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools");
         var time = tools.Single(entry => entry.Name == "time.now").ToolId;
         var list = tools.Single(entry => entry.Name == "crew.list").ToolId;
+        var message = tools.Single(entry => entry.Name == "message_bot").ToolId;
         var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
         var tracker = await CreateBot(client, alice.SpaceId, connection.Id, "Tracker", scout.Id);
         await SetGrant(client, alice.SpaceId, scout.Id, list, "ask");
@@ -322,7 +325,7 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
         (await Closure(alice, tracker.Id)).Should().Equal((tracker.Id, 0), (scout.Id, 1));
         scoutTools.Single(entry => entry.ToolId == time).Grant.Should().Be("ask", "it was lowered to what Atlas could do");
         scoutTools.Single(entry => entry.ToolId == list).Grant.Should().Be("off", "Atlas could not use it, so it was taken away");
-        effective.Should().Equal(new Dictionary<Guid, GrantEffect> { [time] = GrantEffect.Ask });
+        effective.Should().Equal(new Dictionary<Guid, GrantEffect> { [time] = GrantEffect.Ask, [message] = GrantEffect.Allow });
         (await Audit(alice, scout.Id)).Where(entry => entry.Action == "grant.changed" && entry.ActorId == alice.UserId).Should().HaveCount(3,
             "the person's own change and the two the move made are each recorded");
     }

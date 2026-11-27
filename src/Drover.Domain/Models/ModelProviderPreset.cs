@@ -18,10 +18,27 @@ public enum ModelProviderKeyRule
 /// <param name="KeyRule">Whether the provider needs a key.</param>
 /// <param name="KeyPage">The provider's own page where a key is made. https only, or null.</param>
 /// <param name="Local">True when the address is on the person's own machine or network.</param>
+/// <param name="AddressBlank">The one value the address needs from the person, or null. <paramref name="Address"/> then
+/// holds <see cref="AddressBlanks.Marker"/> once.</param>
 public sealed record ModelProviderPreset(
     string Id,
     string DisplayName,
     string Address,
     ModelProviderKeyRule KeyRule,
     string? KeyPage,
-    bool Local);
+    bool Local,
+    ModelProviderAddressBlank? AddressBlank = null)
+{
+    #region Public Methods
+
+    /// <summary>The address for the person's value, or null when the value is not allowed. A row with no blank answers its own address.</summary>
+    public string? AddressFor(string? value) =>
+        AddressBlank is null ? Address : AddressBlanks.Build(Address, AddressBlank.Pattern, value);
+
+    #endregion
+}
+
+/// <summary>What a named provider's address asks of the person, and what the value may hold.</summary>
+/// <param name="Label">The field's label.</param>
+/// <param name="Pattern">A regular expression the whole value must match, never allowing <c>/ @ : ? #</c> or white space.</param>
+public sealed record ModelProviderAddressBlank(string Label, string Pattern);

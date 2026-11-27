@@ -1,0 +1,30 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: the provider's plan wire as https://developers.openai.com/siwc/llms-full.txt describes it (\"Models and inference\": GET /v1/models answers {\"models\":[{slug, display_name, visibility}]}; every POST /v1/responses streams), with each answer's events shaped from the Responses streaming reference (https://developers.openai.com/api/docs/guides/streaming-responses), read 2026-11-27. Made from the openai-responses fixtures of the same name. The model ids are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "models": [
+          {
+            "slug": "gpt-test-reasoner",
+            "display_name": "GPT Test Reasoner",
+            "visibility": "list"
+          },
+          {
+            "slug": "gpt-test-hidden",
+            "display_name": "GPT Test Hidden",
+            "visibility": "hide"
+          },
+          {
+            "slug": "gpt-test-small",
+            "display_name": "GPT Test Small",
+            "visibility": "list"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261127063807_DecisionConnections")]
-partial class DecisionConnections
+[Migration("20261127060421_BotMessaging")]
+partial class _20261127060421_BotMessaging
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -356,6 +356,12 @@ partial class DecisionConnections
                     .HasColumnType("uuid")
                     .HasColumnName("id");
 
+                b.Property<bool>("AcceptsBotRequests")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true)
+                    .HasColumnName("accepts_bot_requests");
+
                 b.Property<string>("Avatar")
                     .IsRequired()
                     .ValueGeneratedOnAdd()
@@ -629,79 +635,6 @@ partial class DecisionConnections
                         t.HasCheckConstraint("ck_bot_schedules_last_outcome", "last_outcome IN ('started', 'waiting_for_reply', 'bot_paused', 'bot_removed', 'owner_left')");
 
                         t.HasCheckConstraint("ck_bot_schedules_thread_mode", "thread_mode IN ('new_thread', 'same_thread')");
-                    });
-            });
-
-        modelBuilder.Entity("Drover.Domain.Decisions.DecisionConnection", b =>
-            {
-                b.Property<Guid>("Id")
-                    .HasColumnType("uuid")
-                    .HasColumnName("id");
-
-                b.Property<string>("Account")
-                    .HasMaxLength(200)
-                    .HasColumnType("character varying(200)")
-                    .HasColumnName("account");
-
-                b.Property<string>("Address")
-                    .HasMaxLength(2048)
-                    .HasColumnType("character varying(2048)")
-                    .HasColumnName("address");
-
-                b.Property<Guid?>("CreatedByUserId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("created_by_user_id");
-
-                b.Property<decimal?>("InputPricePerMillion")
-                    .HasPrecision(18, 6)
-                    .HasColumnType("numeric(18,6)")
-                    .HasColumnName("input_price_per_million");
-
-                b.Property<Guid?>("KeySecretId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("key_secret_id");
-
-                b.Property<string>("Kind")
-                    .IsRequired()
-                    .HasMaxLength(64)
-                    .HasColumnType("character varying(64)")
-                    .HasColumnName("kind");
-
-                b.Property<string>("LastError")
-                    .HasMaxLength(1000)
-                    .HasColumnType("character varying(1000)")
-                    .HasColumnName("last_error");
-
-                b.Property<string>("Model")
-                    .IsRequired()
-                    .HasMaxLength(200)
-                    .HasColumnType("character varying(200)")
-                    .HasColumnName("model");
-
-                b.Property<Guid>("SpaceId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("space_id");
-
-                b.Property<string>("Status")
-                    .IsRequired()
-                    .HasMaxLength(32)
-                    .HasColumnType("character varying(32)")
-                    .HasColumnName("status");
-
-                b.Property<DateTimeOffset?>("TestedAt")
-                    .HasColumnType("timestamp with time zone")
-                    .HasColumnName("tested_at");
-
-                b.HasKey("Id")
-                    .HasName("pk_decision_connections");
-
-                b.HasIndex("SpaceId")
-                    .IsUnique()
-                    .HasDatabaseName("ix_decision_connections_space_id");
-
-                b.ToTable("decision_connections", t =>
-                    {
-                        t.HasCheckConstraint("ck_decision_connections_status", "status IN ('pending', 'ready', 'failed', 'disabled')");
                     });
             });
 
@@ -1686,6 +1619,12 @@ partial class DecisionConnections
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("finished_at");
 
+                b.Property<bool>("IsBotRequest")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("is_bot_request");
+
                 b.Property<long>("LastEventSeq")
                     .HasColumnType("bigint")
                     .HasColumnName("last_event_seq");
@@ -2329,7 +2268,7 @@ partial class DecisionConnections
 
                 b.ToTable("secrets", t =>
                     {
-                        t.HasCheckConstraint("ck_secrets_kind", "kind IN ('model_key', 'tool_header', 'oauth_tokens', 'oauth_client_secret', 'sandbox_provider_key', 'sandbox_token', 'push_key', 'sandbox_environment', 'decision_key')");
+                        t.HasCheckConstraint("ck_secrets_kind", "kind IN ('model_key', 'tool_header', 'oauth_tokens', 'oauth_client_secret', 'sandbox_provider_key', 'sandbox_token', 'push_key', 'sandbox_environment')");
                     });
             });
 

@@ -217,7 +217,7 @@ internal sealed class DesktopSignInReturn : IDisposable
 
     // Reads the request up to the end of its headers, so the connection is not reset under the answer, and returns
     // its first line. A request too long to be a browser's return is cut off where the limit falls.
-    private static async Task<string> ReadRequestLine(NetworkStream stream, CancellationToken cancellationToken)
+    internal static async Task<string> ReadRequestLine(NetworkStream stream, CancellationToken cancellationToken)
     {
         var buffer = new byte[MostRequestBytes];
         var read = 0;
@@ -239,12 +239,14 @@ internal sealed class DesktopSignInReturn : IDisposable
         return lineEnd < 0 ? string.Empty : head[..lineEnd];
     }
 
-    // A page that loads nothing and sends no referrer, so the ticket in the address goes nowhere else.
-    private static byte[] Reply(bool returned)
+    private static byte[] Reply(bool returned) =>
+        returned
+            ? Page("200 OK", "Return to Drover", "Go back to the Drover app. It is finishing the sign-in, and you can close this tab.")
+            : Page("404 Not Found", "Nothing here", "This address only brings a sign-in back into the Drover app.");
+
+    // A page that loads nothing and sends no referrer, so what is in the address goes nowhere else.
+    internal static byte[] Page(string status, string title, string words)
     {
-        var (status, title, words) = returned
-            ? ("200 OK", "Return to Drover", "Go back to the Drover app. It is finishing the sign-in, and you can close this tab.")
-            : ("404 Not Found", "Nothing here", "This address only brings a sign-in back into the Drover app.");
         var body = Encoding.UTF8.GetBytes(
             $"""
             <!DOCTYPE html>
