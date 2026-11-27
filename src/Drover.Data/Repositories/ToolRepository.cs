@@ -1,6 +1,6 @@
 namespace Drover.Data.Repositories;
 
-/// <summary>One tool a bot may use, with the effective grant: the minimum along the bot's path to the root.</summary>
+/// <summary>One tool a bot may use, with the effective grant: the minimum along the bot's path to the nearest direct grant or the root.</summary>
 public sealed record GrantedTool(Tool Tool, GrantEffect Effect);
 
 /// <summary>
@@ -46,7 +46,7 @@ public sealed class ToolRepository(DroverDbContext db)
 
     /// <summary>
     /// The rows a bot holds itself, tracked. This is what an editor shows and changes. It never decides access: a row
-    /// counts only as far as the path to the root allows, which is what <see cref="ListEffectiveGrants"/> answers.
+    /// counts only as far as its grant path allows, which is what <see cref="ListEffectiveGrants"/> answers.
     /// </summary>
     public Task<List<ToolGrant>> ListOwnGrants(Guid botId, CancellationToken cancellationToken) =>
         db.ToolGrants.Where(grant => grant.BotId == botId).ToListAsync(cancellationToken);
@@ -84,7 +84,7 @@ public sealed class ToolRepository(DroverDbContext db)
     public async Task<GrantEffect?> FindEffectiveGrant(Guid botId, Guid toolId, CancellationToken cancellationToken) =>
         (await ListEffectiveGrants(botId, cancellationToken)).TryGetValue(toolId, out var effect) ? effect : null;
 
-    /// <summary>What the bot may do with each tool once every bot above it is counted, by tool id.</summary>
+    /// <summary>What the bot may do with each tool after applying its grant path, by tool id.</summary>
     public async Task<Dictionary<Guid, GrantEffect>> ListEffectiveGrants(Guid botId, CancellationToken cancellationToken)
     {
         var rows = await db.Database

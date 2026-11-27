@@ -186,8 +186,9 @@ internal sealed class LedgerRow : StackPanel
         }
 
         var now = TurnLedger.StateOf(shown);
-        kind.NameOfIcon = KindOf(shown);
-        kind.Foreground = Tokens.Brush(this, "DvText3");
+        var icon = shown.Reasoning is not null ? new ToolIcon(IconName.Thought) : ToolIcons.For(shown.Calls[0].Tool);
+        kind.NameOfIcon = icon.Shape;
+        kind.ColorToken = icon.ColorToken;
         label.Text = TurnLedger.Label(shown);
         label.Foreground = Tokens.Brush(this, "DvText");
         summary.Text = TurnLedger.Summary(shown);
@@ -218,21 +219,6 @@ internal sealed class LedgerRow : StackPanel
         AutomationProperties.SetItemStatus(toggle, open ? "Expanded" : "Collapsed");
         ToolTipService.SetToolTip(toggle, name);
     }
-
-    private static IconName KindOf(LedgerStep step) => step switch
-    {
-        { Reasoning: not null } => IconName.Thought,
-        _ => step.Calls[0].Tool switch
-        {
-            "sandbox.run" => IconName.Command,
-            "sandbox.read_file" or "sandbox.list_files" => IconName.File,
-            "sandbox.write_file" or "sandbox.share_file" => IconName.Edit,
-            var tool when tool.StartsWith("computer.", StringComparison.Ordinal) => IconName.Screen,
-            var tool when tool.StartsWith("memory.", StringComparison.Ordinal) => IconName.Memory,
-            var tool when tool.StartsWith("crew.", StringComparison.Ordinal) => IconName.Account,
-            _ => IconName.Tool,
-        },
-    };
 
     #endregion
 

@@ -90,6 +90,12 @@ public sealed class Composer : Grid
         Labelled(attach, IconName.Attach, "Attach");
         IconOnly(stop, IconName.Stop, StopLabel);
         IconOnly(send, IconName.Send, SendLabel);
+        if (OperatingSystem.IsAndroid())
+        {
+            // Moving focus on touch-down hides the keyboard and moves Send before the finger lifts.
+            send.AllowFocusOnInteraction = false;
+        }
+
         microphoneMark = IconOnly(microphone, IconName.Microphone, VoiceWords.Record);
         IconOnly(discard, IconName.Close, VoiceWords.DiscardRecording);
         AutomationProperties.SetAutomationId(microphone, "ComposerMicrophone");

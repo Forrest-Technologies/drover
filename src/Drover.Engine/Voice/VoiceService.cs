@@ -473,7 +473,8 @@ public sealed class VoiceService(
                 var transcriber = listener is { Candidate.ConnectionId: { } listening } && listening == call.Candidate.ConnectionId
                     ? listener.Candidate.Model
                     : null;
-                var history = await services.GetRequiredService<MessageRepository>().ListLatestMessages(threadId, CallHistoryMessages, cancellationToken);
+                var history = await services.GetRequiredService<MessageRepository>()
+                    .ListLatestMessages(threadId, CallHistoryMessages, cancellationToken, conversationOnly: true);
                 return new VoiceOutcome<CallPlan>(
                     new CallPlan
                     {
@@ -490,7 +491,7 @@ public sealed class VoiceService(
                         Key = call.Key,
                         Policy = call.Policy,
                         HandsWorkOver = handsOver,
-                        Options = new RealtimeVoiceOptions(call.Candidate.Model, voice, handsOver ? VoiceInstructions(bot) : SpokenInstructions(bot))
+                        Options = new RealtimeVoiceOptions(call.Candidate.Model, voice, CallInstructions(bot, handsOver))
                         {
                             History = [.. history.Select(ToTurn).OfType<RealtimeTurn>()],
                             TranscriptionModel = transcriber,
@@ -829,15 +830,22 @@ public sealed class VoiceService(
         return text.Length == 0 ? null : new RealtimeTurn(message.Role is MessageRole.Assistant, Clip(text, MaxHistoryCharacters));
     }
 
-    private static string SpokenInstructions(Bot bot) =>
-        string.IsNullOrWhiteSpace(bot.Instructions) ? SpokenReplyInstruction : $"{bot.Instructions.Trim()}\n\n{SpokenReplyInstruction}";
+    private static string CallInstructions(Bot bot, bool handsOver)
+    {
+        var name = bot.Name.Trim();
+        var identity = $"""
+            You are {name}, the bot this person called. Speak in the first person as {name}.
+            Use {name} when asked who you are. The speech model and its provider are separate from your identity.
+            """;
+        var description = string.IsNullOrWhiteSpace(bot.DescriptionForBots)
+            ? string.Empty
+            : $"\n\nBot description (use this to explain your role):\n{bot.DescriptionForBots.Trim()}";
+        var instructions = handsOver || string.IsNullOrWhiteSpace(bot.Instructions)
+            ? string.Empty
+            : $"\n\nBot instructions:\n{bot.Instructions.Trim()}";
 
-    /// <summary>
-    /// What a model that hands its work over is told. It is the bot's voice and not the bot: the bot's instructions
-    /// stay with its runs, so the bot's own model, rules and tools answer for it.
-    /// </summary>
-    private static string VoiceInstructions(Bot bot) =>
-        $"You are the voice of {Clip(bot.Name, MaxVoiceLength)}, an assistant. {SpokenReplyInstruction}";
+        return $"{identity}{description}{instructions}\n\n{SpokenReplyInstruction}";
+    }
 
     private static string Clip(string text, int length = RunService.MaxMessageLength)
     {

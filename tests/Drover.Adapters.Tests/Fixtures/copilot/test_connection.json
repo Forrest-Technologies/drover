@@ -1,0 +1,22 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: the same Copilot catalog shape as list_models, used when testing the connection.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "id": "gpt-4.1",
+            "name": "GPT-4.1",
+            "model_picker_enabled": true,
+            "policy": { "state": "enabled" },
+            "capabilities": { "supports": { "tool_calls": true } }
+          }
+        ]
+      }
+    }
+  ]
+}

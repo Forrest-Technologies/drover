@@ -488,7 +488,7 @@ public sealed class BotService(
         var own = await tools.ListOwnGrants(moved.Id, cancellationToken);
         var names = await tools.ListToolNames([.. own.Select(grant => grant.ToolId)], cancellationToken);
 
-        foreach (var grant in own)
+        foreach (var grant in own.Where(grant => !grant.IsDirect))
         {
             var lowered = ceilings.TryGetValue(grant.ToolId, out var ceiling) ? GrantRules.Min(grant.Effect, ceiling) : (GrantEffect?)null;
 
@@ -998,7 +998,7 @@ public sealed class BotService(
 
         foreach (var held in own)
         {
-            if (ceilings is not null && !ceilings.ContainsKey(held.ToolId))
+            if (!held.IsDirect && ceilings is not null && !ceilings.ContainsKey(held.ToolId))
             {
                 continue;
             }
@@ -1007,7 +1007,7 @@ public sealed class BotService(
             {
                 BotId = copy.Id,
                 ToolId = held.ToolId,
-                Effect = ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
+                Effect = held.IsDirect || ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
                 ReviewState = held.ReviewState,
                 GrantedByUserId = actorUserId,
             };

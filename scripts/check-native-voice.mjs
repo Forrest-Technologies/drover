@@ -229,7 +229,13 @@ async function checkVoice(theme, width) {
         }
         if (address.endsWith('/messages') && method === 'POST') { requests.sent++; await route.fulfill({ status: 500 }); return; }
         let body;
-        if (address.endsWith('/model-connections')) { body = [connection]; }
+        if (address === '/api/model-provider-kinds') {
+            body = [
+                { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, namedProviders: [], signIn: false },
+                { kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required', addressHint: 'Any server that speaks the chat completions API.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false, namedProviders: [], signIn: false },
+            ];
+        }
+        else if (address.endsWith('/model-connections')) { body = [connection]; }
         else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
         else if (address.endsWith('/bots')) { body = [bot]; }
         else if (address.endsWith(`/bots/${botId}`)) { body = bot; }

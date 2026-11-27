@@ -117,7 +117,7 @@ public sealed class ToolConnectionsPage : Screen
         var kindName = Styles.Text(kind.Label, "DvTextLabel");
         AutomationProperties.SetAccessibilityView(kindName, AccessibilityView.Raw);
         kindPart = new StackPanel { Spacing = Tokens.Number("DvSpace2"), Children = { kindName, kind } };
-        trust = Toggle("Trust what this server's tools return", value => draft.Trusted = value);
+        trust = Toggle("Trust this server’s output and tool annotations", value => draft.Trusted = value);
         protocol = Choice("Protocol", value => draft.ProtocolMode = value,
             [new("automatic", "Chosen by Drover"), new("stateless_only", "Without sessions only"), new("session_only", "With sessions only")]);
         var more = new Disclosure

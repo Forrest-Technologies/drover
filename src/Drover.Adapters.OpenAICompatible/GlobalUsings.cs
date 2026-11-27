@@ -28,6 +28,7 @@ global using Drover.Domain.Voice;
 global using Drover.ModelTransport;
 global using Microsoft.Extensions.AI;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.DependencyInjection.Extensions;
 global using Microsoft.Extensions.Http.Resilience;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Options;

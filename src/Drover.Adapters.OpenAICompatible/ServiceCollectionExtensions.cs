@@ -91,6 +91,25 @@ public static class ServiceCollectionExtensions
         return services.AddHttpClient(OperatorSpeech.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(5));
     }
 
+    /// <summary>
+    /// Registers Copilot as a sign-in provider. Chat and model listing share the compatible transport with the
+    /// GitHub user token as bearer; GitHub's OAuth calls go through a second named client. Register the compatible
+    /// transport first. The operator's <c>Drover:Models:SignIn:copilot_signin</c> section is bound in
+    /// <c>AddDroverModels</c>.
+    /// </summary>
+    public static IServiceCollection AddCopilotPlanProvider(this IServiceCollection services)
+    {
+        services.AddOptions<CopilotPlanOptions>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddModelHttpClient(CopilotPlanProvider.HttpClientName);
+        services.AddHttpClient(CopilotPlanSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<CopilotPlanProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<CopilotPlanProvider>());
+        services.AddSingleton<CopilotPlanSignIn>();
+        services.AddSingleton<IModelSignIn>(provider => provider.GetRequiredService<CopilotPlanSignIn>());
+        return services;
+    }
+
     #endregion
 
     #region Private Methods

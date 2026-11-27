@@ -8,9 +8,9 @@ public static class ModelServiceExtensions
     /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
     /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
     /// provider choice in every form: Venice, OpenAI, Anthropic and Gemini, the hosted providers that need only a key, the
-    /// ChatGPT plan and the Claude plan, which each person signs in to, then the compatible kind with the named providers
-    /// it carries, so the choice starts on a provider that needs only a key and "Another compatible server" comes last. A
-    /// new provider kind is one more call here.
+    /// ChatGPT plan, the Claude plan, OpenRouter and GitHub Copilot, which each person signs in to, then the compatible
+    /// kind with the named providers it carries, so the choice starts on a provider that needs only a key and "Another
+    /// compatible server" comes last. A new provider kind is one more call here.
     /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
     /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
@@ -20,7 +20,8 @@ public static class ModelServiceExtensions
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
-        services.AddModelProvider<GeminiProvider>(adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName);
+        services.AddModelProvider<GeminiProvider>(
+            adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName, GeminiProvider.LiveHttpClientName);
         services.AddModelProvider<OpenAIPlanProvider>(
             adapter => adapter.AddOpenAIPlanProvider(),
             OpenAIPlanProvider.HttpClientName,
@@ -34,6 +35,11 @@ public static class ModelServiceExtensions
             adapter => adapter.AddOpenRouterSignIn(),
             OpenRouterProvider.HttpClientName,
             OpenRouterSignIn.HttpClientName);
+        services.Configure<CopilotPlanOptions>(configuration.GetSection(CopilotPlanOptions.Section));
+        services.AddModelProvider<CopilotPlanProvider>(
+            adapter => adapter.AddCopilotPlanProvider(),
+            CopilotPlanProvider.HttpClientName,
+            CopilotPlanSignIn.HttpClientName);
         services.AddModelProvider<OpenAICompatibleProvider>(
             adapter => adapter.AddOpenAICompatibleProvider(),
             OpenAICompatibleProvider.HttpClientName,

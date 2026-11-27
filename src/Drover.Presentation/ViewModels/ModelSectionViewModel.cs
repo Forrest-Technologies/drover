@@ -127,7 +127,7 @@ public sealed class ModelSectionViewModel(BotEditorViewModel editor)
     private BotDraft Draft => editor.Draft!;
 
     private IReadOnlyList<ModelCatalogResponse> Choices =>
-        [.. (editor.Models ?? []).Where(entry => entry.State is "available").OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
+        [.. (editor.Models ?? []).Where(ConnectionChoice.IsChatModel).OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
 
     private ScreenReaderChoice? Chosen =>
         Draft.ScreenReader is { } reader

@@ -135,8 +135,7 @@ public sealed record ToolServerLimits(int MaxResponseBytes, int MaxTools)
 public sealed record ToolListing(IReadOnlyList<ListedTool> Tools, string ProtocolVersion, bool IsStateless, TimeSpan? TimeToLive = null);
 
 /// <summary>
-/// One tool as its server defines it. The hints are the server's own claims about the tool; they set a starting
-/// sensitivity that a person can raise, and are never trusted to lower one.
+/// One tool as its server defines it. Drover honors read-only annotations when an admin trusts the connection.
 /// </summary>
 public sealed record ListedTool(string Name, string? Title, string Description, JsonElement InputSchema)
 {
