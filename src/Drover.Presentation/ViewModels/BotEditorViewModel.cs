@@ -715,7 +715,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             async () =>
             {
                 Models = await api.ListModels(SpaceId, connectionId);
-                Draft!.Model = connection.DefaultModel ?? Models.FirstOrDefault(entry => entry.State is "available")?.Model ?? string.Empty;
+                Draft!.Model = connection.DefaultModel ?? Models.FirstOrDefault(ConnectionChoice.IsChatModel)?.Model ?? string.Empty;
                 Draft.KeepWhatModelSupports(Models.FirstOrDefault(entry => entry.Model == Draft.Model)?.Capabilities);
             },
             problem => SaveProblem = problem);
@@ -824,7 +824,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             {
                 var listed = connection.Id == Saved!.ModelConnectionId && Models is not null ? Models : await api.ListModels(SpaceId, connection.Id);
                 found.AddRange(listed
-                    .Where(entry => entry.State is "available" && entry.Capabilities.Vision)
+                    .Where(entry => ConnectionChoice.IsChatModel(entry) && entry.Capabilities.Vision)
                     .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
                     .Select(entry => new ScreenReaderChoice(connection.Id, connection.Name, entry.Model, entry.DisplayName)));
             }
@@ -877,7 +877,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             Models = await api.ListModels(SpaceId, connection.Id);
             var model = connection.DefaultModel
                 ?? bots.FirstOrDefault(bot => bot.ModelConnectionId == connection.Id)?.Model
-                ?? Models.FirstOrDefault(entry => entry.State is "available")?.Model
+                ?? Models.FirstOrDefault(ConnectionChoice.IsChatModel)?.Model
                 ?? string.Empty;
             Saved = NewBotDetail(connection.Id, model) with { ParentBotId = newParentId };
             Draft = BotDraft.From(Saved);

@@ -27,8 +27,12 @@ public static class ServiceCollectionExtensions
             })
             .SelectPipelineByAuthority();
 
+        services.AddHttpClient(GeminiProvider.LiveHttpClientName);
+
         services.AddSingleton<GeminiProvider>();
         services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<GeminiProvider>());
+
+        services.AddSingleton<IRealtimeVoice>(provider => provider.GetRequiredService<GeminiProvider>());
 
         return services;
     }
