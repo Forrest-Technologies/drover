@@ -396,7 +396,22 @@ A thread still has one writer at a time. A call is refused while a run is active
 
 A call ends when the person hangs up or disconnects, when the provider ends it, at `MaxCallMinutes` (the clock is read each second), when the session is signed out, and when the server stops.
 
+### A model that hands its work over
+
+Some speech models only hold the conversation: they listen and speak at once and hand every request of substance to the application ([ADR 0025](../adr/0025-a-call-hands-its-work-to-a-run.md)). `IRealtimeVoice.HandsWorkOver(model)` says so, and the call then works differently in four ways.
+
+- **What the model is told.** "You are the voice of {bot}, an assistant." and the spoken-style sentence. The adapter adds when to hand over: for a question, an opinion or anything to be done, and not for a greeting, a thank you or a request to repeat or stop. The bot's instructions are not given to it.
+- **Work.** On `RealtimeWorkHandedOver` the person's words not yet written become their message (`VoiceService.DoWork`, through `RunService.PostMessage` as the caller, in a scope of its own). A message sent while a run is active joins it, as a typed one does. The call watches the run through `RunEventFeed` beside its three sides, with no transaction open, and reports to the model (`IRealtimeVoiceSession.Report`): the reply's text parts made plain for speech when the run completes (at most 4,000 characters, then "The rest of the reply is in the conversation."), one sentence when the run waits for an approval or a takeover, and one when it failed or was stopped. Work handed over with nothing asked starts no run and is answered with a sentence. Hanging up stops the watching and not the run.
+- **Words.** The request and the reply are the run's messages. What the model says after work was handed over, until the person speaks again, is that reply in other words and is not written. Other exchanges are written with no run when the next one begins, because until then their words may be what work is asked with. While a run is active they are said and not kept, and the call goes on.
+- **Talking over.** The protocol has no event for it: the model yields by itself, `interrupt` is ignored, and `person_started` is never sent, so sound already sent to the client plays out.
+
+The protocol of the one such model Drover speaks (`gpt-live-*`, in `LiveVoiceSession`) has no turns. Words arrive as pieces with no end marked, so the adapter makes them whole: an utterance ends when its speaker has been quiet for 1.2 seconds, or 0.7 seconds once work was handed over, and the work is passed on after the words that asked for it. It is one WebSocket at `{base}/live/sessions`; `session.start` names the model, the voice, the instructions, the audio format and the last messages (the newest that fit the provider's limit), and none of them can change afterwards. A report is `session.commentary.append` in pieces under the provider's 500 tokens.
+
+This adapter was written from the provider's published reference and has not been run against the live service. Not stated there, and so not handled beyond a general rule: headers other than `Authorization`, the error codes (any error is shown as a failure and the call goes on), how long a session may last (the provider closing it ends the call), and what the model does with work that is never answered.
+
 ### Stated limits of this version
+
+These hold for a model that answers by itself. A model that hands its work over is limited as the section above says: the first two do not apply to it, since its answers are the bot's runs.
 
 - **No tools and no approvals.** The speech-to-speech model is given the bot's instructions and nothing else: no tool is offered, so nothing a call says can act. A bot's grants are not consulted because there is nothing to grant.
 - **Bot rules are not applied** to what is said on a call, in either direction, and neither are memory notes, project context or the conversation summary given to the model. Only the bot's instructions and the last 20 messages are.
