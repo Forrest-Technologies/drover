@@ -94,6 +94,74 @@ public sealed class OpenAICompatibleTests
 
     #endregion
 
+    #region Azure
+
+    // Azure's v1 address (https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle) needs no query.
+    private static readonly Uri azureAddress = new("https://example.openai.azure.com/openai/v1/");
+
+    [Fact]
+    public async Task An_azure_v1_address_sends_chat_and_the_model_list_to_its_paths_with_no_query()
+    {
+        var chat = CompatibleRig.Start(ConformanceScenarios.PlainReply, azureAddress);
+        await chat.Subject.CreateChatClient().Ask("Say hello.");
+        var list = CompatibleRig.Start(ConformanceScenarios.ListModels, azureAddress);
+        await list.Subject.Provider.ListModels(list.Subject.Connection, list.Subject.ApiKey, TestContext.Current.CancellationToken);
+
+        chat.Handler.Requests.Single().Uri.Should().Be(new Uri("https://example.openai.azure.com/openai/v1/chat/completions"));
+        list.Handler.Requests.Single().Uri.Should().Be(new Uri("https://example.openai.azure.com/openai/v1/models"));
+    }
+
+    [Theory]
+    [InlineData("https://example.openai.azure.com/openai/v1/")]
+    [InlineData("https://example.services.ai.azure.com/openai/v1/")]
+    public async Task Azure_hosts_get_the_key_as_an_api_key_header_and_as_a_bearer_token(string address)
+    {
+        var chat = CompatibleRig.Start(ConformanceScenarios.PlainReply, new Uri(address));
+        await chat.Subject.CreateChatClient().Ask("Say hello.");
+        var list = CompatibleRig.Start(ConformanceScenarios.ListModels, new Uri(address));
+        await list.Subject.Provider.ListModels(list.Subject.Connection, list.Subject.ApiKey, TestContext.Current.CancellationToken);
+
+        chat.Handler.Requests.Single().Headers["api-key"].Should().Be(chat.Subject.ApiKey);
+        chat.Handler.Requests.Single().Headers["Authorization"].Should().Be($"Bearer {chat.Subject.ApiKey}");
+        list.Handler.Requests.Single().Headers["api-key"].Should().Be(list.Subject.ApiKey);
+        list.Handler.Requests.Single().Headers["Authorization"].Should().Be($"Bearer {list.Subject.ApiKey}");
+    }
+
+    [Fact]
+    public async Task Another_host_gets_no_api_key_header_even_when_its_name_looks_alike()
+    {
+        var chat = CompatibleRig.Start(ConformanceScenarios.PlainReply);
+        await chat.Subject.CreateChatClient().Ask("Say hello.");
+        var lookalike = CompatibleRig.Start(ConformanceScenarios.ListModels, new Uri("https://openai.azure.com.example.test/v1/"));
+        await lookalike.Subject.Provider.ListModels(lookalike.Subject.Connection, lookalike.Subject.ApiKey, TestContext.Current.CancellationToken);
+
+        chat.Handler.Requests.Single().Headers.Should().NotContainKey("api-key");
+        lookalike.Handler.Requests.Single().Headers.Should().NotContainKey("api-key");
+    }
+
+    [Fact]
+    public async Task The_test_on_an_azure_host_tells_the_person_to_type_the_deployment_name()
+    {
+        var rig = CompatibleRig.Start(ConformanceScenarios.ListModels, azureAddress);
+        var other = CompatibleRig.Start(ConformanceScenarios.ListModels);
+
+        var result = await rig.Subject.Provider.TestConnection(rig.Subject.Connection, rig.Subject.ApiKey, TestContext.Current.CancellationToken);
+        var plain = await other.Subject.Provider.TestConnection(other.Subject.Connection, other.Subject.ApiKey, TestContext.Current.CancellationToken);
+
+        result.Message.Should().Contain("Type your deployment name as the model.");
+        plain.Message.Should().NotContain("deployment");
+    }
+
+    [Fact]
+    public void The_address_field_says_what_to_paste_for_azure()
+    {
+        var rig = CompatibleRig.Start(ConformanceScenarios.ListModels);
+
+        rig.Subject.Provider.Descriptor.AddressHint.Should().Contain("For Azure OpenAI, paste your resource's endpoint.");
+    }
+
+    #endregion
+
     #region Wire
 
     [Fact]
