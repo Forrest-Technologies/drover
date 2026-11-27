@@ -128,6 +128,7 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
             await strangerClient.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in"),
             await strangerClient.Post($"{Path(stranger.SpaceId)}/sign-in/{started.AttemptId}/finish", new FinishModelSignInRequest("code=x")),
             await strangerClient.Get($"{Path(stranger.SpaceId)}/sign-in/{started.AttemptId}"),
+            await strangerClient.Delete($"{Path(stranger.SpaceId)}/sign-in/{started.AttemptId}"),
             await strangerClient.Delete($"{Path(stranger.SpaceId)}/{summary.Id}/sign-in"),
         };
 
@@ -165,6 +166,46 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
         var read = await client.Get($"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}");
         (await read.Content.ReadAsStringAsync(Token)).Should().NotContainAny(plan.Issued);
         Logs.AllText().Should().NotContainAny(plan.Issued);
+    }
+
+    [Fact]
+    public async Task Only_the_owner_of_a_code_can_cancel_its_in_flight_poll()
+    {
+        var owner = await SeedPerson("owner");
+        var member = await SeedMember(owner.SpaceId, "member", MembershipRole.Admin);
+        var client = await SignedIn(owner.Email, owner.Password);
+        var other = await SignedIn(member.Email, member.Password);
+        var polling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        plan.CodeWait = ModelSignInWait.Poll;
+        plan.PollInterval = TimeSpan.FromMilliseconds(10);
+        plan.BeforePollAnswer = async cancellation =>
+        {
+            polling.SetResult();
+
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellation);
+            }
+            finally
+            {
+                stopped.SetResult();
+            }
+        };
+
+        var started = await Start(client, owner.SpaceId, null);
+        var path = $"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}";
+        await polling.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
+
+        (await other.Delete(path)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.Delete(path)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
+
+        var progress = await Progress(client, owner.SpaceId, started.AttemptId);
+        progress.Status.Should().Be(ModelSignInStatuses.Refused);
+        progress.Problem.Should().Be("Sign-in was cancelled.");
+        (await client.Delete(path)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ReadCredentialCount(owner.SpaceId, owner.UserId)).Should().Be(0);
     }
 
     [Theory]

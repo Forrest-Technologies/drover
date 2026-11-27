@@ -221,6 +221,17 @@ public sealed class ModelSignIns(
     public ModelSignInOutcome Read(Guid spaceId, Guid userId, Guid attemptId) =>
         Find(spaceId, userId, attemptId) is { } pending ? Outcome(pending, pending.Problem, 200) : ModelSignInOutcome.NotFound;
 
+    /// <summary>Stops the caller's code poll if it has not begun storing an approval.</summary>
+    public int CancelPoll(Guid spaceId, Guid userId, Guid attemptId)
+    {
+        if (Find(spaceId, userId, attemptId) is not { Wait: ModelSignInWait.Poll } pending)
+        {
+            return 404;
+        }
+
+        return pending.TryCancelPoll() ? 204 : 409;
+    }
+
     /// <summary>
     /// Signs the caller out of a connection: tells the provider where it can be told, then drops every token. What the
     /// provider registered for the person stays, with no token, until they sign out again (<see cref="Retire"/>). False
@@ -272,11 +283,12 @@ public sealed class ModelSignIns(
     {
         var tenant = scopes.For(spaceId, userId);
         var policy = await tenant.Transact(services => services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var tokens = await Exchange(signIn, pending, policy, arrived, cancellationToken);
 
         if (tokens is null)
         {
-            if (pending.Kept is { } kept)
+            if (!cancellationToken.IsCancellationRequested && pending.Kept is { } kept)
             {
                 await Keep(tenant, pending, signIn, policy, kept);
             }
@@ -285,6 +297,11 @@ public sealed class ModelSignIns(
             return pending.Wait is ModelSignInWait.Poll && StateOf(pending) is ModelSignInState.Waiting
                 ? Outcome(pending, null, 200)
                 : Outcome(pending, pending.Problem ?? Cancelled, 400);
+        }
+
+        if (pending.Wait is ModelSignInWait.Poll && !pending.TryStorePoll())
+        {
+            return Outcome(pending, pending.Problem, 409);
         }
 
         // The one-time code is spent: the tokens are kept whatever happens to the request now.
@@ -673,7 +690,7 @@ public sealed class ModelSignIns(
         using (ExecutionContext.SuppressFlow())
         {
             // The first wait starts now, on the server's clock, before the attempt is handed back.
-            var first = Task.Delay(pending.Interval, time, CancellationToken.None);
+            var first = Task.Delay(pending.Interval, time, pending.PollCancellation);
             _ = Task.Run(() => Poll(pending, signIn, first), CancellationToken.None);
         }
     }
@@ -686,7 +703,7 @@ public sealed class ModelSignIns(
     {
         try
         {
-            for (var wait = first; ; wait = Task.Delay(pending.Interval, time, CancellationToken.None))
+            for (var wait = first; ; wait = Task.Delay(pending.Interval, time, pending.PollCancellation))
             {
                 await wait;
 
@@ -707,7 +724,8 @@ public sealed class ModelSignIns(
                     return;
                 }
 
-                var outcome = await Complete(pending.SpaceId, pending.UserId, pending, signIn, string.Empty, CancellationToken.None);
+                var outcome = await Complete(
+                    pending.SpaceId, pending.UserId, pending, signIn, string.Empty, pending.PollCancellation);
 
                 if (outcome.State is not ModelSignInState.Waiting)
                 {
@@ -715,11 +733,26 @@ public sealed class ModelSignIns(
                 }
             }
         }
+        catch (OperationCanceledException failure) when (pending.PollCancellation.IsCancellationRequested)
+        {
+            logger.LogDebug("Model sign-in {AttemptId} stopped polling: {Failure}", pending.Attempt.Id, failure.GetType().Name);
+        }
         catch (Exception failure)
         {
             // Whatever went wrong, the code may be spent: the attempt is over.
             pending.End(ModelSignInState.Refused);
             logger.LogWarning("Model sign-in {AttemptId} to {Kind} stopped polling: {Failure}", pending.Attempt.Id, pending.Kind, failure.GetType().Name);
+        }
+        finally
+        {
+            try
+            {
+                await pending.DisposeAsync();
+            }
+            catch (Exception failure)
+            {
+                logger.LogWarning("Model sign-in {AttemptId} could not end its poll: {Failure}", pending.Attempt.Id, failure.GetType().Name);
+            }
         }
     }
 
@@ -736,11 +769,17 @@ public sealed class ModelSignIns(
     /// One sign-in waiting for the person. Its state changes once, from waiting, under its own lock. A poll's wait
     /// between asks only grows.
     /// </summary>
-    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, ModelSignInWait wait, DateTimeOffset deadline, bool viaServer)
+    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, ModelSignInWait wait, DateTimeOffset deadline, bool viaServer) : IAsyncDisposable
     {
         #region Private Fields
 
         private readonly Lock sync = new();
+
+        private CancellationTokenSource? pollCancellation = wait is ModelSignInWait.Poll ? new() : null;
+
+        private Task? cancellationCallbacks;
+
+        private bool storingPoll;
 
         private bool finishing;
 
@@ -759,6 +798,8 @@ public sealed class ModelSignIns(
         public string Kind => kind;
 
         public ModelSignInWait Wait => wait;
+
+        public CancellationToken PollCancellation => pollCancellation?.Token ?? CancellationToken.None;
 
         /// <summary>When the attempt runs out: the person's time to approve, or the provider's code lifetime.</summary>
         public DateTimeOffset Deadline => deadline;
@@ -794,6 +835,36 @@ public sealed class ModelSignIns(
                 }
 
                 finishing = true;
+                return true;
+            }
+        }
+
+        public bool TryCancelPoll()
+        {
+            lock (sync)
+            {
+                if (State is not ModelSignInState.Waiting || storingPoll || pollCancellation is null)
+                {
+                    return false;
+                }
+
+                Problem = Cancelled;
+                State = ModelSignInState.Refused;
+                cancellationCallbacks = pollCancellation.CancelAsync();
+                return true;
+            }
+        }
+
+        public bool TryStorePoll()
+        {
+            lock (sync)
+            {
+                if (State is not ModelSignInState.Waiting)
+                {
+                    return false;
+                }
+
+                storingPoll = true;
                 return true;
             }
         }
@@ -844,6 +915,31 @@ public sealed class ModelSignIns(
             {
                 ConnectionId = connectionId;
                 State = ModelSignInState.Done;
+            }
+        }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public async ValueTask DisposeAsync()
+        {
+            CancellationTokenSource? source;
+            Task? callbacks;
+
+            lock (sync)
+            {
+                source = pollCancellation;
+                callbacks = cancellationCallbacks;
+                pollCancellation = null;
+            }
+
+            using (source)
+            {
+                if (callbacks is not null)
+                {
+                    await callbacks;
+                }
             }
         }
 

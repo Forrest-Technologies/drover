@@ -221,6 +221,27 @@ public sealed class ModelSignInFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task Cancelling_a_code_stops_the_servers_poll()
+    {
+        listener.CanListen = false;
+        var path = $"{space}/sign-in/{attemptId}";
+        server.Answer("POST", $"{space}/sign-in",
+            new ModelSignInStarted(attemptId, "https://auth.example.test/device", ModelSignInWaits.Poll, "WXYZ-1234"));
+        server.Answer("DELETE", path, HttpStatusCode.NoContent);
+        server.Hold("GET", path);
+        var model = await Chosen();
+
+        var running = model.ActOnSignIn(Open);
+        await Until(() => model.SignIn.Stage is ModelSignInStage.Code);
+        await model.ActOnSignIn(Open);
+        await running;
+
+        server.Sent("DELETE", path).Should().ContainSingle();
+        model.SignIn.Stage.Should().Be(ModelSignInStage.Ended);
+        model.SignIn.Sentence.Should().Be("Sign-in was cancelled.");
+    }
+
+    [Fact]
     public async Task A_code_that_runs_out_says_so_and_get_a_new_code_starts_again()
     {
         listener.CanListen = false;

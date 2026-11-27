@@ -172,6 +172,9 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
     public void Show(ModelProviderKindResponse kind)
     {
         Cancel(quietly: true);
+        waiting = null;
+        cancelledByPerson = false;
+        pasted = null;
         Kind = kind;
         Connection = null;
         Settle(ModelSignInStage.Ready, null, ModelSignInAction.Continue);
@@ -214,11 +217,15 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
             waiting = patience;
             Settle(ModelSignInStage.Waiting, WaitingWords, ModelSignInAction.Cancel);
             await Run(spaceId, kind, listening, open, patience);
-            waiting = null;
+
+            if (waiting == patience)
+            {
+                waiting = null;
+            }
         }
     }
 
-    /// <summary>Stops waiting. The server's attempt ends on its own.</summary>
+    /// <summary>Stops waiting and asks the server to cancel a sign-in by code.</summary>
     [RelayCommand]
     public void Cancel() => Cancel(quietly: false);
 
@@ -228,6 +235,8 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
 
     private async Task Run(Guid spaceId, ModelProviderKindResponse kind, IModelSignInReturn? listening, Func<string, Task> open, CancellationTokenSource patience)
     {
+        Guid? pollAttempt = null;
+
         try
         {
             var started = await api.StartModelSignIn(spaceId, new(kind.Kind, listening?.RedirectUri.AbsoluteUri), patience.Token);
@@ -235,6 +244,8 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
             switch (started.Wait)
             {
                 case ModelSignInWaits.Poll:
+                    pollAttempt = started.AttemptId;
+                    patience.Token.ThrowIfCancellationRequested();
                     patience.CancelAfter(CodePatience);
                     ShowCode(started);
                     await OpenPage(open, started.Address);
@@ -256,9 +267,14 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
         {
             logger.LogInformation("A model sign-in stopped waiting: {Failure}", stopped.GetType().Name);
 
-            if (cancelledByPerson)
+            if (cancelledByPerson || waiting != patience)
             {
-                Settle(ModelSignInStage.Ended, CancelledWords, ModelSignInAction.Continue);
+                var words = pollAttempt is { } attemptId ? await CancelPoll(spaceId, attemptId) : CancelledWords;
+
+                if (waiting == patience)
+                {
+                    Settle(ModelSignInStage.Ended, words, ModelSignInAction.Continue);
+                }
             }
             else if (Stage is ModelSignInStage.Code)
             {
@@ -286,8 +302,11 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
         }
         finally
         {
-            cancelledByPerson = false;
-            pasted = null;
+            if (waiting == patience)
+            {
+                cancelledByPerson = false;
+                pasted = null;
+            }
         }
     }
 
@@ -408,6 +427,20 @@ public sealed partial class ModelSignInFlow(DroverApi api, IModelSignInListener 
     #endregion
 
     #region Private Methods
+
+    private async Task<string> CancelPoll(Guid spaceId, Guid attemptId)
+    {
+        try
+        {
+            await api.CancelModelSignIn(spaceId, attemptId);
+            return CancelledWords;
+        }
+        catch (Exception failure) when (Failures.IsReportable(failure))
+        {
+            logger.LogWarning("The server could not cancel a model sign-in: {Failure}", failure.GetType().Name);
+            return Failures.Sentence(failure, "Check Models for the result.");
+        }
+    }
 
     private void Cancel(bool quietly)
     {
