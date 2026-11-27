@@ -38,6 +38,19 @@ public static class ModelServiceExtensions
     }
 
     /// <summary>
+    /// Registers the decision model providers this build ships, which judge rules written as a sentence. Their one
+    /// named client gets the <see cref="SpaceOutboundHandler"/>, as every model provider's does, so the checked outbound
+    /// handler applies the deployment's and the space's rule on private addresses to every decision model call.
+    /// </summary>
+    public static IServiceCollection AddDroverDecisionModels(this IServiceCollection services)
+    {
+        services.AddSystemOneDecisionModels();
+        services.TryAddTransient<SpaceOutboundHandler>();
+        services.AddHttpClient(SystemOneProvider.HttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
+        return services;
+    }
+
+    /// <summary>
     /// Registers one provider kind with the server. <paramref name="addAdapter"/> is the adapter's own registration,
     /// which must register <typeparamref name="TProvider"/> and add an <see cref="IModelClientProvider"/>; the call
     /// throws when it does not. The <see cref="SpaceOutboundHandler"/> is added to each client name in
