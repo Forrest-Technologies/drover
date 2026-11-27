@@ -2,7 +2,8 @@ namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
 /// Reads <c>GET {address}/models</c>, the list both wires share: an object whose <c>data</c> holds entries with an
-/// <c>id</c>. It says nothing else about a model.
+/// <c>id</c>. <see cref="ReadIds"/> keeps only the id; <see cref="Read{T}"/> hands each entry to a projection, for a
+/// caller that reads more of what the entry says about a model.
 /// </summary>
 internal static class ProtocolModelList
 {
