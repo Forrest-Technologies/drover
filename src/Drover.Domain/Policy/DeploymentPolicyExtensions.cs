@@ -91,7 +91,12 @@ public static class DeploymentPolicyExtensions
         };
 
     public static DeploymentPolicy WithBoundedRuns(this DeploymentPolicy policy) =>
-        policy with { MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun, MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun };
+        policy with
+        {
+            MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun,
+            MaxUnmeteredModelCallsPerRun = DeploymentPolicy.HostedMaxUnmeteredModelCallsPerRun,
+            MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun,
+        };
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };

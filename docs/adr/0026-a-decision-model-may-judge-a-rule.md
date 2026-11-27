@@ -1,4 +1,4 @@
-# 0025. A decision model may judge a rule written as a sentence, and the judgment only narrows
+# 0026. A decision model may judge a rule written as a sentence, and the judgment only narrows
 
 - Status: Proposed in its pull request
 - Date: 2026-11-26

@@ -156,6 +156,12 @@ public sealed class RunRepository(DroverDbContext db)
     public async Task<decimal> SumTreeCost(Guid rootRunId, CancellationToken cancellationToken) =>
         await db.UsageRecords.Where(usage => usage.RootRunId == rootRunId).SumAsync(usage => (decimal?)usage.Cost, cancellationToken) ?? 0m;
 
+    /// <summary>The calls of one run recorded with missing or zero token usage, earlier executions included.</summary>
+    public Task<int> CountUnmeteredCalls(Guid runId, CancellationToken cancellationToken) =>
+        db.UsageRecords.CountAsync(
+            usage => usage.RunId == runId && usage.InputTokens == 0 && usage.OutputTokens == 0,
+            cancellationToken);
+
     /// <summary>The runs below the root that have not ended, deepest first, locked until the transaction ends.</summary>
     public async Task<List<Run>> ListOpenDescendantsForUpdate(Guid rootRunId, CancellationToken cancellationToken) =>
         await db.Runs.FromSql(

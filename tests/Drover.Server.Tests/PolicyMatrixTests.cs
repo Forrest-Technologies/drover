@@ -351,17 +351,24 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var ceilings = new RunCeilings(
             Limit(nameof(DeploymentPolicy.MaxStepsPerRun)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs)
+            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs,
+            Limit(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)))
         {
             MaxJudgedChecks = Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)),
         };
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
-        policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1, MaxJudgedChecksPerRun = int.MaxValue }).Should().Be(ceilings);
-        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxJudgedChecksPerRun = 20 });
-        space.Should().Be(new RunCeilings(10, 1000, 3) { MaxJudgedChecks = 20 });
+        policies.Runs(new SpaceSettings
+        {
+            MaxStepsPerRun = int.MaxValue,
+            MaxTokensPerRun = ceilings.MaxTokens + 1,
+            MaxUnmeteredModelCallsPerRun = ceilings.MaxUnmeteredModelCalls + 1,
+            MaxJudgedChecksPerRun = int.MaxValue,
+        }).Should().Be(ceilings);
+        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxUnmeteredModelCallsPerRun = 7, MaxJudgedChecksPerRun = 20 });
+        space.Should().Be(new RunCeilings(10, 1000, 3, 7) { MaxJudgedChecks = 20 });
         space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4, MaxJudgedChecks = 21 }).Should().Be(space, "a bot cannot raise what its space allows");
-        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0, MaxJudgedChecks = 5 }).Should().Be(new RunCeilings(2, 500, 0) { MaxJudgedChecks = 5 });
+        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0, MaxJudgedChecks = 5 }).Should().Be(new RunCeilings(2, 500, 0, 7) { MaxJudgedChecks = 5 });
     }
 
     [Fact]

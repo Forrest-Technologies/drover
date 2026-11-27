@@ -19,6 +19,7 @@ global using System.Threading;
 global using System.Threading.Channels;
 global using System.Threading.RateLimiting;
 global using System.Threading.Tasks;
+global using Drover.Adapters.Anthropic;
 global using Drover.Adapters.DataProtection;
 global using Drover.Adapters.E2B;
 global using Drover.Adapters.LocalFiles;

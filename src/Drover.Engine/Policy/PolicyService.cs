@@ -54,7 +54,8 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
         new(
             Lower(space.MaxStepsPerRun, Deployment.MaxStepsPerRun),
             Lower(space.MaxTokensPerRun, Deployment.MaxTokensPerRun),
-            Delegation(space).MaxHandoffs)
+            Delegation(space).MaxHandoffs,
+            Lower(space.MaxUnmeteredModelCallsPerRun, Deployment.MaxUnmeteredModelCallsPerRun))
         {
             CanRemoveUsageLimit = Preset == DeploymentPolicy.SelfHostedName && !options.Value.HasConfiguredTokenLimit
                 && Deployment.MaxTokensPerRun == DeploymentPolicy.SelfHostedMaxTokensPerRun && space.MaxTokensPerRun is null,

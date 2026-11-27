@@ -586,7 +586,22 @@ public sealed class RunGovernor(
 
     private static ToolOutcome Error(string message) => new(JsonSerializer.SerializeToElement(new { error = message }), true);
 
-    private Task Record(ToolModelUsage reported) => session.RecordModelUsage(reported);
+    /// <summary>
+    /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen. A
+    /// call that reports no token use counts against the run's unmetered calls. A rule check is recorded by the run's
+    /// rules and has its own limit, so it is not counted here.
+    /// </summary>
+    private Task Record(ToolModelUsage reported)
+    {
+        var usage = NonNegative(reported);
+
+        if (!usage.HasTokenUsage || (usage.InputTokens is 0 && usage.OutputTokens is 0))
+        {
+            session.RecordUnmeteredModelCall();
+        }
+
+        return session.RecordModelUsage(reported);
+    }
 
     /// <summary>
     /// The usage with nothing below zero. A provider that reports a negative count or cost would otherwise lower the

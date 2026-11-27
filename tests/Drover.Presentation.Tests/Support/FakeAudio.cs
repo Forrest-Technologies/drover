@@ -148,14 +148,22 @@ public sealed class FakePlayback : IAudioPlayback
 
     #region Interface Implementations
 
-    public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default)
+    public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default) => Open(sampleRate, forCall: false);
+
+    public Task<IAudioOutput> OpenCall(int sampleRate, CancellationToken cancellationToken = default) => Open(sampleRate, forCall: true);
+
+    #endregion
+
+    #region Private Methods
+
+    private Task<IAudioOutput> Open(int sampleRate, bool forCall)
     {
         if (FailsToPlay)
         {
             throw new DeviceCallFailedException("The sample device could not open its sound output.");
         }
 
-        var output = new FakeOutput(sampleRate);
+        var output = new FakeOutput(sampleRate) { ForCall = forCall };
         Outputs.Add(output);
         return Task.FromResult<IAudioOutput>(output);
     }
@@ -170,6 +178,9 @@ public sealed class FakeOutput(int sampleRate) : IAudioOutput
     #region Properties
 
     public int SampleRate => sampleRate;
+
+    /// <summary>True when it was opened as the output of a live call.</summary>
+    public bool ForCall { get; init; }
 
     public int PlayedMilliseconds { get; set; }
 

@@ -4,7 +4,7 @@ namespace Drover.Domain.Rules;
 /// One condition of a rule. Which properties are used depends on <see cref="Kind"/>; the rest stay empty.
 /// A condition is data and is decided by code. One kind is the exception, and only narrows:
 /// <see cref="RuleConditionKind.Judged"/> holds a sentence that a decision model is asked about, and its
-/// probabilities are compared with <see cref="Confidence"/> in code (ADR 0025).
+/// probabilities are compared with <see cref="Confidence"/> in code (ADR 0026).
 /// </summary>
 public sealed record RuleCondition
 {
