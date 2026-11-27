@@ -1072,7 +1072,9 @@ try {
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
             assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
             await handoffDisclosure.press('Enter');
-            assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 1, 'The handoff disclosure opens by keyboard.');
+            const handoffOriginal = page.getByText('ls -la /handoff-sample', { exact: false });
+            await handoffOriginal.waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(await handoffOriginal.count(), 1, 'The handoff disclosure opens by keyboard.');
             await originalDisclosure.dispatchEvent('click');
             await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
             await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });
