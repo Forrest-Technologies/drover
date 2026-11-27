@@ -52,7 +52,7 @@ public sealed class OpenAIPlanLiveTests
     public async Task Completes_a_tool_call_round_trip_through_the_namespace()
     {
         var client = Provider().CreateChatClient(connection, Read(TokenVariable), Read(ModelVariable), new ModelSettings());
-        var tool = new ModelTool("get_weather", "Weather for a city", JsonSerializer.SerializeToElement(new { type = "object", properties = new { city = new { type = "string" } }, required = new[] { "city" } }));
+        var tool = new ModelTool("get_weather", "Weather for a city", JsonSerializer.SerializeToElement(new { type = "object", properties = new { city = new { type = "string" } } }));
         var options = new ModelChatOptions { Tools = [tool], Instructions = "Use the tool to answer." };
         List<ModelChatMessage> conversation = [new("user", [new ModelText("What is the weather in Paris?")])];
 
