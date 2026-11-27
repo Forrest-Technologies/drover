@@ -14,7 +14,9 @@ public sealed partial class Redactor(IEnumerable<string?> revealedSecrets)
     /// <summary>A shorter value would also match ordinary words, and hide half of every result.</summary>
     private const int ShortestSecret = 8;
 
-    private readonly List<string> secrets =
+    private readonly Lock sync = new();
+
+    private List<string> secrets =
     [
         .. revealedSecrets
             .OfType<string>()
@@ -27,9 +29,26 @@ public sealed partial class Redactor(IEnumerable<string?> revealedSecrets)
 
     #region Public Methods
 
+    /// <summary>A secret the run was handed after it started, such as a renewed access token. Scrubbed from then on.</summary>
+    public void Remember(string? secret)
+    {
+        if (secret is not { Length: >= ShortestSecret })
+        {
+            return;
+        }
+
+        lock (sync)
+        {
+            if (!secrets.Contains(secret, StringComparer.Ordinal))
+            {
+                secrets = [.. secrets.Append(secret).OrderByDescending(known => known.Length)];
+            }
+        }
+    }
+
     public string Redact(string text)
     {
-        foreach (var secret in secrets)
+        foreach (var secret in Volatile.Read(ref secrets))
         {
             text = text.Replace(secret, Mark, StringComparison.Ordinal);
         }

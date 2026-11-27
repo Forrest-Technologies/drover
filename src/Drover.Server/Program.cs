@@ -62,7 +62,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
-builder.Services.AddDroverModels();
+builder.Services.AddDroverModels(builder.Configuration);
 builder.Services.AddDroverRunEngine(builder.Configuration);
 builder.Services.AddDroverSandboxes(builder.Configuration, policy.Rules);
 builder.Services.AddDroverWebTools(builder.Configuration);
