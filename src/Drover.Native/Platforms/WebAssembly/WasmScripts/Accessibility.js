@@ -33,12 +33,25 @@
     }, true);
     document.addEventListener('pointercancel', event => linkPointers.delete(event.pointerId), true);
 
+    function stopActivationKey(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.stopPropagation();
+        }
+    }
+
+    function exposeLink(anchor) {
+        anchor.setAttribute('role', 'link');
+        // Uno handles activation on the anchor itself. Keep those keys out of its document-level keyboard handler.
+        anchor.addEventListener('keydown', stopActivationKey);
+        anchor.addEventListener('keyup', stopActivationKey);
+    }
+
     function exposeLinks(node) {
         if (node.matches(link)) {
-            node.setAttribute('role', 'link');
+            exposeLink(node);
         }
         for (const anchor of node.querySelectorAll(link)) {
-            anchor.setAttribute('role', 'link');
+            exposeLink(anchor);
         }
     }
 
