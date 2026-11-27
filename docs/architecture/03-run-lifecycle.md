@@ -380,6 +380,12 @@ Binary frames in both directions are audio: 16-bit little-endian samples, one ch
 | Server to client | `{"type":"failed","message":".."}` | Something failed; the message is a sentence to show. The call may go on |
 | Server to client | `{"type":"ended","reason":".."}` | The last frame: `hung_up`, `time_limit`, `provider` or `server` |
 
+### Turns and talking over
+
+The provider decides whose turn it is, and cuts its own answer off when it hears the person (`interrupt_response`). The service the protocol comes from (`api.openai.com`) is asked to end a turn by what was said (`semantic_vad`) and to clean the microphone's sound as a distant one before it listens (`noise_reduction` of `far_field`); every other server is asked for turns by silence (`server_vad`), which they all take (`RealtimeDialect`).
+
+On `interrupt` the adapter cuts what the model remembers of its answer to what was heard (`conversation.item.truncate`), never past the audio the provider sent for that item, because a cut beyond it is refused, and once for each item. It cancels the answer (`response.cancel`) only while the provider is still making it. Both carry an event id, and an error from the provider that answers one of them is dropped: the interruption raced the provider's own, the call is unharmed, and nothing is shown.
+
 A frame from the client larger than 256 KB (about five seconds of audio) ends the call, and a text frame larger than 1 KB or of an unknown type is ignored. Frames for the client wait in a queue of at most 512; a client that falls further behind has its call dropped (`failed`, then `ended` with `server`) and nothing is buffered without bound.
 
 ### What a call leaves in the thread
