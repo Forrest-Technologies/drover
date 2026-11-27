@@ -170,6 +170,7 @@ public sealed partial class ModelConnectionsViewModel(
         {
             ModelSignInStatuses.Active => connection.SignIn.AccountLabel is { Length: > 0 } label ? $"Using {provider} plan · {label}" : $"Using {provider} plan",
             ModelSignInStatuses.NeedsSignIn => $"Your {provider} sign-in has ended.",
+            ModelSignInStatuses.SignedOut => $"Signed out of your {provider} plan.",
             ModelSignInStatuses.None => $"Sign in with your own {provider} plan to use it.",
             _ => null,
         };
@@ -180,7 +181,7 @@ public sealed partial class ModelConnectionsViewModel(
         connection.SignIn?.Status switch
         {
             ModelSignInStatuses.NeedsSignIn => "Sign in again",
-            ModelSignInStatuses.None => $"Continue with {SignInKindOf(connection)?.SignInName ?? connection.Name}",
+            ModelSignInStatuses.None or ModelSignInStatuses.SignedOut => $"Continue with {SignInKindOf(connection)?.SignInName ?? connection.Name}",
             _ => null,
         };
 

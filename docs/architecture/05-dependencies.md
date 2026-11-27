@@ -14,7 +14,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 | Interface | Purpose | First adapter | Next adapters |
 | --- | --- | --- | --- |
 | `IAgentRuntime` | Execute a run: agent, tools, approvals, delegation, teams | `Drover.Agents` on Microsoft Agent Framework | None planned. The seam is for testing the engine without a model. |
-| `IModelClientProvider` | Turn a model connection into chat and embedding clients, list models with capabilities and prices, test the connection | Any OpenAI-compatible endpoint, Venice, OpenAI on its Responses API, and Anthropic through its official package | ChatGPT plan sign-in for self-hosted servers; other sign-in adapters. See [15-model-providers.md](15-model-providers.md). |
+| `IModelClientProvider` | Turn a model connection into chat and embedding clients, list models with capabilities and prices, test the connection | Any OpenAI-compatible endpoint, Venice, OpenAI on its Responses API, Anthropic through its official package, and Google Gemini (`Drover.Adapters.Gemini`, over `HttpClient` and `System.Text.Json`, no vendor package) | ChatGPT plan sign-in for self-hosted servers; other sign-in adapters. See [15-model-providers.md](15-model-providers.md). |
 | `IToolSource` | List tools and call a tool on a connection | MCP over HTTP | MCP over stdio inside a sandbox |
 | `ISandboxProvider` | Create, pause, resume, destroy an environment; run commands; read and write files | E2B | Operator's Docker host |
 | `IMemoryStore` | Store and recall long-term memory for a bot | PostgreSQL with `pgvector` (Phase 1) | |

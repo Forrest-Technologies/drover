@@ -187,7 +187,8 @@ public sealed class ModelSignInFlowTests : IDisposable
         var ended = signedIn with { Id = Guid.NewGuid(), SignIn = new(ModelSignInStatuses.NeedsSignIn, "sam@example.test") };
         var never = signedIn with { Id = Guid.NewGuid(), SignIn = new(ModelSignInStatuses.None, null) };
         var keyed = signedIn with { Id = Guid.NewGuid(), Kind = "venice", SignIn = null };
-        server.Answer("GET", space, (ModelConnectionSummary[])[signedIn, ended, never, keyed]);
+        var signedOut = signedIn with { Id = Guid.NewGuid(), SignIn = new(ModelSignInStatuses.SignedOut, null) };
+        server.Answer("GET", space, (ModelConnectionSummary[])[signedIn, ended, never, keyed, signedOut]);
         var model = Models();
 
         await model.Open();
@@ -200,6 +201,8 @@ public sealed class ModelSignInFlowTests : IDisposable
         model.SignInFacts(never).Should().Be("Sign in with your own Sample plan to use it.");
         model.SignInActionWords(never).Should().Be("Continue with Sample");
         model.SignInFacts(keyed).Should().BeNull("a key connection keeps its own facts");
+        model.SignInFacts(signedOut).Should().Be("Signed out of your Sample plan.");
+        model.SignInActionWords(signedOut).Should().Be("Continue with Sample");
     }
 
     [Fact]
@@ -222,7 +225,7 @@ public sealed class ModelSignInFlowTests : IDisposable
     }
 
     [Fact]
-    public async Task Signing_out_asks_nothing_and_removes_the_callers_own_sign_in()
+    public async Task Signing_signedOutasks_nothing_and_removes_the_callers_own_sign_in()
     {
         server.Answer("GET", space, (ModelConnectionSummary[])[signedIn]);
         server.Answer("DELETE", $"{space}/{signedIn.Id}/sign-in", HttpStatusCode.NoContent);

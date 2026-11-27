@@ -30,8 +30,10 @@ public sealed record FinishModelSignInRequest(string? Query)
 public sealed record ModelSignInProgress(string Status, ModelConnectionSummary? Connection);
 
 /// <summary>
-/// The caller's own sign-in to a connection each person signs in to: <c>none</c>, <c>active</c>, or
-/// <c>needs_sign_in</c>, and what the provider says the caller's account is called. Never anyone else's.
+/// The caller's own sign-in to a connection each person signs in to: <c>none</c>, <c>active</c>, <c>needs_sign_in</c>
+/// (the provider ended it), or <c>signed_out</c> (the person signed out, or signed in without allowing plan use, and
+/// only what the provider registered for them is kept), and what the provider says the caller's account is called.
+/// Never anyone else's.
 /// </summary>
 public sealed record ModelSignInSummary(string Status, string? AccountLabel);
 
@@ -57,6 +59,8 @@ public static class ModelSignInStatuses
     public const string Active = "active";
 
     public const string NeedsSignIn = "needs_sign_in";
+
+    public const string SignedOut = "signed_out";
 
     #endregion
 }

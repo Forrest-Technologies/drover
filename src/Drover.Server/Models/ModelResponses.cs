@@ -27,6 +27,7 @@ public static class ModelResponses
         credential switch
         {
             null => new(ModelSignInStatuses.None, null),
+            { Status: ModelSignInStatus.NeedsSignIn, AccountLabel: null } => new(ModelSignInStatuses.SignedOut, null),
             { Status: ModelSignInStatus.NeedsSignIn } => new(ModelSignInStatuses.NeedsSignIn, credential.AccountLabel),
             _ => new(ModelSignInStatuses.Active, credential.AccountLabel),
         };

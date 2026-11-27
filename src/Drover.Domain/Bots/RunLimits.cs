@@ -19,5 +19,8 @@ public sealed record RunLimits
     /// <summary>The most times one run of the bot hands work to a bot beneath it.</summary>
     public int? MaxDelegations { get; init; }
 
+    /// <summary>The most rule checks by a decision model one run of the bot makes.</summary>
+    public int? MaxJudgedChecks { get; init; }
+
     #endregion
 }

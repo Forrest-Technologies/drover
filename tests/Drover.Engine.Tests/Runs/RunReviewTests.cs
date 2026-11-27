@@ -122,11 +122,12 @@ public sealed class RunReviewTests(PostgresServer postgres)
         var granted = await world.Transact(async services =>
             (await services.GetRequiredService<ToolRepository>().ListGrantedTools(botId, RunWorld.Token)).ToDictionary(tool => tool.Tool.Name, tool => tool.Effect));
 
-        BuiltinTools.GrantedToNewBots.Should().Equal("time.now");
+        BuiltinTools.GrantedToNewBots.Should().Equal("time.now", DelegateTool.MessageBotName);
         BuiltinTools.AskedOfNewTopBots.Should().Equal("crew.list", "crew.add", "crew.change", "crew.remove");
         granted.Should().BeEquivalentTo(new Dictionary<string, GrantEffect>
         {
             ["time.now"] = GrantEffect.Allow,
+            [DelegateTool.MessageBotName] = GrantEffect.Allow,
             ["crew.list"] = GrantEffect.Ask,
             ["crew.add"] = GrantEffect.Ask,
             ["crew.change"] = GrantEffect.Ask,

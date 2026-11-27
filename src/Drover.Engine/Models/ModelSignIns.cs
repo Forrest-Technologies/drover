@@ -209,11 +209,7 @@ public sealed class ModelSignIns(
         {
             if (pending.Kept is { } kept)
             {
-                // The provider signed the person in but the sign-in is not used: what it registered for them is kept,
-                // with no token, so the next attempt asks with the same registration.
-                await tenant.Transact(
-                    services => Store(services, pending, signIn, Retained(kept, null), ModelSignInStatus.NeedsSignIn, CancellationToken.None),
-                    CancellationToken.None);
+                await Keep(tenant, pending, signIn, policy, kept);
             }
 
             return Outcome(pending, pending.Problem ?? Cancelled, 400);
@@ -250,6 +246,78 @@ public sealed class ModelSignIns(
             pending.Kept = failure is ModelSignInRefusedException { Kept.Count: > 0 } keeping ? keeping.Kept : null;
             return null;
         }
+    }
+
+    /// <summary>
+    /// The provider signed the person in but the sign-in is not used (it did not allow plan use): what it registered
+    /// for them is kept, with no token and no account label, so the next attempt asks with the same registration. It
+    /// is kept only on the space's connection of the kind when there is one; a sign-in that is not used never makes
+    /// one. A sign-in the person had before is over now: its tokens are revoked with the provider, as a courtesy that
+    /// logs only the kind of a failure, under the refresh lock, so no renewal can leave them behind.
+    /// </summary>
+    private async Task Keep(RunTenant tenant, Pending pending, IModelSignIn signIn, EffectivePolicy policy, IReadOnlyDictionary<string, string> kept)
+    {
+        var earlier = await tenant.Transact(services => FindOwnOfKind(services, pending, CancellationToken.None), CancellationToken.None);
+
+        if (earlier is null)
+        {
+            return;
+        }
+
+        await using var held = await locks.Hold(earlier.Value.CredentialId, CancellationToken.None);
+        var tokens = await tenant.Transact(
+            async services => await services.GetRequiredService<ModelConnectionCredentialRepository>().GetCredential(earlier.Value.CredentialId, CancellationToken.None) is { } credential
+                ? await credentials.RevealTokens(services.GetRequiredService<ISecretVault>(), credential, CancellationToken.None)
+                : null,
+            CancellationToken.None);
+
+        if (tokens is { AccessToken.Length: > 0 })
+        {
+            await Revoke(signIn, policy, tokens, earlier.Value.ConnectionId, CancellationToken.None);
+        }
+
+        await tenant.Transact(
+            async services =>
+            {
+                var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
+
+                if (await signIns.GetCredential(earlier.Value.CredentialId, CancellationToken.None) is { } credential)
+                {
+                    await services.GetRequiredService<ISecretVault>().Replace(credential.SecretId, ModelCredentials.Write(Retained(kept)), CancellationToken.None);
+                    credential.Status = ModelSignInStatus.NeedsSignIn;
+                    credential.AccountLabel = null;
+                    credential.ExpiresAt = null;
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>The person's own sign-in row of the attempt's kind in the space, or null when the space has no connection of it.</summary>
+    private static async Task<(Guid ConnectionId, Guid CredentialId)?> FindOwnOfKind(IServiceProvider services, Pending pending, CancellationToken cancellationToken)
+    {
+        if (await services.GetRequiredService<ModelConnectionRepository>().FindConnectionOfKind(pending.Kind, cancellationToken) is not { } connection)
+        {
+            return null;
+        }
+
+        var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
+
+        if (await signIns.GetCredential(connection.Id, pending.UserId, cancellationToken) is { } own)
+        {
+            return (connection.Id, own.Id);
+        }
+
+        // The space has the connection but the person has no row yet: one is made, holding only what is kept.
+        var secretId = await services.GetRequiredService<ISecretVault>().Store(SecretKind.OauthTokens, ModelCredentials.Write(Retained(pending.Kept ?? new Dictionary<string, string>())), pending.UserId, cancellationToken);
+        var credential = new ModelConnectionCredential
+        {
+            ModelConnectionId = connection.Id,
+            AudienceUserId = pending.UserId,
+            SecretId = secretId,
+            Status = ModelSignInStatus.NeedsSignIn,
+        };
+        signIns.Add(credential);
+        return (connection.Id, credential.Id);
     }
 
     /// <summary>
@@ -397,14 +465,15 @@ public sealed class ModelSignIns(
             return;
         }
 
-        await services.GetRequiredService<ISecretVault>().Replace(credential.SecretId, ModelCredentials.Write(Retained(tokens.Details, tokens.AccountLabel)), cancellationToken);
+        await services.GetRequiredService<ISecretVault>().Replace(credential.SecretId, ModelCredentials.Write(Retained(tokens.Details)), cancellationToken);
         credential.Status = ModelSignInStatus.NeedsSignIn;
+        credential.AccountLabel = null;
         credential.ExpiresAt = null;
     }
 
     /// <summary>A token set that holds no token: only what the provider asks a later sign-in to send again.</summary>
-    private static ModelTokens Retained(IReadOnlyDictionary<string, string> details, string? accountLabel) =>
-        new() { AccessToken = string.Empty, Details = details, AccountLabel = accountLabel };
+    private static ModelTokens Retained(IReadOnlyDictionary<string, string> details) =>
+        new() { AccessToken = string.Empty, Details = details };
 
     private static async Task Forget(IServiceProvider services, Guid connectionId, Guid userId, CancellationToken cancellationToken)
     {

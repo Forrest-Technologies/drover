@@ -18,7 +18,8 @@ public sealed class UsageRecord : ISpaceOwned
 
     public Guid BotId { get; set; }
 
-    public Guid ModelConnectionId { get; set; }
+    /// <summary>The model connection that answered. Null for a rule check by a decision model, which is not one.</summary>
+    public Guid? ModelConnectionId { get; set; }
 
     public required string Model { get; set; }
 
