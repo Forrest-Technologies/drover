@@ -272,6 +272,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-limits', `/bots/${botId}?section=limits`, 'Sample bot'],
     ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
@@ -417,6 +418,7 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
+            let acceptsBotRequests;
             // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
             const uploadedFiles = [];
             let projectMoved = false;
@@ -499,7 +501,12 @@ try {
                 }
                 else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : current === 'conversation-unusable-tool-request' ? [bot, helperBot] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
-                else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
+                else if (address.endsWith(`/bots/${botId}/definition`)) {
+                    if (method === 'PUT') {
+                        acceptsBotRequests = route.request().postDataJSON().acceptsBotRequests;
+                    }
+                    body = { ...botDetail, acceptsBotRequests };
+                }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
                 else if (address.endsWith(`/bots/${helperBotId}`)) { body = helperBot; }
                 else if (address.endsWith(`/bots/${helperBotId}/definition`)) { body = { ...botDetail, id: helperBotId, name: 'Sample helper', handle: 'sample-helper' }; }
@@ -509,7 +516,11 @@ try {
                 else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
-                else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
+                else if (address.endsWith('/limits/options')) {
+                    body = current === 'bot-editor-limits'
+                        ? { maxSteps: null, maxTokens: 5000000, maxDelegations: 2147483647, canRemoveUsageLimit: true }
+                        : { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 };
+                }
                 else if (address.endsWith(`/bots/${botId}/threads`)) { body = [thread]; }
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
@@ -743,7 +754,7 @@ try {
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
-                const editorLoaded = name === 'bot-editor'
+                const editorLoaded = name === 'bot-editor' || name === 'bot-editor-limits'
                     ? page.waitForResponse(response => response.ok()
                         && response.request().method() === 'GET'
                         && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
@@ -766,6 +777,10 @@ try {
                 if (name === 'bot-editor') {
                     await editorLoaded;
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
+                }
+                if (name === 'bot-editor-limits') {
+                    await editorLoaded;
+                    await page.getByLabel('Accept requests from other bots', { exact: true }).waitFor({ state: 'visible' });
                 }
                 if (name === 'bot-editor-tools') {
                     await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
@@ -1053,6 +1068,9 @@ try {
                 }
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
+                }
+                if (name === 'bot-editor-limits') {
+                    await checkBotRequests(page, width, theme);
                 }
                 if (name === 'bot-new') {
                     await checkLeavingNewBot(page, titleBefore, () => botCreates);
@@ -1576,6 +1594,33 @@ async function checkStopBounds(page, width) {
     } finally {
         await close();
     }
+}
+
+async function checkBotRequests(page, width, theme) {
+    const accepts = page.getByLabel('Accept requests from other bots', { exact: true });
+    await accepts.press('Space');
+    const save = page.getByRole('button', { name: 'Save changes', exact: true });
+    await page.waitForFunction(() => {
+        const button = document.querySelector('[aria-label="Save changes"]');
+        return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+    });
+    const [reply] = await Promise.all([
+        page.waitForResponse(response => response.request().method() === 'PUT'
+            && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`),
+        save.dispatchEvent('click'),
+    ]);
+    assert(reply.ok());
+    assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
+        'Incoming bot requests default on and the editor can opt out');
+    await save.waitFor({ state: 'hidden' });
+    await page.reload();
+    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+    await accepts.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+        const box = document.querySelector('[aria-label="Accept requests from other bots"]')?.getBoundingClientRect();
+        return box && box.top > 0 && box.bottom < window.innerHeight - 60;
+    });
+    await page.screenshot({ path: path.join(pictures, `bot-editor-limits-off-${width}-${theme}.png`) });
 }
 
 async function checkLeavingWithEdits(page, address) {

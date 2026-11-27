@@ -132,7 +132,7 @@ public sealed class RunWorld : IAsyncDisposable
         });
 
     /// <summary>A bot made beneath another through the engine, as a person makes one in the crew.</summary>
-    public Task<Guid> NewBotBeneath(Guid parentId, string name, string description = "") =>
+    public Task<Guid> NewBotBeneath(Guid? parentId, string name, string description = "") =>
         Transact(async services =>
         {
             var change = await services.GetRequiredService<BotService>()
