@@ -23,12 +23,6 @@ public sealed record ModelProviderAddressBlankResponse(string Label, string Patt
 /// <summary>Builds the address of a named provider from the person's one value, refusing a value its pattern does not allow.</summary>
 public static class AddressBlanks
 {
-    #region Private Fields
-
-    public const string Marker = "{blank}";
-
-    #endregion
-
     #region Public Methods
 
     /// <summary>The address with the value in place of the marker, or null when the value is empty or does not match.</summary>
@@ -38,6 +32,12 @@ public static class AddressBlanks
             ? address.Replace(Marker, value, StringComparison.Ordinal)
             : null;
     }
+
+    #endregion
+
+    #region Constants
+
+    public const string Marker = "{blank}";
 
     #endregion
 }

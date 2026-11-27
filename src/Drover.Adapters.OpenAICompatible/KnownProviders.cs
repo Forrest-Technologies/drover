@@ -20,9 +20,9 @@ public static class KnownProviders
 
     // None of these allows / @ : ? # or white space, so a value cannot end the host or start a path.
 
-    private const string Word = "^[A-Za-z0-9-]{1,63}\\z";
+    private const string Word = "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\z";
 
-    private const string Host = "^[A-Za-z0-9-]+";
+    private const string Host = "^(?=.{1,253}\\z)[A-Za-z0-9-]+";
 
     private const string Region = "^[a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}\\z";
 

@@ -127,6 +127,18 @@ public sealed class KnownProvidersTests
                 built.Host.Should().Be(template.Host, row.Id);
             }
 
+            if (row.Id == "alibaba")
+            {
+                row.AddressFor("-x").Should().BeNull();
+                row.AddressFor("x-").Should().BeNull();
+            }
+
+            if (row.Id is "databricks" or "snowflake")
+            {
+                row.AddressFor(string.Join('.', Enumerable.Repeat("a", 127))).Should().NotBeNull(row.Id);
+                row.AddressFor(string.Join('.', Enumerable.Repeat("a", 128))).Should().BeNull($"{row.Id} caps a value at 253 characters");
+            }
+
             foreach (var value in hostile)
             {
                 row.AddressFor(value).Should().BeNull($"{row.Id} must refuse '{value}'");
