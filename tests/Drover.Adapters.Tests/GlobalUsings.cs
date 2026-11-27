@@ -24,6 +24,7 @@ global using Drover.Adapters.Conformance;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.Conformance.Files;
 global using Drover.Adapters.Conformance.Images;
+global using Drover.Adapters.Conformance.Models;
 global using Drover.Adapters.Conformance.Push;
 global using Drover.Adapters.Conformance.Sandboxes;
 global using Drover.Adapters.Conformance.Secrets;

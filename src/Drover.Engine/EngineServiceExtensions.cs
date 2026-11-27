@@ -59,6 +59,10 @@ public static class EngineServiceExtensions
         services.AddScoped<ToolConnectionService>();
         services.AddSingleton<ToolSignIns>();
         services.AddSingleton<ToolSignInRenewal>();
+        services.AddOptions<ModelSignInOptions>();
+        services.AddSingleton<ModelCredentials>();
+        services.AddSingleton<ModelSignIns>();
+        services.AddSingleton<ModelSignInRenewal>();
         services.AddScoped<AuditLog>();
         services.AddScoped<AllowAllService>();
         services.AddScoped<BotService>();

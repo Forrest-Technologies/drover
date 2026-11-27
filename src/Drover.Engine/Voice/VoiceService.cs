@@ -608,11 +608,18 @@ public sealed class VoiceService(
         var connection = candidate.ConnectionId is { } id
             ? await services.GetRequiredService<ModelConnectionRepository>().FindConnection(id, cancellationToken)
             : null;
-        var key = connection?.SecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
+        var credentials = services.GetRequiredService<ModelCredentials>();
+
+        // Speech adapters serve key connections only: a person's sign-in is refused without being read.
+        var credential = connection switch
+        {
+            null => ModelCredential.None,
+            _ when credentials.IsSignInKind(connection.Kind) =>
+                ModelCredential.Refused(ModelCredentialProblem.NotAvailable, "Speech is not available through a sign-in connection."),
+            _ => await credentials.Read(services, connection, cancellationToken),
+        };
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
-        return new PreparedCall(candidate, voice, key, policy);
+        return new PreparedCall(candidate, voice, credential, policy);
     }
 
     /// <summary>The adapter with the address it is called at, or null when this server has no adapter or address for the candidate.</summary>
@@ -626,6 +633,13 @@ public sealed class VoiceService(
             IRealtimeVoice caller => caller.FixedAddress,
             _ => null,
         };
+
+        // Speech adapters serve key connections only. A credential that could not be had, or a person's sign-in,
+        // which only a run renews, is refused here, before anything is sent.
+        if (call.Credential is { Problem: not null } or { SignIn: not null })
+        {
+            return null;
+        }
 
         return adapter is not null && !IsSwitchedOff(call) && (fixedAddress ?? call.Candidate.Address) is { } address
             ? (adapter, new ModelEndpoint(call.Candidate.Kind, address) { Limits = new DiscoveryLimits(Rules.MaxModelListBytes, Rules.MaxModelsPerConnection) })
@@ -755,7 +769,7 @@ public sealed class VoiceService(
     private sealed record Loaded(IReadOnlyList<VoiceSource> Sources, VoiceSettings? Settings);
 
     /// <summary>A class, not a record: it holds a key, which a record would print.</summary>
-    private sealed class PreparedCall(VoiceCandidate candidate, string? voice, string? key, EffectivePolicy policy)
+    private sealed class PreparedCall(VoiceCandidate candidate, string? voice, ModelCredential credential, EffectivePolicy policy)
     {
         #region Properties
 
@@ -763,7 +777,10 @@ public sealed class VoiceService(
 
         public string? Voice => voice;
 
-        public string? Key => key;
+        /// <summary>What the call sends, from <see cref="ModelCredentials"/>.</summary>
+        public ModelCredential Credential => credential;
+
+        public string? Key => credential.Value;
 
         public EffectivePolicy Policy => policy;
 

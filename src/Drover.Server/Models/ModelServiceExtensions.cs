@@ -10,8 +10,10 @@ public static class ModelServiceExtensions
     /// provider choice in every form: Venice and OpenAI, the hosted providers that need only a key, then the compatible kind
     /// with the named providers it carries, so the choice starts on a provider that needs only a key and "Another
     /// compatible server" comes last. A new provider kind is one more call here.
+    /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
+    /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
-    public static IServiceCollection AddDroverModels(this IServiceCollection services)
+    public static IServiceCollection AddDroverModels(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
@@ -22,6 +24,8 @@ public static class ModelServiceExtensions
             OpenAICompatibleProvider.RealtimeHttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
+        services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));
+        services.AddHostedService<ModelSignInRenewer>();
         return services;
     }
 
