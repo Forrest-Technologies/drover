@@ -45,6 +45,7 @@ public sealed class ModelSignIns(
     RunScopes scopes,
     ModelCredentials credentials,
     ModelCredentialLocks locks,
+    IOptions<ToolSignInOptions> serverAddress,
     TimeProvider time,
     ILogger<ModelSignIns> logger)
 {
@@ -60,6 +61,9 @@ public sealed class ModelSignIns(
     private const string TooLong = "Sign-in took too long.";
 
     private const string Cancelled = "Sign-in was cancelled.";
+
+    /// <summary>Where the anonymous route that ends an attempt whose browser came back to this server is mounted.</summary>
+    public const string ServerReturnPath = "/api/model-sign-in/return";
 
     private readonly ConcurrentDictionary<Guid, Pending> attempts = new();
 
@@ -80,14 +84,21 @@ public sealed class ModelSignIns(
             return ModelSignInBegun.Refused(refusal, 403);
         }
 
-        if (!signIn.AcceptsRedirect(redirectUri))
+        // 128 random bits, not a time-ordered id: the route a browser returns to takes the id as its only secret.
+        var attemptId = new Guid(RandomNumberGenerator.GetBytes(16));
+        var viaServer = redirectUri is null && signIn.CanReturnToServer && ServerReturn(attemptId) is not null;
+
+        if (viaServer)
+        {
+            redirectUri = ServerReturn(attemptId);
+        }
+        else if (!signIn.AcceptsRedirect(redirectUri))
         {
             return ModelSignInBegun.Refused(WrongReturn, 400);
         }
 
         ForgetExpired();
-        // A random id, not a time-ordered one: a later return route takes the id as its only secret.
-        var attempt = new ModelSignInAttempt(Guid.NewGuid(), Random(), Random(), Random(), redirectUri);
+        var attempt = new ModelSignInAttempt(attemptId, Random(), Random(), Random(), redirectUri);
 
         // One sign-in per person and kind in a space: starting another ends the first.
         foreach (var (id, earlier) in attempts)
@@ -108,7 +119,7 @@ public sealed class ModelSignIns(
             step = await signIn.Begin(attempt, cancellationToken);
         }
 
-        attempts[attempt.Id] = new Pending(attempt, spaceId, userId, kind, time.GetUtcNow());
+        attempts[attempt.Id] = new Pending(attempt, spaceId, userId, kind, time.GetUtcNow(), viaServer);
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} started in space {SpaceId}", attempt.Id, kind, spaceId);
         return new ModelSignInBegun(attempt.Id, step.Address, step.Code, step.Wait, null, 200);
     }
@@ -146,6 +157,22 @@ public sealed class ModelSignIns(
             logger.LogWarning("Model sign-in {AttemptId} to {Kind} failed: {Failure}", attemptId, pending.Kind, failure.GetType().Name);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Ends an attempt whose browser came back to this server's own address. The route that calls it has no signed-in
+    /// person: the attempt id, 128 random bits only the starting device holds, names the attempt, and the provider's
+    /// <c>state</c> is checked as on any return. It ends only an attempt that was started to return here, once.
+    /// An attempt that is not waiting any more, whether finished, refused or ran out, is not found, so an id works once.
+    /// </summary>
+    public async Task<ModelSignInOutcome> FinishFromReturn(Guid attemptId, string? arrived, CancellationToken cancellationToken)
+    {
+        if (!attempts.TryGetValue(attemptId, out var pending) || !pending.ViaServer || StateOf(pending) is not ModelSignInState.Waiting)
+        {
+            return ModelSignInOutcome.NotFound;
+        }
+
+        return await Finish(pending.SpaceId, pending.UserId, attemptId, arrived, cancellationToken);
     }
 
     /// <summary>Where the caller's own sign-in stands. Anyone else's, or one in another space, does not exist for them.</summary>
@@ -377,6 +404,12 @@ public sealed class ModelSignIns(
         }
     }
 
+    /// <summary>This server's own return address for an attempt, or null where it has no <c>https</c> public address.</summary>
+    private Uri? ServerReturn(Guid attemptId) =>
+        serverAddress.Value.PublicUrl is { IsAbsoluteUri: true, Scheme: "https", UserInfo: "" } publicUrl
+            ? new Uri(new Uri(publicUrl.GetLeftPart(UriPartial.Authority)), $"{ServerReturnPath}/{attemptId:D}")
+            : null;
+
     private static string Random() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 
     #endregion
@@ -386,7 +419,7 @@ public sealed class ModelSignIns(
     private sealed record OwnSignIn(IModelSignIn? SignIn, ModelTokens? Tokens, EffectivePolicy Policy);
 
     /// <summary>One sign-in waiting for the person. Its state changes once, from waiting, under its own lock.</summary>
-    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, DateTimeOffset startedAt)
+    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, DateTimeOffset startedAt, bool viaServer)
     {
         #region Private Fields
 
@@ -407,6 +440,9 @@ public sealed class ModelSignIns(
         public string Kind => kind;
 
         public DateTimeOffset StartedAt => startedAt;
+
+        /// <summary>True when the browser was sent back to this server's own address, not to the person's device.</summary>
+        public bool ViaServer => viaServer;
 
         public ModelSignInState State { get; private set; } = ModelSignInState.Waiting;
 

@@ -63,6 +63,9 @@ public sealed class FakeModelSignIn(
 
     public bool IsPersonalPlan => isPersonalPlan;
 
+    /// <summary>True when the provider's page may send the browser back to the server's own address.</summary>
+    public bool CanReturnToServer { get; set; }
+
     /// <summary>How the next refreshes are answered.</summary>
     public FakeRefreshAnswer RefreshAnswer { get; set; } = FakeRefreshAnswer.Renewed;
 

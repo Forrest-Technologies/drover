@@ -49,6 +49,12 @@ public abstract class ModelSignInConformance
     /// <summary>Every answer the provider gives for "the sign-in is over". The suite asks for each in turn.</summary>
     protected abstract IReadOnlyList<string> EndedAnswers { get; }
 
+    /// <summary>
+    /// False for a provider whose sign-in is a key with no refresh token and no end. Its refresh then hands back the
+    /// current set and asks the provider nothing; the cases about rotation and ended answers do not apply to it.
+    /// </summary>
+    protected virtual bool RefreshesTokens => true;
+
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     #endregion
@@ -164,6 +170,13 @@ public abstract class ModelSignInConformance
         var rig = Rig(SignInServerAnswer.Renewed);
         var first = await SignedIn(rig);
 
+        if (!RefreshesTokens)
+        {
+            (await rig.SignIn.Refresh(first, Token)).Should().BeSameAs(first);
+            rig.Received().Should().ContainSingle(request => request.Grant == "authorization_code", "a refresh of a key asks the provider nothing");
+            return;
+        }
+
         var second = await rig.SignIn.Refresh(first, Token);
         var third = await rig.SignIn.Refresh(second, Token);
 
@@ -195,6 +208,12 @@ public abstract class ModelSignInConformance
     {
         var rig = Rig(answer);
         var tokens = await SignedIn(rig);
+
+        if (!RefreshesTokens)
+        {
+            (await rig.SignIn.Refresh(tokens, Token)).Should().BeSameAs(tokens, "a key has nothing to fail to renew");
+            return;
+        }
 
         var refreshing = () => rig.SignIn.Refresh(tokens, Token);
 

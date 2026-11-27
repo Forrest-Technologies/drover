@@ -20,6 +20,11 @@ public static class ModelServiceExtensions
             OpenAICompatibleProvider.RealtimeHttpClientName);
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
+        services.Configure<OpenRouterSignInOptions>(configuration.GetSection(OpenRouterSignInOptions.Section));
+        services.AddModelProvider<OpenRouterProvider>(
+            adapter => adapter.AddOpenRouterSignIn(),
+            OpenRouterProvider.HttpClientName,
+            OpenRouterSignIn.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));

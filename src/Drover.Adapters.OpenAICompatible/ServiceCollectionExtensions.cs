@@ -41,6 +41,24 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Registers OpenRouter's own sign-in and the provider that calls with the key it makes. The provider's client has
+    /// the same wide timeouts and retry rules as the other model clients. The sign-in's client has no retry: its one
+    /// request spends a one-time code. Both flows read <see cref="OpenRouterSignInOptions"/>, bound by the caller
+    /// to <see cref="OpenRouterSignInOptions.Section"/>, and follow a change of it without a restart.
+    /// </summary>
+    public static IServiceCollection AddOpenRouterSignIn(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenRouterProvider.HttpClientName);
+        services.AddHttpClient(OpenRouterSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        services.AddSingleton<OpenRouterProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenRouterProvider>());
+        services.AddSingleton<IModelSignIn, OpenRouterSignIn>();
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers the server's own speech service and returns its client's builder, so the server can give it the
     /// handler that marks its requests as going to an address the operator configured. A first sound from a speech
     /// model on a small machine can take a while, so the wait for the answer to begin is wider than the default.
