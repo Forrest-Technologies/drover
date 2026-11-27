@@ -1125,11 +1125,22 @@ try {
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
             assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
             await focusSettled(page);
-            // The semantic button can hold DOM focus before Uno finishes moving keyboard focus to it.
-            await handoffDisclosure.focus();
-            await focusSettled(page);
-            assert.ok(await handoffDisclosure.evaluate(button => document.activeElement === button),
-                'Keyboard focus stays on the handoff disclosure before activation.');
+            // Uno can move focus during the first layout or scroll after the card opens. Reacquire the
+            // button if that happens, then send one keypress once it owns settled focus.
+            const focusDeadline = Date.now() + 10000;
+            while (true) {
+                await handoffDisclosure.focus();
+                await focusSettled(page);
+                if (await handoffDisclosure.evaluate(button => document.activeElement === button)) {
+                    break;
+                }
+
+                if (Date.now() >= focusDeadline) {
+                    const focused = await page.evaluate(() =>
+                        document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName);
+                    throw new Error(`The handoff disclosure could not keep keyboard focus at ${width}px in ${theme}; focus stayed on ${focused}.`);
+                }
+            }
             await page.keyboard.press('Enter');
             const handoffOriginal = page.getByText('ls -la /handoff-sample', { exact: false });
             await handoffOriginal.first().waitFor({ state: 'attached', timeout: 10000 });
