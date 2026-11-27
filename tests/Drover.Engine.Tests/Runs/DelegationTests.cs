@@ -161,6 +161,73 @@ public sealed class DelegationTests(PostgresServer postgres)
 
     #endregion
 
+    #region Bot Requests
+
+    [Fact]
+    public async Task A_bot_can_message_a_peer_by_default_and_get_its_reply_without_borrowing_tools()
+    {
+        var tools = new TestTools().Add("test.write", ToolSensitivity.Write);
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), tools);
+        var peerId = await world.NewBotBeneath(null, "Voice", "Reviews drafts.");
+        await world.GrantTo(peerId, "test.write", GrantEffect.Allow);
+        await world.GrantTo(peerId, DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [MessageBot("m1", peerId, "Review this draft.")],
+            [MessageBot("m2", world.BotId, "Review it again.")],
+            [new TextOutput("Make the opening shorter.")],
+            [new TextOutput("Voice recommends a shorter opening.")]);
+        world.StartHost();
+
+        var threadId = await world.NewThread();
+        var rootId = await world.Post(threadId, "Ask Voice for feedback.");
+        var root = await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed);
+
+        root.Status.Should().Be(RunStatus.Completed, root.Error?.Message);
+        var child = (await world.ReadTree(rootId)).Should().ContainSingle(run => run.ParentRunId == rootId).Subject;
+        child.Should().Match<Run>(run => run.BotId == peerId && run.IsBotRequest && run.Status == RunStatus.Completed);
+        var request = (await world.ReadMessages(child.ThreadId)).First();
+        request.AuthorBotId.Should().Be(world.BotId);
+        request.Parts.OfType<TextPart>().Should().ContainSingle(part => part.Text == "Review this draft.");
+        var parentThread = await world.ReadThread(threadId);
+        var childThread = await world.ReadThread(child.ThreadId);
+        childThread.AudienceUserId.Should().Be(parentThread.AudienceUserId);
+        childThread.OwnerUserId.Should().Be(parentThread.OwnerUserId);
+        world.Model.Requests[0].Options.Tools!.Single(tool => tool.Name == DelegateTool.MessageBotName)
+            .Description.Should().Contain("Voice").And.Contain("Reviews drafts.");
+        world.Model.ToolsOffered[1].Should().Equal(DelegateTool.MessageBotName);
+        world.Script.Instructions[1].Should().Contain("You are Voice.");
+        world.Script.Requests[2].Should().Contain(seen => seen.Role == "tool" && seen.Summary.Contains(RunReasons.LoopDetected, StringComparison.Ordinal));
+        world.Script.Requests[3].Should().Contain(new SeenMessage("tool", "m1 = \"Make the opening shorter.\""));
+        (await world.ReadToolCalls(rootId)).Should().ContainSingle(call => call.ToolName == DelegateTool.MessageBotName
+            && call.ChildRunId == child.Id && call.Status == ToolCallStatus.Completed);
+    }
+
+    [Fact]
+    public async Task The_server_refuses_a_guessed_bot_id_when_the_recipient_has_opted_out()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var stopped = await world.NewBotBeneath(null, "Voice");
+        await world.NewBotBeneath(null, "Other bot");
+        await world.Read(db => db.Bots.Where(bot => bot.Id == stopped)
+            .ExecuteUpdateAsync(set => set.SetProperty(bot => bot.AcceptsBotRequests, false), RunWorld.Token));
+        world.Script.Then(
+            [MessageBot("m1", stopped, "Review this draft.")],
+            [new TextOutput("Voice is unavailable.")]);
+        world.StartHost();
+
+        var rootId = await world.Post(await world.NewThread(), "Ask Voice.");
+        var root = await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed);
+
+        root.Status.Should().Be(RunStatus.Completed, root.Error?.Message);
+        (await world.ReadTree(rootId)).Should().ContainSingle();
+        world.Model.Requests[0].Options.Tools!.Single(tool => tool.Name == DelegateTool.MessageBotName)
+            .Description.Should().NotContain("Voice");
+        world.Script.Requests[1].Should().Contain(seen => seen.Role == "tool"
+            && seen.Summary.Contains("requests_disabled", StringComparison.Ordinal));
+    }
+
+    #endregion
+
     #region Checks
 
     [Fact]
@@ -925,6 +992,9 @@ public sealed class DelegationTests(PostgresServer postgres)
         events.Where(stored => stored.RunId == root.Id && stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
             .Should().ContainSingle().Which.Outcome.Should().Be("completed");
     }
+
+    private static ToolCallOutput MessageBot(string callId, Guid botId, string task) =>
+        new(callId, DelegateTool.MessageBotName, JsonSerializer.Serialize(new { bot_id = botId, task }));
 
     private static ToolCallOutput Delegate(string callId, Guid botId, string task) =>
         new(callId, DelegateTool.Name, JsonSerializer.Serialize(new { bot_id = botId, task }));

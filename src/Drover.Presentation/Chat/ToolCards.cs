@@ -36,7 +36,8 @@ public static partial class ToolCards
         ("memory.change", new("Changing a note", "Changed a note", "change a note")),
         ("memory.forget", new("Removing a note", "Removed a note", "remove a note")),
         ("memory.list", new("Reading its notes", "Read its notes", "read its notes")),
-        ("delegate", new("Handing work over", "Handed work over", "hand work to a bot beneath it")));
+        ("delegate", new("Handing work over", "Handed work over", "hand work to a bot beneath it")),
+        ("message_bot", new("Messaging a bot", "Messaged a bot", "message another bot")));
 
     #endregion
 

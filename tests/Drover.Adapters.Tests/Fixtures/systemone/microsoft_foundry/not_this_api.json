@@ -1,0 +1,24 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's own reference (https://learn.microsoft.com/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision (usage fields and the error body are not confirmed there; this shape follows the shared API), read 2026-11-26). The answers are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Yes."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -51,6 +51,40 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
     }
 
     [Fact]
+    public async Task Signing_in_again_hands_the_provider_what_the_persons_own_sign_in_left_and_nobody_elses()
+    {
+        var owner = await SeedPerson("owner");
+        var member = await SeedMember(owner.SpaceId, "member", MembershipRole.Member);
+        var ownerClient = await SignedIn(owner.Email, owner.Password);
+        var memberClient = await SignedIn(member.Email, member.Password);
+
+        await SignInThrough(ownerClient, owner.SpaceId);
+        await SignInThrough(memberClient, owner.SpaceId);
+        await SignInThrough(ownerClient, owner.SpaceId);
+
+        plan.Earliers[0].Should().BeEmpty("a first sign-in has nothing earlier");
+        plan.Earliers[1].Should().BeEmpty("another member's sign-in is never read for this person");
+        plan.Earliers[2].Should().ContainKey("client").WhoseValue.Should().StartWith("fake-client-");
+    }
+
+    [Fact]
+    public async Task A_refusal_with_the_providers_own_reason_is_answered_with_drovers_sentence_for_it()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        plan.RefusalSentence = "ChatGPT signed you in but did not allow plan use. Try again and allow it.";
+        var started = await Start(client, owner.SpaceId, FakeModelSignIn.RedirectUri.AbsoluteUri);
+
+        var finish = await client.Post(
+            $"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}/finish",
+            new FinishModelSignInRequest(plan.Approve(FakeModelSignIn.StateOf(new Uri(started.Address))).Text));
+
+        finish.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await finish.Content.ReadAsStringAsync(Token)).Should().Contain(plan.RefusalSentence);
+        (await ReadCredentialCount(owner.SpaceId, owner.UserId)).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Another_member_sees_no_sign_in_of_theirs_and_cannot_finish_read_or_remove_anothers()
     {
         var owner = await SeedPerson("owner");
@@ -158,22 +192,79 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
     }
 
     [Fact]
-    public async Task Signing_out_tells_the_provider_and_removes_the_token_set_and_the_row()
+    public async Task Signing_out_tells_the_provider_keeps_only_what_it_registered_and_a_second_sign_out_removes_everything()
     {
         var owner = await SeedPerson("owner");
         var client = await SignedIn(owner.Email, owner.Password);
         var summary = await SignInThrough(client, owner.SpaceId);
 
+        var signedOut = await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
+        var afterSignOut = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
+        await SignInThrough(client, owner.SpaceId);
+        await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
         var removed = await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
         var again = await client.Delete($"{Path(owner.SpaceId)}/{summary.Id}/sign-in");
         var list = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
 
+        signedOut.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        plan.Revoked.Should().HaveCount(2, "each sign-out with tokens tells the provider, and one with none sends nothing");
+        afterSignOut.Should().ContainSingle().Which.SignIn.Should().Be(new ModelSignInSummary(ModelSignInStatuses.SignedOut, null), "a sign-out keeps no account label");
+        plan.Earliers[1].Should().ContainKey("client", "what the provider registered for the person outlives a sign-out, so signing in again does not register anew");
         removed.StatusCode.Should().Be(HttpStatusCode.NoContent);
         again.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        plan.Revoked.Should().ContainSingle();
         (await ReadCredentialCount(owner.SpaceId, owner.UserId)).Should().Be(0);
         (await ReadSecrets(owner.SpaceId, owner.UserId)).Should().NotContain(secret => secret.Kind == SecretKind.OauthTokens);
         list.Should().ContainSingle().Which.SignIn!.Status.Should().Be(ModelSignInStatuses.None);
+        Logs.AllText().Should().NotContainAny(plan.Issued);
+    }
+
+    [Fact]
+    public async Task A_sign_in_the_provider_made_but_that_is_not_used_keeps_only_its_registration_for_the_next()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        plan.RefusalSentence = "ChatGPT signed you in but did not allow plan use. Try again and allow it.";
+        plan.RefusalKeeps = true;
+
+        var first = await Refused(client, owner.SpaceId);
+        var withNoConnection = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
+        plan.RefusalSentence = null;
+        var summary = await SignInThrough(client, owner.SpaceId);
+        var active = plan.Issued[^2];
+        plan.RefusalSentence = "ChatGPT signed you in but did not allow plan use. Try again and allow it.";
+        await Refused(client, owner.SpaceId);
+        var list = (await (await client.Get(Path(owner.SpaceId))).Content.ReadFromJsonAsync<List<ModelConnectionSummary>>(Token))!;
+        var credential = (await AsPerson(owner.SpaceId, owner.UserId, db => db.ModelConnectionCredentials.SingleAsync(Token)))!;
+        var kept = await Reveal(owner.SpaceId, owner.UserId, credential.SecretId);
+        plan.RefusalSentence = null;
+        await SignInThrough(client, owner.SpaceId);
+
+        first.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        withNoConnection.Should().BeEmpty("a sign-in that is not used never makes the space's connection");
+        plan.Revoked.Should().Contain(active, "the sign-in the person had before is ended with the provider");
+        list.Should().ContainSingle().Which.SignIn.Should().Be(new ModelSignInSummary(ModelSignInStatuses.SignedOut, null));
+        kept.Should().NotContainAny(plan.Issued, "the kept registration holds no token");
+        ModelCredentials.ReadTokens(kept)!.AccessToken.Should().BeEmpty();
+        credential.AccountLabel.Should().BeNull();
+        plan.Earliers[^1].Should().ContainKey("client");
+        summary.SignIn!.Status.Should().Be(ModelSignInStatuses.Active);
+    }
+
+    [Fact]
+    public async Task A_return_too_long_to_be_a_sign_ins_is_refused_and_the_attempt_still_waits()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        var started = await Start(client, owner.SpaceId, FakeModelSignIn.RedirectUri.AbsoluteUri);
+
+        var finish = await client.Post(
+            $"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}/finish",
+            new FinishModelSignInRequest(new string('a', FinishModelSignInRequest.MostLength + 1)));
+        var read = await client.Get($"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}");
+
+        finish.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await read.Content.ReadFromJsonAsync<ModelSignInProgress>(Token))!.Status.Should().Be(ModelSignInStatuses.Waiting);
+        plan.Received.Should().BeEmpty();
     }
 
     [Fact]
@@ -240,6 +331,25 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
 
     private async Task<List<Secret>> ReadSecrets(Guid spaceId, Guid userId) =>
         await AsPerson(spaceId, userId, db => db.Secrets.AsNoTracking().ToListAsync(Token));
+
+    private async Task<HttpResponseMessage> Refused(ApiClient client, Guid spaceId)
+    {
+        var started = await Start(client, spaceId, FakeModelSignIn.RedirectUri.AbsoluteUri);
+        return await client.Post(
+            $"{Path(spaceId)}/sign-in/{started.AttemptId}/finish",
+            new FinishModelSignInRequest(plan.Approve(FakeModelSignIn.StateOf(new Uri(started.Address))).Text));
+    }
+
+    private async Task<string> Reveal(Guid spaceId, Guid userId, Guid secretId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var provider = scope.ServiceProvider;
+        provider.GetRequiredService<TenantContext>().Set(spaceId, userId);
+        await using var work = await provider.GetRequiredService<TenantScope>().Begin(Token);
+        var value = await provider.GetRequiredService<ISecretVault>().Reveal(secretId, Token);
+        await work.Commit(Token);
+        return value;
+    }
 
     private async Task<T> AsPerson<T>(Guid spaceId, Guid userId, Func<DroverDbContext, Task<T>> query)
     {

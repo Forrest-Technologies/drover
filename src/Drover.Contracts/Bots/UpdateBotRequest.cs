@@ -23,4 +23,5 @@ public sealed record UpdateBotRequest(
     IReadOnlyList<Guid>? SandboxSharedWith,
     BuildLimitsBody? BuildLimits,
     RunLimitsBody? RunLimits = null,
-    bool? HandleFollowsName = null);
+    bool? HandleFollowsName = null,
+    bool? AcceptsBotRequests = null);

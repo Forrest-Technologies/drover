@@ -4,7 +4,10 @@ namespace Drover.Contracts.Models;
 /// One kind of model provider the server offers, and what a connection of it asks for. It carries words and rules
 /// only: never a key, a header, or a balance. The one addresses it carries are those of <see cref="NamedProviders"/>,
 /// the providers a person can pick by name for a kind that takes an address. <see cref="KeyRule"/> is one of
-/// <see cref="ModelKeyRules"/>, <see cref="AddressRule"/> one of <see cref="ModelAddressRules"/>.
+/// <see cref="ModelKeyRules"/>, <see cref="AddressRule"/> one of <see cref="ModelAddressRules"/>. <see cref="SignIn"/>
+/// is true for a kind each person connects by signing in with their own account, which takes no key in the form;
+/// <see cref="SignInName"/> is what its button calls the provider, and <see cref="UsagePage"/> the provider's own public
+/// page where a person manages their plan's use, when it has one.
 /// </summary>
 public sealed record ModelProviderKindResponse(
     string Kind,
@@ -14,7 +17,10 @@ public sealed record ModelProviderKindResponse(
     string? AddressHint,
     string? KeyHint,
     bool ReportsCapabilities,
-    IReadOnlyList<ModelProviderPresetResponse> NamedProviders);
+    IReadOnlyList<ModelProviderPresetResponse> NamedProviders,
+    bool SignIn = false,
+    string? SignInName = null,
+    string? UsagePage = null);
 
 /// <summary>The words the server sends for whether a connection of a kind needs a key.</summary>
 public static class ModelKeyRules

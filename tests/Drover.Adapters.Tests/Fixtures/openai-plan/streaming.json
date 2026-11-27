@@ -1,0 +1,145 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: the provider's plan wire as https://developers.openai.com/siwc/llms-full.txt describes it (\"Models and inference\": GET /v1/models answers {\"models\":[{slug, display_name, visibility}]}; every POST /v1/responses streams), with each answer's events shaped from the Responses streaming reference (https://developers.openai.com/api/docs/guides/streaming-responses), read 2026-11-27. Made from the openai-responses fixtures of the same name. The model ids are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "sse": [
+        {
+          "type": "response.created",
+          "sequence_number": 0,
+          "response": {
+            "id": "resp_stream_1",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "in_progress",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": null
+          }
+        },
+        {
+          "type": "response.output_item.added",
+          "sequence_number": 1,
+          "output_index": 0,
+          "item": {
+            "type": "message",
+            "id": "msg_stream_1",
+            "status": "in_progress",
+            "role": "assistant",
+            "content": []
+          }
+        },
+        {
+          "type": "response.content_part.added",
+          "sequence_number": 2,
+          "item_id": "msg_stream_1",
+          "output_index": 0,
+          "content_index": 0,
+          "part": {
+            "type": "output_text",
+            "text": "",
+            "annotations": []
+          }
+        },
+        {
+          "type": "response.output_text.delta",
+          "sequence_number": 3,
+          "item_id": "msg_stream_1",
+          "output_index": 0,
+          "content_index": 0,
+          "delta": "Hello"
+        },
+        {
+          "type": "response.output_text.delta",
+          "sequence_number": 4,
+          "item_id": "msg_stream_1",
+          "output_index": 0,
+          "content_index": 0,
+          "delta": " there,"
+        },
+        {
+          "type": "response.output_text.delta",
+          "sequence_number": 5,
+          "item_id": "msg_stream_1",
+          "output_index": 0,
+          "content_index": 0,
+          "delta": " friend."
+        },
+        {
+          "type": "response.output_text.done",
+          "sequence_number": 6,
+          "item_id": "msg_stream_1",
+          "output_index": 0,
+          "content_index": 0,
+          "text": "Hello there, friend."
+        },
+        {
+          "type": "response.output_item.done",
+          "sequence_number": 7,
+          "output_index": 0,
+          "item": {
+            "type": "message",
+            "id": "msg_stream_1",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Hello there, friend.",
+                "annotations": []
+              }
+            ]
+          }
+        },
+        {
+          "type": "response.completed",
+          "sequence_number": 8,
+          "response": {
+            "id": "resp_stream_1",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "completed",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [
+              {
+                "type": "message",
+                "id": "msg_stream_1",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there, friend.",
+                    "annotations": []
+                  }
+                ]
+              }
+            ],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": {
+              "input_tokens": 12,
+              "input_tokens_details": {
+                "cached_tokens": 0
+              },
+              "output_tokens": 6,
+              "output_tokens_details": {
+                "reasoning_tokens": 0
+              },
+              "total_tokens": 18
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

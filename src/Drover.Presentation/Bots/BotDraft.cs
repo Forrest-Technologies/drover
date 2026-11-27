@@ -106,6 +106,8 @@ public sealed class BotDraft
 
     public string MaxDelegations { get; set; } = string.Empty;
 
+    public bool AcceptsBotRequests { get; set; } = true;
+
     /// <summary>
     /// Tool grants a person chose in the Sandbox section, by tool, applied through the tools API when the bot is saved
     /// and dropped when the changes are discarded.
@@ -152,6 +154,7 @@ public sealed class BotDraft
         UncappedUsageAcknowledged = bot.RunLimits.UncappedUsageAcknowledged,
         MaxDelegations = Text(bot.RunLimits.MaxDelegations),
         MaxJudgedChecks = bot.RunLimits.MaxJudgedChecks,
+        AcceptsBotRequests = bot.AcceptsBotRequests,
     };
 
     /// <summary>
@@ -226,8 +229,14 @@ public sealed class BotDraft
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
-            new RunLimitsBody(ReadWhole(MaxSteps), UnlimitedTokens ? null : ReadWhole(MaxTokens), ReadWhole(MaxDelegations), UnlimitedTokens && UncappedUsageAcknowledged, MaxJudgedChecks),
-            HandleFollowsName: !HandleChosen);
+            new RunLimitsBody(
+                ReadWhole(MaxSteps),
+                UnlimitedTokens ? null : ReadWhole(MaxTokens),
+                ReadWhole(MaxDelegations),
+                UnlimitedTokens && UncappedUsageAcknowledged,
+                MaxJudgedChecks),
+            HandleFollowsName: !HandleChosen,
+            AcceptsBotRequests: AcceptsBotRequests);
 
     /// <summary>
     /// Clears the model settings the chosen model does not have, so a setting made for another model is not sent

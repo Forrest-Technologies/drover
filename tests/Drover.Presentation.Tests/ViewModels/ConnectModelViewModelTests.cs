@@ -206,6 +206,58 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_provider_with_a_blank_asks_for_that_one_value_in_place_of_the_address()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.Blank));
+        var model = Step();
+        await model.Open();
+
+        model.ChooseProvider("sample-blank");
+
+        model.Named.ShowsBlank.Should().BeTrue();
+        model.Named.Blank!.Label.Should().Be("Sample account");
+        model.Named.ShowsAddress.Should().BeFalse();
+        model.Named.OffersAddressChange.Should().BeFalse();
+        model.BaseUrl.Should().BeEmpty();
+        model.Named.BlankAddress.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_connection_made_from_a_blank_sends_the_built_address_and_a_bad_value_sends_nothing()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample blank", "openai_compatible", "https://acct-1.blank.example.test/v1", true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.Blank));
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("sample-blank");
+        model.ApiKey = "sample-key";
+
+        foreach (var bad in new[] { "", "a/b", "a@b", "a:1", "a?b", "a#b", "a b" })
+        {
+            model.Named.SetBlank(bad);
+            await model.Test();
+
+            model.Passed.Should().BeFalse(bad);
+            model.AddressProblem.Should().Be("Sample account is not valid.", bad);
+        }
+
+        server.Sent("POST", path).Should().BeEmpty();
+
+        model.Named.SetBlank("acct-1");
+        await model.Test();
+
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest(
+                "openai_compatible", "Sample blank", "https://acct-1.blank.example.test/v1", "sample-key", null));
+        model.Passed.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task The_provider_choice_is_built_from_the_servers_kinds()
     {
         server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
@@ -377,7 +429,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
         server.Answer("POST", path, created, HttpStatusCode.Created);
         var navigator = new Navigator();
-        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
         await model.Open();
         model.ApiKey = "sample-key";
 
@@ -393,7 +445,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     {
         server.Answer("GET", PresetsPath, SampleProviders.Kinds());
         var navigator = new Navigator();
-        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
         await model.Open();
 
         await model.Continue();
@@ -532,7 +584,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
     #region Private Methods
 
-    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), NullLogger<ConnectModelViewModel>.Instance);
+    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
 
     #endregion
 }
@@ -561,6 +613,13 @@ public static class SampleProviders
         new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
         new("sample_own_wire", "Sample own wire", "required", "fixed", null, "Sample own wire hint.", false, []),
         new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
+    ];
+
+    /// <summary>A named provider whose address holds one value only the person knows.</summary>
+    public static ModelProviderPresetResponse[] Blank { get; } =
+    [
+        new("sample-blank", "Sample blank", "https://{blank}.blank.example.test/v1", "required", null, false,
+            new ModelProviderAddressBlankResponse("Sample account", "^[a-z0-9-]{1,20}\\z")),
     ];
 
     public static ModelProviderPresetResponse[] All { get; } =

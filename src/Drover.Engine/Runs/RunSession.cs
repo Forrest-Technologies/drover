@@ -23,7 +23,7 @@ public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, Bu
     public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
 
     /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
-    public bool IsDelegation => Builtin is not null && Builtin.Name == DelegateTool.Name;
+    public bool IsDelegation => Builtin?.Name is DelegateTool.Name or DelegateTool.MessageBotName;
 
     /// <summary>
     /// A call cut off by a restart is asked again: it only reads, it resolves to the same child run, or Drover knows

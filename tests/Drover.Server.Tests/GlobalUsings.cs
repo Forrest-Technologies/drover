@@ -33,6 +33,7 @@ global using Drover.Adapters.Gemini;
 global using Drover.Adapters.LocalFiles;
 global using Drover.Adapters.OpenAICompatible;
 global using Drover.Adapters.SearXng;
+global using Drover.Adapters.SystemOne;
 global using Drover.Client;
 global using Drover.Client.Runs;
 global using Drover.Client.Streaming;

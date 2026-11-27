@@ -43,11 +43,11 @@ Chosen for correctness and a trivial resume protocol. The cost is that every eve
 
 Would change my mind: a load test in Phase 1 showing lock waits with wide trees (many children streaming at once). Then give each run its own sequence and have the tree stream merge them with a per-run cursor map. More protocol, less contention.
 
-### 4. Delegation only down the tree in Phase 1
+### 4. Action delegation follows the bot tree
 
-Chosen because it cannot escalate privilege and cannot loop. The cost is that "ask the research team" from a sibling team has to go up through a common parent, or wait for Phase 2 links.
+A direct child has no broader tool grants than its parent. A conversation can ask another bot in the same space for a reply through `message_bot`, in a run with the recipient’s instructions and without access to its private memory, project context, or action tools. The same cycle check and budget apply in both cases.
 
-Would change my mind: the owner's own crew, in daily use, keeps needing sideways handoffs. Then bring delegation links and "borrowed authority asks" forward.
+Cross-tree requests that need the recipient to take an action still need their own authority design. See [ADR 0027](../adr/0027-bot-messages-return-replies.md).
 
 ### 5. Credentials belong to users or spaces, never bots
 

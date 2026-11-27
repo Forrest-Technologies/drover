@@ -1,0 +1,29 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's own reference (https://docs.typesafe.ai/api/system-one, the shared API another server speaks, read 2026-11-26). The answers are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 200,
+      "body": {
+        "model": "local-judge",
+        "answers": {
+          "q1": {
+            "type": "choice",
+            "choice": "high",
+            "confidence": 0.9,
+            "probabilities": {
+              "low": 0.1,
+              "high": 0.9
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 120,
+          "output_tokens": 0
+        }
+      }
+    }
+  ]
+}
