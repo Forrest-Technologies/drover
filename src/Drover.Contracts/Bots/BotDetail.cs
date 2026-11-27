@@ -98,13 +98,14 @@ public sealed record BuildLimitsBody(int? MaxChildren, int? MaxDepthBelow);
 
 /// <summary>
 /// What one piece of the bot's work may use before it is stopped: model calls, tokens read and written together, and
-/// times it hands work to a bot beneath it. A null leaves the space's limit.
+/// times it hands work to a bot beneath it, and rule checks by a decision model. A null leaves the space's limit.
 /// </summary>
 public sealed record RunLimitsBody(
     int? MaxSteps,
     int? MaxTokens,
     int? MaxDelegations,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool UncappedUsageAcknowledged = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool UncappedUsageAcknowledged = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MaxJudgedChecks = null);
 
 /// <summary>
 /// The limits of the bot's space on one piece of work, so the editor says what leaving a limit empty means and the

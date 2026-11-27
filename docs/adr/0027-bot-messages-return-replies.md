@@ -1,4 +1,4 @@
-# 0026. Bots can request replies within a space
+# 0027. Bots can request replies within a space
 
 - Status: Accepted
 - Date: 2026-11-27

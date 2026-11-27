@@ -47,7 +47,7 @@ Would change my mind: a load test in Phase 1 showing lock waits with wide trees 
 
 A direct child has no broader tool grants than its parent. A conversation can ask another bot in the same space for a reply through `message_bot`, in a run with the recipient’s instructions and without access to its private memory, project context, or action tools. The same cycle check and budget apply in both cases.
 
-Cross-tree requests that need the recipient to take an action still need their own authority design. See [ADR 0026](../adr/0026-bot-messages-return-replies.md).
+Cross-tree requests that need the recipient to take an action still need their own authority design. See [ADR 0027](../adr/0027-bot-messages-return-replies.md).
 
 ### 5. Credentials belong to users or spaces, never bots
 

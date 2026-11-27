@@ -143,7 +143,7 @@ Notes:
 | `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq, created_at)`, because PostgreSQL requires the partition column in every unique key |
 | `tool_calls` | Space-owned with an audience, inherited from the thread | `id`, `run_id`, `thread_id`, `audience_user_id`, `tool_id`, `tool_name`, `tool_definition_hash null`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_by_window_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
 | `allow_all_windows` | Space-owned with an audience | `id`, `bot_id`, `audience_user_id`, `kind`, `started_at`, `ends_at null`, `ended_at null`, `ended_reason null`, `started_from`, `tool_call_id null` |
-| `usage_records` | Space-owned | `id`, `run_id`, `root_run_id`, `bot_id`, `model_connection_id`, `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `cost` (null when the catalog does not know the price), `currency`, `created_at` |
+| `usage_records` | Space-owned | `id`, `run_id`, `root_run_id`, `bot_id`, `model_connection_id null` (null for a rule check by a decision model), `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `cost` (null when the catalog does not know the price), `currency`, `created_at` |
 
 Notes:
 

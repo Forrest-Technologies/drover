@@ -43,6 +43,7 @@ global using Drover.Data.Tenancy;
 global using Drover.Domain.Agents;
 global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;
+global using Drover.Domain.Decisions;
 global using Drover.Domain.Files;
 global using Drover.Domain.Images;
 global using Drover.Domain.Memory;

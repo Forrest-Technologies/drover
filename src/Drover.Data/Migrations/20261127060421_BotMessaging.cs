@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Drover.Data.Migrations;
 
 /// <inheritdoc />
-public partial class _20261127050847_BotMessaging : Migration
+public partial class _20261127060421_BotMessaging : Migration
 {
     /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)

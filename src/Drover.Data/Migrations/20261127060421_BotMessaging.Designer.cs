@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261127050847_BotMessaging")]
-partial class _20261127050847_BotMessaging
+[Migration("20261127060421_BotMessaging")]
+partial class _20261127060421_BotMessaging
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1956,7 +1956,7 @@ partial class _20261127050847_BotMessaging
                     .HasColumnType("character varying(200)")
                     .HasColumnName("model");
 
-                b.Property<Guid>("ModelConnectionId")
+                b.Property<Guid?>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
 
@@ -3363,7 +3363,6 @@ partial class _20261127050847_BotMessaging
                     .HasForeignKey("SpaceId", "ModelConnectionId")
                     .HasPrincipalKey("SpaceId", "Id")
                     .OnDelete(DeleteBehavior.Restrict)
-                    .IsRequired()
                     .HasConstraintName("fk_usage_records_model_connections_space_id_model_connection_id");
 
                 b.HasOne("Drover.Domain.Runs.Run", null)

@@ -66,7 +66,7 @@ public sealed record BuiltinToolCall(
 
 
 /// <summary>The tokens one model call a tool made used, with the model that answered and its prices.</summary>
-public sealed record ToolModelUsage(Guid ModelConnectionId, string Model, ModelPricing Pricing, long InputTokens, long OutputTokens)
+public sealed record ToolModelUsage(Guid? ModelConnectionId, string Model, ModelPricing Pricing, long InputTokens, long OutputTokens)
 {
     #region Properties
 

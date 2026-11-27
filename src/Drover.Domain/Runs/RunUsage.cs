@@ -12,6 +12,9 @@ public sealed record RunUsage
 
     public decimal Cost { get; init; }
 
+    /// <summary>The rule checks a decision model made for the run, counted against <c>MaxJudgedChecksPerRun</c>.</summary>
+    public int JudgedChecks { get; init; }
+
     #endregion
 
     #region Public Methods
