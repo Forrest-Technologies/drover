@@ -36,7 +36,7 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
 
     public static string QuickLabel => "All tools";
 
-    public static string NoReadingTools => "No tool here is known only to read. A tool server's own claim does not count.";
+    public static string NoReadingTools => "No tools in this group are marked read-only.";
 
     public bool ModelCallsTools => editor.ModelCallsTools;
 
