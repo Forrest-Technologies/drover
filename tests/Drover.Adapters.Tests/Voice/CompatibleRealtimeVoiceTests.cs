@@ -190,9 +190,9 @@ public sealed class CompatibleRealtimeVoiceTests : IAsyncLifetime
     [Fact]
     public async Task The_service_the_protocol_comes_from_is_asked_for_turns_by_meaning_and_a_cleaned_microphone()
     {
-        using var socket = new System.Net.WebSockets.ClientWebSocket();
+        var socket = new System.Net.WebSockets.ClientWebSocket();
         await socket.ConnectAsync(new Uri($"{address.ToString().Replace("http", "ws", StringComparison.Ordinal)}/realtime"), TestContext.Current.CancellationToken);
-        await using var session = new RealtimeVoiceSession(socket, RealtimeDialect.For(new Uri("https://api.openai.com/v1")));
+        await using var session = new RealtimeVoiceSession(new VoiceSocket(socket), RealtimeDialect.For(new Uri("https://api.openai.com/v1")));
 
         await session.Configure(new RealtimeVoiceOptions("gpt-realtime-2.1", "marin", "Short."), TestContext.Current.CancellationToken);
         await session.SendAudio(new byte[] { 1, 0 }, TestContext.Current.CancellationToken);
