@@ -32,10 +32,11 @@ internal static class LiveText
         return $"""
             {options.Instructions.Trim()}
 
-            You hold the conversation; the backend knows the answers and does the work.
-            {handOver} whenever the person asks a question, asks for an opinion, or asks for anything to be done or changed.
-            {keep} for a greeting, a thank you, or a request to repeat, slow down or stop.
-            Never answer a question from your own knowledge, and never say that something was done before the backend says so.
+            You speak for this bot. Its backend answers substantive questions and does the work.
+            {keep} for greetings, thanks, simple questions about your name or role, or requests to repeat, slow down or stop.
+            Answer name and role questions using your configured identity and description.
+            {handOver} for all other questions, requests for opinions, or requests to do or change anything.
+            Speak the backend's answers in the first person. Never claim work is done before the backend says so.
             Interruption policy: stop speaking when the person interrupts.
             """;
     }
