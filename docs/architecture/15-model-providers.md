@@ -313,7 +313,21 @@ A decision model answers typed questions about a state with probabilities and wr
 
 The wire: `POST` with `{ model, state, questions }`. `state` is an object of the named texts Drover sends. `questions` is an object, keyed by name, of `{ type: "noul", instructions }` (yes or no) or `{ type: "choice", instructions, criteria: { label: description } }` (pick one). The answer is `{ model, answers, usage }`, `answers` keyed by the same names: a `noul` answer is `{ type: "noul", noul }`, the probability of yes from 0 to 1; a `choice` answer carries `choice`, `confidence`, and `probabilities` by label. `usage.input_tokens` is returned as usage. Questions go out under the adapter's own names (`q1`, `q2`, ...), which every provider accepts, and come back under the caller's. At most 64 questions go in one request, the lowest bound any provider states; more are sent as further requests, each with the whole state, and the caller sees one answer. A question the provider refused (OpenRouter's `{ type: "refusal" }`) or answered with something that is not a probability has no answer, which the caller treats as unreadable. An answer over 1 MiB is refused as it is read. An answer that is not this API is `Rejected` ("The server answered, but not in the decision model API Drover speaks."). Failures map through `ModelProviderException.FromStatus`; a private address the checked outbound handler refuses keeps the refusal's own words. There is no retry: the caller bounds a check's time (`MaxJudgedRuleSeconds`). `TestConnection` asks one fixed question with a known yes and answers `Connected. Answered in {n} ms.`, or the mapped failure.
 
-The providers are registered by `AddDroverDecisionModels` (`Drover.Server`), which puts `SpaceOutboundHandler` on the adapter's one named client, `drover-decisions`. Storing a space's connection is [issue 1020](https://github.com/Forrest-Technologies/drover/issues/1020); until then no space has one, and every judged rule is unsure.
+The providers are registered by `AddDroverDecisionModels` (`Drover.Server`), which puts `SpaceOutboundHandler` on the adapter's one named client, `drover-decisions`. A space connects one, below.
+
+### A space's decision model
+
+Each space has at most one decision model connection (`decision_connections`, unique on `space_id`), connected by an owner or admin under `/api/spaces/{spaceId}/decision-model`. Antiforgery applies to every change.
+
+| Route | Who | What |
+| --- | --- | --- |
+| `GET /` | member | The connection or none, how many enabled rules written as a sentence it checks (so a client can warn before disconnecting), the kinds this server offers with their key and address rules, and whether this server judges rules at all (`AllowJudgedRules`). The key is never returned: the connection says `hasKey`. |
+| `PUT /` | admin | Connect, or replace the connection. The kind must be registered and offered (`DecisionModelKinds`); otherwise refused with a sentence that names it. What the kind's address rule asks for is required: an `http`/`https` address with no credentials, query or fragment, or an account id. A literal private address is refused where the space or the deployment forbids private addresses. The key goes to `ISecretVault` as a `decision_key`; a request with no key keeps the stored one only when the kind and where it points are unchanged, so a key is never sent somewhere it was not given for. The connection goes back to `pending`. |
+| `PUT /key` | admin | Store a new key as a new secret and delete the old one; the connection goes back to `pending`. |
+| `POST /test` | admin | Ask the provider the adapter's fixed question with no tenant scope open, inside the space's outbound rule. Records `ready`, or `failed` with the mapped reason in `last_error`, and the time. A rate-limit answer leaves the status alone. Nothing is written when the key, kind, address, account or model changed while the provider answered. |
+| `DELETE /` | admin | Remove the connection and its key. Its judged rules are unsure from the next check on. |
+
+Audit entries `decision_model.connected`, `.key_replaced` and `.disconnected` record what changed without the key or its secret id. A check's usage names the model and no model connection; the connection's own input price, when a person gave one, prices it.
 
 | Kind | Name | Address | Request goes to | Key |
 | --- | --- | --- | --- | --- |

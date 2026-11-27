@@ -6,7 +6,7 @@ namespace Drover.Engine.Runs;
 /// Rules written as a sentence are decided in two steps around one request to the space's decision model, made with
 /// no transaction open: the evaluator says which still need a verdict, the model is asked, and the evaluator decides.
 /// </summary>
-public sealed class RunRules(RunSession session, JudgedChecks judged, ILogger logger)
+public sealed class RunRules(RunSession session, JudgedChecks judged, FindDecisionModel findDecisionModel, ILogger logger)
 {
     #region Private Fields
 
@@ -144,7 +144,8 @@ public sealed class RunRules(RunSession session, JudgedChecks judged, ILogger lo
     {
         JudgedCheck check;
 
-        if (judged.Model is not { } model)
+        // Found again before every check: a model disconnected or no longer offered meanwhile is not asked.
+        if (await findDecisionModel(session.Tenant.SpaceId, session.Tenant.UserId, cancellationToken) is not { } model)
         {
             check = new(JudgedChecks.NotChecked(due.Rules, JudgedRules.NoDecisionModel), 0, 0);
         }
@@ -156,8 +157,10 @@ public sealed class RunRules(RunSession session, JudgedChecks judged, ILogger lo
         {
             var state = await State(due.Hard, subject, cancellationToken);
             session.CountJudgedCheck();
-            check = await judged.Check(due.Rules, state, cancellationToken);
-            await session.RecordModelUsage(new ToolModelUsage(model.ConnectionId, model.Model, model.Pricing, check.InputTokens, 0));
+            check = await judged.Check(model, due.Rules, state, cancellationToken);
+
+            // A decision model is not a model connection: the usage names the model, and no model connection.
+            await session.RecordModelUsage(new ToolModelUsage(null, model.Model, model.Pricing, check.InputTokens, 0));
         }
 
         foreach (var rule in due.Rules.Distinct())

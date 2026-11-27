@@ -129,6 +129,7 @@ public static class DeploymentPolicyExtensions
         {
             SubscriptionSignIn = SubscriptionSignInMode.OnlyWithOperatorApproval,
             ModelProviders = ModelProviderSet.OperatorList,
+            DecisionModelKinds = ModelProviderSet.OperatorList,
         };
 
     public static DeploymentPolicy WithVerifiedRegistrationOnly(this DeploymentPolicy policy) =>
