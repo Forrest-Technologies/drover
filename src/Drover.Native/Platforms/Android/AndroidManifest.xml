@@ -2,11 +2,13 @@
 <!-- The app talks to one HTTPS server and nothing else: clear text traffic is off, and no backup takes its data.
      Notifications arrive through a UnifiedPush distributor, which the app finds by the distributor's register action.
      The microphone is asked for the first time a person records a message or starts a call, never before, and a
-     device without one still installs the app. -->
+     device without one still installs the app. A call tells the system a conversation is going on and sends its
+     voice to the loudspeaker, which is what changing the audio settings is for. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
   <uses-feature android:name="android.hardware.microphone" android:required="false" />
   <application android:allowBackup="false" android:supportsRtl="true" android:usesCleartextTraffic="false">
     <!-- Hands another app one conversation file to share, read-only, from the cache folder files are staged in. -->

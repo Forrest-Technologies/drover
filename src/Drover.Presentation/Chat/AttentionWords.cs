@@ -127,6 +127,8 @@ public static class AttentionWords
             $"{botName} stopped after {Count(limit.Used)} of {Count(limit.Cap)} {(limit.Cap == 1 ? "model call" : "model calls")}.",
         FailureLimits.Tokens =>
             $"{botName} stopped after {Count(limit.Used)} of {Count(limit.Cap)} {(limit.Cap == 1 ? "token" : "tokens")}.",
+        FailureLimits.UnmeteredModelCalls =>
+            $"{botName} stopped after {Count(limit.Used)} of {Count(limit.Cap)} {(limit.Cap == 1 ? "model call" : "model calls")} that reported no token use.",
         _ => $"{botName} stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.",
     };
 

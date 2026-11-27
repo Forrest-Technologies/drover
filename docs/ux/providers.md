@@ -53,7 +53,7 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice, and the client does not hide any.
+The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Each kind with its own wire (such as `openai` and `anthropic`) is a choice of its own, in the server's order. Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice, and the client does not hide any.
 
 | Choice | Drawn as |
 | --- | --- |
