@@ -136,6 +136,14 @@ Some sign-ins borrow the identifiers of a provider's own tool, because the provi
 | --- | --- | --- | --- |
 | Claude plan (`anthropic_signin`) | The client identifier, headers and system prefix of the provider's own tool | https://code.claude.com/docs/en/legal-and-compliance | Yes, and says it may enforce without notice |
 
+## Use Google AI developer credits with Gemini
+
+Eligible Google AI Pro and Ultra plans include monthly Google Cloud developer credits. Apply them to the billing account for your Gemini API project to cover eligible usage. Once the credits run out, API usage draws from your Prepay balance or is billed through Postpay. [Google Developer Program benefits](https://developers.google.com/profile/help/benefits)
+
+1. Claim your cloud credits and apply them to a Cloud Billing account. Select **Always use this billing account** to apply future monthly credits to it. [Google Developer Program benefits page](https://me.developers.google.com/benefits)
+2. In Google AI Studio, use a project linked to that billing account and create a Gemini API key for it. If the account uses Prepay, Google requires a positive prepaid balance before it applies eligible cloud credits. [Gemini API keys](https://aistudio.google.com/docs/api-key) · [Gemini API billing](https://aistudio.google.com/docs/billing#cloud-credits-prepay)
+3. In Drover, open **Models → Add a connection**. Select **Google Gemini**, paste the key, and choose **Test connection**. When the test passes, choose **Add connection**.
+
 ## Backup
 
 Back up four volumes together. Compose prefixes volume names with the project name, so list them first:
