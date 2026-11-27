@@ -157,11 +157,16 @@ public sealed class ModelSettingsForm
             StructuredOutput: FlagToSend("structuredOutput", StructuredOutput, can.StructuredOutput),
             ImageGeneration: FlagToSend("imageGeneration", ImageGeneration, can.ImageGeneration));
         var prices = entry.Price;
+        var currency = Currency.Trim().ToUpperInvariant();
+
+        // The currency is the admin's word for the prices shown with it. When the currency is changed, every
+        // price on the form is sent with it: the provider's prices in the old currency would not be the right ones.
+        var currencyChanged = !string.Equals(currency, prices.Currency, StringComparison.OrdinalIgnoreCase);
         var priced = new ModelPricingRequest(
-            InputPerMillion: PriceToSend("inputPerMillion", InputPrice, prices.InputPerMillion),
-            OutputPerMillion: PriceToSend("outputPerMillion", OutputPrice, prices.OutputPerMillion),
-            CachedInputPerMillion: PriceToSend("cachedInputPerMillion", CachedPrice, prices.CachedInputPerMillion),
-            Currency: Currency.Trim().ToUpperInvariant());
+            InputPerMillion: PriceToSend("inputPerMillion", InputPrice, prices.InputPerMillion, currencyChanged),
+            OutputPerMillion: PriceToSend("outputPerMillion", OutputPrice, prices.OutputPerMillion, currencyChanged),
+            CachedInputPerMillion: PriceToSend("cachedInputPerMillion", CachedPrice, prices.CachedInputPerMillion, currencyChanged),
+            Currency: currency);
 
         return new SetModelSettingsRequest(
             entry.Model,
@@ -203,11 +208,11 @@ public sealed class ModelSettingsForm
         return size is not null && (IsSet(member) || size != shown) ? size : null;
     }
 
-    private decimal? PriceToSend(string member, string typed, decimal? shown)
+    private decimal? PriceToSend(string member, string typed, decimal? shown, bool currencyChanged)
     {
         var price = ParsePrice(typed);
 
-        return price is not null && (IsSet(member) || price != shown) ? price : null;
+        return price is not null && (IsSet(member) || price != shown || currencyChanged) ? price : null;
     }
 
     private bool? FlagToSend(string member, bool now, bool shown) => IsSet(member) || now != shown ? now : null;

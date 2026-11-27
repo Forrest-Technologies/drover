@@ -11,7 +11,7 @@ internal static class OllamaProbe
 {
     #region Private Fields
 
-    /// <summary>The whole pass fits inside the time the model list call itself is given.</summary>
+    /// <summary>The time the whole pass may take, counted from its first request, after the model list has been read.</summary>
     private static readonly TimeSpan budget = TimeSpan.FromMinutes(2);
 
     private const int AtOnce = 4;
@@ -41,11 +41,13 @@ internal static class OllamaProbe
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         limit.CancelAfter(budget);
 
-        var first = (await Show(client, origin, connection, apiKey, ordered[0], limit.Token, cancellation)).Model;
+        var shown = await Show(client, origin, connection, apiKey, ordered[0], limit.Token, cancellation);
 
-        if (first is null)
+        if (shown.Model is not { } first)
         {
-            return models;
+            // A server that says it is not of this kind costs nothing more. One that could not answer just now is
+            // not known to be anything, so what is stored for its models stays.
+            return shown.Transient ? [.. models.Select(KeepStoredUnlessListed)] : models;
         }
 
         ConcurrentDictionary<string, ModelInfo> filled = new(StringComparer.Ordinal) { [first.Id] = first };
@@ -63,12 +65,19 @@ internal static class OllamaProbe
                 }
             });
 
-        return [.. models.Select(model => filled.TryGetValue(model.Id, out var read) ? read : model with { FactsRead = false })];
+        return [.. models.Select(model => filled.TryGetValue(model.Id, out var read) ? read : KeepStoredUnlessListed(model))];
     }
 
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// A model the probe could not read keeps what is stored for it, unless the list itself said something about it:
+    /// then what the list said is the newest word and is used.
+    /// </summary>
+    private static ModelInfo KeepStoredUnlessListed(ModelInfo model) =>
+        model.Capabilities == new ModelCapabilities() && model.Pricing == new ModelPricing() ? model with { FactsRead = false } : model;
 
     /// <summary>The model with its facts, or no model and what went wrong when the server did not answer as a local server does.</summary>
     private static async Task<Shown> Show(
@@ -96,25 +105,31 @@ internal static class OllamaProbe
 
             if (response.StatusCode != HttpStatusCode.OK)
             {
-                return new Shown(null, $"status {(int)response.StatusCode}");
+                // A 404 or another refusal says this is not that kind of server. A server error, a request timeout or
+                // a rate limit says nothing about the kind.
+                return new Shown(
+                    null,
+                    $"status {(int)response.StatusCode}",
+                    response.StatusCode is >= HttpStatusCode.InternalServerError or HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests);
             }
 
             using var document = await BoundedResponse.ReadJson(response.Content, connection.Limits.MaxBytes, "model details", limit);
 
             var read = Read(model, document.RootElement);
 
-            return new Shown(read, read is null ? "no capabilities" : null);
+            return new Shown(read, read is null ? "no capabilities" : null, false);
         }
         catch (Exception problem) when (IsAnswerNotUsable(problem, cancellation))
         {
             // An answer too large or not JSON, or a pass out of time: this model keeps what the list gave. A call
             // the person cancelled is not caught here.
-            return new Shown(null, problem.GetType().Name);
+            return new Shown(null, problem.GetType().Name, true);
         }
     }
 
     private static bool IsAnswerNotUsable(Exception problem, CancellationToken cancellation) =>
         problem is HttpRequestException or JsonException or InvalidOperationException or ModelProviderException
+            or TimeoutRejectedException or BrokenCircuitException
         || (problem is OperationCanceledException && !cancellation.IsCancellationRequested);
 
     private static ModelInfo? Read(ModelInfo model, JsonElement answer)
@@ -136,6 +151,7 @@ internal static class OllamaProbe
                 Vision = abilities.Contains("vision"),
                 Reasoning = abilities.Contains("thinking"),
                 ContextTokens = ReadContextLength(answer) ?? model.Capabilities.ContextTokens,
+                ReasoningEfforts = abilities.Contains("thinking") ? ReasoningLevels.Documented : model.Capabilities.ReasoningEfforts,
             },
         };
     }
@@ -166,7 +182,7 @@ internal static class OllamaProbe
 
     #region Nested Types
 
-    private sealed record Shown(ModelInfo? Model, string? Why);
+    private sealed record Shown(ModelInfo? Model, string? Why, bool Transient);
 
     #endregion
 }

@@ -355,6 +355,21 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Changing_only_the_currency_sends_every_price_on_the_form_with_it()
+    {
+        var entry = Entry("plain", vision: false) with { Price = new ModelPriceResponse(3m, 15m, null, "USD") };
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        var model = Models();
+        await model.Open();
+        model.OpenSettings(Connection, entry);
+        model.Settings.Currency = "eur";
+
+        var sent = model.Settings.Request().Pricing;
+
+        sent.Should().Be(new ModelPricingRequest(InputPerMillion: 3m, OutputPerMillion: 15m, Currency: "EUR"));
+    }
+
+    [Fact]
     public async Task A_size_above_ten_million_is_accepted_on_the_form()
     {
         server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);

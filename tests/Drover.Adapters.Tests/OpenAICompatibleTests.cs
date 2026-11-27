@@ -30,6 +30,8 @@ public sealed class OpenAICompatibleTests
         var vision = models.Single(model => model.Id == "vendor/routed-vision");
         vision.Capabilities.Should().Match<ModelCapabilities>(can =>
             can.ContextTokens == 200_000 && can.MaxOutputTokens == 64_000 && can.Vision && can.ToolCalling && can.Reasoning && can.StructuredOutput);
+        vision.Capabilities.ReasoningEfforts.Should().Equal("low", "medium", "high");
+        models.Single(model => model.Id == "vendor/routed-text").Capabilities.ReasoningEfforts.Should().BeEmpty();
         vision.Pricing.Should().Be(new ModelPricing { InputPerMillion = 3m, OutputPerMillion = 15m, CachedInputPerMillion = 0.3m });
         var text = models.Single(model => model.Id == "vendor/routed-text");
         text.Capabilities.Should().Match<ModelCapabilities>(can => can.ContextTokens == 8192 && can.MaxOutputTokens == null && !can.Vision && !can.ToolCalling);
@@ -61,6 +63,7 @@ public sealed class OpenAICompatibleTests
         models.Should().HaveCount(3);
         models.Should().OnlyContain(model =>
             model.Capabilities.ToolCalling && model.Capabilities.Reasoning && !model.Capabilities.Vision && model.Capabilities.ContextTokens == 131_072);
+        models.Should().OnlyContain(model => model.Capabilities.ReasoningEfforts.SequenceEqual(ReasoningLevels.Documented));
         rig.Handler.Requests.Count(request => request.Uri.AbsolutePath == "/api/show").Should().Be(3);
     }
 
@@ -99,6 +102,38 @@ public sealed class OpenAICompatibleTests
         models.Single(model => model.Id == "c").FactsRead.Should().BeFalse("its details did not come, so the stored facts stay");
         models.Single(model => model.Id == "d").FactsRead.Should().BeFalse();
         models.Single(model => model.Id == "a").FactsRead.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task A_first_probe_that_could_not_answer_leaves_a_plain_models_stored_facts_alone(HttpStatusCode status)
+    {
+        var handler = new ScriptedHandler((request, _, _) => Task.FromResult(request.Method == HttpMethod.Get
+            ? ScriptedHandler.Json(HttpStatusCode.OK, """{"data":[{"id":"plain"},{"id":"listed","context_length":4096}]}""")
+            : ScriptedHandler.Json(status, "{}")));
+        var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
+        var endpoint = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address);
+
+        var models = await provider.ListModels(endpoint, null, TestContext.Current.CancellationToken);
+
+        models.Single(model => model.Id == "plain").FactsRead.Should().BeFalse("nothing is known, so what is stored stays");
+        models.Single(model => model.Id == "listed").FactsRead.Should().BeTrue("the list said something, and it is the newest word");
+    }
+
+    [Fact]
+    public async Task A_first_probe_that_fails_to_connect_is_not_taken_for_a_server_of_another_kind()
+    {
+        var handler = new ScriptedHandler((request, _, _) => request.Method == HttpMethod.Get
+            ? Task.FromResult(ScriptedHandler.Json(HttpStatusCode.OK, """{"data":[{"id":"plain"}]}"""))
+            : throw new HttpRequestException("reset"));
+        var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
+        var endpoint = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address);
+
+        var models = await provider.ListModels(endpoint, null, TestContext.Current.CancellationToken);
+
+        models.Single().FactsRead.Should().BeFalse();
     }
 
     [Fact]

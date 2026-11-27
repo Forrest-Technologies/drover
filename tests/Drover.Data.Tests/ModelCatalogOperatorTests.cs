@@ -36,7 +36,9 @@ public sealed class ModelCatalogOperatorTests(PostgresFixture postgres)
             ReasoningEfforts = ["low", "high"],
         });
         stored.EffectiveCapabilities.Should().Match<ModelCapabilities>(can => can.ContextTokens == 20_000_000 && can.Vision);
-        stored.EffectivePricing.Should().Be(new ModelPricing { InputPerMillion = 9m, OutputPerMillion = 1.25m, Currency = "EUR" });
+        stored.EffectivePricing.Should().Be(
+            new ModelPricing { InputPerMillion = null, OutputPerMillion = 1.25m, Currency = "EUR" },
+            "the provider's dollar price is not mixed with the admin's euro price");
     }
 
     [Fact]
@@ -81,7 +83,82 @@ public sealed class ModelCatalogOperatorTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Migration
+
+    [Fact]
+    public async Task The_migration_moves_a_vision_mark_into_the_operator_column_and_leaves_other_rows_alone()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var connectionId = await SaveEntry(provider, world, new ModelCatalogEntry { Model = "marked", DisplayName = "Marked", LastSeenAt = DateTimeOffset.UtcNow });
+        await SaveSecondEntry(provider, world, connectionId, "plain");
+        await MigrateTo(scratch, "ExtensionsWithoutBots");
+
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            await session.Execute(
+                "UPDATE model_catalog SET capabilities = '{\"vision\":true,\"vision_set_by_operator\":true,\"tool_calling\":true}'::jsonb WHERE model = 'marked'");
+            await session.Execute("UPDATE model_catalog SET capabilities = '{\"vision\":true}'::jsonb WHERE model = 'plain'");
+            await session.Commit();
+        }
+
+        await MigrateTo(scratch, null);
+
+        await using (var read = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var rows = await read.Db.ModelCatalog.AsNoTracking().ToDictionaryAsync(entry => entry.Model, TestContext.Current.CancellationToken);
+            rows["marked"].OperatorCapabilities.Should().Be(new ModelCapabilityOverrides { Vision = true });
+            rows["marked"].Capabilities.Vision.Should().BeTrue();
+            rows["plain"].OperatorCapabilities.Should().BeNull("the provider said it, not an admin");
+        }
+
+        (await ReadCapabilitiesText(provider, world, "marked")).Should().NotContain("vision_set_by_operator");
+        (await PolicyIsForced(scratch, "model_catalog")).Should().BeTrue("the owner reads past the policy only inside the migration");
+
+        await MigrateTo(scratch, "ExtensionsWithoutBots");
+        (await ReadCapabilitiesText(provider, world, "marked")).Should().Contain("\"vision_set_by_operator\": true", "going back restores the old mark");
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static async Task SaveSecondEntry(IServiceProvider provider, TenantWorld world, Guid connectionId, string model)
+    {
+        await using var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
+        session.Db.ModelCatalog.Add(new ModelCatalogEntry { ModelConnectionId = connectionId, Model = model, DisplayName = model, LastSeenAt = DateTimeOffset.UtcNow });
+        await session.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await session.Commit();
+    }
+
+    private static async Task<string> ReadCapabilitiesText(IServiceProvider provider, TenantWorld world, string model)
+    {
+        await using var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
+        var texts = await session.Db.Database
+            .SqlQuery<string>($"SELECT capabilities::text AS \"Value\" FROM model_catalog WHERE model = {model}")
+            .ToListAsync(TestContext.Current.CancellationToken);
+        return texts.Single();
+    }
+
+    private static async Task MigrateTo(ScratchDatabase scratch, string? target)
+    {
+        NpgsqlConnection.ClearAllPools();
+        var options = new DbContextOptionsBuilder<DroverDbContext>();
+        options.UseDroverNpgsql(scratch.OwnerConnectionString);
+        await using var context = new DroverDbContext(options.Options);
+        await context.GetService<IMigrator>().MigrateAsync(target, TestContext.Current.CancellationToken);
+        NpgsqlConnection.ClearAllPools();
+    }
+
+    private static async Task<bool> PolicyIsForced(ScratchDatabase scratch, string table)
+    {
+        await using var connection = new NpgsqlConnection(scratch.AppConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand("SELECT relforcerowsecurity FROM pg_class WHERE relname = @table", connection);
+        command.Parameters.AddWithValue("table", table);
+        return (bool)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+    }
 
     private static async Task<Guid> SaveEntry(IServiceProvider provider, TenantWorld world, ModelCatalogEntry entry)
     {

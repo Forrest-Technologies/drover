@@ -96,17 +96,48 @@ public sealed class ModelSettingsTests
     }
 
     [Fact]
-    public void Prices_are_laid_over_one_by_one_and_the_currency_is_the_admins_once_any_price_is_set()
+    public void Prices_are_laid_over_one_by_one_when_the_currency_is_the_same()
     {
         var entry = new ModelCatalogEntry
         {
             Model = "m",
             DisplayName = "M",
             Pricing = new ModelPricing { InputPerMillion = 3m, OutputPerMillion = 15m },
+            OperatorPricing = new ModelPricing { OutputPerMillion = 1m, Currency = "usd" },
+        };
+
+        entry.EffectivePricing.Should().Be(new ModelPricing { InputPerMillion = 3m, OutputPerMillion = 1m, Currency = "usd" });
+    }
+
+    [Fact]
+    public void A_price_the_provider_reported_in_another_currency_is_never_mixed_in()
+    {
+        var entry = new ModelCatalogEntry
+        {
+            Model = "m",
+            DisplayName = "M",
+            Pricing = new ModelPricing { InputPerMillion = 3m, OutputPerMillion = 15m, Currency = "USD" },
             OperatorPricing = new ModelPricing { OutputPerMillion = 1m, Currency = "EUR" },
         };
 
-        entry.EffectivePricing.Should().Be(new ModelPricing { InputPerMillion = 3m, OutputPerMillion = 1m, Currency = "EUR" });
+        entry.EffectivePricing.Should().Be(new ModelPricing { InputPerMillion = null, OutputPerMillion = 1m, Currency = "EUR" });
+    }
+
+    [Fact]
+    public void Effort_levels_follow_the_reasoning_that_is_in_effect()
+    {
+        var provider = new ModelCapabilities { Reasoning = true, ReasoningEfforts = ["low", "high"] };
+        var untouched = new ModelCapabilityOverrides { ContextTokens = 1000 }.ApplyTo(provider);
+        var off = new ModelCapabilityOverrides { Reasoning = false }.ApplyTo(provider);
+        var onWithNone = new ModelCapabilityOverrides { Reasoning = true }.ApplyTo(new ModelCapabilities());
+        var onWithOwn = new ModelCapabilityOverrides { Reasoning = true, ReasoningEfforts = ["max"] }.ApplyTo(new ModelCapabilities());
+        var ownButOff = new ModelCapabilityOverrides { ReasoningEfforts = ["max"] }.ApplyTo(new ModelCapabilities());
+
+        untouched.ReasoningEfforts.Should().Equal("low", "high");
+        off.ReasoningEfforts.Should().BeEmpty();
+        onWithNone.ReasoningEfforts.Should().BeEmpty();
+        onWithOwn.ReasoningEfforts.Should().Equal("max");
+        ownButOff.ReasoningEfforts.Should().BeEmpty("efforts of a model that does not think are not offered");
     }
 
     [Fact]

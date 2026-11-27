@@ -41,19 +41,27 @@ public sealed class ModelCatalogEntry : ISpaceOwned
     public ModelCapabilities EffectiveCapabilities => OperatorCapabilities?.ApplyTo(Capabilities) ?? Capabilities;
 
     /// <summary>
-    /// The price per million tokens, price by price: the admin's where set, the provider's where not. The currency
-    /// is the admin's when the admin set any price.
+    /// The price per million tokens, price by price: the admin's where set, the provider's where not. The admin's
+    /// currency applies to the prices the admin set. A price the provider reported in another currency is not mixed
+    /// in: it becomes unknown, which a cost limit treats as unknown and not as free.
     /// </summary>
     public ModelPricing EffectivePricing =>
         OperatorPricing is { } set
             ? new ModelPricing
             {
-                InputPerMillion = set.InputPerMillion ?? Pricing.InputPerMillion,
-                OutputPerMillion = set.OutputPerMillion ?? Pricing.OutputPerMillion,
-                CachedInputPerMillion = set.CachedInputPerMillion ?? Pricing.CachedInputPerMillion,
+                InputPerMillion = set.InputPerMillion ?? ProviderPrice(set, Pricing.InputPerMillion),
+                OutputPerMillion = set.OutputPerMillion ?? ProviderPrice(set, Pricing.OutputPerMillion),
+                CachedInputPerMillion = set.CachedInputPerMillion ?? ProviderPrice(set, Pricing.CachedInputPerMillion),
                 Currency = set.Currency,
             }
             : Pricing;
+
+    #endregion
+
+    #region Private Methods
+
+    private decimal? ProviderPrice(ModelPricing set, decimal? price) =>
+        string.Equals(set.Currency, Pricing.Currency, StringComparison.OrdinalIgnoreCase) ? price : null;
 
     #endregion
 }

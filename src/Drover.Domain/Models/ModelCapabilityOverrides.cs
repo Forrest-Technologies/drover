@@ -43,7 +43,7 @@ public sealed record ModelCapabilityOverrides
             ToolCalling = ToolCalling ?? discovered.ToolCalling,
             Vision = Vision ?? discovered.Vision,
             Reasoning = Reasoning ?? discovered.Reasoning,
-            ReasoningEfforts = Reasoning is false ? [] : ReasoningEfforts ?? discovered.ReasoningEfforts,
+            ReasoningEfforts = (Reasoning ?? discovered.Reasoning) ? ReasoningEfforts ?? discovered.ReasoningEfforts : [],
             StructuredOutput = StructuredOutput ?? discovered.StructuredOutput,
             ImageGeneration = ImageGeneration ?? discovered.ImageGeneration,
         };

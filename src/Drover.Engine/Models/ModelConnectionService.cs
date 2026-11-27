@@ -553,16 +553,8 @@ public sealed class ModelConnectionService(
             return (null, $"This connection already holds {policy.Deployment.MaxModelsPerConnection} models, the most this server keeps for one connection.");
         }
 
-        var added = new ModelCatalogEntry
-        {
-            ModelConnectionId = connectionId,
-            Model = model,
-            DisplayName = model,
-            State = AvailabilityState.Available,
-            LastSeenAt = time.GetUtcNow(),
-        };
-        connections.Add(added);
-        return (added, null);
+        await connections.AddCatalogEntryIfMissing(connectionId, model, time.GetUtcNow(), cancellationToken);
+        return (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken), null);
     }
 
     private static bool HasPrice(ModelPricing prices) =>

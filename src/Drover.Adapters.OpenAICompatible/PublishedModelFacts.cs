@@ -59,6 +59,7 @@ internal static class PublishedModelFacts
             {
                 ToolCalling = parameters.Contains("tools"),
                 Reasoning = parameters.Contains("reasoning"),
+                ReasoningEfforts = parameters.Contains("reasoning") ? ReasoningLevels.Documented : facts.ReasoningEfforts,
                 StructuredOutput = parameters.Contains("structured_outputs"),
             }
             : facts;

@@ -259,6 +259,40 @@ public sealed class ModelSettingsApiTests(PostgresServer postgres) : ServerTestB
     }
 
     [Fact]
+    public async Task A_bot_can_be_given_an_effort_on_a_model_whose_server_reported_that_it_thinks_with_no_admin_step()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateCompatible(client, alice.SpaceId);
+        // What detection stores for a model a routed list says supports reasoning.
+        await SeedModels(alice, connection.Id, ("plain", new ModelCapabilities { Reasoning = true, ReasoningEfforts = ReasoningLevels.Documented }));
+        var bot = await Read<BotSummary>(await client.Post($"{Space(alice.SpaceId)}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, "plain")));
+        var edit = new UpdateBotRequest(
+            null, null, null, null, null, null, null,
+            new ModelSettingsBody(null, null, "high", "off", false), null, null, null, null, null);
+
+        var saved = await client.Put($"{Space(alice.SpaceId)}/bots/{bot.Id}/definition", edit);
+
+        saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Token));
+    }
+
+    [Fact]
+    public async Task Two_requests_that_add_the_same_new_model_both_succeed()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var other = await SignIn(alice);
+        var connection = await CreateCompatible(client, alice.SpaceId);
+
+        var first = Put(client, alice.SpaceId, connection.Id, new SetModelSettingsRequest("race/model", new ModelAbilitiesRequest(ContextSize: 1000), null));
+        var second = Put(other, alice.SpaceId, connection.Id, new SetModelSettingsRequest("race/model", new ModelAbilitiesRequest(ContextSize: 2000), null));
+        var answers = await Task.WhenAll(first, second);
+
+        answers.Should().OnlyContain(answer => answer.StatusCode == HttpStatusCode.OK);
+        (await ListModels(client, alice.SpaceId, connection.Id)).Should().ContainSingle(entry => entry.Model == "race/model");
+    }
+
+    [Fact]
     public async Task A_model_marked_as_reading_pictures_through_the_older_route_is_the_same_mark_as_the_sheets()
     {
         var alice = await SeedPerson("alice");
