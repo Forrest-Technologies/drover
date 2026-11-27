@@ -789,9 +789,9 @@ try {
                     const serverTools = page.getByRole('group', { name: 'Every tool in Sample tools for Sample bot', exact: true });
                     await serverTools.waitFor({ state: 'attached' });
                     await page.getByText('No tools in this group are marked read-only.', { exact: true }).waitFor({ state: 'attached' });
-                    assert(await serverTools.getByRole('button', { name: 'Read only', exact: true }).isDisabled());
-                    assert(await serverTools.getByRole('button', { name: 'Ask', exact: true }).isEnabled());
-                    assert(await serverTools.getByRole('button', { name: 'Allow', exact: true }).isEnabled());
+                    assert(await serverTools.getByRole('radio', { name: 'Read only', exact: true }).isDisabled());
+                    assert(await serverTools.getByRole('radio', { name: 'Ask', exact: true }).isEnabled());
+                    assert(await serverTools.getByRole('radio', { name: 'Allow', exact: true }).isEnabled());
                     await serverTools.scrollIntoViewIfNeeded();
                 }
                 if (name === 'sandbox-terminal') {
