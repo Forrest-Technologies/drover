@@ -1598,12 +1598,17 @@ async function checkStopBounds(page, width) {
 
 async function checkBotRequests(page, width, theme) {
     const accepts = page.getByLabel('Accept requests from other bots', { exact: true });
-    await accepts.click({ force: true, position: { x: 20, y: 20 } });
+    await accepts.press('Space');
     const save = page.getByRole('button', { name: 'Save changes', exact: true });
-    const saved = page.waitForResponse(reply => reply.request().method() === 'PUT'
-        && new URL(reply.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`);
-    await save.press('Enter');
-    const reply = await saved;
+    await page.waitForFunction(() => {
+        const button = document.querySelector('[aria-label="Save changes"]');
+        return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+    });
+    const [reply] = await Promise.all([
+        page.waitForResponse(response => response.request().method() === 'PUT'
+            && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`),
+        save.dispatchEvent('click'),
+    ]);
     assert(reply.ok());
     assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
         'Incoming bot requests default on and the editor can opt out');
