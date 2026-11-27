@@ -209,6 +209,35 @@ public sealed class ConnectModelViewModelTests : IDisposable
             .ApiKey.Should().BeNull();
     }
 
+    [Fact]
+    public async Task A_kind_with_its_own_wire_is_offered_after_venice_and_takes_a_key_and_no_address()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample own wire", "sample_own_wire", null, true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.WithOwnWire(SampleProviders.All));
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+
+        model.Named.Options.Select(option => option.Label).Should().Equal(
+            "Venice", "Sample own wire", "Sample hosted", "Sample keyless", "Sample optional", "Another compatible server");
+        model.ChooseProvider("sample_own_wire");
+        model.BaseUrl = "https://ignored.example.test/v1";
+        model.ApiKey = "sample-key";
+        await model.Test();
+
+        model.Kind.Should().Be("sample_own_wire");
+        model.Named.ShowsAddress.Should().BeFalse();
+        model.Named.ShowsKey.Should().BeTrue();
+        model.Named.KeyLabel.Should().Be("Key");
+        model.Named.KeyHint.Should().Be("Sample own wire hint.");
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest("sample_own_wire", "Sample own wire", null, "sample-key", null));
+    }
+
     #endregion
 
     #region Private Methods
@@ -228,6 +257,14 @@ public static class SampleProviders
     [
         new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
         new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
+    ];
+
+    /// <summary>The same, with a kind that has its own wire, a fixed address and a required key.</summary>
+    public static ModelProviderKindResponse[] WithOwnWire(params ModelProviderPresetResponse[] named) =>
+    [
+        new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
+        new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
+        new("sample_own_wire", "Sample own wire", "required", "fixed", null, "Sample own wire hint.", false, []),
     ];
 
     public static ModelProviderPresetResponse[] All { get; } =

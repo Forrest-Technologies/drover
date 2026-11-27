@@ -63,6 +63,24 @@ public sealed class FailureMappingTests
         VeniceChatClient.TryMap(new InvalidOperationException("a bug"), out _).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("rate_limit_exceeded", ModelFailure.RetryLater)]
+    [InlineData("insufficient_quota", ModelFailure.OutOfCredit)]
+    [InlineData("context_length_exceeded", ModelFailure.TooLong)]
+    [InlineData("server_error", ModelFailure.Unreachable)]
+    [InlineData("RateLimitExceeded", ModelFailure.RetryLater)]
+    [InlineData("slow_down", ModelFailure.RetryLater)]
+    [InlineData("server_is_overloaded", ModelFailure.RetryLater)]
+    [InlineData("invalid_prompt", ModelFailure.Rejected)]
+    [InlineData(null, ModelFailure.Rejected)]
+    public void An_error_code_inside_a_responses_answer_maps_in_drovers_terms(string? code, ModelFailure expected)
+    {
+        var mapped = ResponsesChatClient.FailureFor(code);
+
+        mapped.Failure.Should().Be(expected);
+        mapped.InnerException.Should().BeNull();
+    }
+
     #endregion
 
     #region Reset Headers

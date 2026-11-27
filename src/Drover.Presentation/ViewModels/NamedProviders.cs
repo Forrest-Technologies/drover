@@ -9,8 +9,8 @@ public enum NamedProvidersState
 }
 
 /// <summary>
-/// The provider choice of a form that connects a model: Venice, the named providers the server offers in its order,
-/// then another compatible server. The names, addresses and key rules all come from the server. What the form shows
+/// The provider choice of a form that connects a model: Venice, the other kinds the server offers with their own wire
+/// (such as a provider's own API), the named providers the server offers in its order, then another compatible server. The names, addresses and key rules all come from the server. What the form shows
 /// for the chosen provider (the address behind "Change address", the key field, a link to where a key is made, the
 /// line about reach) is decided here, so the two forms that connect a model say the same things.
 /// </summary>
@@ -34,6 +34,8 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     private IReadOnlyList<ModelProviderPresetResponse> presets = [];
 
+    private IReadOnlyList<ModelProviderKindResponse> ownWire = [];
+
     #endregion
 
     #region Properties
@@ -43,7 +45,10 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public NamedProvidersState State { get; private set; } = NamedProvidersState.Loading;
 
-    /// <summary>The value of the chosen option: <see cref="VeniceKind"/>, <see cref="CompatibleKind"/>, or a named provider's id.</summary>
+    /// <summary>
+    /// The value of the chosen option: <see cref="VeniceKind"/>, <see cref="CompatibleKind"/>, another kind the server
+    /// offers, or a named provider's id.
+    /// </summary>
     public string Choice { get; private set; } = VeniceKind;
 
     /// <summary>True once a person asked to see the address of a named provider.</summary>
@@ -52,13 +57,17 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     public IReadOnlyList<ModelProviderPresetResponse> Presets => presets;
 
     /// <summary>The kind the server stores for the choice. A named provider is a compatible server with an address.</summary>
-    public string Kind => Choice == VeniceKind ? VeniceKind : CompatibleKind;
+    public string Kind => Choice == VeniceKind ? VeniceKind : OwnWire?.Kind ?? CompatibleKind;
+
+    /// <summary>The chosen kind when it is one the server offers with its own wire, as the server describes it.</summary>
+    public ModelProviderKindResponse? OwnWire => ownWire.FirstOrDefault(kind => kind.Kind == Choice);
 
     public ModelProviderPresetResponse? Selected => presets.FirstOrDefault(preset => preset.Id == Choice);
 
     public IReadOnlyList<SegmentOption<string>> Options =>
     [
         new(VeniceKind, "Venice"),
+        .. ownWire.Select(kind => new SegmentOption<string>(kind.Kind, kind.DisplayName)),
         .. presets.Select(preset => new SegmentOption<string>(preset.Id, preset.DisplayName)),
         new(CompatibleKind, "Another compatible server"),
     ];
@@ -67,13 +76,15 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public bool OffersAddressChange => Selected is not null && !AddressRevealed;
 
-    public bool ShowsKey => Selected?.KeyRule != ModelProviderKeyRules.None;
+    public bool ShowsKey => Selected?.KeyRule != ModelProviderKeyRules.None && OwnWire?.KeyRule != ModelKeyRules.None;
 
-    public string KeyLabel => Selected?.KeyRule == ModelProviderKeyRules.Optional ? "Key (optional)" : "Key";
+    public string KeyLabel =>
+        Selected?.KeyRule == ModelProviderKeyRules.Optional || OwnWire?.KeyRule == ModelKeyRules.Optional ? "Key (optional)" : "Key";
 
     public string KeyHint => Kind switch
     {
         VeniceKind => "Made in your Venice account, under API keys.",
+        _ when OwnWire is { } kind => kind.KeyHint ?? string.Empty,
         _ when Selected is null => "Leave this empty if the server needs no key.",
         _ => string.Empty,
     };
@@ -105,6 +116,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         try
         {
             var kinds = await api.ListModelProviderKinds();
+            ownWire = [.. kinds.Where(kind => kind.Kind is not (VeniceKind or CompatibleKind))];
             presets = kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [];
             State = NamedProvidersState.Loaded;
         }
@@ -112,11 +124,12 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         {
             logger.LogWarning(exception, "The list of named providers could not be read");
             presets = [];
+            ownWire = [];
             State = NamedProvidersState.Failed;
         }
 
         // A choice the new list no longer holds falls back to the one that always works.
-        if (Choice != VeniceKind && Choice != CompatibleKind && Selected is null)
+        if (Choice != VeniceKind && Choice != CompatibleKind && Selected is null && OwnWire is null)
         {
             Choice = CompatibleKind;
         }
@@ -145,7 +158,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     }
 
     /// <summary>The name a new connection gets when a person gave none: the provider's, else the address's host.</summary>
-    public string NameFor(string? address) => Selected?.DisplayName ?? (
+    public string NameFor(string? address) => Selected?.DisplayName ?? OwnWire?.DisplayName ?? (
         Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice");
 
     #endregion

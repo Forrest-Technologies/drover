@@ -1,0 +1,19 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's Responses API reference and guides (https://developers.openai.com/api/reference/resources/responses/methods/create, https://developers.openai.com/api/docs/guides/streaming-responses, read 2026-11-26). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 400,
+      "body": {
+        "error": {
+          "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
+          "type": "invalid_request_error",
+          "param": "input",
+          "code": "context_length_exceeded"
+        }
+      }
+    }
+  ]
+}
