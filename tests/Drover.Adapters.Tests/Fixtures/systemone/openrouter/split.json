@@ -1,0 +1,318 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's own reference (https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request and https://openrouter.ai/docs/api_reference/errors-and-debugging, read 2026-11-26). The answers are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 200,
+      "body": {
+        "id": "gen-test-1",
+        "provider": "TypeSafe",
+        "model": "typesafe/jev-1.14-20261014",
+        "answers": {
+          "q1": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q2": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q3": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q4": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q5": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q6": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q7": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q8": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q9": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q10": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q11": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q12": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q13": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q14": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q15": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q16": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q17": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q18": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q19": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q20": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q21": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q22": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q23": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q24": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q25": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q26": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q27": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q28": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q29": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q30": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q31": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q32": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q33": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q34": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q35": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q36": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q37": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q38": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q39": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q40": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q41": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q42": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q43": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q44": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q45": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q46": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q47": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q48": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q49": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q50": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q51": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q52": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q53": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q54": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q55": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q56": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q57": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q58": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q59": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q60": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q61": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q62": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q63": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q64": {
+            "type": "noul",
+            "noul": 0.5
+          }
+        },
+        "usage": {
+          "input_tokens": 900,
+          "output_tokens": 0
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 200,
+      "body": {
+        "id": "gen-test-1",
+        "provider": "TypeSafe",
+        "model": "typesafe/jev-1.14-20261014",
+        "answers": {
+          "q65": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q66": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q67": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q68": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q69": {
+            "type": "noul",
+            "noul": 0.5
+          },
+          "q70": {
+            "type": "noul",
+            "noul": 0.5
+          }
+        },
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 0
+        }
+      }
+    }
+  ]
+}
