@@ -17,3 +17,10 @@ public sealed record RecalledMemory(IReadOnlyList<RecalledNote> Notes, int MaxCh
 
     #endregion
 }
+
+
+/// <summary>
+/// What the memory service knows about the run's person for this bot, bounded by <see cref="MaxCharacters"/>.
+/// Reference material only, never instructions, and never stored in the thread.
+/// </summary>
+public sealed record RecalledServiceMemory(IReadOnlyList<string> Facts, string? Summary, int MaxCharacters);
