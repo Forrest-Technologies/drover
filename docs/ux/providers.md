@@ -44,6 +44,7 @@ Components: `SetupSteps` (setup only), heading, one line of `text-2`, the provid
 | Address rule: required | `Field` labeled `Base address`, `Type` url, placeholder `https://`, the kind's address hint under it |
 | Key rule: required | `Field` labeled `Key`, `Type` password |
 | Key rule: optional | The same field labeled `Key (optional)` |
+| A named provider with a blank (an account, a region, a host) | One field labeled with the provider's own label (for example `Account ID`) in place of the address, and no `Change address`. A value the provider's pattern refuses is answered with `{label} is not valid.` and nothing is sent. The built address is the connection's address |
 | Key rule: none | No key field |
 | Key hint | The hint under the key field. Plain text, never a link |
 
@@ -58,6 +59,7 @@ The provider choice is drawn from `GET /api/model-provider-kinds`, in the server
 | Choice | Drawn as |
 | --- | --- |
 | A named provider | The address field is hidden and the form holds the provider's address. A text button `Change address` shows the field filled in. The provider's name is the connection's name |
+| A named provider with a blank (an account, a region, a host) | One field labeled with the provider's own label (for example `Account ID`) in place of the address, and no `Change address`. A value the provider's pattern refuses is answered with `{label} is not valid.` and nothing is sent. The built address is the connection's address |
 | Key rule: none | No key field |
 | Key rule: optional | The field labeled `Key (optional)` |
 | A key page | One `Link` under the key field: `Get a key from {name}`, opened in the browser. The text and address are drawn as plain values from the server, never as markup |
