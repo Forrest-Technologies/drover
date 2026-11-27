@@ -60,6 +60,28 @@ public static class OpenRouterRig
     #endregion
 }
 
+public static class OpenAIPlanRig
+{
+    #region Public Methods
+
+    public const string ModelId = "gpt-test-reasoner";
+
+    /// <summary>A plan connection on the default settings, wired to a fixture under Fixtures/openai-plan.</summary>
+    public static Rig Start(string fixtureName) => Start(fixtureName, new SettableOptions<OpenAIPlanOptions>(new()));
+
+    public static Rig Start(string fixtureName, IOptionsMonitor<OpenAIPlanOptions> options)
+    {
+        var handler = new RecordedHandler(RecordedFixture.Load("openai-plan", fixtureName));
+        var provider = new OpenAIPlanProvider(new FixtureHttpClientFactory(handler), options);
+        var connection = new ModelEndpoint(OpenAIPlanProvider.ConnectionKind, options.CurrentValue.ApiAddress);
+        var subject = new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire) { Wire = PlanWire.Instance };
+
+        return new Rig(subject, handler);
+    }
+
+    #endregion
+}
+
 public static class OpenAIResponsesRig
 {
     #region Public Methods

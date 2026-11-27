@@ -12,15 +12,28 @@ public sealed record ModelSignInStarted(Guid AttemptId, string Address, string W
 /// <summary>Input only: the query string the person's device received from the provider's page. It holds a one-time code.</summary>
 public sealed record FinishModelSignInRequest(string? Query)
 {
+    #region Private Fields
+
+    /// <summary>The longest return the server takes, in characters: 8 KB, as a browser's request line is bounded.</summary>
+    public const int MostLength = 8192;
+
+    #endregion
+
+    #region Public Methods
+
     public override string ToString() => nameof(FinishModelSignInRequest);
+
+    #endregion
 }
 
 /// <summary>Where a sign-in stands (<see cref="ModelSignInStatuses"/>), and the connection once it is done.</summary>
 public sealed record ModelSignInProgress(string Status, ModelConnectionSummary? Connection);
 
 /// <summary>
-/// The caller's own sign-in to a connection each person signs in to: <c>none</c>, <c>active</c>, or
-/// <c>needs_sign_in</c>, and what the provider says the caller's account is called. Never anyone else's.
+/// The caller's own sign-in to a connection each person signs in to: <c>none</c>, <c>active</c>, <c>needs_sign_in</c>
+/// (the provider ended it), or <c>signed_out</c> (the person signed out, or signed in without allowing plan use, and
+/// only what the provider registered for them is kept), and what the provider says the caller's account is called.
+/// Never anyone else's.
 /// </summary>
 public sealed record ModelSignInSummary(string Status, string? AccountLabel);
 
@@ -46,6 +59,8 @@ public static class ModelSignInStatuses
     public const string Active = "active";
 
     public const string NeedsSignIn = "needs_sign_in";
+
+    public const string SignedOut = "signed_out";
 
     #endregion
 }

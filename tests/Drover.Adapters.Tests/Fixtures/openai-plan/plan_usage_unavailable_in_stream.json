@@ -1,0 +1,82 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: the plan's error codes and their statuses from https://developers.openai.com/siwc/llms-full.txt, \"Errors and recovery\" (\"Structured Responses errors\") and \"Models and inference\" (\"a usage-limit error can arrive as response.failed ... after streaming has begun\"), read 2026-11-27, in the Responses error object shape ({\"error\":{\"code\",\"message\",\"param\",\"type\"}}). The messages are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "sse": [
+        {
+          "type": "response.created",
+          "sequence_number": 0,
+          "response": {
+            "id": "resp_plan_failed",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "in_progress",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": null
+          }
+        },
+        {
+          "type": "response.output_item.added",
+          "sequence_number": 1,
+          "output_index": 0,
+          "item": {
+            "type": "message",
+            "id": "msg_plan_failed",
+            "status": "in_progress",
+            "role": "assistant",
+            "content": []
+          }
+        },
+        {
+          "type": "response.content_part.added",
+          "sequence_number": 2,
+          "item_id": "msg_plan_failed",
+          "output_index": 0,
+          "content_index": 0,
+          "part": {
+            "type": "output_text",
+            "text": "",
+            "annotations": []
+          }
+        },
+        {
+          "type": "response.output_text.delta",
+          "sequence_number": 3,
+          "item_id": "msg_plan_failed",
+          "output_index": 0,
+          "content_index": 0,
+          "delta": "Hello"
+        },
+        {
+          "type": "response.failed",
+          "sequence_number": 4,
+          "response": {
+            "id": "resp_plan_failed",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "failed",
+            "error": {
+              "code": "subscription_sharing_usage_unavailable",
+              "message": "Made-up message for a test."
+            },
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": null
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -27,6 +27,7 @@ public static class ModelResponses
         credential switch
         {
             null => new(ModelSignInStatuses.None, null),
+            { Status: ModelSignInStatus.NeedsSignIn, AccountLabel: null } => new(ModelSignInStatuses.SignedOut, null),
             { Status: ModelSignInStatus.NeedsSignIn } => new(ModelSignInStatuses.NeedsSignIn, credential.AccountLabel),
             _ => new(ModelSignInStatuses.Active, credential.AccountLabel),
         };
@@ -38,9 +39,10 @@ public static class ModelResponses
             preset.Address,
             preset.KeyRule.ToString().ToLowerInvariant(),
             preset.KeyPage,
-            preset.Local);
+            preset.Local,
+            preset.AddressBlank is { } blank ? new ModelProviderAddressBlankResponse(blank.Label, blank.Pattern) : null);
 
-    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor) =>
+    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor, bool signIn = false) =>
         new(
             descriptor.Kind,
             descriptor.DisplayName,
@@ -55,7 +57,9 @@ public static class ModelResponses
             descriptor.KeyHint,
             descriptor.ReportsCapabilities,
             [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())],
-            descriptor.SignIn);
+            signIn,
+            signIn ? descriptor.SignInName ?? descriptor.DisplayName : null,
+            signIn ? descriptor.UsagePage?.AbsoluteUri : null);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(

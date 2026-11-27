@@ -30,7 +30,7 @@ public sealed class OpenRouterProvider(IHttpClientFactory httpClients, IOptionsM
         AddressHint: null,
         KeyHint: null,
         ReportsCapabilities: false,
-        SignIn: true);
+        SignInName: "OpenRouter");
 
     #endregion
 
