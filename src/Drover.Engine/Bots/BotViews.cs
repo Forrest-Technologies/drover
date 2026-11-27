@@ -46,10 +46,11 @@ public static class BotViews
             bot.ParentBotId,
             bot.Depth,
             new BuildLimitsBody(bot.BuildLimits.MaxChildren, bot.BuildLimits.MaxDepthBelow),
-            new RunLimitsBody(bot.RunLimits.MaxSteps, bot.RunLimits.MaxTokens, bot.RunLimits.MaxDelegations, bot.RunLimits.UncappedUsageAcknowledged),
+            new RunLimitsBody(bot.RunLimits.MaxSteps, bot.RunLimits.MaxTokens, bot.RunLimits.MaxDelegations, bot.RunLimits.UncappedUsageAcknowledged, bot.RunLimits.MaxJudgedChecks),
             bot.CreatedByUserId,
             bot.CreatedByBotId,
-            bot.HandleChosen);
+            bot.HandleChosen,
+            bot.AcceptsBotRequests);
     }
 
     /// <summary>
@@ -73,9 +74,10 @@ public static class BotViews
             request.SandboxSettings is { } sandbox ? Read(sandbox) : bot.SandboxSettings,
             request.SandboxSharedWith ?? current.SandboxSharedWith,
             request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits,
-            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations, UncappedUsageAcknowledged = runs.UncappedUsageAcknowledged } : bot.RunLimits)
+            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations, UncappedUsageAcknowledged = runs.UncappedUsageAcknowledged, MaxJudgedChecks = runs.MaxJudgedChecks } : bot.RunLimits)
         {
             HandleFollowsName = request.HandleFollowsName,
+            AcceptsBotRequests = request.AcceptsBotRequests,
         };
     }
 
@@ -90,7 +92,7 @@ public static class BotViews
             view.Tool.SourceKind is ToolSourceKind.Builtin ? "builtin" : "connection",
             view.Connection?.Id,
             view.Connection?.Name,
-            Words.Of(view.Tool.Sensitivity),
+            Words.Of(view.Tool.SensitivityOn(view.Connection)),
             GrantService.Word(view.Own),
             GrantService.Word(view.Ceiling),
             view.CeilingBotName,

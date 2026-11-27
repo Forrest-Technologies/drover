@@ -22,6 +22,8 @@ public sealed record SignInTokenRequest(string Grant, string? Code, string? Veri
 /// A sign-in aimed at a provider that answers as asked. <see cref="Approval"/> and <see cref="Refusal"/> are what the
 /// person's device receives after approving or refusing on the provider's page for an attempt with the given state.
 /// <see cref="EndedAnswer"/> names which of the provider's "sign-in is over" answers the rig gives.
+/// <see cref="PastedApproval"/> is what the provider's page shows the person to paste after approving an attempt with
+/// the given state, for a kind that serves a device with no listener that way; null for a kind that does not.
 /// </summary>
 public sealed record SignInRig(
     IModelSignIn SignIn,
@@ -29,7 +31,8 @@ public sealed record SignInRig(
     Func<string, ModelSignInReturn> Approval,
     Func<string, ModelSignInReturn> Refusal,
     Func<IReadOnlyList<SignInTokenRequest>> Received,
-    string? EndedAnswer = null);
+    string? EndedAnswer = null,
+    Func<string, ModelSignInReturn>? PastedApproval = null);
 
 
 /// <summary>
@@ -39,8 +42,9 @@ public sealed record SignInRig(
 /// "sign-in is over" answers and only those end a sign-in, and no token is ever put in an exception's message.
 /// </summary>
 /// <remarks>
-/// This first suite covers the browser flow whose answer the person's device receives (<see cref="ModelSignInWait.Return"/>).
-/// The flows by pasted code and by polling add their cases with the waits that name them.
+/// It covers the browser flow whose answer the person's device receives (<see cref="ModelSignInWait.Return"/>) and,
+/// for a kind whose rig gives <see cref="SignInRig.PastedApproval"/>, the flow by pasted code
+/// (<see cref="ModelSignInWait.Paste"/>). The flow by polling adds its cases with the wait that names it.
 /// </remarks>
 public abstract class ModelSignInConformance
 {
@@ -48,6 +52,12 @@ public abstract class ModelSignInConformance
 
     /// <summary>Every answer the provider gives for "the sign-in is over". The suite asks for each in turn.</summary>
     protected abstract IReadOnlyList<string> EndedAnswers { get; }
+
+    /// <summary>
+    /// False for a provider whose sign-in is a key with no refresh token and no end. Its refresh then hands back the
+    /// current set and asks the provider nothing; the cases about rotation and ended answers do not apply to it.
+    /// </summary>
+    protected virtual bool RefreshesTokens => true;
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -156,6 +166,75 @@ public abstract class ModelSignInConformance
 
     #endregion
 
+    #region Pasting
+
+    [Fact]
+    public async Task A_device_that_cannot_listen_pastes_and_its_address_carries_a_pkce_challenge_and_its_own_state()
+    {
+        var rig = Rig(SignInServerAnswer.Renewed);
+
+        if (rig.PastedApproval is null)
+        {
+            return;
+        }
+
+        var attempt = Pasting(rig);
+
+        rig.SignIn.AcceptsRedirect(null).Should().BeTrue("a kind that takes a pasted code serves a device that cannot listen");
+        var step = await rig.SignIn.Begin(attempt, Token);
+
+        step.Address.Scheme.Should().Be("https");
+        step.Wait.Should().Be(ModelSignInWait.Paste);
+        var query = Query(step.Address);
+        query["code_challenge_method"].Should().Be("S256");
+        query["code_challenge"].Should().Be(Challenge(attempt.Verifier));
+        query["state"].Should().Be(attempt.State);
+    }
+
+    [Fact]
+    public async Task A_pasted_approval_is_exchanged_once_with_the_verifier_for_a_token_set()
+    {
+        var rig = Rig(SignInServerAnswer.Renewed);
+
+        if (rig.PastedApproval is not { } pasted)
+        {
+            return;
+        }
+
+        var attempt = Pasting(rig);
+        await rig.SignIn.Begin(attempt, Token);
+
+        var tokens = await rig.SignIn.Finish(attempt, pasted(attempt.State), Token);
+
+        tokens.Should().NotBeNull();
+        var exchange = rig.Received().Should().ContainSingle().Subject;
+        exchange.Grant.Should().Be("authorization_code");
+        exchange.Verifier.Should().Be(attempt.Verifier);
+    }
+
+    [Fact]
+    public async Task A_pasted_code_of_another_attempt_or_nothing_pasted_is_refused_and_nothing_is_exchanged()
+    {
+        var rig = Rig(SignInServerAnswer.Renewed);
+
+        if (rig.PastedApproval is not { } pasted)
+        {
+            return;
+        }
+
+        var attempt = Pasting(rig);
+        await rig.SignIn.Begin(attempt, Token);
+
+        var another = () => rig.SignIn.Finish(attempt, pasted(Random()), Token);
+        var nothing = () => rig.SignIn.Finish(attempt, new ModelSignInReturn("  "), Token);
+
+        await another.Should().ThrowAsync<ModelSignInRefusedException>();
+        await nothing.Should().ThrowAsync<ModelSignInRefusedException>();
+        rig.Received().Should().BeEmpty();
+    }
+
+    #endregion
+
     #region Refreshing
 
     [Fact]
@@ -163,6 +242,13 @@ public abstract class ModelSignInConformance
     {
         var rig = Rig(SignInServerAnswer.Renewed);
         var first = await SignedIn(rig);
+
+        if (!RefreshesTokens)
+        {
+            (await rig.SignIn.Refresh(first, Token)).Should().BeSameAs(first);
+            rig.Received().Should().ContainSingle(request => request.Grant == "authorization_code", "a refresh of a key asks the provider nothing");
+            return;
+        }
 
         var second = await rig.SignIn.Refresh(first, Token);
         var third = await rig.SignIn.Refresh(second, Token);
@@ -195,6 +281,12 @@ public abstract class ModelSignInConformance
     {
         var rig = Rig(answer);
         var tokens = await SignedIn(rig);
+
+        if (!RefreshesTokens)
+        {
+            (await rig.SignIn.Refresh(tokens, Token)).Should().BeSameAs(tokens, "a key has nothing to fail to renew");
+            return;
+        }
 
         var refreshing = () => rig.SignIn.Refresh(tokens, Token);
 
@@ -244,6 +336,8 @@ public abstract class ModelSignInConformance
     }
 
     private static ModelSignInAttempt Attempt(SignInRig rig) => new(Guid.CreateVersion7(), Random(), Random(), Random(), rig.RedirectUri);
+
+    private static ModelSignInAttempt Pasting(SignInRig rig) => Attempt(rig) with { RedirectUri = null };
 
     private static string Random() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 

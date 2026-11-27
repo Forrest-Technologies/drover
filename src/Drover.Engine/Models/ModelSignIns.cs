@@ -45,6 +45,7 @@ public sealed class ModelSignIns(
     RunScopes scopes,
     ModelCredentials credentials,
     ModelCredentialLocks locks,
+    IOptions<ToolSignInOptions> serverAddress,
     TimeProvider time,
     ILogger<ModelSignIns> logger)
 {
@@ -53,13 +54,32 @@ public sealed class ModelSignIns(
     /// <summary>How long a person has to approve and come back.</summary>
     public static readonly TimeSpan AttemptLifetime = TimeSpan.FromMinutes(10);
 
+    /// <summary>The longest a code the server polls for may live, whatever the provider says.</summary>
+    public static readonly TimeSpan MostCodeLifetime = TimeSpan.FromMinutes(15);
+
+    /// <summary>The wait between polls when the provider names none.</summary>
+    public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>What a slow-down adds to the wait between polls.</summary>
+    public static readonly TimeSpan SlowDownStep = TimeSpan.FromSeconds(5);
+
+    /// <summary>How many pasted codes one attempt takes before it ends.</summary>
+    public const int MostPastes = 5;
+
     private const string UnknownKind = "That kind of sign-in is not available on this server.";
+
+    private const string FinishesByItself = "This sign-in finishes by itself once you approve it. Nothing needs to be sent.";
+
+    private const string ProviderUnreachable = "The provider could not start the sign-in just now. Try again shortly.";
 
     private const string WrongReturn = "This device cannot receive the sign-in's return at that address.";
 
     private const string TooLong = "Sign-in took too long.";
 
     private const string Cancelled = "Sign-in was cancelled.";
+
+    /// <summary>Where the anonymous route that ends an attempt whose browser came back to this server is mounted.</summary>
+    public const string ServerReturnPath = "/api/model-sign-in/return";
 
     private readonly ConcurrentDictionary<Guid, Pending> attempts = new();
 
@@ -80,46 +100,51 @@ public sealed class ModelSignIns(
             return ModelSignInBegun.Refused(refusal, 403);
         }
 
-        if (!signIn.AcceptsRedirect(redirectUri))
+        // 128 random bits, not a time-ordered id: the route a browser returns to takes the id as its only secret.
+        var attemptId = new Guid(RandomNumberGenerator.GetBytes(16));
+        var viaServer = redirectUri is null && signIn.CanReturnToServer && ServerReturn(attemptId) is not null;
+
+        if (viaServer)
+        {
+            redirectUri = ServerReturn(attemptId);
+        }
+        else if (!signIn.AcceptsRedirect(redirectUri))
         {
             return ModelSignInBegun.Refused(WrongReturn, 400);
         }
 
         ForgetExpired();
-        // A random id, not a time-ordered one: a later return route takes the id as its only secret.
-        var attempt = new ModelSignInAttempt(Guid.NewGuid(), Random(), Random(), Random(), redirectUri);
+        var tenant = scopes.For(spaceId, userId);
+        var (policy, left) = await tenant.Transact(services => ReadBeginning(services, spaceId, userId, kind, cancellationToken), cancellationToken);
+
+        var attempt = new ModelSignInAttempt(attemptId, Random(), Random(), Random(), redirectUri) { Earlier = left };
 
         // One sign-in per person and kind in a space: starting another ends the first.
         foreach (var (id, earlier) in attempts)
         {
             if (earlier.SpaceId == spaceId && earlier.UserId == userId && earlier.Kind == kind)
             {
-                earlier.CancelPoll();
                 attempts.TryRemove(id, out _);
             }
         }
 
-        var policy = await scopes.For(spaceId, userId).Transact(
-            services => services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken),
-            cancellationToken);
-        ModelSignInStep step;
+        var started = await Ask(signIn, attempt, policy, cancellationToken);
 
-        using (OutboundAttempt.Begin(policy))
+        if (started.Step is not { } step)
         {
-            step = await signIn.Begin(attempt, cancellationToken);
+            return ModelSignInBegun.Refused(started.Problem ?? ProviderUnreachable, started.Status);
         }
 
-        var pending = new Pending(attempt, spaceId, userId, kind, time.GetUtcNow(), step.Wait)
+        var pending = new Pending(attempt with { Begun = step.Kept }, spaceId, userId, kind, step.Wait, time.GetUtcNow() + LifetimeOf(step), viaServer)
         {
-            Interval = step.Interval ?? TimeSpan.FromSeconds(5),
-            Deadline = time.GetUtcNow() + (step.Lifetime ?? AttemptLifetime),
+            Interval = IntervalOf(step),
         };
         attempts[attempt.Id] = pending;
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} started in space {SpaceId}", attempt.Id, kind, spaceId);
 
-        if (step.Wait is ModelSignInWait.Poll)
+        if (pending.Wait is ModelSignInWait.Poll)
         {
-            _ = Poll(pending, signIn, cancellationToken: CancellationToken.None);
+            StartPolling(pending, signIn);
         }
 
         return new ModelSignInBegun(attempt.Id, step.Address, step.Code, step.Wait, null, 200);
@@ -134,6 +159,12 @@ public sealed class ModelSignIns(
         if (Find(spaceId, userId, attemptId) is not { } pending)
         {
             return ModelSignInOutcome.NotFound;
+        }
+
+        // A code the server polls for is finished by the poll; nothing the device sends takes part in it.
+        if (pending.Wait is ModelSignInWait.Poll)
+        {
+            return Outcome(pending, FinishesByItself, 400);
         }
 
         if (StateOf(pending) is not ModelSignInState.Waiting || !pending.TryStartFinishing())
@@ -160,14 +191,41 @@ public sealed class ModelSignIns(
         }
     }
 
-    /// <summary>Where the caller's own sign-in stands. Anyone else's, or one in another space, does not exist for them.</summary>
-    public ModelSignInOutcome Read(Guid spaceId, Guid userId, Guid attemptId) =>
-        Find(spaceId, userId, attemptId) is { } pending ? Outcome(pending, null, 200) : ModelSignInOutcome.NotFound;
+    /// <summary>
+    /// Ends an attempt whose browser came back to this server's own address. The route that calls it has no signed-in
+    /// person: the attempt id, 128 random bits only the starting device holds, names the attempt, and the provider's
+    /// <c>state</c> is checked as on any return. It ends only an attempt that was started to return here, once.
+    /// An attempt that is not waiting any more, whether finished, refused or ran out, is not found, so an id works once.
+    /// </summary>
+    public async Task<ModelSignInOutcome> FinishFromReturn(Guid attemptId, string? arrived, Guid? callerUserId, CancellationToken cancellationToken)
+    {
+        if (!attempts.TryGetValue(attemptId, out var pending) || !pending.ViaServer || StateOf(pending) is not ModelSignInState.Waiting)
+        {
+            return ModelSignInOutcome.NotFound;
+        }
+
+        // A browser signed in to Drover as somebody else is not the person who started this: it was handed the address,
+        // so nothing is exchanged, and the attempt stays for the person it belongs to.
+        if (callerUserId is { } caller && caller != pending.UserId)
+        {
+            return new ModelSignInOutcome(ModelSignInState.Waiting, null, "This sign-in was started by someone else.", 403);
+        }
+
+        return await Finish(pending.SpaceId, pending.UserId, attemptId, arrived, cancellationToken);
+    }
 
     /// <summary>
-    /// Signs the caller out of a connection: tells the provider where it can be told, then deletes the token set and
-    /// the row. False when the caller has no sign-in to it. Where this server refuses the kind, nothing is sent and the
-    /// sign-in is still removed, so a person can always take their own tokens off the server.
+    /// Where the caller's own sign-in stands, with Drover's own sentence for why it ended without tokens when there is
+    /// one. Anyone else's, or one in another space, does not exist for them.
+    /// </summary>
+    public ModelSignInOutcome Read(Guid spaceId, Guid userId, Guid attemptId) =>
+        Find(spaceId, userId, attemptId) is { } pending ? Outcome(pending, pending.Problem, 200) : ModelSignInOutcome.NotFound;
+
+    /// <summary>
+    /// Signs the caller out of a connection: tells the provider where it can be told, then drops every token. What the
+    /// provider registered for the person stays, with no token, until they sign out again (<see cref="Retire"/>). False
+    /// when the caller has no sign-in to it. Where this server refuses the kind, nothing is sent and the tokens still go,
+    /// so a person can always take their own tokens off the server.
     /// </summary>
     public async Task<bool> SignOut(Guid spaceId, Guid userId, Guid connectionId, CancellationToken cancellationToken)
     {
@@ -190,12 +248,12 @@ public sealed class ModelSignIns(
             return false;
         }
 
-        if (found.SignIn is { } signIn && credentials.FindRefusal(signIn) is null && found.Tokens is { } tokens)
+        if (found.SignIn is { } signIn && credentials.FindRefusal(signIn) is null && found.Tokens is { AccessToken.Length: > 0 } tokens)
         {
             await Revoke(signIn, found.Policy!, tokens, connectionId, cancellationToken);
         }
 
-        await tenant.Transact(services => Forget(services, connectionId, userId, CancellationToken.None), CancellationToken.None);
+        await tenant.Transact(services => Retire(services, connectionId, userId, found.Tokens, CancellationToken.None), CancellationToken.None);
         logger.LogInformation("Signed out of model connection {ConnectionId}", connectionId);
         return true;
     }
@@ -218,13 +276,19 @@ public sealed class ModelSignIns(
 
         if (tokens is null)
         {
+            if (pending.Kept is { } kept)
+            {
+                await Keep(tenant, pending, signIn, policy, kept);
+            }
+
+            // A code the person has not approved yet: the poll asks again at the provider's interval.
             return pending.Wait is ModelSignInWait.Poll && StateOf(pending) is ModelSignInState.Waiting
                 ? Outcome(pending, null, 200)
-                : Outcome(pending, Cancelled, 400);
+                : Outcome(pending, pending.Problem ?? Cancelled, 400);
         }
 
         // The one-time code is spent: the tokens are kept whatever happens to the request now.
-        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, CancellationToken.None), CancellationToken.None);
+        var connectionId = await tenant.Transact(services => Store(services, pending, signIn, tokens, ModelSignInStatus.Active, CancellationToken.None), CancellationToken.None);
         pending.Done(connectionId);
         await ListModels(tenant, connectionId, cancellationToken);
         logger.LogInformation("Model sign-in {AttemptId} to {Kind} finished for connection {ConnectionId}", pending.Attempt.Id, pending.Kind, connectionId);
@@ -246,13 +310,107 @@ public sealed class ModelSignIns(
 
             return tokens;
         }
+        catch (ModelSignInSlowDownException slower) when (pending.Wait is ModelSignInWait.Poll)
+        {
+            logger.LogInformation("Model sign-in {AttemptId} to {Kind} was asked to poll less often", pending.Attempt.Id, pending.Kind);
+            pending.SlowDown(slower.Interval);
+            pending.StopFinishing();
+            return null;
+        }
+        catch (Exception failure) when (pending.Wait is ModelSignInWait.Poll && MayPass(failure))
+        {
+            // The code is still the provider's to answer for: the next poll asks again, until it runs out.
+            logger.LogInformation("Model sign-in {AttemptId} to {Kind} could not ask the provider now: {Failure}", pending.Attempt.Id, pending.Kind, failure.GetType().Name);
+            pending.StopFinishing();
+            return null;
+        }
+        catch (ModelSignInRefusedException refused) when (pending.Wait is ModelSignInWait.Paste && refused.Kept.Count == 0 && pending.TryAnotherPaste())
+        {
+            // A pasted code that did not work can be pasted again from the same page, a few times, while the attempt lasts.
+            logger.LogInformation("Model sign-in {AttemptId} to {Kind} was given a code that did not work", pending.Attempt.Id, pending.Kind);
+            pending.StopFinishing();
+            return null;
+        }
         catch (Exception failure) when (failure is ModelSignInRefusedException or ModelProviderException or HttpRequestException or IOException)
         {
             // Only the kind of failure: its text could hold what the provider sent.
             logger.LogInformation("Model sign-in {AttemptId} to {Kind} ended without tokens: {Failure}", pending.Attempt.Id, pending.Kind, failure.GetType().Name);
-            pending.End(ModelSignInState.Refused);
+            pending.End(ModelSignInState.Refused, failure is ModelSignInRefusedException refused ? refused.Message : null);
+            pending.Kept = failure is ModelSignInRefusedException { Kept.Count: > 0 } keeping ? keeping.Kept : null;
             return null;
         }
+    }
+
+    /// <summary>
+    /// The provider signed the person in but the sign-in is not used (it did not allow plan use): what it registered
+    /// for them is kept, with no token and no account label, so the next attempt asks with the same registration. It
+    /// is kept only on the space's connection of the kind when there is one; a sign-in that is not used never makes
+    /// one. A sign-in the person had before is over now: its tokens are revoked with the provider, as a courtesy that
+    /// logs only the kind of a failure, under the refresh lock, so no renewal can leave them behind.
+    /// </summary>
+    private async Task Keep(RunTenant tenant, Pending pending, IModelSignIn signIn, EffectivePolicy policy, IReadOnlyDictionary<string, string> kept)
+    {
+        var earlier = await tenant.Transact(services => FindOwnOfKind(services, pending, CancellationToken.None), CancellationToken.None);
+
+        if (earlier is null)
+        {
+            return;
+        }
+
+        await using var held = await locks.Hold(earlier.Value.CredentialId, CancellationToken.None);
+        var tokens = await tenant.Transact(
+            async services => await services.GetRequiredService<ModelConnectionCredentialRepository>().GetCredential(earlier.Value.CredentialId, CancellationToken.None) is { } credential
+                ? await credentials.RevealTokens(services.GetRequiredService<ISecretVault>(), credential, CancellationToken.None)
+                : null,
+            CancellationToken.None);
+
+        if (tokens is { AccessToken.Length: > 0 })
+        {
+            await Revoke(signIn, policy, tokens, earlier.Value.ConnectionId, CancellationToken.None);
+        }
+
+        await tenant.Transact(
+            async services =>
+            {
+                var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
+
+                if (await signIns.GetCredential(earlier.Value.CredentialId, CancellationToken.None) is { } credential)
+                {
+                    await services.GetRequiredService<ISecretVault>().Replace(credential.SecretId, ModelCredentials.Write(Retained(kept)), CancellationToken.None);
+                    credential.Status = ModelSignInStatus.NeedsSignIn;
+                    credential.AccountLabel = null;
+                    credential.ExpiresAt = null;
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>The person's own sign-in row of the attempt's kind in the space, or null when the space has no connection of it.</summary>
+    private static async Task<(Guid ConnectionId, Guid CredentialId)?> FindOwnOfKind(IServiceProvider services, Pending pending, CancellationToken cancellationToken)
+    {
+        if (await services.GetRequiredService<ModelConnectionRepository>().FindConnectionOfKind(pending.Kind, cancellationToken) is not { } connection)
+        {
+            return null;
+        }
+
+        var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
+
+        if (await signIns.GetCredential(connection.Id, pending.UserId, cancellationToken) is { } own)
+        {
+            return (connection.Id, own.Id);
+        }
+
+        // The space has the connection but the person has no row yet: one is made, holding only what is kept.
+        var secretId = await services.GetRequiredService<ISecretVault>().Store(SecretKind.OauthTokens, ModelCredentials.Write(Retained(pending.Kept ?? new Dictionary<string, string>())), pending.UserId, cancellationToken);
+        var credential = new ModelConnectionCredential
+        {
+            ModelConnectionId = connection.Id,
+            AudienceUserId = pending.UserId,
+            SecretId = secretId,
+            Status = ModelSignInStatus.NeedsSignIn,
+        };
+        signIns.Add(credential);
+        return (connection.Id, credential.Id);
     }
 
     /// <summary>
@@ -260,7 +418,13 @@ public sealed class ModelSignIns(
     /// if there is none. A person who signs in again gets a new secret and the old one is deleted, so a renewal still
     /// waiting on the provider can tell its tokens were replaced.
     /// </summary>
-    private async Task<Guid> Store(IServiceProvider services, Pending pending, IModelSignIn signIn, ModelTokens tokens, CancellationToken cancellationToken)
+    private async Task<Guid> Store(
+        IServiceProvider services,
+        Pending pending,
+        IModelSignIn signIn,
+        ModelTokens tokens,
+        ModelSignInStatus status,
+        CancellationToken cancellationToken)
     {
         var connections = services.GetRequiredService<ModelConnectionRepository>();
         var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
@@ -285,6 +449,7 @@ public sealed class ModelSignIns(
                 ModelConnectionId = connection.Id,
                 AudienceUserId = pending.UserId,
                 SecretId = secretId,
+                Status = status,
                 AccountLabel = tokens.AccountLabel,
                 ExpiresAt = tokens.ExpiresAt,
                 RenewedAt = time.GetUtcNow(),
@@ -294,8 +459,8 @@ public sealed class ModelSignIns(
 
         var previous = credential.SecretId;
         credential.SecretId = secretId;
-        credential.Status = ModelSignInStatus.Active;
-        credential.AccountLabel = tokens.AccountLabel;
+        credential.Status = status;
+        credential.AccountLabel = tokens.AccountLabel ?? credential.AccountLabel;
         credential.ExpiresAt = tokens.ExpiresAt;
         credential.RenewedAt = time.GetUtcNow();
         await vault.Delete(previous, cancellationToken);
@@ -316,6 +481,71 @@ public sealed class ModelSignIns(
         {
             logger.LogWarning("The models of connection {ConnectionId} could not be listed after a sign-in: {Failure}", connectionId, failure.GetType().Name);
         }
+    }
+
+    #endregion
+
+    #region Beginning
+
+    /// <summary>
+    /// Asks the provider where the person goes, with no transaction open. A refusal is Drover's own sentence; a provider
+    /// that cannot be reached is said plainly; neither carries what the provider sent.
+    /// </summary>
+    private async Task<Started> Ask(IModelSignIn signIn, ModelSignInAttempt attempt, EffectivePolicy policy, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var outbound = OutboundAttempt.Begin(policy);
+            return new Started(await signIn.Begin(attempt, cancellationToken), null, 200);
+        }
+        catch (ModelSignInRefusedException refused)
+        {
+            logger.LogInformation("Model sign-in {AttemptId} to {Kind} was refused at the start", attempt.Id, signIn.Kind);
+            return new Started(null, refused.Message, 400);
+        }
+        catch (Exception failure) when (MayPass(failure))
+        {
+            logger.LogWarning("Model sign-in {AttemptId} to {Kind} could not start: {Failure}", attempt.Id, signIn.Kind, failure.GetType().Name);
+            return new Started(null, ProviderUnreachable, 502);
+        }
+        catch (ModelProviderException failure)
+        {
+            logger.LogWarning("Model sign-in {AttemptId} to {Kind} was not started by the provider: {Failure}", attempt.Id, signIn.Kind, failure.Failure);
+            return new Started(null, failure.Message, 400);
+        }
+    }
+
+    /// <summary>How long the person has: the provider's code lifetime for a poll, at most <see cref="MostCodeLifetime"/>; otherwise <see cref="AttemptLifetime"/>.</summary>
+    private static TimeSpan LifetimeOf(ModelSignInStep step) =>
+        step.Wait is ModelSignInWait.Poll
+            ? step.Lifetime is { } said && said > TimeSpan.Zero && said < MostCodeLifetime ? said : MostCodeLifetime
+            : AttemptLifetime;
+
+    private static TimeSpan IntervalOf(ModelSignInStep step) =>
+        step.Interval is { } said && said > TimeSpan.Zero ? said : DefaultPollInterval;
+
+    private static bool MayPass(Exception failure) =>
+        failure is ModelProviderException { Failure: ModelFailure.Unreachable or ModelFailure.RetryLater } or HttpRequestException or IOException;
+
+    /// <summary>
+    /// The space's rule, and what the person's own earlier sign-in of the kind in the space left for the provider (a
+    /// client id it issued to them, for example), read as that person. Nobody else's is ever read. A sign-in that
+    /// cannot be read leaves nothing, and the provider is asked as for a first sign-in.
+    /// </summary>
+    private async Task<(EffectivePolicy Policy, IReadOnlyDictionary<string, string> Earlier)> ReadBeginning(
+        IServiceProvider services,
+        Guid spaceId,
+        Guid userId,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
+        var connection = await services.GetRequiredService<ModelConnectionRepository>().FindConnectionOfKind(kind, cancellationToken);
+        var credential = connection is null
+            ? null
+            : await services.GetRequiredService<ModelConnectionCredentialRepository>().GetCredential(connection.Id, userId, cancellationToken);
+        var tokens = credential is null ? null : await credentials.RevealTokens(services.GetRequiredService<ISecretVault>(), credential, cancellationToken);
+        return (policy, tokens?.Details ?? new Dictionary<string, string>(StringComparer.Ordinal));
     }
 
     #endregion
@@ -351,6 +581,33 @@ public sealed class ModelSignIns(
         }
     }
 
+    /// <summary>
+    /// Ends the caller's sign-in. Where the provider registered something for the person that it asks a later sign-in to
+    /// send again (<see cref="ModelTokens.Details"/>, such as a client id it issued), the row stays as needing a sign-in
+    /// and the secret keeps only that, with no token, so signing in again does not register anew. A sign-in that already
+    /// holds no token, or kept nothing, is removed with its secret: signing out twice takes everything off the server.
+    /// </summary>
+    private static async Task Retire(IServiceProvider services, Guid connectionId, Guid userId, ModelTokens? tokens, CancellationToken cancellationToken)
+    {
+        var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
+
+        if (tokens is not { AccessToken.Length: > 0, Details.Count: > 0 }
+            || await signIns.GetCredential(connectionId, userId, cancellationToken) is not { } credential)
+        {
+            await Forget(services, connectionId, userId, cancellationToken);
+            return;
+        }
+
+        await services.GetRequiredService<ISecretVault>().Replace(credential.SecretId, ModelCredentials.Write(Retained(tokens.Details)), cancellationToken);
+        credential.Status = ModelSignInStatus.NeedsSignIn;
+        credential.AccountLabel = null;
+        credential.ExpiresAt = null;
+    }
+
+    /// <summary>A token set that holds no token: only what the provider asks a later sign-in to send again.</summary>
+    private static ModelTokens Retained(IReadOnlyDictionary<string, string> details) =>
+        new() { AccessToken = string.Empty, Details = details };
+
     private static async Task Forget(IServiceProvider services, Guid connectionId, Guid userId, CancellationToken cancellationToken)
     {
         var signIns = services.GetRequiredService<ModelConnectionCredentialRepository>();
@@ -377,57 +634,7 @@ public sealed class ModelSignIns(
     private ModelSignInOutcome Outcome(Pending pending, string? problem, int status) =>
         new(StateOf(pending), pending.ConnectionId, problem, status);
 
-    /// <summary>
-    /// Asks the provider until the person approves, refuses, or the code runs out. No transaction is open while it
-    /// waits. The HTTP request that started the sign-in does not stay open for this.
-    /// </summary>
-    private async Task Poll(Pending pending, IModelSignIn signIn, CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(pending.Poll.Token, cancellationToken);
-
-            while (StateOf(pending) is ModelSignInState.Waiting)
-            {
-                await Task.Delay(pending.Interval, time, linked.Token);
-
-                if (StateOf(pending) is not ModelSignInState.Waiting || !pending.TryStartFinishing())
-                {
-                    return;
-                }
-
-                if (credentials.FindRefusal(signIn) is not null)
-                {
-                    pending.End(ModelSignInState.Refused);
-                    return;
-                }
-
-                var outcome = await Complete(pending.SpaceId, pending.UserId, pending, signIn, string.Empty, linked.Token);
-
-                if (outcome.State is not ModelSignInState.Waiting)
-                {
-                    return;
-                }
-
-                pending.Interval = signIn.PollWait(pending.Attempt);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogTrace("Model sign-in {AttemptId} poll ended", pending.Attempt.Id);
-        }
-        catch (Exception failure)
-        {
-            pending.End(ModelSignInState.Refused);
-            logger.LogWarning(
-                "Model sign-in {AttemptId} to {Kind} stopped polling: {Failure}",
-                pending.Attempt.Id,
-                pending.Kind,
-                failure.GetType().Name);
-        }
-    }
-
-    /// <summary>Forgets attempts older than their lifetime, so the ones a person never came back from do not pile up.</summary>
+    /// <summary>Forgets attempts past their lifetime, so the ones a person never came back from do not pile up.</summary>
     private void ForgetExpired()
     {
         var now = time.GetUtcNow();
@@ -436,13 +643,85 @@ public sealed class ModelSignIns(
         {
             if (now > pending.Deadline)
             {
-                pending.CancelPoll();
                 attempts.TryRemove(id, out _);
             }
         }
     }
 
+    /// <summary>True while the attempt is still the server's: not replaced by a later one of the same person and kind, nor forgotten.</summary>
+    private bool IsCurrent(Pending pending) =>
+        attempts.TryGetValue(pending.Attempt.Id, out var current) && ReferenceEquals(current, pending);
+
+    /// <summary>This server's own return address for an attempt, or null where it has no <c>https</c> public address.</summary>
+    private Uri? ServerReturn(Guid attemptId) =>
+        serverAddress.Value.PublicUrl is { IsAbsoluteUri: true, Scheme: "https", UserInfo: "" } publicUrl
+            ? new Uri(new Uri(publicUrl.GetLeftPart(UriPartial.Authority)), $"{ServerReturnPath}/{attemptId:D}")
+            : null;
+
     private static string Random() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+
+    #endregion
+
+    #region Polling
+
+    /// <summary>
+    /// Asks the provider in the background, apart from the request that started the attempt: that request answers at
+    /// once, and nothing of it (its tenant scope, its outbound rule) flows into the poll.
+    /// </summary>
+    private void StartPolling(Pending pending, IModelSignIn signIn)
+    {
+        using (ExecutionContext.SuppressFlow())
+        {
+            // The first wait starts now, on the server's clock, before the attempt is handed back.
+            var first = Task.Delay(pending.Interval, time, CancellationToken.None);
+            _ = Task.Run(() => Poll(pending, signIn, first), CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Asks the provider at its interval, never sooner, until the person approves, refuses, or the code runs out, or a
+    /// later attempt of the same person and kind takes this one's place. No transaction is open while it waits.
+    /// </summary>
+    private async Task Poll(Pending pending, IModelSignIn signIn, Task first)
+    {
+        try
+        {
+            for (var wait = first; ; wait = Task.Delay(pending.Interval, time, CancellationToken.None))
+            {
+                await wait;
+
+                if (!IsCurrent(pending))
+                {
+                    logger.LogDebug("Model sign-in {AttemptId} stopped polling: it was replaced or forgotten", pending.Attempt.Id);
+                    return;
+                }
+
+                if (StateOf(pending) is not ModelSignInState.Waiting || !pending.TryStartFinishing())
+                {
+                    return;
+                }
+
+                if (credentials.FindRefusal(signIn) is { } refusal)
+                {
+                    pending.End(ModelSignInState.Refused, refusal);
+                    return;
+                }
+
+                var outcome = await Complete(pending.SpaceId, pending.UserId, pending, signIn, string.Empty, CancellationToken.None);
+
+                if (outcome.State is not ModelSignInState.Waiting)
+                {
+                    return;
+                }
+            }
+        }
+        catch (Exception failure)
+        {
+            // Whatever went wrong, the code may be spent: the attempt is over.
+            pending.End(ModelSignInState.Refused);
+            logger.LogWarning("Model sign-in {AttemptId} to {Kind} stopped polling: {Failure}", pending.Attempt.Id, pending.Kind, failure.GetType().Name);
+        }
+    }
 
     #endregion
 
@@ -450,20 +729,22 @@ public sealed class ModelSignIns(
 
     private sealed record OwnSignIn(IModelSignIn? SignIn, ModelTokens? Tokens, EffectivePolicy Policy);
 
-    /// <summary>One sign-in waiting for the person. Its state changes once, from waiting, under its own lock.</summary>
-    private sealed class Pending(
-        ModelSignInAttempt attempt,
-        Guid spaceId,
-        Guid userId,
-        string kind,
-        DateTimeOffset startedAt,
-        ModelSignInWait wait)
+    /// <summary>What asking the provider to start came to: the step, or Drover's sentence and status for why not.</summary>
+    private sealed record Started(ModelSignInStep? Step, string? Problem, int Status);
+
+    /// <summary>
+    /// One sign-in waiting for the person. Its state changes once, from waiting, under its own lock. A poll's wait
+    /// between asks only grows.
+    /// </summary>
+    private sealed class Pending(ModelSignInAttempt attempt, Guid spaceId, Guid userId, string kind, ModelSignInWait wait, DateTimeOffset deadline, bool viaServer)
     {
         #region Private Fields
 
         private readonly Lock sync = new();
 
         private bool finishing;
+
+        private int pastes;
 
         #endregion
 
@@ -477,19 +758,26 @@ public sealed class ModelSignIns(
 
         public string Kind => kind;
 
-        public DateTimeOffset StartedAt => startedAt;
-
         public ModelSignInWait Wait => wait;
 
-        public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(5);
+        /// <summary>When the attempt runs out: the person's time to approve, or the provider's code lifetime.</summary>
+        public DateTimeOffset Deadline => deadline;
 
-        public DateTimeOffset Deadline { get; init; }
+        /// <summary>How long a poll waits before it asks the provider again.</summary>
+        public TimeSpan Interval { get; set; } = DefaultPollInterval;
 
-        public CancellationTokenSource Poll { get; } = new();
+        /// <summary>True when the browser was sent back to this server's own address, not to the person's device.</summary>
+        public bool ViaServer => viaServer;
 
         public ModelSignInState State { get; private set; } = ModelSignInState.Waiting;
 
         public Guid? ConnectionId { get; private set; }
+
+        /// <summary>Drover's own sentence for why the sign-in ended without tokens, or null for a plain cancel.</summary>
+        public string? Problem { get; private set; }
+
+        /// <summary>What the provider registered for the person in a sign-in that is not used, to keep with no token.</summary>
+        public IReadOnlyDictionary<string, string>? Kept { get; set; }
 
         #endregion
 
@@ -518,14 +806,34 @@ public sealed class ModelSignIns(
             }
         }
 
-        /// <summary>Ends a sign-in still waiting. One that is done stays done.</summary>
-        public void End(ModelSignInState state)
+        /// <summary>True while the attempt may take another pasted code after one that did not work.</summary>
+        public bool TryAnotherPaste()
+        {
+            lock (sync)
+            {
+                return ++pastes < MostPastes;
+            }
+        }
+
+        /// <summary>The provider asked to be asked less often: five seconds more, or its own new interval when that is longer.</summary>
+        public void SlowDown(TimeSpan? said)
+        {
+            lock (sync)
+            {
+                var longer = Interval + SlowDownStep;
+                Interval = said is { } named && named > longer ? named : longer;
+            }
+        }
+
+        /// <summary>Ends a sign-in still waiting, with Drover's own sentence for why when there is one. One that is done stays done.</summary>
+        public void End(ModelSignInState state, string? problem = null)
         {
             lock (sync)
             {
                 if (State is ModelSignInState.Waiting)
                 {
                     State = state;
+                    Problem = problem;
                 }
             }
         }
@@ -537,11 +845,7 @@ public sealed class ModelSignIns(
                 ConnectionId = connectionId;
                 State = ModelSignInState.Done;
             }
-
-            CancelPoll();
         }
-
-        public void CancelPoll() => Poll.Cancel();
 
         #endregion
     }

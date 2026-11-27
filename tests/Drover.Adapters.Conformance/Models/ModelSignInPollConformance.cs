@@ -1,12 +1,27 @@
 namespace Drover.Adapters.Conformance.Models;
 
 /// <summary>
-/// What every device-code <see cref="IModelSignIn"/> must do. An adapter inherits this class and builds a rig
-/// whose approval arms the provider's token answer. The suite holds the promises the poll flow rests on: Begin
-/// returns a code and a verification address, Finish is null while the person has not approved, an approval
-/// exchanges for a token set, a refresh repeats the Copilot token exchange with the same GitHub token, and the
-/// provider's "sign-in is over" answers end it with no token in the exception.
+/// A sign-in by code aimed at a provider that answers as asked. <see cref="Approve"/> and <see cref="Refuse"/> are the
+/// person approving or refusing on the provider's page; <see cref="Received"/> the requests that reached its token
+/// address; <see cref="EndedAnswer"/> which of its "sign-in is over" answers the rig gives.
 /// </summary>
+public sealed record SignInPollRig(
+    IModelSignIn SignIn,
+    Action Approve,
+    Action Refuse,
+    Func<IReadOnlyList<SignInTokenRequest>> Received,
+    string? EndedAnswer = null);
+
+
+/// <summary>
+/// What every sign-in by a code the server polls for (<see cref="ModelSignInWait.Poll"/>) must do, for a device that
+/// cannot listen. An adapter inherits this class and builds a rig for each answer. The suite holds the promises the
+/// poll rests on: the start names a code, an https page, an interval and a lifetime of at most fifteen minutes; a poll
+/// is null while the person has not approved; an approval is exchanged for a token set once; a refusal ends the
+/// attempt; and refreshing keeps the rules of the browser flow: a refresh token is never sent twice, the provider's
+/// "sign-in is over" answers and only those end it, and no token is put in an exception's message.
+/// </summary>
+/// <remarks>Built on the poll suite of the GitHub Copilot sign-in work (#1036), made generic for every kind.</remarks>
 public abstract class ModelSignInPollConformance
 {
     #region Properties
@@ -21,28 +36,26 @@ public abstract class ModelSignInPollConformance
     #region Starting
 
     [Fact]
-    public void The_sign_in_has_a_kind_and_a_name()
+    public void A_device_that_cannot_listen_is_accepted()
     {
         var rig = Rig(SignInServerAnswer.Renewed);
 
-        rig.SignIn.Kind.Should().NotBeNullOrWhiteSpace();
-        rig.SignIn.DisplayName.Should().NotBeNullOrWhiteSpace();
-        rig.SignIn.AcceptsRedirect(null).Should().BeTrue("a poll does not need a listener on the device");
+        rig.SignIn.AcceptsRedirect(null).Should().BeTrue("a poll needs no listener on the device");
     }
 
     [Fact]
-    public async Task Begin_returns_a_user_code_and_an_https_verification_address()
+    public async Task The_start_names_a_code_an_https_page_an_interval_and_a_lifetime()
     {
         var rig = Rig(SignInServerAnswer.Renewed);
-        var attempt = Attempt();
 
-        var step = await rig.SignIn.Begin(attempt, Token);
+        var step = await rig.SignIn.Begin(Attempt(), Token);
 
         step.Wait.Should().Be(ModelSignInWait.Poll);
         step.Code.Should().NotBeNullOrWhiteSpace();
-        step.Address.Scheme.Should().Be("https");
-        step.Interval.Should().NotBeNull();
+        step.Address.Scheme.Should().Be(Uri.UriSchemeHttps);
+        (step.Interval is null || step.Interval > TimeSpan.Zero).Should().BeTrue("an interval the provider names is a wait, and none is five seconds");
         step.Lifetime.Should().NotBeNull();
+        step.Lifetime!.Value.Should().BePositive().And.BeLessThanOrEqualTo(TimeSpan.FromMinutes(15));
     }
 
     #endregion
@@ -50,38 +63,40 @@ public abstract class ModelSignInPollConformance
     #region Finishing
 
     [Fact]
-    public async Task Finish_returns_nothing_while_the_person_has_not_approved()
+    public async Task A_poll_is_nothing_while_the_person_has_not_approved()
     {
         var rig = Rig(SignInServerAnswer.Renewed);
-        var attempt = Attempt();
-        await rig.SignIn.Begin(attempt, Token);
+        var attempt = await Begun(rig);
 
         var tokens = await rig.SignIn.Finish(attempt, new ModelSignInReturn(string.Empty), Token);
 
         tokens.Should().BeNull();
+        rig.Received().Should().BeEmpty("nothing is exchanged before the person approves");
     }
 
     [Fact]
-    public async Task An_approval_is_exchanged_for_a_token_set_with_a_refresh_token()
+    public async Task An_approval_is_exchanged_once_for_a_token_set()
     {
         var rig = Rig(SignInServerAnswer.Renewed);
+
         var tokens = await SignedIn(rig);
 
         tokens.AccessToken.Should().NotBeNullOrWhiteSpace();
         tokens.RefreshToken.Should().NotBeNullOrWhiteSpace();
-        tokens.AccessToken.Should().NotBe(tokens.RefreshToken);
+        rig.Received().Should().ContainSingle();
     }
 
     [Fact]
-    public async Task A_refused_consent_ends_the_attempt()
+    public async Task A_refusal_on_the_providers_page_ends_the_attempt_and_nothing_is_exchanged()
     {
         var rig = Rig(SignInServerAnswer.Renewed);
-        var attempt = Attempt();
-        await rig.SignIn.Begin(attempt, Token);
+        var attempt = await Begun(rig);
+        rig.Refuse();
 
-        var finishing = () => rig.SignIn.Finish(attempt, rig.Refusal(attempt.State), Token);
+        var finishing = () => rig.SignIn.Finish(attempt, new ModelSignInReturn(string.Empty), Token);
 
         await finishing.Should().ThrowAsync<ModelSignInRefusedException>();
+        rig.Received().Should().BeEmpty();
     }
 
     #endregion
@@ -89,7 +104,7 @@ public abstract class ModelSignInPollConformance
     #region Refreshing
 
     [Fact]
-    public async Task A_refresh_returns_a_new_access_token_and_keeps_the_github_token()
+    public async Task A_refresh_returns_a_new_token_set_and_never_sends_a_refresh_token_twice()
     {
         var rig = Rig(SignInServerAnswer.Renewed);
         var first = await SignedIn(rig);
@@ -99,8 +114,8 @@ public abstract class ModelSignInPollConformance
 
         second.AccessToken.Should().NotBe(first.AccessToken);
         third.AccessToken.Should().NotBe(second.AccessToken);
-        second.RefreshToken.Should().Be(first.RefreshToken);
-        third.RefreshToken.Should().Be(first.RefreshToken);
+        var sent = rig.Received().Select(request => request.RefreshToken).OfType<string>().ToList();
+        sent.Should().OnlyHaveUniqueItems();
     }
 
     [Fact]
@@ -158,28 +173,32 @@ public abstract class ModelSignInPollConformance
 
     #region Protected Methods
 
-    /// <summary>
-    /// A sign-in aimed at a provider that answers every refresh as asked. <see cref="SignInRig.Approval"/> arms the
-    /// next token poll so Finish returns a token set. <paramref name="endedAnswer"/> picks the words of an ended one.
-    /// </summary>
-    protected abstract SignInRig Rig(SignInServerAnswer answer, string? endedAnswer = null);
+    /// <summary>A sign-in by code aimed at a provider that answers every refresh as <paramref name="answer"/> says.</summary>
+    protected abstract SignInPollRig Rig(SignInServerAnswer answer, string? endedAnswer = null);
 
     #endregion
 
     #region Private Methods
 
-    private static async Task<ModelTokens> SignedIn(SignInRig rig)
+    /// <summary>An attempt begun as the server begins one: with what the adapter kept for its finish.</summary>
+    private static async Task<ModelSignInAttempt> Begun(SignInPollRig rig)
     {
         var attempt = Attempt();
-        await rig.SignIn.Begin(attempt, Token);
-        _ = rig.Approval(attempt.State);
+        var step = await rig.SignIn.Begin(attempt, Token);
+        return attempt with { Begun = step.Kept };
+    }
+
+    private static async Task<ModelTokens> SignedIn(SignInPollRig rig)
+    {
+        var attempt = await Begun(rig);
+        rig.Approve();
         return await rig.SignIn.Finish(attempt, new ModelSignInReturn(string.Empty), Token)
             ?? throw new InvalidOperationException("The approval gave no token set.");
     }
 
-    private static ModelSignInAttempt Attempt() => new(Guid.CreateVersion7(), Random(), Random(), Random(), null);
+    private static ModelSignInAttempt Attempt() => new(Guid.NewGuid(), Random(), Random(), Random(), null);
 
-    private static string Random() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    private static string Random() => System.Buffers.Text.Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 
     #endregion
 }

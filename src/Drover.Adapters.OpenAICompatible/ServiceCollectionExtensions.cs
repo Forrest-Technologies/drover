@@ -41,6 +41,44 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Registers OpenRouter's own sign-in and the provider that calls with the key it makes. The provider's client has
+    /// the same wide timeouts and retry rules as the other model clients. The sign-in's client has no retry: its one
+    /// request spends a one-time code. Both flows read <see cref="OpenRouterSignInOptions"/>, bound by the caller
+    /// to <see cref="OpenRouterSignInOptions.Section"/>, and follow a change of it without a restart.
+    /// </summary>
+    public static IServiceCollection AddOpenRouterSignIn(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenRouterProvider.HttpClientName);
+        services.AddHttpClient(OpenRouterSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        services.AddSingleton<OpenRouterProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenRouterProvider>());
+        services.AddSingleton<IModelSignIn, OpenRouterSignIn>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the ChatGPT plan: its provider, on the Responses API with the person's own token, and its sign-in.
+    /// The model calls have their own client and pipeline, under the same rules as OpenAI's except that a call the
+    /// plan limited is not sent again: the plan's limit is the person's, and the provider asks apps to pause, not to
+    /// repeat. The sign-in's client has no retries at all, because a code is spent once and a refresh token rotates.
+    /// The server binds <see cref="OpenAIPlanOptions"/> from <see cref="OpenAIPlanOptions.Section"/>.
+    /// </summary>
+    public static IServiceCollection AddOpenAIPlanProvider(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenAIPlanProvider.HttpClientName, retryRateLimits: false);
+        services.AddHttpClient(OpenAIPlanSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddOptions<OpenAIPlanOptions>();
+        services.AddSingleton<OpenAIPlanProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAIPlanProvider>());
+        services.AddSingleton<OpenAIPlanSignIn>();
+        services.AddSingleton<IModelSignIn>(provider => provider.GetRequiredService<OpenAIPlanSignIn>());
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers the server's own speech service and returns its client's builder, so the server can give it the
     /// handler that marks its requests as going to an address the operator configured. A first sound from a speech
     /// model on a small machine can take a while, so the wait for the answer to begin is wider than the default.
@@ -54,25 +92,21 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers Copilot as a sign-in provider. Chat and model listing share the compatible transport; GitHub's
-    /// device-code and token-exchange calls go through a second named client. Register the compatible transport
-    /// first. The operator's <c>Drover:Models:Copilot</c> section is bound in <c>AddDroverModels</c>.
+    /// Registers Copilot as a sign-in provider. Chat and model listing share the compatible transport with the
+    /// GitHub user token as bearer; GitHub's OAuth calls go through a second named client. Register the compatible
+    /// transport first. The operator's <c>Drover:Models:SignIn:copilot_signin</c> section is bound in
+    /// <c>AddDroverModels</c>.
     /// </summary>
     public static IServiceCollection AddCopilotPlanProvider(this IServiceCollection services)
     {
         services.AddOptions<CopilotPlanOptions>();
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddTransient<CopilotHeaderHandler>();
-
-        services.AddHttpClient(CopilotPlanProvider.HttpClientName)
-            .AddHttpMessageHandler<CopilotHeaderHandler>();
         services.AddModelHttpClient(CopilotPlanProvider.HttpClientName);
-        services.AddHttpClient(CopilotPlanProvider.AuthHttpClientName)
-            .AddHttpMessageHandler<CopilotHeaderHandler>();
-
+        services.AddHttpClient(CopilotPlanSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<CopilotPlanProvider>();
         services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<CopilotPlanProvider>());
-        services.AddSingleton<IModelSignIn, CopilotPlanSignIn>();
+        services.AddSingleton<CopilotPlanSignIn>();
+        services.AddSingleton<IModelSignIn>(provider => provider.GetRequiredService<CopilotPlanSignIn>());
         return services;
     }
 
@@ -80,7 +114,7 @@ public static class ServiceCollectionExtensions
 
     #region Private Methods
 
-    private static void AddModelHttpClient(this IServiceCollection services, string name) =>
+    private static void AddModelHttpClient(this IServiceCollection services, string name, bool retryRateLimits = true) =>
         services.AddHttpClient(name)
             .AddStandardResilienceHandler(options =>
             {
@@ -89,7 +123,7 @@ public static class ServiceCollectionExtensions
                 options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
 
                 options.Retry.ShouldHandle = arguments =>
-                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome));
+                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome, retryRateLimits));
                 options.CircuitBreaker.ShouldHandle = arguments =>
                     ValueTask.FromResult(RetryRules.CountsAgainstCircuit(arguments.Outcome));
             })

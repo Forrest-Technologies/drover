@@ -21,12 +21,15 @@ Drover.slnx
     Drover.Data                   EF Core context, mappings, migrations, tenant scope
     Drover.Engine                 run loop, tool gate, grants, hierarchy, delegation, scheduling
     Drover.Agents                 the agent runtime on Microsoft Agent Framework: stores, governance, teams
-    Drover.Adapters.OpenAICompatible IModelClientProvider for any compatible endpoint
+    Drover.Adapters.OpenAICompatible IModelClientProvider for any compatible endpoint, and OpenAI
+    Drover.Adapters.Anthropic        IModelClientProvider for Anthropic, over its official package
+    Drover.Adapters.Gemini           IModelClientProvider for Google Gemini, over HttpClient
     Drover.Adapters.Venice           IModelClientProvider and more for Venice
     Drover.Adapters.Mcp              IToolSource over the MCP C# SDK
     Drover.Adapters.E2B              ISandboxProvider over E2B's HTTP API
     Drover.Adapters.WebPush          IPushChannel for browsers and UnifiedPush
     Drover.Adapters.SearXng          IWebSearch over an operator's own SearXNG instance
+    Drover.Adapters.SystemOne        IDecisionModelProvider for the state-and-questions API, five kinds, plain HTTP
     Drover.Adapters.LocalFiles       IFileStore on a volume
     Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
     Drover.Client                 typed API client, SSE reader with reconnect, run state reducer and view model

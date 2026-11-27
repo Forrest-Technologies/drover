@@ -20,10 +20,12 @@ public sealed class RunLimitException(string reason, string message, string kind
 public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin, ToolConnection? Connection = null)
 {
     /// <summary>Drover knows this tool only reads: it is built in and marked so. A server's word for it is not enough.</summary>
+    public ToolSensitivity Sensitivity => Tool.SensitivityOn(Connection);
+
     public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
 
     /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
-    public bool IsDelegation => Builtin is not null && Builtin.Name == DelegateTool.Name;
+    public bool IsDelegation => Builtin?.Name is DelegateTool.Name or DelegateTool.MessageBotName;
 
     /// <summary>
     /// A call cut off by a restart is asked again: it only reads, it resolves to the same child run, or Drover knows
@@ -50,7 +52,8 @@ public sealed class RunSession(
     RunCeilings limits,
     int stepsSoFar,
     IReadOnlyList<Guid> alreadyDelivered,
-    RunSession? parent = null) : IAsyncDisposable
+    RunSession? parent = null,
+    int unmeteredCallsSoFar = 0) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -76,6 +79,12 @@ public sealed class RunSession(
 
     /// <summary>Model calls tools made for this execution, such as reading the screen. They count against the step limit.</summary>
     private int toolModelCalls;
+
+    /// <summary>
+    /// Model calls of the run, tools' calls included, whose usage was missing or zero. Seeded from the calls the
+    /// records already hold, so a wait for a person or a restart cannot start the count again.
+    /// </summary>
+    private int unmeteredModelCalls = unmeteredCallsSoFar;
 
     private StepChanged? openStep;
 
@@ -188,15 +197,17 @@ public sealed class RunSession(
     /// <summary>
     /// True when a rule asks a person before this tool is used, going by the rule's conditions about the tool alone.
     /// The framework can stop for approval only on tools marked for it when the agent is built, before any argument
-    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask.
+    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask. A rule
+    /// written as a sentence marks no tool yet: until it can pause a tool, a person it would ask is asked by refusing
+    /// the call and saying approval is needed.
     /// </summary>
     public bool RuleAsks(RunTool tool) =>
         RulesAtBuild.Any(rule =>
-            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask }
+            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask, Judged: null }
             && rule.Conditions.All(condition => condition.Kind switch
             {
                 RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
-                RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Tool.Sensitivity),
+                RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Sensitivity),
                 _ => true,
             }));
 
@@ -268,6 +279,17 @@ public sealed class RunSession(
                 limits.MaxTokens);
         }
 
+        var unmetered = Volatile.Read(ref unmeteredModelCalls);
+        if (unmetered >= limits.MaxUnmeteredModelCalls)
+        {
+            throw new RunLimitException(
+                RunReasons.UnmeteredCallLimit,
+                $"This work stopped after {unmetered} model calls that reported no token use. Set a model-call limit for the bot, or ask the operator to raise this one.",
+                FailureLimits.UnmeteredModelCalls,
+                unmetered,
+                limits.MaxUnmeteredModelCalls);
+        }
+
         var started = new StepChanged(++step, Guid.CreateVersion7(), estimatedInputTokens, shortened);
         openStep = started;
         lastStep = started;
@@ -292,8 +314,16 @@ public sealed class RunSession(
             throw new BuiltinToolException($"This run has made {limits.MaxSteps} model calls, the most one run may make, so no other model is called for it.");
         }
 
+        if (Volatile.Read(ref unmeteredModelCalls) >= limits.MaxUnmeteredModelCalls)
+        {
+            throw new BuiltinToolException($"This run has made {limits.MaxUnmeteredModelCalls} model calls that reported no token use, so no other model is called for it.");
+        }
+
         return Task.CompletedTask;
     }
+
+    /// <summary>Records a model call whose usage was missing or zero, including a call made by a tool.</summary>
+    public void RecordUnmeteredModelCall() => Interlocked.Increment(ref unmeteredModelCalls);
 
     /// <summary>
     /// The model call finished. Its message is stored a moment later, and announced when it is. The runtime stores
@@ -527,6 +557,45 @@ public sealed class RunSession(
         };
 
     public int CurrentStep => step;
+
+    /// <summary>Counts one rule check by a decision model. It is stored with the run's usage when the check is recorded.</summary>
+    public void CountJudgedCheck() => usage = usage with { JudgedChecks = usage.JudgedChecks + 1 };
+
+    /// <summary>
+    /// Records one model call against the run: the run's own, one a tool made for it, such as reading the screen, or
+    /// a rule check. The record names the model that answered, so a call by another model is told apart from the
+    /// bot's own. It is not a step.
+    /// </summary>
+    public async Task RecordModelUsage(ToolModelUsage reported)
+    {
+        var used = RunGovernor.NonNegative(reported);
+        var cost = RunGovernor.Cost(used);
+        AddUsage(used.InputTokens, used.OutputTokens, cost ?? 0);
+        var recorded = new UsageRecorded(CurrentStep, used.InputTokens, used.OutputTokens, 0, cost, used.Pricing.Currency);
+        await writer.Write(
+            async services =>
+            {
+                var runs = services.GetRequiredService<RunRepository>();
+                runs.Add(new UsageRecord
+                {
+                    RunId = RunId,
+                    RootRunId = RootRunId,
+                    BotId = BotId,
+                    ModelConnectionId = used.ModelConnectionId,
+                    Model = used.Model,
+                    InputTokens = used.InputTokens,
+                    OutputTokens = used.OutputTokens,
+                    Cost = cost,
+                    Currency = used.Pricing.Currency,
+                });
+
+                if (await runs.GetRunForUpdate(RunId, CancellationToken.None) is { } stored)
+                {
+                    stored.Usage = usage;
+                }
+            },
+            [RunEventWriter.Event(RunId, RunEventTypes.UsageRecorded, recorded)]);
+    }
 
     /// <summary>The tokens every model call of this run has read and written so far, earlier executions included.</summary>
     public long TokensUsed => usage.InputTokens + usage.OutputTokens;

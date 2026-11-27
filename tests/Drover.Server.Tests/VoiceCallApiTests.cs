@@ -6,14 +6,6 @@ namespace Drover.Server.Tests;
 /// </summary>
 public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(postgres)
 {
-    #region Private Fields
-
-    private static readonly TimeSpan patience = TimeSpan.FromSeconds(30);
-
-    private static readonly JsonSerializerOptions json = new(JsonSerializerDefaults.Web);
-
-    #endregion
-
     #region Overrides
 
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
@@ -31,6 +23,12 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice.Email, alice.Password);
         var seeded = await SeedBotWithSpeech(client, alice.SpaceId, alice.UserId);
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var bot = await services.GetRequiredService<DroverDbContext>().Bots.SingleAsync(bot => bot.Id == seeded.Bot.Id, Token);
+            bot.Name = "Weather Desk";
+            bot.DescriptionForBots = "Explains local weather.";
+        });
         await SeedMessages(
             alice.SpaceId,
             alice.UserId,
@@ -42,7 +40,7 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         var ready = await NextFrame(socket);
         var call = Speech.Calls.Single();
         await socket.SendAsync(new byte[] { 1, 2, 3, 4 }, WebSocketMessageType.Binary, true, Token);
-        var heard = await call.Heard.ReadAsync(Token).AsTask().WaitAsync(patience, Token);
+        var heard = await call.Heard.ReadAsync(Token).AsTask().WaitAsync(Patience, Token);
         call.Does(
             new RealtimePersonStartedSpeaking(),
             new RealtimePersonSaid("What is the weather?"),
@@ -56,7 +54,7 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         var saying = await NextFrame(socket);
         var botSaid = await NextFrame(socket);
         await Send(socket, new VoiceCallFrame(VoiceCallMessages.Interrupt) { HeardMs = 250 });
-        var interrupted = await call.Interrupts.ReadAsync(Token).AsTask().WaitAsync(patience, Token);
+        var interrupted = await call.Interrupts.ReadAsync(Token).AsTask().WaitAsync(Patience, Token);
         call.Does(new RealtimePersonSaid("Thanks, bye."));
         var trailing = await NextFrame(socket);
         await Send(socket, new VoiceCallFrame(VoiceCallMessages.Hangup));
@@ -66,7 +64,11 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
 
         ready.Should().Be(new VoiceCallFrame(VoiceCallMessages.Ready) { Model = "realtime-1", Voice = "alloy", MaxMinutes = 10 });
         (call.Address, call.Key).Should().Be((new Uri("https://speech.example.test/v1"), "sk-test-speech-key"));
-        call.Options.Instructions.Should().Be($"Answer briefly.\n\n{VoiceService.SpokenReplyInstruction}");
+        call.Options.Instructions.Should().StartWith("You are Weather Desk, the bot this person called.")
+            .And.Contain("Use Weather Desk when asked who you are.")
+            .And.Contain("Explains local weather.")
+            .And.Contain("Answer briefly.")
+            .And.EndWith(VoiceService.SpokenReplyInstruction);
         call.Options.History.Should().Equal(new RealtimeTurn(false, "Earlier question."), new RealtimeTurn(true, "Earlier answer."));
         call.Options.TranscriptionModel.Should().Be("whisper-1");
         heard.Should().Equal(1, 2, 3, 4);
@@ -88,6 +90,41 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         thread.ActiveRunId.Should().BeNull("a call starts no run");
         await WaitFor(() => call.HungUp);
         Logs.AllText().Should().NotContainAny("What is the weather?", "Sunny all day.", "sk-test-speech-key");
+    }
+
+    [Fact]
+    public async Task Withheld_messages_do_not_crowd_out_the_conversation_the_call_can_read()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var seeded = await SeedBotWithSpeech(client, alice.SpaceId, alice.UserId);
+        var withheld = Enumerable.Range(0, VoiceService.CallHistoryMessages).Select(_ => new Message
+        {
+            Role = MessageRole.User,
+            AuthorUserId = alice.UserId,
+            Withheld = true,
+            Parts = [new TextPart("Withheld text.")],
+            CreatedAt = Time.GetUtcNow(),
+        });
+        await SeedMessages(alice.SpaceId, alice.UserId, seeded.Thread.Id,
+            [
+                new Message
+                {
+                    Role = MessageRole.User,
+                    AuthorUserId = alice.UserId,
+                    Parts = [new TextPart("Remember my forecast.")],
+                    CreatedAt = Time.GetUtcNow(),
+                },
+                .. withheld,
+            ]);
+
+        using var socket = await Call(client, alice.SpaceId, seeded.Thread.Id);
+        await NextFrame(socket);
+        var options = Speech.Calls.Single().Options;
+        await Send(socket, new VoiceCallFrame(VoiceCallMessages.Hangup));
+        await FramesUntilEnded(socket);
+        options.History.Should().Equal(new RealtimeTurn(false, "Remember my forecast."));
+        options.Instructions.Should().StartWith("You are Helper, the bot this person called.").And.NotContain("Bot description");
     }
 
     [Fact]
@@ -162,17 +199,17 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
 
         await using var call = await api.OpenCall(alice.SpaceId, seeded.Thread.Id, Connect, Token);
         await using var events = call.Read(Token).GetAsyncEnumerator(Token);
-        async Task<VoiceCallEvent> Next() => await events.MoveNextAsync().AsTask().WaitAsync(patience, Token) ? events.Current : throw new EndOfStreamException();
+        async Task<VoiceCallEvent> Next() => await events.MoveNextAsync().AsTask().WaitAsync(Patience, Token) ? events.Current : throw new EndOfStreamException();
         var ready = await Next();
         var model = Speech.Calls.Single();
         await call.SendAudio(new byte[] { 5, 6 }, Token);
-        var heard = await model.Heard.ReadAsync(Token).AsTask().WaitAsync(patience, Token);
+        var heard = await model.Heard.ReadAsync(Token).AsTask().WaitAsync(Patience, Token);
         model.Does(new RealtimePersonSaid("Hello."), new RealtimeAudioOut(new byte[] { 7 }), new RealtimeBotSaid("Hi there."));
         var personSaid = await Next();
         var audio = await Next();
         var botSaid = await Next();
         await call.Interrupt(120, Token);
-        var interrupted = await model.Interrupts.ReadAsync(Token).AsTask().WaitAsync(patience, Token);
+        var interrupted = await model.Interrupts.ReadAsync(Token).AsTask().WaitAsync(Patience, Token);
         await call.HangUp(Token);
         var ended = await Next();
         await SeedActiveRun(alice.SpaceId, alice.UserId, seeded.Thread.Id, seeded.Bot.Id);
@@ -258,96 +295,6 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         paused.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await Sentence(paused)).Should().Be("This bot is paused or removed, so it cannot answer.");
     }
-
-    #endregion
-
-    #region Private Methods
-
-    private async Task<WebSocket> Call(ApiClient client, Guid spaceId, Guid threadId, string? origin = null)
-    {
-        var sockets = NewSocketClient();
-        sockets.ConfigureRequest = request =>
-        {
-            request.Headers.Cookie = client.CookieHeader;
-
-            if (origin is not null)
-            {
-                request.Headers.Origin = origin;
-            }
-        };
-        return await sockets.ConnectAsync(new Uri($"wss://localhost{Space(spaceId)}/threads/{threadId}/call"), Token);
-    }
-
-    private static Task Send(WebSocket socket, VoiceCallFrame frame) =>
-        socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(frame, json), WebSocketMessageType.Text, true, Token);
-
-    private static async Task<(WebSocketMessageType Type, byte[] Bytes)> Next(WebSocket socket)
-    {
-        var buffer = new byte[64 * 1024];
-        var received = await socket.ReceiveAsync(buffer, Token).WaitAsync(patience, Token);
-        return (received.MessageType, buffer[..received.Count]);
-    }
-
-    private static async Task<VoiceCallFrame> NextFrame(WebSocket socket)
-    {
-        var (type, bytes) = await Next(socket);
-        type.Should().Be(WebSocketMessageType.Text, "a text frame was expected");
-        return JsonSerializer.Deserialize<VoiceCallFrame>(bytes, json)!;
-    }
-
-    private static async Task<byte[]> NextAudio(WebSocket socket)
-    {
-        var (type, bytes) = await Next(socket);
-        type.Should().Be(WebSocketMessageType.Binary);
-        return bytes;
-    }
-
-    private static async Task<List<VoiceCallFrame>> FramesUntilEnded(WebSocket socket)
-    {
-        List<VoiceCallFrame> frames = [];
-
-        while (frames.Count == 0 || frames[^1].Type != VoiceCallMessages.Ended)
-        {
-            var (type, bytes) = await Next(socket);
-            type.Should().NotBe(WebSocketMessageType.Close, "the call says why it ended before it closes");
-
-            if (type is WebSocketMessageType.Text)
-            {
-                frames.Add(JsonSerializer.Deserialize<VoiceCallFrame>(bytes, json)!);
-            }
-        }
-
-        return frames;
-    }
-
-    private static async Task WaitFor(Func<bool> condition)
-    {
-        var waited = Stopwatch.StartNew();
-
-        while (!condition())
-        {
-            (waited.Elapsed < patience).Should().BeTrue("the condition should come true in time");
-            await Task.Delay(20, Token);
-        }
-    }
-
-    /// <summary>A run that is queued on the conversation, as a message sent from another device would leave one.</summary>
-    private Task SeedActiveRun(Guid spaceId, Guid userId, Guid threadId, Guid botId) =>
-        InSpace(spaceId, userId, services =>
-        {
-            var id = Guid.CreateVersion7();
-            services.GetRequiredService<DroverDbContext>().Runs.Add(new Run
-            {
-                Id = id,
-                RootRunId = id,
-                ThreadId = threadId,
-                BotId = botId,
-                PrincipalUserId = userId,
-                Status = RunStatus.Waiting,
-                WaitingSince = Time.GetUtcNow(),
-            });
-            return Task.CompletedTask;
-        });
 
     #endregion
 }

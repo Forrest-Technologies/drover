@@ -135,33 +135,28 @@ public sealed partial class DroverApi
         return await response.ReadValue<List<ModelCatalogResponse>>(cancellationToken);
     }
 
-    /// <summary>Says whether a model of a compatible connection reads pictures. False clears the mark.</summary>
-    public async Task<ModelCatalogResponse> SetModelVision(
+    /// <summary>
+    /// Says what one model of a connection can do and costs, over what the provider reported. A member left null is
+    /// cleared. A model the catalog does not have is added. Admins only.
+    /// </summary>
+    public Task<ModelCatalogResponse> SetModelSettings(
         Guid spaceId,
         Guid connectionId,
-        SetModelVisionRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await http.PutAsJsonAsync(
-            $"api/spaces/{spaceId}/model-connections/{connectionId}/models/vision",
-            request,
-            cancellationToken);
-        return await response.ReadValue<ModelCatalogResponse>(cancellationToken);
-    }
+        SetModelSettingsRequest request,
+        CancellationToken cancellationToken = default) =>
+        Send<ModelCatalogResponse>(HttpMethod.Put, $"{Space(spaceId)}/model-connections/{connectionId}/model-settings", request, cancellationToken);
 
-    public async Task<ModelRefreshResponse> RefreshModels(
-        Guid spaceId,
-        Guid connectionId,
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await http.PostAsync(
-            $"api/spaces/{spaceId}/model-connections/{connectionId}/models/refresh",
-            null,
+    /// <summary>Clears everything said about one model, so the provider's values are in effect again. Admins only.</summary>
+    public Task ClearModelSettings(Guid spaceId, Guid connectionId, string model, CancellationToken cancellationToken = default) =>
+        SendForNothing(
+            HttpMethod.Delete,
+            $"{Space(spaceId)}/model-connections/{connectionId}/model-settings?model={Uri.EscapeDataString(model)}",
             cancellationToken);
-        return await response.ReadValue<ModelRefreshResponse>(cancellationToken);
-    }
 
-    /// <summary>Starts the caller's own sign-in to a model provider. Tokens stay on the server.</summary>
+    /// <summary>
+    /// Starts the caller's own sign-in to a sign-in kind. The request names where this device receives
+    /// the browser's return. The answer is the page to open; no token ever comes to the device.
+    /// </summary>
     public async Task<ModelSignInStarted> StartModelSignIn(
         Guid spaceId,
         StartModelSignInRequest request,
@@ -171,7 +166,7 @@ public sealed partial class DroverApi
         return await response.ReadValue<ModelSignInStarted>(cancellationToken);
     }
 
-    /// <summary>Hands the query string the device received to finish a browser-return sign-in.</summary>
+    /// <summary>Hands the server the query string the browser brought back, and gets the connection once it is done.</summary>
     public async Task<ModelConnectionSummary> FinishModelSignIn(
         Guid spaceId,
         Guid attemptId,
@@ -185,24 +180,30 @@ public sealed partial class DroverApi
         return await response.ReadValue<ModelConnectionSummary>(cancellationToken);
     }
 
-    /// <summary>Where the caller's own sign-in stands.</summary>
-    public async Task<ModelSignInProgress> ReadModelSignIn(
-        Guid spaceId,
-        Guid attemptId,
-        CancellationToken cancellationToken = default)
+    /// <summary>Where the caller's own sign-in stands, read while the server finishes a sign-in by code.</summary>
+    public async Task<ModelSignInProgress> ReadModelSignIn(Guid spaceId, Guid attemptId, CancellationToken cancellationToken = default)
     {
         using var response = await http.GetAsync($"api/spaces/{spaceId}/model-connections/sign-in/{attemptId}", cancellationToken);
         return await response.ReadValue<ModelSignInProgress>(cancellationToken);
     }
 
-    /// <summary>Signs the caller out of a connection each person signs in to.</summary>
-    public async Task SignOutOfModelConnection(
+    /// <summary>Signs the caller out of their own sign-in to a connection.</summary>
+    public async Task SignOutOfModelConnection(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.DeleteAsync($"api/spaces/{spaceId}/model-connections/{connectionId}/sign-in", cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+    }
+
+    public async Task<ModelRefreshResponse> RefreshModels(
         Guid spaceId,
         Guid connectionId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await http.DeleteAsync($"api/spaces/{spaceId}/model-connections/{connectionId}/sign-in", cancellationToken);
-        await response.ThrowIfRefused(cancellationToken);
+        using var response = await http.PostAsync(
+            $"api/spaces/{spaceId}/model-connections/{connectionId}/models/refresh",
+            null,
+            cancellationToken);
+        return await response.ReadValue<ModelRefreshResponse>(cancellationToken);
     }
 
     #endregion

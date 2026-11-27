@@ -19,12 +19,27 @@ public sealed class MessageRepository(DroverDbContext db)
             .OrderBy(message => message.Position)
             .ToListAsync(cancellationToken);
 
-    /// <summary>The last <paramref name="count"/> messages of the conversation that is shown, oldest first.</summary>
-    public async Task<IReadOnlyList<Message>> ListLatestMessages(Guid threadId, int count, CancellationToken cancellationToken)
+    /// <summary>
+    /// The last <paramref name="count"/> messages of the conversation that is shown, oldest first.
+    /// When requested, only include user and assistant messages that a model may read.
+    /// </summary>
+    public async Task<IReadOnlyList<Message>> ListLatestMessages(
+        Guid threadId,
+        int count,
+        CancellationToken cancellationToken,
+        bool conversationOnly = false)
     {
-        var latest = await db.Messages
+        var messages = db.Messages
             .AsNoTracking()
-            .Where(message => message.ThreadId == threadId && message.Position != null && message.ShelvedAt == null)
+            .Where(message => message.ThreadId == threadId && message.Position != null && message.ShelvedAt == null);
+
+        if (conversationOnly)
+        {
+            messages = messages.Where(message =>
+                !message.Withheld && (message.Role == MessageRole.User || message.Role == MessageRole.Assistant));
+        }
+
+        var latest = await messages
             .OrderByDescending(message => message.Position)
             .Take(count)
             .ToListAsync(cancellationToken);

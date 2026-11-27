@@ -5,15 +5,14 @@ public sealed partial class ConnectModelViewModel(
     DroverApi api,
     SessionState session,
     Navigator navigator,
-    ILogger<ConnectModelViewModel> logger) : ObservableObject, IDisposable
+    IModelSignInListener listener,
+    ILogger<ConnectModelViewModel> logger) : ObservableObject
 {
     #region Private Fields
 
-    public const string CompatibleKind = NamedProviders.CompatibleKind;
-
     private NamedProviders? named;
 
-    private CancellationTokenSource? poll;
+    private ModelSignInFlow? signIn;
 
     [ObservableProperty]
     private string baseUrl = string.Empty;
@@ -36,33 +35,36 @@ public sealed partial class ConnectModelViewModel(
     private string? problem;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Outcome))]
+    private string? savedAs;
+
+    [ObservableProperty]
+    private string? addressProblem;
+
+    [ObservableProperty]
+    private string? keyProblem;
+
+    [ObservableProperty]
     private bool busy;
-
-    [ObservableProperty]
-    private string? userCode;
-
-    [ObservableProperty]
-    private string? verificationAddress;
-
-    [ObservableProperty]
-    private bool waitingForApproval;
 
     #endregion
 
     #region Properties
 
-    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    /// <summary>The provider choice and what the form shows for it, drawn from the kinds the server offers.</summary>
     public NamedProviders Named => named ??= MakeNamed();
 
     public string Kind => Named.Kind;
 
-    public bool Passed => Problem is null && Result is { Succeeded: true };
+    /// <summary>The sign-in shown in place of the key form when the choice is a kind each person signs in to.</summary>
+    public ModelSignInFlow SignIn => signIn ??= MakeSignIn();
 
-    public string? Outcome => Problem ?? Result?.Message;
+    /// <summary>True when the choice is a sign-in kind: the form is one button, not a key.</summary>
+    public bool ShowsSignIn => Named.SignIn is not null;
 
-    public bool IsSignIn => Named.IsSignIn;
+    public bool Passed => ShowsSignIn ? SignIn.Stage is ModelSignInStage.Done : Problem is null && Result is { Succeeded: true };
 
-    public string SignInName => Named.SignInName;
+    public string? Outcome => Problem ?? (SavedAs is null ? Result?.Message : $"{SavedAs} {Result?.Message}".TrimEnd());
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -74,20 +76,49 @@ public sealed partial class ConnectModelViewModel(
     {
         await session.Load();
         await Named.Load();
+
+        // The server's first choice can itself be a sign-in kind.
+        if (Named.SignIn is { } kind)
+        {
+            SignIn.Show(kind);
+        }
     }
 
     public void ChooseProvider(string chosen)
     {
-        StopWaiting();
         if (Named.Choose(chosen) is { } address)
         {
             BaseUrl = address;
         }
 
+        ApiKey = string.Empty;
         Result = null;
         Problem = null;
-        UserCode = null;
-        VerificationAddress = null;
+        AddressProblem = null;
+        KeyProblem = null;
+
+        if (Named.SignIn is { } kind)
+        {
+            SignIn.Show(kind);
+        }
+    }
+
+    /// <summary>The sign-in state's one action: start or start again, cancel, or move to a provider that takes a key.</summary>
+    public async Task ActOnSignIn(Func<string, Task> open)
+    {
+        switch (SignIn.Action)
+        {
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain or ModelSignInAction.GetNewCode:
+                await SignIn.Start(SpaceId, open);
+                Connection = SignIn.Connection ?? Connection;
+                break;
+            case ModelSignInAction.Cancel:
+                SignIn.Cancel();
+                break;
+            case ModelSignInAction.AddKey:
+                ChooseProvider(Named.KeyChoice);
+                break;
+        }
     }
 
     [RelayCommand]
@@ -97,22 +128,18 @@ public sealed partial class ConnectModelViewModel(
     public Task RetryProviders() => Named.Load();
 
     [RelayCommand]
-    public Task Test() => IsSignIn ? StartSignIn() : TestKey();
-
-    [RelayCommand]
-    public void Continue() => navigator.NavigateTo(Addresses.SetupBot);
-
-    public void Dispose() => StopWaiting();
-
-    #endregion
-
-    #region Private Methods
-
-    private async Task TestKey()
+    public async Task Test()
     {
-        Busy = true;
         Problem = null;
         Result = null;
+        SavedAs = null;
+
+        if (!FormIsFilled())
+        {
+            return;
+        }
+
+        Busy = true;
         try
         {
             Connection = await SaveConnection();
@@ -129,87 +156,13 @@ public sealed partial class ConnectModelViewModel(
         }
     }
 
-    private async Task StartSignIn()
-    {
-        StopWaiting();
-        Busy = true;
-        Problem = null;
-        Result = null;
-        UserCode = null;
-        VerificationAddress = null;
-        try
-        {
-            var started = await api.StartModelSignIn(SpaceId, new(Kind, null));
-            UserCode = started.UserCode;
-            VerificationAddress = started.Address;
-            WaitingForApproval = true;
-            Busy = false;
-            await WaitForApproval(started.AttemptId);
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ConnectModelViewModel));
-            Problem = Failures.Sentence(exception, "Check that the server is running.");
-            WaitingForApproval = false;
-        }
-        finally
-        {
-            Busy = false;
-        }
-    }
-
-    private async Task WaitForApproval(Guid attemptId)
-    {
-        poll = new CancellationTokenSource();
-        var token = poll.Token;
-
-        try
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), token);
-                var progress = await api.ReadModelSignIn(SpaceId, attemptId, token);
-
-                if (progress.Status == ModelSignInStatuses.Done && progress.Connection is { } made)
-                {
-                    Connection = made;
-                    Result = new ConnectionTestResponse(true, "Signed in. Usage bills the signed-in plan.", null, made);
-                    WaitingForApproval = false;
-                    return;
-                }
-
-                if (progress.Status is ModelSignInStatuses.Refused or ModelSignInStatuses.Expired)
-                {
-                    Problem = progress.Status == ModelSignInStatuses.Expired
-                        ? "Sign-in took too long. Start it again."
-                        : "Sign-in was cancelled.";
-                    WaitingForApproval = false;
-                    return;
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogTrace("The sign-in wait on the {Screen} screen ended", nameof(ConnectModelViewModel));
-            WaitingForApproval = false;
-        }
-    }
-
-    private void StopWaiting()
-    {
-        poll?.Cancel();
-        poll?.Dispose();
-        poll = null;
-        WaitingForApproval = false;
-    }
-
     // The first test saves the Connection. A later one keeps it and only replaces a changed key,
     // unless the provider or the address changed, which makes it a different Connection: then the
     // space is asked first, because a visit to this step may have made one for it already, and a
     // second row for the same provider and address would sit on the Models screen as another one.
     private async Task<ModelConnectionSummary> SaveConnection()
     {
-        var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+        var address = Named.TakesAddress ? Named.BlankAddress ?? BaseUrl.Trim() : null;
         var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
 
         if (Connection is null || Connection.Kind != Kind || !string.Equals(Connection.BaseUrl, address, StringComparison.Ordinal))
@@ -226,6 +179,15 @@ public sealed partial class ConnectModelViewModel(
             {
                 var made = await api.CreateModelConnection(SpaceId, new(Kind, Named.NameFor(address), address, key, null));
                 SentKey = key;
+
+                // The server may turn what was pasted into the address it calls. The field shows that address, so the
+                // next test finds this connection again instead of making a second one.
+                if (made.BaseUrl is { } stored && !string.Equals(stored, address, StringComparison.Ordinal))
+                {
+                    BaseUrl = stored;
+                    SavedAs = $"Saved as {stored}.";
+                }
+
                 return made;
             }
         }
@@ -245,6 +207,63 @@ public sealed partial class ConnectModelViewModel(
         var made = new NamedProviders(api, logger);
         made.Changed += () => OnPropertyChanged(string.Empty);
         return made;
+    }
+
+    private ModelSignInFlow MakeSignIn()
+    {
+        var made = new ModelSignInFlow(api, listener, logger);
+        made.PropertyChanged += (_, _) => OnPropertyChanged(string.Empty);
+        return made;
+    }
+
+    // Continue with no passing test is allowed: the connection is saved as it is, not tested, and the step moves on.
+    [RelayCommand]
+    public async Task Continue()
+    {
+        // A sign-in kind has nothing to save untested: the person signs in, or chooses a provider that takes a key.
+        if (ShowsSignIn && !Passed)
+        {
+            return;
+        }
+
+        if (!Passed && !await SaveUntested())
+        {
+            return;
+        }
+
+        navigator.NavigateTo(Addresses.SetupBot);
+    }
+
+    private async Task<bool> SaveUntested()
+    {
+        Problem = null;
+        if (!FormIsFilled())
+        {
+            return false;
+        }
+
+        Busy = true;
+        try
+        {
+            Connection = await SaveConnection();
+            return true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ConnectModelViewModel));
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
+            return false;
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private bool FormIsFilled()
+    {
+        (AddressProblem, KeyProblem) = Named.Missing(BaseUrl, ApiKey);
+        return AddressProblem is null && KeyProblem is null && Kind.Length > 0;
     }
 
     #endregion

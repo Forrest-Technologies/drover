@@ -17,7 +17,8 @@ public sealed class VendorContainmentAnalyzer : DiagnosticAnalyzer
     private static readonly (string Namespace, string[] Allowed)[] vendors =
     [
         ("Microsoft.Agents.AI", ["Drover.Agents", ServerAssembly]),
-        ("Microsoft.Extensions.AI", ["Drover.Agents", "Drover.Adapters.OpenAICompatible", "Drover.Adapters.Venice", ServerAssembly]),
+        ("Microsoft.Extensions.AI", ["Drover.Agents", "Drover.Adapters.Anthropic", "Drover.Adapters.OpenAICompatible", "Drover.Adapters.Venice", ServerAssembly]),
+        ("Anthropic", ["Drover.Adapters.Anthropic"]),
         ("ModelContextProtocol", ["Drover.Adapters.Mcp", ServerAssembly]),
         ("Lib.Net.Http.WebPush", ["Drover.Adapters.WebPush"]),
     ];

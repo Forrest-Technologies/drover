@@ -91,6 +91,24 @@ const providerKinds = [
         signIn: false,
     },
 ];
+// A server with three kinds and nothing named, so the choice is a segmented control. The third kind is a sample: a
+// required address and an optional key, a kind the client has never heard of.
+const fewProviderKinds = [
+    providerKinds[0],
+    { ...providerKinds[1], namedProviders: [] },
+    { kind: 'sample-third', displayName: 'Sample third', keyRule: 'optional', addressRule: 'required', addressHint: 'Sample address hint.', keyHint: 'Sample key hint.', reportsCapabilities: false, namedProviders: [] },
+];
+// Four choices (Venice, two named providers, another compatible server) are segments; this adds a fifth, so it is a list.
+const manyProviderKinds = [
+    providerKinds[0],
+    {
+        ...providerKinds[1],
+        namedProviders: [
+            ...providerKinds[1].namedProviders,
+            { id: 'sample-optional', displayName: 'Sample optional key', address: 'http://localhost:10/v1', keyRule: 'optional', keyPage: null, local: true },
+        ],
+    },
+];
 const bot = { id: botId, name: 'Sample bot', handle: 'sample-bot', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
 const botDetail = {
     ...bot, avatar: {}, descriptionForBots: 'Sample purpose', modelSettings: { webSearch: 'off' },
@@ -249,9 +267,13 @@ const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
     ['connect-model', '/setup/model', 'Connect a model'],
+    ['connect-model-few-kinds', '/setup/model', 'Connect a model'],
+    ['connect-model-many-kinds', '/setup/model', 'Connect a model'],
+    ['connect-model-kinds-failed', '/setup/model', 'Connect a model'],
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-limits', `/bots/${botId}?section=limits`, 'Sample bot'],
     ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
@@ -376,6 +398,11 @@ try {
                         || message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`)
                     && message.text().includes('503 (Service Unavailable)')) {
                     return;
+                } else if (current === 'connect-model-kinds-failed'
+                    && message.location().url === `${origin}/api/model-provider-kinds`
+                    && message.text().includes('503 (Service Unavailable)')) {
+                    // The read of the kinds fails on purpose, so the failed state can be checked.
+                    return;
                 } else if (current === 'project-missing'
                     && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
                     && message.text().includes('404 (Not Found)')) {
@@ -392,6 +419,7 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
+            let acceptsBotRequests;
             // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
             const uploadedFiles = [];
             let projectMoved = false;
@@ -460,7 +488,11 @@ try {
                     };
                 }
                 else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
-                else if (address === '/api/model-provider-kinds') { body = providerKinds; }
+                else if (address === '/api/model-provider-kinds' && current === 'connect-model-kinds-failed') {
+                    await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                    return;
+                }
+                else if (address === '/api/model-provider-kinds') { body = current === 'connect-model-few-kinds' ? fewProviderKinds : current === 'connect-model-many-kinds' ? manyProviderKinds : providerKinds; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
@@ -470,7 +502,12 @@ try {
                 }
                 else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : current === 'conversation-unusable-tool-request' ? [bot, helperBot] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
-                else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
+                else if (address.endsWith(`/bots/${botId}/definition`)) {
+                    if (method === 'PUT') {
+                        acceptsBotRequests = route.request().postDataJSON().acceptsBotRequests;
+                    }
+                    body = { ...botDetail, acceptsBotRequests };
+                }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
                 else if (address.endsWith(`/bots/${helperBotId}`)) { body = helperBot; }
                 else if (address.endsWith(`/bots/${helperBotId}/definition`)) { body = { ...botDetail, id: helperBotId, name: 'Sample helper', handle: 'sample-helper' }; }
@@ -480,7 +517,11 @@ try {
                 else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
-                else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
+                else if (address.endsWith('/limits/options')) {
+                    body = current === 'bot-editor-limits'
+                        ? { maxSteps: null, maxTokens: 5000000, maxDelegations: 2147483647, canRemoveUsageLimit: true }
+                        : { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 };
+                }
                 else if (address.endsWith(`/bots/${botId}/threads`)) { body = [thread]; }
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
@@ -714,7 +755,7 @@ try {
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
-                const editorLoaded = name === 'bot-editor'
+                const editorLoaded = name === 'bot-editor' || name === 'bot-editor-limits'
                     ? page.waitForResponse(response => response.ok()
                         && response.request().method() === 'GET'
                         && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
@@ -738,13 +779,21 @@ try {
                     await editorLoaded;
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
                 }
+                if (name === 'bot-editor-limits') {
+                    await editorLoaded;
+                    await page.getByLabel('Accept requests from other bots', { exact: true }).waitFor({ state: 'visible' });
+                }
                 if (name === 'bot-editor-tools') {
                     await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
                     await page.getByRole('group', { name: 'Every tool in Built in for Sample bot', exact: true }).waitFor({ state: 'attached' });
                     await page.getByRole('button', { name: 'Sample tools, 1 of 2 on', exact: true }).dispatchEvent('click');
                     const serverTools = page.getByRole('group', { name: 'Every tool in Sample tools for Sample bot', exact: true });
                     await serverTools.waitFor({ state: 'attached' });
-                    await page.getByText('No tool here is known only to read.', { exact: false }).waitFor({ state: 'attached' });
+                    await page.getByText('No tools in this group are marked read-only.', { exact: true }).waitFor({ state: 'attached' });
+                    await serverTools.locator('input[aria-label="Read only"][aria-disabled="true"]')
+                        .waitFor({ state: 'attached', timeout: 5000 });
+                    assert(await serverTools.getByRole('radio', { name: 'Ask', exact: true }).isEnabled());
+                    assert(await serverTools.getByRole('radio', { name: 'Allow', exact: true }).isEnabled());
                     await serverTools.scrollIntoViewIfNeeded();
                 }
                 if (name === 'sandbox-terminal') {
@@ -1024,6 +1073,9 @@ try {
                 }
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
+                }
+                if (name === 'bot-editor-limits') {
+                    await checkBotRequests(page, width, theme);
                 }
                 if (name === 'bot-new') {
                     await checkLeavingNewBot(page, titleBefore, () => botCreates);
@@ -1549,6 +1601,33 @@ async function checkStopBounds(page, width) {
     } finally {
         await close();
     }
+}
+
+async function checkBotRequests(page, width, theme) {
+    const accepts = page.getByLabel('Accept requests from other bots', { exact: true });
+    await accepts.press('Space');
+    const save = page.getByRole('button', { name: 'Save changes', exact: true });
+    await page.waitForFunction(() => {
+        const button = document.querySelector('[aria-label="Save changes"]');
+        return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+    });
+    const [reply] = await Promise.all([
+        page.waitForResponse(response => response.request().method() === 'PUT'
+            && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`),
+        save.dispatchEvent('click'),
+    ]);
+    assert(reply.ok());
+    assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
+        'Incoming bot requests default on and the editor can opt out');
+    await save.waitFor({ state: 'hidden' });
+    await page.reload();
+    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+    await accepts.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+        const box = document.querySelector('[aria-label="Accept requests from other bots"]')?.getBoundingClientRect();
+        return box && box.top > 0 && box.bottom < window.innerHeight - 60;
+    });
+    await page.screenshot({ path: path.join(pictures, `bot-editor-limits-off-${width}-${theme}.png`) });
 }
 
 async function checkLeavingWithEdits(page, address) {

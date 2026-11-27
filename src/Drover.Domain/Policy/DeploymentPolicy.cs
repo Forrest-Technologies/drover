@@ -72,6 +72,10 @@ public sealed record DeploymentPolicy
         return problems;
     }
 
+    /// <summary>Whether this deployment offers a kind of decision model: every kind under All, the listed ones otherwise.</summary>
+    public bool OffersDecisionModel(string kind) =>
+        DecisionModelKinds is ModelProviderSet.All || AllowedDecisionModelKinds.Contains(kind, StringComparer.Ordinal);
+
     /// <summary>Whether this deployment offers a kind of model provider: every kind under All, the listed ones otherwise.</summary>
     public bool OffersModelProvider(string kind) =>
         ModelProviders is ModelProviderSet.All || AllowedModelProviderKinds.Contains(kind, StringComparer.Ordinal);
@@ -124,6 +128,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxConversationSummarySeconds = 60;
 
+    public const int SelfHostedMaxJudgedRuleSeconds = 5;
+
+    public const int HostedMaxJudgedRuleSeconds = 3;
+
+    public const int SelfHostedMaxJudgedChecksPerRun = int.MaxValue;
+
+    public const int HostedMaxJudgedChecksPerRun = 200;
+
     public const int SelfHostedMaxBotsPerSpace = 1000;
 
     public const int HostedMaxBotsPerSpace = 100;
@@ -174,6 +186,14 @@ public sealed record DeploymentPolicy
     public const int SelfHostedMaxStepsPerRun = int.MaxValue;
 
     public const int HostedMaxStepsPerRun = 50;
+
+    /// <summary>
+    /// The most model calls of one run whose usage was missing or zero before the run stops. A server that reports
+    /// no tokens would otherwise keep a run going for ever when no other limit is set.
+    /// </summary>
+    public const int SelfHostedMaxUnmeteredModelCallsPerRun = 200;
+
+    public const int HostedMaxUnmeteredModelCallsPerRun = 50;
 
     public const int StepsPerRun = SelfHostedMaxStepsPerRun;
 
@@ -278,6 +298,9 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowBotsBuildingBots { get; init; } = true;
 
+    /// <summary>Allow bots to send requests and receive replies within their space.</summary>
+    public bool AllowBotMessaging { get; init; } = true;
+
     /// <summary>
     /// The most bots a space may hold that have not been removed, however they are made: by a person at the top or
     /// beneath a parent, by duplicating, or by a bot. A space's own <c>max_bots</c> may only lower it. Each is a row on
@@ -337,6 +360,15 @@ public sealed record DeploymentPolicy
     /// 50. Self-hosted has no default ceiling; an operator may set one, which a space may lower and a bot may lower again.
     /// </summary>
     public int MaxStepsPerRun { get; init; } = SelfHostedMaxStepsPerRun;
+
+    /// <summary>
+    /// The most model calls of one run, calls made by tools included, whose recorded usage is missing or is zero
+    /// input and zero output tokens, before it is stopped with <c>unmetered_call_limit</c>. It counts all of them
+    /// in the run, not only ones in a row: a server that never reports usage is the case to bound. On self-hosted
+    /// it is a default the operator may raise, to <see cref="int.MaxValue"/> for no limit; a space may only lower it.
+    /// There is no bot setting, because a bot already has its own model-call limit.
+    /// </summary>
+    public int MaxUnmeteredModelCallsPerRun { get; init; } = SelfHostedMaxUnmeteredModelCallsPerRun;
 
     /// <summary>
     /// The most tokens, read and written together, one run uses before it is stopped with <c>token_limit</c>. A space
@@ -407,6 +439,19 @@ public sealed record DeploymentPolicy
     /// </summary>
     public IReadOnlyList<string> AllowedModelProviderKinds { get; init; } = [];
 
+    /// <summary>
+    /// Which kinds of decision model a space may connect, to check rules written as a sentence. Every kind on a
+    /// self-hosted server; on the hosted service only the kinds the operator lists in
+    /// <see cref="AllowedDecisionModelKinds"/>, after reading each provider's terms.
+    /// </summary>
+    public ModelProviderSet DecisionModelKinds { get; init; } = ModelProviderSet.All;
+
+    /// <summary>
+    /// The kinds of decision model this server offers when <see cref="DecisionModelKinds"/> is
+    /// <see cref="ModelProviderSet.OperatorList"/>. Empty offers none. The operator names them; no preset does.
+    /// </summary>
+    public IReadOnlyList<string> AllowedDecisionModelKinds { get; init; } = [];
+
     /// <summary>Anyone may register. Off in both presets; the operator of a hosted service may turn it on.</summary>
     public bool OpenRegistration { get; init; }
 
@@ -469,6 +514,27 @@ public sealed record DeploymentPolicy
     /// people's runs waiting.
     /// </summary>
     public int MaxConversationSummarySeconds { get; init; } = SelfHostedMaxConversationSummarySeconds;
+
+    /// <summary>
+    /// Whether a bot rule may be written as a sentence that a decision model judges. The model is the space's own,
+    /// and a judged rule only narrows, but a check sends what a bot is about to do and the person's recent messages
+    /// to that provider. On for a self-hosted server; off on the hosted service until the owner has reviewed it. Off,
+    /// such a rule is refused when it is saved, and one saved earlier is never sent: it counts as unsure, so a person
+    /// is asked or the reply is held back.
+    /// </summary>
+    public bool AllowJudgedRules { get; init; } = true;
+
+    /// <summary>
+    /// The most seconds one rule check may take. The check stands between a bot and its next action, so past this it
+    /// counts as unsure and goes to a person.
+    /// </summary>
+    public int MaxJudgedRuleSeconds { get; init; } = SelfHostedMaxJudgedRuleSeconds;
+
+    /// <summary>
+    /// The most rule checks one run may make. A space's settings and a bot's limits may lower it. Past it, every
+    /// judged rule counts as unsure.
+    /// </summary>
+    public int MaxJudgedChecksPerRun { get; init; } = SelfHostedMaxJudgedChecksPerRun;
 
     /// <summary>
     /// The most characters one note a bot keeps about a person may hold. A bot's own setting may only lower it. Notes
@@ -594,6 +660,11 @@ public sealed record DeploymentPolicy
             policy => policy.AllowBotsBuildingBots,
             Enforcement.Now("RunExecutor, which offers no crew tool; CrewService, on every crew tool call; BotService, which grants no crew tool to a new bot"),
             allowedWhenHosted: true),
+        PolicyRule.Permission(
+            nameof(AllowBotMessaging),
+            policy => policy.AllowBotMessaging,
+            Enforcement.Now("RunExecutor, when listing tools or starting a bot request"),
+            allowedWhenHosted: true),
         PolicyRule.Limit(
             nameof(MaxBotsPerSpace),
             policy => policy.MaxBotsPerSpace,
@@ -655,6 +726,11 @@ public sealed record DeploymentPolicy
             HostedMaxStepsPerRun,
             Enforcement.Now("RunSession, before every model call of a run")),
         PolicyRule.Limit(
+            nameof(MaxUnmeteredModelCallsPerRun),
+            policy => policy.MaxUnmeteredModelCallsPerRun,
+            HostedMaxUnmeteredModelCallsPerRun,
+            Enforcement.Now("RunGovernor, when a model call is recorded; RunSession, before every model call")),
+        PolicyRule.Limit(
             nameof(MaxTokensPerRun),
             policy => policy.MaxTokensPerRun,
             HostedMaxTokensPerRun,
@@ -690,6 +766,14 @@ public sealed record DeploymentPolicy
             nameof(AllowedModelProviderKinds),
             policy => policy.AllowedModelProviderKinds,
             Enforcement.Now("ModelProviderCatalog, when ModelProviders is OperatorList")),
+        PolicyRule.Choice(
+            nameof(DecisionModelKinds),
+            policy => policy.DecisionModelKinds,
+            Enforcement.Now("DecisionConnectionService, when a decision model is connected, and every check of a run")),
+        PolicyRule.Names(
+            nameof(AllowedDecisionModelKinds),
+            policy => policy.AllowedDecisionModelKinds,
+            Enforcement.Now("DecisionConnectionService, when DecisionModelKinds is OperatorList")),
         PolicyRule.Permission(
             nameof(OpenRegistration),
             policy => policy.OpenRegistration,
@@ -757,6 +841,20 @@ public sealed record DeploymentPolicy
             policy => policy.MaxConversationSummarySeconds,
             HostedMaxConversationSummarySeconds,
             Enforcement.Now("ConversationSummarizer, on every summary's model call")),
+        PolicyRule.Permission(
+            nameof(AllowJudgedRules),
+            policy => policy.AllowJudgedRules,
+            Enforcement.Now("RuleService, when a rule is saved, tried, or read for a run")),
+        PolicyRule.Limit(
+            nameof(MaxJudgedRuleSeconds),
+            policy => policy.MaxJudgedRuleSeconds,
+            HostedMaxJudgedRuleSeconds,
+            Enforcement.Now("JudgedChecks, on every rule check")),
+        PolicyRule.Limit(
+            nameof(MaxJudgedChecksPerRun),
+            policy => policy.MaxJudgedChecksPerRun,
+            HostedMaxJudgedChecksPerRun,
+            Enforcement.Now("RunRules, before every rule check of a run")),
         PolicyRule.Limit(
             nameof(MaxMemoryNoteCharacters),
             policy => policy.MaxMemoryNoteCharacters,

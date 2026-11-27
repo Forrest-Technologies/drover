@@ -1,0 +1,19 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: the plan's error codes and their statuses from https://developers.openai.com/siwc/llms-full.txt, \"Errors and recovery\" (\"Structured Responses errors\") and \"Models and inference\" (\"a usage-limit error can arrive as response.failed ... after streaming has begun\"), read 2026-11-27, in the Responses error object shape ({\"error\":{\"code\",\"message\",\"param\",\"type\"}}). The messages are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 400,
+      "body": {
+        "error": {
+          "message": "Made-up message for a test.",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": "subscription_sharing_unsupported_capability"
+        }
+      }
+    }
+  ]
+}

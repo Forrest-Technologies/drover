@@ -54,7 +54,7 @@ public sealed class CopilotPlanProviderTests
     private static CopilotPlanProvider Provider(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) =>
         new(
             new FixtureHttpClientFactory(new ScriptedHandler((request, _, _) => respond(request))),
-            Microsoft.Extensions.Options.Options.Create(new CopilotPlanOptions()));
+            new SettableOptions<CopilotPlanOptions>(new CopilotPlanOptions()));
 
     #endregion
 }

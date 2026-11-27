@@ -18,8 +18,8 @@ public static class ModelConnectionKinds
     public const string ServerSpeech = "server_speech";
 
     /// <summary>
-    /// A person's own GitHub Copilot plan. Each person signs in with GitHub's device-code flow; there is no key
-    /// and no address to paste.
+    /// A person's own GitHub Copilot plan. Each person signs in with the operator's registered GitHub OAuth app;
+    /// there is no key and no address to paste.
     /// </summary>
     public const string CopilotSignIn = "copilot_signin";
 

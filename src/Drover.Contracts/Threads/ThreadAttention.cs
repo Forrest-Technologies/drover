@@ -30,6 +30,8 @@ public static class FailureLimits
 
     public const string Tokens = "tokens";
 
+    public const string UnmeteredModelCalls = "unmetered_model_calls";
+
     #endregion
 }
 

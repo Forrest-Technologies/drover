@@ -49,6 +49,13 @@ public sealed class FakeModelSignIn(
 
     private readonly TimeProvider clock = time ?? TimeProvider.System;
 
+    private readonly ConcurrentQueue<IReadOnlyDictionary<string, string>> earliers = new();
+
+    private readonly ConcurrentQueue<DateTimeOffset> polls = new();
+
+    /// <summary>The code the person enters on <see cref="DevicePage"/>.</summary>
+    public const string DeviceCode = "ABCD-EFGH";
+
     #endregion
 
     #region Properties
@@ -57,26 +64,23 @@ public sealed class FakeModelSignIn(
 
     public static Uri RedirectUri { get; } = new("http://127.0.0.1:1455/auth/callback");
 
+    /// <summary>Where the person enters the code of a sign-in the server polls for.</summary>
+    public static Uri DevicePage { get; } = new("https://auth.example.test/device");
+
     public string Kind => kind;
 
     public string DisplayName => kind == PlanKind ? "Test plan" : "Test account";
 
     public bool IsPersonalPlan => isPersonalPlan;
 
-    /// <summary>How the answer comes back. Tests of the browser return leave this at <see cref="ModelSignInWait.Return"/>.</summary>
-    public ModelSignInWait Wait { get; init; } = ModelSignInWait.Return;
-
-    /// <summary>The short code shown for a poll, or null when the flow has none.</summary>
-    public string? UserCode { get; init; }
-
-    /// <summary>How long to wait between polls when <see cref="Wait"/> is <see cref="ModelSignInWait.Poll"/>.</summary>
-    public TimeSpan PollGap { get; init; } = TimeSpan.FromSeconds(5);
-
-    /// <summary>True once the person has approved on the provider's page, for a poll.</summary>
-    public bool DeviceApproved { get; set; }
+    /// <summary>True when the provider's page may send the browser back to the server's own address.</summary>
+    public bool CanReturnToServer { get; set; }
 
     /// <summary>How the next refreshes are answered.</summary>
     public FakeRefreshAnswer RefreshAnswer { get; set; } = FakeRefreshAnswer.Renewed;
+
+    /// <summary>When true the token set has no end and no refresh token, as a key the provider made does.</summary>
+    public bool NoEnd { get; set; }
 
     /// <summary>How long an access token lasts.</summary>
     public TimeSpan Lifetime { get; set; } = TimeSpan.FromHours(1);
@@ -92,6 +96,39 @@ public sealed class FakeModelSignIn(
     public int Refreshes => received.Count(request => request.Grant == "refresh_token");
 
     public int Begins { get; private set; }
+
+    /// <summary>What each attempt was handed of the person's earlier sign-in, in the order the attempts began.</summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, string>> Earliers => [.. earliers];
+
+    /// <summary>When set, an approval is refused with this sentence, as a provider that signed the person in but allowed too little.</summary>
+    public string? RefusalSentence { get; set; }
+
+    /// <summary>When true, a refusal with <see cref="RefusalSentence"/> keeps what the provider registered, as a sign-in that did not allow plan use.</summary>
+    public bool RefusalKeeps { get; set; }
+
+    /// <summary>How a device that cannot listen signs in: by a code the server polls for, by a pasted code, or (null) not at all.</summary>
+    public ModelSignInWait? CodeWait { get; set; }
+
+    /// <summary>The provider's interval between polls, for <see cref="ModelSignInWait.Poll"/>.</summary>
+    public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long the provider's code lasts, for <see cref="ModelSignInWait.Poll"/>.</summary>
+    public TimeSpan CodeLifetime { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>True once the person has entered the code and approved on the provider's page.</summary>
+    public bool DeviceApproved { get; set; }
+
+    /// <summary>True once the person has refused on the provider's page.</summary>
+    public bool DeviceRefused { get; set; }
+
+    /// <summary>When true, the next poll is told to slow down.</summary>
+    public bool SlowDownOnce { get; set; }
+
+    /// <summary>When true, the next poll cannot reach the provider.</summary>
+    public bool UnreachableOnce { get; set; }
+
+    /// <summary>When each poll reached the provider.</summary>
+    public IReadOnlyList<DateTimeOffset> Polls => [.. polls];
 
     /// <summary>Every access and refresh token this provider has handed out.</summary>
     public IReadOnlyList<string> Issued => [.. issued];
@@ -122,37 +159,42 @@ public sealed class FakeModelSignIn(
     #region Interface Implementations
 
     public bool AcceptsRedirect(Uri? redirectUri) =>
-        Wait is ModelSignInWait.Poll
-        || (redirectUri is not null
-            && redirectUri.Scheme == RedirectUri.Scheme
-            && redirectUri.Host == RedirectUri.Host
-            && redirectUri.AbsolutePath == RedirectUri.AbsolutePath
-            && redirectUri.Query.Length == 0);
-
-    public TimeSpan PollWait(ModelSignInAttempt attempt) => PollGap;
+        redirectUri is null
+            ? CodeWait is not null
+            : redirectUri.Scheme == RedirectUri.Scheme
+        && redirectUri.Host == RedirectUri.Host
+        && redirectUri.AbsolutePath == RedirectUri.AbsolutePath
+        && redirectUri.Query.Length == 0;
 
     public Task<ModelSignInStep> Begin(ModelSignInAttempt attempt, CancellationToken cancellation)
     {
         Begins++;
+        earliers.Enqueue(attempt.Earlier);
         var challenge = System.Buffers.Text.Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(attempt.Verifier)));
         challengesByState[attempt.State] = challenge;
         var address = new UriBuilder(AuthorizeAddress)
         {
             Query = $"response_type=code&code_challenge={challenge}&code_challenge_method=S256&state={Uri.EscapeDataString(attempt.State)}&redirect_uri={Uri.EscapeDataString(attempt.RedirectUri?.AbsoluteUri ?? string.Empty)}",
         }.Uri;
-        return Task.FromResult(Wait is ModelSignInWait.Poll
-            ? new ModelSignInStep(new Uri("https://github.com/login/device"), UserCode ?? "ABCD-EFGH", ModelSignInWait.Poll)
+
+        return Task.FromResult(attempt.RedirectUri is not null ? new ModelSignInStep(address, null, ModelSignInWait.Return) : CodeWait switch
+        {
+            ModelSignInWait.Poll => new ModelSignInStep(DevicePage, DeviceCode, ModelSignInWait.Poll)
             {
-                Interval = PollGap,
-            }
-            : new ModelSignInStep(address, null, ModelSignInWait.Return));
+                Interval = PollInterval,
+                Lifetime = CodeLifetime,
+                Kept = new Dictionary<string, string> { ["device"] = $"device-{Guid.NewGuid():N}" },
+            },
+            ModelSignInWait.Paste => new ModelSignInStep(address, null, ModelSignInWait.Paste),
+            _ => throw new ModelSignInRefusedException(),
+        });
     }
 
     public Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation)
     {
-        if (Wait is ModelSignInWait.Poll)
+        if (attempt.Begun.ContainsKey("device"))
         {
-            return Task.FromResult<ModelTokens?>(DeviceApproved ? NewTokens() : null);
+            return Poll();
         }
 
         var answer = Read(arrived.Text);
@@ -160,6 +202,14 @@ public sealed class FakeModelSignIn(
         if (answer.ContainsKey("error") || answer.GetValueOrDefault("state") != attempt.State || answer.GetValueOrDefault("code") is not { } code)
         {
             throw new ModelSignInRefusedException();
+        }
+
+        if (RefusalSentence is { } sentence)
+        {
+            throw new ModelSignInRefusedException(sentence)
+            {
+                Kept = RefusalKeeps ? new Dictionary<string, string> { ["client"] = $"fake-client-{Guid.NewGuid():N}" } : [],
+            };
         }
 
         received.Enqueue(new FakeTokenRequest("authorization_code", code, attempt.Verifier, null));
@@ -170,7 +220,8 @@ public sealed class FakeModelSignIn(
             throw new ModelSignInRefusedException();
         }
 
-        return Task.FromResult<ModelTokens?>(NewTokens());
+        // What a provider keeps for a later sign-in, such as a client id it issued to the person.
+        return Task.FromResult<ModelTokens?>(NewTokens() with { Details = new Dictionary<string, string> { ["client"] = $"fake-client-{Guid.NewGuid():N}" } });
     }
 
     public async Task<ModelTokens> Refresh(ModelTokens current, CancellationToken cancellation)
@@ -188,7 +239,7 @@ public sealed class FakeModelSignIn(
             FakeRefreshAnswer.ServerError => throw ModelProviderException.FromStatus(503),
             FakeRefreshAnswer.Unreachable => throw ModelProviderException.FromNetwork(),
             _ when current.RefreshToken is null || !spent.TryAdd(current.RefreshToken, true) => throw new SignInEndedException(),
-            _ => NewTokens(),
+            _ => NewTokens() with { Details = current.Details },
         };
     }
 
@@ -202,13 +253,44 @@ public sealed class FakeModelSignIn(
 
     #region Private Methods
 
+    /// <summary>One poll of the provider's device flow.</summary>
+    private Task<ModelTokens?> Poll()
+    {
+        polls.Enqueue(clock.GetUtcNow());
+
+        if (SlowDownOnce)
+        {
+            SlowDownOnce = false;
+            throw new ModelSignInSlowDownException();
+        }
+
+        if (UnreachableOnce)
+        {
+            UnreachableOnce = false;
+            throw ModelProviderException.FromNetwork();
+        }
+
+        if (DeviceRefused)
+        {
+            throw new ModelSignInRefusedException();
+        }
+
+        if (!DeviceApproved)
+        {
+            return Task.FromResult<ModelTokens?>(null);
+        }
+
+        received.Enqueue(new FakeTokenRequest("device_code", null, null, null));
+        return Task.FromResult<ModelTokens?>(NewTokens() with { Details = new Dictionary<string, string> { ["flow"] = "code" } });
+    }
+
     private ModelTokens NewTokens()
     {
         var tokens = new ModelTokens
         {
             AccessToken = $"fake-access-{Guid.NewGuid():N}",
             RefreshToken = $"fake-refresh-{Guid.NewGuid():N}",
-            ExpiresAt = clock.GetUtcNow() + Lifetime,
+            ExpiresAt = NoEnd ? null : clock.GetUtcNow() + Lifetime,
             Scopes = ["models"],
             AccountLabel = AccountLabel,
         };

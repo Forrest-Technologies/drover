@@ -128,7 +128,13 @@ The status page (`/status`, for admins) has a row for it. It warns when the addr
 
 ## Signing in to a model provider
 
-Signing in with a person's own account in place of a key is offered for GitHub Copilot ([#526](https://github.com/Forrest-Technologies/drover/issues/526)). The operator registers a GitHub OAuth app or GitHub App and sets its client id (and secret, for a browser return) on the `drover` service. Each person then signs in with their own GitHub account; usage bills that person's Copilot subscription, not the server. A bot uses that account only for work it does for that person ([model providers](architecture/15-model-providers.md#signing-in-with-a-subscription)). To switch the kind off without a new release: `Drover__Models__SignInOff__0=copilot_signin`. GitHub.com only; GitHub Enterprise is not offered.
+Signing in with a person's own account in place of a key is being added one provider at a time ([#526](https://github.com/Forrest-Technologies/drover/issues/526)); the server side is in place. Each person signs in for themself, and a bot uses that account only for work it does for that person ([model providers](architecture/15-model-providers.md#signing-in-with-a-subscription)). On a self-hosted server every sign-in kind is on. GitHub Copilot needs the operator's GitHub OAuth app first: set `Drover__Models__SignIn__copilot_signin__ClientId` and `Drover__Models__SignIn__copilot_signin__ClientSecret` on the `drover` service, with callback `http://127.0.0.1:1455/auth/callback`. The other sign-in kinds need nothing set. To switch one off without a new release, list its kind: `Drover__Models__SignInOff__0=<kind>`.
+
+Some sign-ins borrow the identifiers of a provider's own tool, because the provider offers no sign-in to other apps. Such a provider can change or block the flow at any time and can act against an account. You accept that risk by leaving the kind on. Every identifier, address, scope and header is a setting under `Drover:Models:SignIn:<kind>` (for example `Drover__Models__SignIn__anthropic_signin__ClientId`), so following a change needs no release.
+
+| Provider | The flow uses | Terms | Forbids this use |
+| --- | --- | --- | --- |
+| Claude plan (`anthropic_signin`) | The client identifier, headers and system prefix of the provider's own tool | https://code.claude.com/docs/en/legal-and-compliance | Yes, and says it may enforce without notice |
 
 ## Backup
 

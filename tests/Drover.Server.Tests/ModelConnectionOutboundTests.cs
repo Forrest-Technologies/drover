@@ -259,7 +259,7 @@ public sealed class HostedModelConnectionOutboundTests(PostgresServer postgres) 
     }
 
     [Fact]
-    public async Task A_redirect_from_a_public_name_to_a_private_address_is_refused()
+    public async Task A_redirect_from_a_public_name_to_a_private_address_is_not_followed()
     {
         OnlyTheFirstLoopbackIsPrivate = true;
         using var server = StartServer(request => request.Contains(PublicName, StringComparison.Ordinal)
@@ -270,7 +270,7 @@ public sealed class HostedModelConnectionOutboundTests(PostgresServer postgres) 
         var test = await Test(client, spaceId, connection.Id);
 
         test.Succeeded.Should().BeFalse();
-        test.Message.Should().Contain("private addresses");
+        test.Message.Should().Contain("HTTP 302", "a model client never follows a redirect");
         lock (Requests)
         {
             Requests.Should().ContainSingle("only the redirecting request reached the server");

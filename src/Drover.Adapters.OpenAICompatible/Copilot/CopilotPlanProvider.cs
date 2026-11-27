@@ -1,19 +1,17 @@
 namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
-/// Copilot as a named provider. Each person signs in; there is no key and no address to paste. Chat and model
-/// listing go to Copilot's OpenAI-compatible API with the editor headers Copilot requires. When the model list
-/// cannot be read, the failure is reported in plain words, the same as every other kind.
+/// Copilot as a named provider. Each person signs in with the operator's GitHub app; there is no key and no address
+/// to paste. Chat and model listing go to Copilot's OpenAI-compatible API with the GitHub user token as bearer.
+/// When the model list cannot be read, the failure is reported in plain words, the same as every other kind.
 /// </summary>
 public sealed class CopilotPlanProvider(
     IHttpClientFactory httpClients,
-    IOptions<CopilotPlanOptions> options) : IModelClientProvider
+    IOptionsMonitor<CopilotPlanOptions> options) : IModelClientProvider
 {
     #region Private Fields
 
-    public const string HttpClientName = "drover-copilot-signin";
-
-    public const string AuthHttpClientName = "drover-copilot-signin-auth";
+    public const string HttpClientName = "drover-copilot";
 
     #endregion
 
@@ -21,17 +19,20 @@ public sealed class CopilotPlanProvider(
 
     public string Kind => ModelConnectionKinds.CopilotSignIn;
 
-    public Uri? FixedAddress => CopilotApiAddress.WithTrailingSlash(options.Value.ApiAddress);
+    public Uri? FixedAddress => CopilotApiAddress.WithTrailingSlash(options.CurrentValue.ApiAddress);
 
-    public ModelProviderDescriptor Descriptor { get; } = new(
+    /// <summary>Read for each request, so a changed return address in the settings needs no restart.</summary>
+    public ModelProviderDescriptor Descriptor => new(
         ModelConnectionKinds.CopilotSignIn,
         "GitHub Copilot",
-        ModelKeyRule.None,
+        ModelKeyRule.Required,
         ModelAddressRule.Fixed,
         AddressHint: null,
         KeyHint: null,
         ReportsCapabilities: true,
-        SignIn: true);
+        SignInName: "GitHub Copilot",
+        UsagePage: options.CurrentValue.UsagePage,
+        SignInReturn: options.CurrentValue.RedirectUri);
 
     #endregion
 
@@ -41,16 +42,13 @@ public sealed class CopilotPlanProvider(
     {
         if (string.IsNullOrEmpty(apiKey))
         {
-            throw new ModelProviderException(
-                ModelFailure.InvalidKey,
-                "This connection needs a sign-in before it can be used.");
+            throw ModelProviderException.FromStatus((int)HttpStatusCode.Unauthorized);
         }
 
-        var address = CopilotApiAddress.FromToken(apiKey) ?? CopilotApiAddress.WithTrailingSlash(connection.BaseAddress);
         return new CopilotChatClient(
             new ProtocolChatClient(
                 httpClients.CreateClient(HttpClientName),
-                new ModelEndpoint(Kind, address),
+                new ModelEndpoint(Kind, CopilotApiAddress.WithTrailingSlash(connection.BaseAddress)),
                 apiKey,
                 modelId,
                 settings,
@@ -64,9 +62,7 @@ public sealed class CopilotPlanProvider(
     {
         if (string.IsNullOrEmpty(apiKey))
         {
-            throw new ModelProviderException(
-                ModelFailure.InvalidKey,
-                "This connection needs a sign-in before it can be used.");
+            throw ModelProviderException.FromStatus((int)HttpStatusCode.Unauthorized);
         }
 
         return ReadModels(connection, apiKey, cancellation);
@@ -97,10 +93,11 @@ public sealed class CopilotPlanProvider(
         string apiKey,
         CancellationToken cancellation)
     {
-        var address = CopilotApiAddress.FromToken(apiKey) ?? CopilotApiAddress.WithTrailingSlash(connection.BaseAddress);
+        var address = CopilotApiAddress.WithTrailingSlash(connection.BaseAddress);
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(address, "models"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.UserAgent.ParseAdd(CopilotPlanOptions.UserAgent);
 
         try
         {

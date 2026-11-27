@@ -33,6 +33,7 @@ public static class DeploymentPolicyExtensions
             .WithServerStatusForTheOperatorOnly()
             .WithoutWrittenRulePatterns()
             .WithBoundedConversationSummaries()
+            .WithoutJudgedRules()
             .WithBoundedMemory()
             .WithoutWebTools()
             .WithoutImageGeneration()
@@ -90,7 +91,12 @@ public static class DeploymentPolicyExtensions
         };
 
     public static DeploymentPolicy WithBoundedRuns(this DeploymentPolicy policy) =>
-        policy with { MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun, MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun };
+        policy with
+        {
+            MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun,
+            MaxUnmeteredModelCallsPerRun = DeploymentPolicy.HostedMaxUnmeteredModelCallsPerRun,
+            MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun,
+        };
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
@@ -123,6 +129,7 @@ public static class DeploymentPolicyExtensions
         {
             SubscriptionSignIn = SubscriptionSignInMode.OnlyWithOperatorApproval,
             ModelProviders = ModelProviderSet.OperatorList,
+            DecisionModelKinds = ModelProviderSet.OperatorList,
         };
 
     public static DeploymentPolicy WithVerifiedRegistrationOnly(this DeploymentPolicy policy) =>
@@ -154,6 +161,14 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
         policy with { MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds };
+
+    public static DeploymentPolicy WithoutJudgedRules(this DeploymentPolicy policy) =>
+        policy with
+        {
+            AllowJudgedRules = false,
+            MaxJudgedRuleSeconds = DeploymentPolicy.HostedMaxJudgedRuleSeconds,
+            MaxJudgedChecksPerRun = DeploymentPolicy.HostedMaxJudgedChecksPerRun,
+        };
 
     public static DeploymentPolicy WithBoundedMemory(this DeploymentPolicy policy) =>
         policy with

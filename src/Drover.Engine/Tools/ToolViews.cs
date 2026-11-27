@@ -63,7 +63,7 @@ public static class ToolViews
             modelName,
             tool.Title,
             tool.Description,
-            WireName(tool.Sensitivity),
+            WireName(tool.SensitivityOn(connection)),
             WireName(tool.State),
             tool.LastSeenAt)
         {

@@ -51,6 +51,14 @@ public sealed class AttentionWordsTests
         AttentionWords.Failure(older, "Slueth").Should().Be("Slueth stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.");
     }
 
+    [Fact]
+    public void The_unmetered_call_stop_names_the_calls_that_reported_no_token_use()
+    {
+        var unmetered = new RunFailure(Guid.NewGuid(), FailureCauses.BudgetReached, "unmetered_call_limit: ...", new RunFailureLimit(FailureLimits.UnmeteredModelCalls, 200, 200));
+
+        AttentionWords.Failure(unmetered, "Slueth").Should().Be("Slueth stopped after 200 of 200 model calls that reported no token use.");
+    }
+
     [Theory]
     [InlineData(FailureCauses.ModelUnreachable, FailureCause.ModelUnreachable)]
     [InlineData(FailureCauses.ModelRefused, FailureCause.ModelRefused)]

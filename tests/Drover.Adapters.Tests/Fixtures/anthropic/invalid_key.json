@@ -1,0 +1,19 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's API reference (https://platform.claude.com/docs/en/api/models/list, https://platform.claude.com/docs/en/api/messages, https://platform.claude.com/docs/en/build-with-claude/streaming, https://platform.claude.com/docs/en/api/errors, read 2026-11-27). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 401,
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "authentication_error",
+          "message": "invalid x-api-key"
+        },
+        "request_id": "req_test_1"
+      }
+    }
+  ]
+}

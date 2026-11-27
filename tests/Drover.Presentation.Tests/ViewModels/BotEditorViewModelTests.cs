@@ -417,7 +417,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         ToolsSectionViewModel.QuickValue(builtIn).Should().Be("read", "the tool that reads is allowed and the one that writes is off");
         ToolsSectionViewModel.QuickOptions(writesOnly).Single(option => option.Label == "Read only").Disabled.Should().BeTrue("it would be the same as off");
         ToolsSectionViewModel.QuickHint(writesOnly).Should().Be(ToolsSectionViewModel.NoReadingTools);
-        ToolsSectionViewModel.NoReadingTools.Should().Contain("claim does not count");
+        ToolsSectionViewModel.NoReadingTools.Should().Be("No tools in this group are marked read-only.");
         ToolsSectionViewModel.QuickValue(writesOnly).Should().Be("off");
 
         await editor.ToolsPart.SetAll(builtIn, "read");

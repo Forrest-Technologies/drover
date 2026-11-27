@@ -1,43 +1,20 @@
 namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
-/// Shapes a Copilot chat request: tightens tool schemas, and sets the initiator and vision headers for the
-/// duration of the call. Streaming and tool round-trips go through the shared protocol client.
+/// Shapes a Copilot chat request by tightening tool schemas. Streaming and tool round-trips go through the shared
+/// protocol client with the GitHub user token as bearer.
 /// </summary>
 internal sealed class CopilotChatClient(IModelChatClient inner) : IModelChatClient
 {
     #region Interface Implementations
 
-    public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
-    {
-        CopilotCall.Current = CopilotCall.From(request);
-        try
-        {
-            return await inner.GetResponse(Shape(request), cancellation);
-        }
-        finally
-        {
-            CopilotCall.Current = null;
-        }
-    }
+    public Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default) =>
+        inner.GetResponse(Shape(request), cancellation);
 
-    public async IAsyncEnumerable<ModelChatUpdate> GetStreamingResponse(
+    public IAsyncEnumerable<ModelChatUpdate> GetStreamingResponse(
         ModelChatRequest request,
-        [EnumeratorCancellation] CancellationToken cancellation = default)
-    {
-        CopilotCall.Current = CopilotCall.From(request);
-        try
-        {
-            await foreach (var update in inner.GetStreamingResponse(Shape(request), cancellation))
-            {
-                yield return update;
-            }
-        }
-        finally
-        {
-            CopilotCall.Current = null;
-        }
-    }
+        CancellationToken cancellation = default) =>
+        inner.GetStreamingResponse(Shape(request), cancellation);
 
     public void Dispose() => inner.Dispose();
 

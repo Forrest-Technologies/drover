@@ -1,0 +1,241 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: the provider's plan wire as https://developers.openai.com/siwc/llms-full.txt describes it (\"Models and inference\": GET /v1/models answers {\"models\":[{slug, display_name, visibility}]}; every POST /v1/responses streams), with each answer's events shaped from the Responses streaming reference (https://developers.openai.com/api/docs/guides/streaming-responses), read 2026-11-27. Made from the openai-responses fixtures of the same name. The model ids are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "sse": [
+        {
+          "type": "response.created",
+          "response": {
+            "id": "resp_tool_1",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "in_progress",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": null
+          },
+          "sequence_number": 0
+        },
+        {
+          "type": "response.output_item.added",
+          "output_index": 0,
+          "item": {
+            "type": "function_call",
+            "id": "fc_weather_1",
+            "call_id": "call_weather_1",
+            "name": "get_weather",
+            "arguments": "",
+            "status": "in_progress"
+          },
+          "sequence_number": 1
+        },
+        {
+          "type": "response.function_call_arguments.delta",
+          "item_id": "fc_weather_1",
+          "output_index": 0,
+          "delta": "{\"city\":\"Paris\"}",
+          "sequence_number": 2
+        },
+        {
+          "type": "response.function_call_arguments.done",
+          "item_id": "fc_weather_1",
+          "output_index": 0,
+          "arguments": "{\"city\":\"Paris\"}",
+          "sequence_number": 3
+        },
+        {
+          "type": "response.output_item.done",
+          "output_index": 0,
+          "item": {
+            "type": "function_call",
+            "id": "fc_weather_1",
+            "call_id": "call_weather_1",
+            "name": "get_weather",
+            "arguments": "{\"city\":\"Paris\"}",
+            "status": "completed"
+          },
+          "sequence_number": 4
+        },
+        {
+          "type": "response.completed",
+          "response": {
+            "id": "resp_tool_1",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "completed",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [
+              {
+                "type": "function_call",
+                "id": "fc_weather_1",
+                "call_id": "call_weather_1",
+                "name": "get_weather",
+                "arguments": "{\"city\":\"Paris\"}",
+                "status": "completed"
+              }
+            ],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": {
+              "input_tokens": 12,
+              "input_tokens_details": {
+                "cached_tokens": 0
+              },
+              "output_tokens": 6,
+              "output_tokens_details": {
+                "reasoning_tokens": 0
+              },
+              "total_tokens": 18
+            }
+          },
+          "sequence_number": 5
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/responses",
+      "status": 200,
+      "sse": [
+        {
+          "type": "response.created",
+          "response": {
+            "id": "resp_tool_2",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "in_progress",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": null
+          },
+          "sequence_number": 0
+        },
+        {
+          "type": "response.output_item.added",
+          "output_index": 0,
+          "item": {
+            "type": "message",
+            "id": "msg_tool_2",
+            "status": "in_progress",
+            "role": "assistant",
+            "content": []
+          },
+          "sequence_number": 1
+        },
+        {
+          "type": "response.content_part.added",
+          "item_id": "msg_tool_2",
+          "output_index": 0,
+          "content_index": 0,
+          "part": {
+            "type": "output_text",
+            "text": "",
+            "annotations": []
+          },
+          "sequence_number": 2
+        },
+        {
+          "type": "response.output_text.delta",
+          "item_id": "msg_tool_2",
+          "output_index": 0,
+          "content_index": 0,
+          "delta": "It is sunny in Paris, 21 degrees.",
+          "sequence_number": 3
+        },
+        {
+          "type": "response.output_text.done",
+          "item_id": "msg_tool_2",
+          "output_index": 0,
+          "content_index": 0,
+          "text": "It is sunny in Paris, 21 degrees.",
+          "sequence_number": 4
+        },
+        {
+          "type": "response.content_part.done",
+          "item_id": "msg_tool_2",
+          "output_index": 0,
+          "content_index": 0,
+          "part": {
+            "type": "output_text",
+            "text": "It is sunny in Paris, 21 degrees.",
+            "annotations": []
+          },
+          "sequence_number": 5
+        },
+        {
+          "type": "response.output_item.done",
+          "output_index": 0,
+          "item": {
+            "type": "message",
+            "id": "msg_tool_2",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "It is sunny in Paris, 21 degrees.",
+                "annotations": []
+              }
+            ]
+          },
+          "sequence_number": 6
+        },
+        {
+          "type": "response.completed",
+          "response": {
+            "id": "resp_tool_2",
+            "object": "response",
+            "created_at": 1794400000,
+            "status": "completed",
+            "error": null,
+            "incomplete_details": null,
+            "model": "gpt-test-reasoner",
+            "output": [
+              {
+                "type": "message",
+                "id": "msg_tool_2",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "It is sunny in Paris, 21 degrees.",
+                    "annotations": []
+                  }
+                ]
+              }
+            ],
+            "parallel_tool_calls": true,
+            "store": false,
+            "usage": {
+              "input_tokens": 12,
+              "input_tokens_details": {
+                "cached_tokens": 0
+              },
+              "output_tokens": 6,
+              "output_tokens_details": {
+                "reasoning_tokens": 0
+              },
+              "total_tokens": 18
+            }
+          },
+          "sequence_number": 7
+        }
+      ]
+    }
+  ]
+}

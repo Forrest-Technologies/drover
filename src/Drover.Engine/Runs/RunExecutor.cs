@@ -23,6 +23,7 @@ public sealed partial class RunExecutor(
     IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    FindDecisionModel findDecisionModel,
     TimeProvider time,
     ILoggerFactory loggers)
 {
@@ -224,6 +225,11 @@ public sealed partial class RunExecutor(
         var policy = await policies.GetEffective(run.SpaceId, cancellationToken);
         var limits = (await policies.GetRuns(run.SpaceId, cancellationToken)).NarrowedBy(bot?.RunLimits ?? new RunLimits());
         var granted = bot is null ? [] : await services.GetRequiredService<ToolRepository>().ListGrantedTools(bot.Id, cancellationToken);
+
+        if (run.IsBotRequest)
+        {
+            granted = [.. granted.Where(tool => tool.Tool is { SourceKind: ToolSourceKind.Builtin, Name: DelegateTool.MessageBotName })];
+        }
         var toolConnectionRows = services.GetRequiredService<ToolConnectionRepository>();
         var toolConnections = await toolConnectionRows
             .ListConnections([.. granted.Select(tool => tool.Tool.ToolConnectionId).OfType<Guid>().Distinct()], cancellationToken);
@@ -260,6 +266,7 @@ public sealed partial class RunExecutor(
 
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
+        var unmetered = await services.GetRequiredService<RunRepository>().CountUnmeteredCalls(runId, cancellationToken);
         var openMessage = steps.Open is { } open
             ? await services.GetRequiredService<MessageRepository>().FindMessage(open.MessageId, cancellationToken)
             : null;
@@ -275,20 +282,23 @@ public sealed partial class RunExecutor(
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        // A bot that may delegate is told which bots it may hand work to: those directly beneath it.
-        var children = bot is not null && granted.Any(tool => tool.Tool is { SourceKind: ToolSourceKind.Builtin, Name: DelegateTool.Name })
-            ? await services.GetRequiredService<BotRepository>().ListChildren(bot.Id, cancellationToken)
+        var bots = services.GetRequiredService<BotRepository>();
+        var children = bot is not null && HasHandoffGrant(granted, DelegateTool.Name)
+            ? (await bots.ListChildren(bot.Id, cancellationToken)).FindAll(child => child.AcceptsBotRequests)
+            : [];
+        var recipients = bot is not null && deployment.Value.Rules.AllowBotMessaging && HasHandoffGrant(granted, DelegateTool.MessageBotName)
+            ? (await bots.ListBots(cancellationToken)).FindAll(target => target.Id != bot.Id && target.AcceptsBotRequests)
             : [];
 
         // The notes the bot keeps about the run's person, read in this transaction, as that person. Whether the run is
         // given them is decided once its tools are known: only a run offered a memory tool is.
-        var memory = bot is null || thread is null
+        var memory = bot is null || thread is null || run.IsBotRequest
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
         Project? project = null;
 
-        if (thread?.ProjectId is { } projectId)
+        if (!run.IsBotRequest && thread?.ProjectId is { } projectId)
         {
             project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
         }
@@ -301,9 +311,10 @@ public sealed partial class RunExecutor(
             credential,
             policy,
             limits,
-            entry?.Pricing ?? new ModelPricing(),
+            entry?.EffectivePricing ?? new ModelPricing(),
             granted,
             steps,
+            unmetered,
             openMessage,
             unsettled,
             rows,
@@ -312,11 +323,16 @@ public sealed partial class RunExecutor(
             requested,
             toolConnections,
             toolModelNames,
-            entry?.Capabilities,
+            entry?.EffectiveCapabilities,
             memory,
             children,
+            recipients,
             project);
     }
+
+    private static bool HasHandoffGrant(IReadOnlyList<GrantedTool> grants, string name) =>
+        grants.Any(grant => grant.Effect is GrantEffect.Allow or GrantEffect.Ask
+            && grant.Tool.SourceKind is ToolSourceKind.Builtin && grant.Tool.Name == name);
 
     /// <summary>
     /// The run's bot, answering with the model its conversation chose when the bot may still use that model. The
@@ -478,7 +494,8 @@ public sealed partial class RunExecutor(
             loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
-            parent);
+            parent,
+            loaded.UnmeteredCalls);
     }
 
     /// <summary>
@@ -494,6 +511,11 @@ public sealed partial class RunExecutor(
 
         if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
         {
+            if (granted.Tool.Name == DelegateTool.MessageBotName && loaded.Recipients.Count == 0)
+            {
+                return null;
+            }
+
             var builtin = builtins.FirstOrDefault(found => found.Name == granted.Tool.Name);
             var hasSandbox = builtin is not null && bot?.SandboxPolicy is not null and not SandboxPolicy.None;
 
@@ -551,6 +573,14 @@ public sealed partial class RunExecutor(
             : null;
     }
 
+    /// <summary>The rule checks of this run. The space's decision model is found before each check, outside any tenant scope.</summary>
+    private JudgedChecks NewJudgedChecks(RunSession session) =>
+        new(
+            deployment.Value.Rules.MaxJudgedRuleSeconds,
+            time,
+            session.Redactor.Redact,
+            loggers.CreateLogger<JudgedChecks>());
+
     /// <summary>
     /// The files people attached, as this run gives them to its model: by whether the model reads pictures and
     /// whether the run was given a sandbox tool, which takes a sandbox on this server, on the bot, and in its grants.
@@ -567,7 +597,8 @@ public sealed partial class RunExecutor(
             deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
-            loggers.CreateLogger<RunFiles>());
+            loggers.CreateLogger<RunFiles>(),
+            PdfReading.For(loaded.Capabilities, deployment.Value.Rules.MaxDocumentPages, deployment.Value.Rules.MaxFileBytes));
     }
 
     #endregion
@@ -609,7 +640,7 @@ public sealed partial class RunExecutor(
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
         };
-        var rules = new RunRules(session, loggers.CreateLogger<RunRules>());
+        var rules = new RunRules(session, NewJudgedChecks(session), findDecisionModel, loggers.CreateLogger<RunRules>());
         var governor = new RunGovernor(
             session,
             bot,
@@ -621,7 +652,7 @@ public sealed partial class RunExecutor(
             NewRunFiles(session, loaded),
             new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
-            ChatClient(provider, endpoint, bot, loaded.Credential, session.Redactor),
+            ChatClient(provider, endpoint, bot, loaded.Credential, session.Redactor, loaded.Run.IsBotRequest),
             session,
             connection.Id,
             loggers.CreateLogger<MeteredModelClient>(),
@@ -797,12 +828,17 @@ public sealed partial class RunExecutor(
     {
         ToolId = tool.Tool.Id,
         Name = tool.ModelName,
-        Description = tool.IsDelegation ? DelegateTool.DescribeFor(loaded.Children) : tool.Tool.Description,
+        Description = tool.Builtin?.Name switch
+        {
+            DelegateTool.MessageBotName => DelegateTool.DescribeMessages(loaded.Recipients),
+            DelegateTool.Name => DelegateTool.DescribeFor(loaded.Children),
+            _ => tool.Tool.Description,
+        },
         IsDelegation = tool.IsDelegation,
         IsIdempotent = tool.Builtin is { IsIdempotent: true },
         InputSchema = tool.Tool.InputSchema,
         DefinitionHash = tool.Tool.DefinitionHash,
-        Sensitivity = tool.Tool.Sensitivity,
+        Sensitivity = tool.Sensitivity,
         RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
         DefinedByServer = tool.Builtin is null,
     };
@@ -925,10 +961,19 @@ public sealed partial class RunExecutor(
     /// The run's model client. On a sign-in connection each call gets the person's credential first, renewed when it
     /// runs out soon, and the run scrubs every token it is handed; a key connection's client holds its key.
     /// </summary>
-    private IModelChatClient ChatClient(IModelClientProvider provider, ModelEndpoint endpoint, Bot bot, ModelCredential credential, Redactor redactor) =>
-        credential.SignIn is null
-            ? provider.CreateChatClient(endpoint, credential.Value, bot.Model, bot.ModelSettings)
-            : new RenewingChatClient(provider, endpoint, bot.Model, bot.ModelSettings, credentials, credential, redactor.Remember);
+    private IModelChatClient ChatClient(
+        IModelClientProvider provider,
+        ModelEndpoint endpoint,
+        Bot bot,
+        ModelCredential credential,
+        Redactor redactor,
+        bool isBotRequest)
+    {
+        var settings = isBotRequest ? bot.ModelSettings with { WebSearch = WebSearchMode.Off } : bot.ModelSettings;
+        return credential.SignIn is null
+            ? provider.CreateChatClient(endpoint, credential.Value, bot.Model, settings)
+            : new RenewingChatClient(provider, endpoint, bot.Model, settings, credentials, credential, redactor.Remember);
+    }
 
     private static string CodeFor(ModelCredentialProblem? problem) =>
         problem switch
@@ -1275,6 +1320,7 @@ public sealed partial class RunExecutor(
         ModelPricing Pricing,
         IReadOnlyList<GrantedTool> Granted,
         StepState Steps,
+        int UnmeteredCalls,
         Message? OpenStepMessage,
         IReadOnlyList<Guid> UnsettledCalls,
         IReadOnlyList<ToolCall> UnsettledRows,
@@ -1286,6 +1332,7 @@ public sealed partial class RunExecutor(
         ModelCapabilities? Capabilities,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
+        IReadOnlyList<Bot> Recipients,
         Project? Project);
 
     #endregion

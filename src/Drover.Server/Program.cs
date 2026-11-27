@@ -63,6 +63,7 @@ builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
 builder.Services.AddDroverModels(builder.Configuration);
+builder.Services.AddDroverDecisionModels();
 builder.Services.AddDroverRunEngine(builder.Configuration);
 builder.Services.AddDroverSandboxes(builder.Configuration, policy.Rules);
 builder.Services.AddDroverWebTools(builder.Configuration);
@@ -116,6 +117,7 @@ api.MapAppearanceEndpoints();
 api.MapToolSignInFinish();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
+app.MapModelSignInReturn();
 
 // The API description is for building Drover; a running server does not hand it to strangers.
 if (app.Environment.IsDevelopment())

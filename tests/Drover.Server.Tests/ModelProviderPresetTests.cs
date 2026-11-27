@@ -11,10 +11,10 @@ public abstract class ModelProviderPresetTests(PostgresServer postgres) : Server
 
     protected const string Route = "/api/model-provider-kinds";
 
-    protected static readonly string[] RowFields = ["address", "displayName", "id", "keyPage", "keyRule", "local"];
+    protected static readonly string[] RowFields = ["address", "addressBlank", "displayName", "id", "keyPage", "keyRule", "local"];
 
-    /// <summary>The rows this server lists: every row but the one whose own kind (OpenAI's) the server offers.</summary>
-    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id != OpenAIProvider.ConnectionKind);
+    /// <summary>The rows this server lists: every row but those whose own kind (OpenAI, Gemini) the server offers.</summary>
+    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id is not (OpenAIProvider.ConnectionKind or GeminiProvider.ConnectionKind));
 
     #endregion
 
@@ -68,7 +68,8 @@ public sealed class SelfHostedModelProviderPresetTests(PostgresServer postgres) 
                 row.Address,
                 row.KeyRule.ToString().ToLowerInvariant(),
                 row.KeyPage,
-                row.Local)),
+                row.Local,
+                row.AddressBlank is { } blank ? new ModelProviderAddressBlankResponse(blank.Label, blank.Pattern) : null)),
             options => options.WithStrictOrdering());
         listed.Select(row => row.KeyRule).Should().OnlyContain(rule =>
             rule == ModelProviderKeyRules.Required || rule == ModelProviderKeyRules.Optional || rule == ModelProviderKeyRules.None);
@@ -101,6 +102,40 @@ public sealed class SelfHostedModelProviderPresetTests(PostgresServer postgres) 
         var voice = await client.Put($"{path}/{connection.Id}/models/voice", new SetModelVoiceRequest("some-model", true, false, false));
         vision.StatusCode.Should().Be(HttpStatusCode.OK, await vision.Content.ReadAsStringAsync(Token));
         voice.StatusCode.Should().Be(HttpStatusCode.OK, await voice.Content.ReadAsStringAsync(Token));
+    }
+
+    [Fact]
+    public async Task A_row_with_a_blank_lists_its_label_and_pattern_and_builds_a_connection()
+    {
+        var alice = await SeedPerson("alice");
+        var client = NewClient();
+        (await client.SignIn(alice.Email, alice.Password)).EnsureSuccessStatusCode();
+        var row = (await Listed(client)).Single(preset => preset.Id == "cloudflare-workers-ai");
+        var path = $"/api/spaces/{alice.SpaceId}/model-connections";
+        var address = AddressBlanks.Build(row.Address, row.AddressBlank!.Pattern, "0123456789abcdef0123456789abcdef")!;
+
+        row.AddressBlank.Label.Should().Be("Account ID");
+        var created = await client.Post(path, new CreateModelConnectionRequest(ModelConnectionKinds.Compatible, row.DisplayName, address, TestKey(), null));
+
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Token));
+        (await created.Content.ReadFromJsonAsync<ModelConnectionSummary>(Token))!.BaseUrl.Should().Be(address);
+    }
+
+    [Theory]
+    [InlineData("https://x@evil.test.snowflakecomputing.com/api/v2/cortex/v1")]
+    [InlineData("https://api.cloudflare.com/client/v4/accounts/x/ai/v1?y=1")]
+    [InlineData("https://api.cloudflare.com/client/v4/accounts/x/ai/v1#y")]
+    [InlineData("https://x:y@dbc-1.cloud.databricks.com/ai-gateway/mlflow/v1")]
+    public async Task A_built_address_the_form_would_refuse_is_refused_by_the_server_when_forced(string address)
+    {
+        var alice = await SeedPerson("alice");
+        var client = NewClient();
+        (await client.SignIn(alice.Email, alice.Password)).EnsureSuccessStatusCode();
+
+        var created = await client.Post($"/api/spaces/{alice.SpaceId}/model-connections",
+            new CreateModelConnectionRequest(ModelConnectionKinds.Compatible, "Forced", address, TestKey(), null));
+
+        created.StatusCode.Should().Be(HttpStatusCode.BadRequest, await created.Content.ReadAsStringAsync(Token));
     }
 
     [Fact]
@@ -224,9 +259,22 @@ public sealed class ModelProviderCatalogNamedProviderTests
         offered.NamedProviders.Should().Equal(KnownProviders.All);
     }
 
+    [Fact]
+    public void The_gemini_row_is_not_listed_while_its_own_kind_is_offered_and_comes_back_when_the_policy_switches_it_off()
+    {
+        var offered = WithGemini(DeploymentPolicy.SelfHosted).Offered.Single(descriptor => descriptor.Kind == ModelConnectionKinds.Compatible);
+        var rules = DeploymentPolicy.SelfHosted with { ModelProviders = ModelProviderSet.OperatorList, AllowedModelProviderKinds = [ModelConnectionKinds.Compatible] };
+
+        offered.NamedProviders.Should().NotContain(row => row.Id == GeminiProvider.ConnectionKind);
+        WithGemini(rules).Offered.Single().NamedProviders.Should().Contain(row => row.Id == GeminiProvider.ConnectionKind);
+    }
+
     #endregion
 
     #region Private Methods
+
+    private static ModelProviderCatalog WithGemini(DeploymentPolicy rules) =>
+        new([new OpenAICompatibleProvider(new NoNetwork()), new GeminiProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));
 
     private static ModelProviderCatalog Catalog(DeploymentPolicy rules) =>
         new([new OpenAICompatibleProvider(new NoNetwork())], Options.Create(new DeploymentPolicyOptions { Rules = rules }));

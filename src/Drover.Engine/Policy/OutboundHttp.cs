@@ -54,6 +54,25 @@ public static class OutboundHttp
         CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains, followRedirects: false, useCookies: false);
 
     /// <summary>
+    /// Turns redirects off on a handler <see cref="CreateHandler(DeploymentPolicy)"/> built, in place, so the client
+    /// keeps whatever resolver and connection check its handler was built with. For a client whose requests carry a
+    /// credential in a header the caller names: .NET drops Authorization on a redirect to another host but not such a
+    /// header. A handler of any other kind is left as it is.
+    /// </summary>
+    public static void DisableRedirects(HttpMessageHandler handler)
+    {
+        switch (handler)
+        {
+            case RoutingHandler routing:
+                routing.DisableRedirects();
+                break;
+            case SocketsHttpHandler sockets:
+                sockets.AllowAutoRedirect = false;
+                break;
+        }
+    }
+
+    /// <summary>
     /// The handler for the client of one service the operator named in the server's configuration, such as a search
     /// or speech service beside the server. Its requests, marked by <see cref="OperatorAddressHandler"/>, reach that
     /// service on a private address even where the deployment forbids private addresses: that rule keeps a space, a
@@ -219,6 +238,13 @@ public static class OutboundHttp
         #endregion
 
         #region Public Methods
+
+        public void DisableRedirects()
+        {
+            guarded.AllowAutoRedirect = false;
+
+            open?.AllowAutoRedirect = false;
+        }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,

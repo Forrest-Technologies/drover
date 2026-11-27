@@ -44,6 +44,7 @@ Components: `SetupSteps` (setup only), heading, one line of `text-2`, the provid
 | Address rule: required | `Field` labeled `Base address`, `Type` url, placeholder `https://`, the kind's address hint under it |
 | Key rule: required | `Field` labeled `Key`, `Type` password |
 | Key rule: optional | The same field labeled `Key (optional)` |
+| A named provider with a blank (an account, a region, a host) | One field labeled with the provider's own label (for example `Account ID`) in place of the address, and no `Change address`. A value the provider's pattern refuses is answered with `{label} is not valid.` and nothing is sent. The built address is the connection's address |
 | Key rule: none | No key field |
 | Key hint | The hint under the key field. Plain text, never a link |
 
@@ -53,11 +54,12 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-Until the kinds come from the server (#850), the provider choice is Venice, then each other kind the server offers with its own wire (such as `openai`, the provider's Responses API), then the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
+The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Each kind with its own wire (such as `openai` and `anthropic`) is a choice of its own, in the server's order. Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice, and the client does not hide any.
 
 | Choice | Drawn as |
 | --- | --- |
 | A named provider | The address field is hidden and the form holds the provider's address. A text button `Change address` shows the field filled in. The provider's name is the connection's name |
+| A named provider with a blank (an account, a region, a host) | One field labeled with the provider's own label (for example `Account ID`) in place of the address, and no `Change address`. A value the provider's pattern refuses is answered with `{label} is not valid.` and nothing is sent. The built address is the connection's address |
 | Key rule: none | No key field |
 | Key rule: optional | The field labeled `Key (optional)` |
 | A key page | One `Link` under the key field: `Get a key from {name}`, opened in the browser. The text and address are drawn as plain values from the server, never as markup |
@@ -67,9 +69,12 @@ Until the kinds come from the server (#850), the provider choice is Venice, then
 
 | State | Words |
 | --- | --- |
-| Loading the list | `Loading the provider list.` Venice and `Another compatible server` can be chosen meanwhile |
-| The list could not be read | `Could not read the provider list.` with `Try again`. `Another compatible server` still works |
-| A server with no named providers | The two choices of before |
+| Loading the list | `Asking this server which providers it offers.` in place of the form |
+| The list could not be read | `EmptyState` in place of the form: title `Drover could not load the providers`, the failure sentence, action `Try again` |
+| A server with one kind and no named providers | No choice. `This server uses {kind}.` |
+| A server whose kind is switched off for an existing connection | The Models row shows the `Off` badge and `The operator of this server switched {kind} off.` |
+| The server offers no kind | `EmptyState` in place of the form: title `This server offers no model provider`, cause `The operator of this server has switched every provider off. Ask them to turn one on, then try again.`, action `Try again` |
+| A required field is empty and a button is pressed | Under the field: `Enter the base address.` or `Enter the key.` |
 
 No provider name or id is written in the client; all of it comes from the server.
 
@@ -88,6 +93,28 @@ No provider name or id is written in the client; all of it comes from the server
 | Continue with no passing test | Allowed. The connection is saved as not tested |
 
 `Test connection` is `Quiet`, `Continue` is `Primary`. In the Models page's add form `Continue` reads `Add connection`.
+
+### Signing in with a personal plan (#526)
+
+A kind each person signs in to (the server marks it `SignIn`) is one more entry in the provider list, under its own name ("ChatGPT plan"). It has no key, no address and no test: one line, one sentence for where it stands, and one button. The flow is always choose the provider, approve in the browser, done; no warning, checkbox or confirmation. `{Name}` is the kind's `SignInName` from the server; no provider name is written in the client.
+
+| State | Sentence | Action |
+| --- | --- | --- |
+| Before anything starts | "Uses your own {Name} plan. Drover does not charge for it." | "Continue with {Name}" (`Primary`) |
+| Waiting | "Finish signing in in your browser." | "Cancel" (`Quiet`) |
+| Done | "Signed in as {account}. Your bots can use your {Name} plan." (the person's own account) | none; "Continue" on the setup step |
+| Cancelled or refused | "Sign-in was cancelled." | "Continue with {Name}" |
+| Plan use not allowed | the server's "ChatGPT signed you in but did not allow plan use. Try again and allow it." | "Continue with {Name}" |
+| Took over 10 minutes | "Sign-in took too long." | "Continue with {Name}" |
+| Listener could not start | "Drover could not listen for the sign-in on this device. Close other apps that are signing in and try again." | "Try again" |
+| Code (a head that cannot listen, kind polls) | "Enter this code at {page}:" and the code in mono, selectable, with a copy button "Copy code" | "Cancel" (`Quiet`) |
+| Code ran out | "The code ran out." | "Get a new code" |
+| Paste (a head that cannot listen, kind shows a code) | "Sign in in your browser, then paste the code it shows." and a field "Code" | "Continue", "Cancel" |
+| Pasted code refused | "That code did not work. Copy it again from the browser page." | "Continue" |
+| Code refused by ChatGPT | the server's "ChatGPT refused the code. Turn on device code sign-in in ChatGPT's security settings, then try again." | "Continue with {Name}" |
+| Hosted server, or the kind is switched off | the server's "Signing in with a personal plan is not available on this server. You can add an API key instead." | "Add a key" |
+
+"Add a key" moves the choice to the first provider the server offers that takes a key, in the server's order. Each sentence is a `StatusNote`. On Models, a sign-in connection's card reads "Using {Name} plan · {account}" with a `Link` "Manage usage" to the provider's usage page while the caller's own sign-in is in use, "Your {Name} sign-in has ended." with "Sign in again" (which starts the flow at once), or "Sign in with your own {Name} plan to use it." with "Continue with {Name}". "Sign out" is a text item in the card's More menu and asks nothing; it keeps only what the provider registered for the person, so the card then reads "Signed out of your {Name} plan." with "Continue with {Name}", and signing out again removes the sign-in entirely. Focus moves to the sentence when the state changes. A card never says who else has signed in.
 
 ## 2. Models: change and remove a connection (#52)
 
@@ -158,7 +185,7 @@ On Models, each model row has `Edit what this model can do` in its menu (admins 
 
 | Field problem | Words |
 | --- | --- |
-| A size out of range | `Enter a size between 1 and 10,000,000 tokens.` |
+| A size out of range | `Enter a size of 1 token or more.` |
 | A price out of range | `Enter a price of zero or more per million tokens.` |
 | A currency that is not three letters | `Enter a three letter currency code, such as USD.` |
 
@@ -200,6 +227,7 @@ In a conversation, the status line above the message field reads `{model} on {ru
 
 ## Layout at each width
 
+- The provider choice is a `SegmentedControl` for up to four choices and a `Select` for five or more. A segmented control never breaks a word, so each column is as wide as its widest word; when the choices need more width than the form's own column has (the setup form and the sheet are 400 px wide with padding, so four choices with long names often do not fit), the same choices are drawn as the `Select`. The rule measures the control's own available width, not the window.
 - Below 560 the two buttons of the connect form stack, `Continue` first. Price fields stack two per row.
 - The sheet in section 3 opens from the bottom below 640 px and from the trailing edge at 640 px and wider.
 

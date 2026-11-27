@@ -14,6 +14,8 @@ public sealed class ModelCatalogEntryMapping : IEntityTypeConfiguration<ModelCat
         builder.Property(entry => entry.Traits).HasDefaultValueSql("'{}'::text[]");
         builder.Property(entry => entry.Capabilities).HasJsonRecord();
         builder.Property(entry => entry.Pricing).HasJsonRecord();
+        builder.Property(entry => entry.OperatorCapabilities).HasJsonRecord(defaultSql: null);
+        builder.Property(entry => entry.OperatorPricing).HasJsonRecord(defaultSql: null);
         builder.HasEnumColumn(entry => entry.State);
         builder.WithinSpace<ModelCatalogEntry, ModelConnection>(nameof(ModelCatalogEntry.ModelConnectionId));
     }

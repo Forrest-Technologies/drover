@@ -19,7 +19,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Drover.Adapters.Anthropic\Drover.Adapters.Anthropic.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.Gemini\Drover.Adapters.Gemini.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.Mcp\Drover.Adapters.Mcp.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
@@ -27,6 +29,7 @@
     <ProjectReference Include="..\..\src\Drover.Adapters.LocalFiles\Drover.Adapters.LocalFiles.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.WebPush\Drover.Adapters.WebPush.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.SystemOne\Drover.Adapters.SystemOne.csproj" />
     <ProjectReference Include="..\..\src\Drover.Data\Drover.Data.csproj" />
     <ProjectReference Include="..\..\src\Drover.Agents\Drover.Agents.csproj" />
     <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />

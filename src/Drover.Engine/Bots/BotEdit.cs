@@ -26,6 +26,8 @@ public sealed record BotEdit(
     /// chosen stays chosen.
     /// </summary>
     public bool? HandleFollowsName { get; init; }
+
+    public bool? AcceptsBotRequests { get; init; }
 }
 
 /// <summary>

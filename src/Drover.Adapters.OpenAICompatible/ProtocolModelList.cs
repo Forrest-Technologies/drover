@@ -2,26 +2,39 @@ namespace Drover.Adapters.OpenAICompatible;
 
 /// <summary>
 /// Reads <c>GET {address}/models</c>, the list both wires share: an object whose <c>data</c> holds entries with an
-/// <c>id</c>. It says nothing else about a model.
+/// <c>id</c>. <see cref="ReadIds"/> keeps only the id; <see cref="Read{T}"/> hands each entry to a projection, for a
+/// caller that reads more of what the entry says about a model.
 /// </summary>
 internal static class ProtocolModelList
 {
     #region Public Methods
 
     /// <summary>Returns null when the endpoint has no model list, which is normal for some servers.</summary>
-    public static async Task<List<string>?> ReadIds(
+    public static Task<List<string>?> ReadIds(
         HttpClient client,
         Uri address,
         string? apiKey,
         DiscoveryLimits limits,
+        CancellationToken cancellation) =>
+        Read(client, address, apiKey, limits, ReadId, cancellation);
+
+    /// <summary>
+    /// Reads the list and hands each entry to <paramref name="project"/> while the answer is still open, so a caller that
+    /// wants more than the id can take it. An entry the projection returns null for is left out. Returns null when the
+    /// endpoint has no model list.
+    /// </summary>
+    public static async Task<List<T>?> Read<T>(
+        HttpClient client,
+        Uri address,
+        string? apiKey,
+        DiscoveryLimits limits,
+        Func<JsonElement, T?> project,
         CancellationToken cancellation)
+        where T : class
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(WithTrailingSlash(address), "models"));
 
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
+        ProtocolKey.Apply(request, address, apiKey);
 
         try
         {
@@ -44,7 +57,7 @@ internal static class ProtocolModelList
 
             using var document = await BoundedResponse.ReadJson(response.Content, limits.MaxBytes, "model list", cancellation);
 
-            return ParseIds(document.RootElement);
+            return Parse(document.RootElement, project);
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
         {
@@ -63,11 +76,12 @@ internal static class ProtocolModelList
     private static Uri WithTrailingSlash(Uri address) =>
         address.AbsoluteUri.EndsWith('/') ? address : new Uri($"{address.AbsoluteUri}/");
 
-    private static List<string> ParseIds(JsonElement root) =>
+    private static string? ReadId(JsonElement model) => model.TryGetProperty("id", out var id) ? id.GetString() : null;
+
+    private static List<T> Parse<T>(JsonElement root, Func<JsonElement, T?> project)
+        where T : class =>
         root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
-            ? [.. data.EnumerateArray()
-                .Select(model => model.TryGetProperty("id", out var id) ? id.GetString() : null)
-                .OfType<string>()]
+            ? [.. data.EnumerateArray().Select(project).OfType<T>()]
             : [];
 
     #endregion

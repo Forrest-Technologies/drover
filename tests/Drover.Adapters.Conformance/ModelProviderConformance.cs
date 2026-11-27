@@ -17,6 +17,11 @@ public abstract class ModelProviderConformance
 
     public const string ReasoningPrompt = "What is 15 percent of 240?";
 
+    public const string PdfPrompt = "What does this document say?";
+
+    /// <summary>A one-page PDF with nothing on it. Its bytes only need to reach the wire unchanged.</summary>
+    private const string SamplePdf = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n";
+
     #endregion
 
     #region Adapter Hooks
@@ -51,6 +56,7 @@ public abstract class ModelProviderConformance
 
         capabilities.StructuredOutput.Should().Be(Claims.StructuredOutput);
         capabilities.Reasoning.Should().Be(Claims.ReasoningText);
+        capabilities.PdfInput.Should().Be(Claims.PdfInput);
     }
 
     [Fact]
@@ -144,7 +150,7 @@ public abstract class ModelProviderConformance
         report!.City.Should().Be("Paris");
 
         subject.SentStructuredFormat(subject.ChatRequests().Single())
-            .Should().Be(new StructuredFormat(StructuredFormatKind.JsonSchema, "weather_report"));
+            .Should().Be(new StructuredFormat(StructuredFormatKind.JsonSchema, subject.Wire.NamesSchemas ? "weather_report" : null));
     }
 
     [Fact]
@@ -155,11 +161,23 @@ public abstract class ModelProviderConformance
         var settings = new ModelSettings { StructuredOutput = true };
 
         await plain.CreateChatClient().GetResponse(Prompt(GreetingPrompt));
-        await structured.Provider.CreateChatClient(structured.Connection, structured.ApiKey, structured.ModelId, settings).GetResponse(Prompt(GreetingPrompt));
+        var asked = () => structured.Provider.CreateChatClient(structured.Connection, structured.ApiKey, structured.ModelId, settings).GetResponse(Prompt(GreetingPrompt));
 
         plain.SentStructuredFormat(plain.ChatRequests().Single()).Kind
             .Should().Be(StructuredFormatKind.None, "a bot that was not set to it sends no response format");
-        structured.SentStructuredFormat(structured.ChatRequests().Single()).Kind.Should().Be(StructuredFormatKind.JsonObject);
+
+        if (Claims.JsonObject)
+        {
+            await asked();
+            structured.SentStructuredFormat(structured.ChatRequests().Single()).Kind.Should().Be(StructuredFormatKind.JsonObject);
+        }
+        else
+        {
+            var failure = (await FluentActions.Awaiting(asked).Should().ThrowAsync<ModelProviderException>()).Which;
+            failure.Failure.Should().Be(ModelFailure.Rejected);
+            failure.Message.Should().Contain("JSON");
+            structured.ChatRequests().Should().BeEmpty("a provider that takes no bare JSON request is not sent one");
+        }
     }
 
     [Fact]
@@ -234,6 +252,26 @@ public abstract class ModelProviderConformance
         response.Usage.Should().NotBeNull();
         response.Usage!.CachedInputTokens.Should().BePositive();
         response.Usage.InputTokens.Should().BeGreaterThanOrEqualTo(response.Usage.CachedInputTokens!.Value, "input tokens include the cached ones");
+    }
+
+    [Fact]
+    public async Task Sends_a_pdf_as_a_document_where_claimed()
+    {
+        if (!Claims.PdfInput)
+        {
+            return;
+        }
+
+        var subject = Start(ConformanceScenarios.PdfInput);
+        var pdf = Encoding.ASCII.GetBytes(SamplePdf);
+        var request = new ModelChatRequest(
+            [new ModelChatMessage("user", [new ModelText(PdfPrompt), new ModelData(pdf, "application/pdf")])],
+            new ModelChatOptions());
+
+        var response = await subject.CreateChatClient().GetResponse(request);
+
+        Text(response.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
+        subject.SentPdfs(subject.ChatRequests().Single()).Should().Equal([Convert.ToBase64String(pdf)], "the PDF goes as itself, not as its text");
     }
 
     #endregion
@@ -331,13 +369,7 @@ public abstract class ModelProviderConformance
 
         var withoutKey = () => provider.CreateChatClient(subject.Connection, null, subject.ModelId, new ModelSettings()).GetResponse(Prompt(GreetingPrompt));
 
-        if (descriptor.SignIn)
-        {
-            var failure = (await FluentActions.Awaiting(withoutKey).Should().ThrowAsync<ModelProviderException>()).Which;
-            failure.Failure.Should().Be(ModelFailure.InvalidKey);
-            failure.Message.Should().Contain("sign");
-        }
-        else if (descriptor.KeyRule is ModelKeyRule.Required)
+        if (descriptor.KeyRule is ModelKeyRule.Required)
         {
             var failure = (await FluentActions.Awaiting(withoutKey).Should().ThrowAsync<ModelProviderException>()).Which;
             failure.Failure.Should().Be(ModelFailure.InvalidKey);
