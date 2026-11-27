@@ -107,6 +107,7 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     [InlineData("out_of_credit", FailureCauses.ModelOutOfCredit)]
     [InlineData("step_limit", FailureCauses.BudgetReached)]
     [InlineData("token_limit", FailureCauses.BudgetReached)]
+    [InlineData("unmetered_call_limit", FailureCauses.BudgetReached)]
     [InlineData("stopped_by_rule", FailureCauses.StoppedByRule)]
     [InlineData("blocked_by_rule", FailureCauses.StoppedByRule)]
     [InlineData("lease_lost", FailureCauses.ServerRestarted)]
@@ -161,6 +162,31 @@ public sealed class RunAttentionTests(PostgresServer postgres)
             failure.RunId == failedId
             && failure.Cause == FailureCauses.BudgetReached
             && failure.Limit == new RunFailureLimit(FailureLimits.Tokens, 30, 20));
+    }
+
+    [Fact]
+    public async Task A_run_stopped_by_the_unmetered_call_bound_reports_its_kind_used_and_cap()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new TextOutput("Never reached.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        world.Model.UsagePerCall = new ModelTokenUsage(0, 0, 0);
+        await world.SetSpaceSettings(new SpaceSettings { MaxUnmeteredModelCallsPerRun = 2 });
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var failedId = await world.Post(threadId, "Loop");
+        await world.WaitForStatus(failedId, RunStatus.Failed);
+        var failed = await AttentionOf(world, threadId, world.UserId);
+
+        failed.Failed.Should().BeTrue();
+        failed.LastFailure.Should().Match<RunFailure>(failure =>
+            failure.RunId == failedId
+            && failure.Cause == FailureCauses.BudgetReached
+            && failure.Limit == new RunFailureLimit(FailureLimits.UnmeteredModelCalls, 2, 2));
     }
 
     #endregion

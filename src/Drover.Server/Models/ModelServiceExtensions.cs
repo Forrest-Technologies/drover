@@ -25,6 +25,7 @@ public static class ModelServiceExtensions
             adapter => adapter.AddOpenRouterSignIn(),
             OpenRouterProvider.HttpClientName,
             OpenRouterSignIn.HttpClientName);
+        services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));

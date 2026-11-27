@@ -5,6 +5,10 @@ public abstract class VoiceTestBase(PostgresServer postgres) : ServerTestBase(po
 {
     #region Properties
 
+    protected static TimeSpan Patience { get; } = TimeSpan.FromSeconds(30);
+
+    protected static JsonSerializerOptions Json { get; } = new(JsonSerializerDefaults.Web);
+
     protected FakeSpeech Speech { get; } = new();
 
     #endregion
@@ -105,6 +109,98 @@ public abstract class VoiceTestBase(PostgresServer postgres) : ServerTestBase(po
         {
             var thread = (await services.GetRequiredService<ThreadRepository>().GetThreadForUpdate(threadId, Token))!;
             await services.GetRequiredService<MessageRepository>().AppendMessages(thread, messages, Token);
+        });
+
+    #endregion
+
+    #region A Call's Socket
+
+    protected async Task<WebSocket> Call(ApiClient client, Guid spaceId, Guid threadId, string? origin = null)
+    {
+        var sockets = NewSocketClient();
+        sockets.ConfigureRequest = request =>
+        {
+            request.Headers.Cookie = client.CookieHeader;
+
+            if (origin is not null)
+            {
+                request.Headers.Origin = origin;
+            }
+        };
+        return await sockets.ConnectAsync(new Uri($"wss://localhost{Space(spaceId)}/threads/{threadId}/call"), Token);
+    }
+
+    protected static Task Send(WebSocket socket, VoiceCallFrame frame) =>
+        socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(frame, Json), WebSocketMessageType.Text, true, Token);
+
+    protected static async Task<(WebSocketMessageType Type, byte[] Bytes)> Next(WebSocket socket)
+    {
+        var buffer = new byte[64 * 1024];
+        var received = await socket.ReceiveAsync(buffer, Token).WaitAsync(Patience, Token);
+        return (received.MessageType, buffer[..received.Count]);
+    }
+
+    protected static async Task<VoiceCallFrame> NextFrame(WebSocket socket)
+    {
+        var (type, bytes) = await Next(socket);
+        type.Should().Be(WebSocketMessageType.Text, "a text frame was expected");
+        return JsonSerializer.Deserialize<VoiceCallFrame>(bytes, Json)!;
+    }
+
+    protected static async Task<byte[]> NextAudio(WebSocket socket)
+    {
+        var (type, bytes) = await Next(socket);
+        type.Should().Be(WebSocketMessageType.Binary);
+        return bytes;
+    }
+
+    protected static async Task<List<VoiceCallFrame>> FramesUntilEnded(WebSocket socket)
+    {
+        List<VoiceCallFrame> frames = [];
+
+        while (frames.Count == 0 || frames[^1].Type != VoiceCallMessages.Ended)
+        {
+            var (type, bytes) = await Next(socket);
+            type.Should().NotBe(WebSocketMessageType.Close, "the call says why it ended before it closes");
+
+            if (type is WebSocketMessageType.Text)
+            {
+                frames.Add(JsonSerializer.Deserialize<VoiceCallFrame>(bytes, Json)!);
+            }
+        }
+
+        return frames;
+    }
+
+    protected static async Task WaitFor(Func<bool> condition)
+    {
+        var waited = Stopwatch.StartNew();
+
+        while (!condition())
+        {
+            (waited.Elapsed < Patience).Should().BeTrue("the condition should come true in time");
+            await Task.Delay(20, Token);
+        }
+    }
+
+    /// <summary>A run that is queued on the conversation, as a message sent from another device would leave one.</summary>
+
+    /// <summary>A run of the bot in the conversation that waits on a person, as one started from another screen would.</summary>
+    protected Task SeedActiveRun(Guid spaceId, Guid userId, Guid threadId, Guid botId) =>
+        InSpace(spaceId, userId, services =>
+        {
+            var id = Guid.CreateVersion7();
+            services.GetRequiredService<DroverDbContext>().Runs.Add(new Run
+            {
+                Id = id,
+                RootRunId = id,
+                ThreadId = threadId,
+                BotId = botId,
+                PrincipalUserId = userId,
+                Status = RunStatus.Waiting,
+                WaitingSince = Time.GetUtcNow(),
+            });
+            return Task.CompletedTask;
         });
 
     #endregion

@@ -41,5 +41,7 @@ public sealed record ProviderUnderTest(
 
     public IReadOnlyList<string> SentProtectedReasoning(WireRequest request) => Wire.SentProtectedReasoning(request);
 
+    public IReadOnlyList<string> SentPdfs(WireRequest request) => Wire.SentPdfs(request);
+
     #endregion
 }

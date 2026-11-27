@@ -34,7 +34,7 @@ public static class Attentions
         "rejected" => FailureCauses.ModelRefused,
         "retry_later" => FailureCauses.ModelBusy,
         "out_of_credit" => FailureCauses.ModelOutOfCredit,
-        RunReasons.StepLimit or RunReasons.TokenLimit => FailureCauses.BudgetReached,
+        RunReasons.StepLimit or RunReasons.TokenLimit or RunReasons.UnmeteredCallLimit => FailureCauses.BudgetReached,
         RunRules.StoppedByRule or RunRules.BlockedByRule => FailureCauses.StoppedByRule,
         RunReasons.LeaseLost => FailureCauses.ServerRestarted,
         _ => FailureCauses.Unknown,

@@ -571,6 +571,12 @@ public sealed class RunGovernor(
     private async Task Record(ToolModelUsage reported)
     {
         var usage = NonNegative(reported);
+
+        if (!usage.HasTokenUsage || (usage.InputTokens is 0 && usage.OutputTokens is 0))
+        {
+            session.RecordUnmeteredModelCall();
+        }
+
         var cost = Cost(usage);
         session.AddUsage(usage.InputTokens, usage.OutputTokens, cost ?? 0);
         var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);

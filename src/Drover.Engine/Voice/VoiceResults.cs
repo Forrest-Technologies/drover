@@ -117,6 +117,9 @@ public sealed class CallPlan
 
     public required EffectivePolicy Policy { get; init; }
 
+    /// <summary>True when the model only holds the conversation, and what it is asked is answered by the bot in a run.</summary>
+    public bool HandsWorkOver { get; init; }
+
     public required RealtimeVoiceOptions Options { get; init; }
 
     #endregion
