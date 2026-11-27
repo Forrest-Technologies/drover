@@ -1124,9 +1124,15 @@ try {
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
             assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
             await focusSettled(page);
-            await handoffDisclosure.press('Enter');
-            await page.getByText('ls -la /handoff-sample', { exact: false }).first().waitFor({ state: 'attached', timeout: 10000 });
-            assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 1, 'The handoff disclosure opens by keyboard.');
+            // The semantic button can hold DOM focus before Uno finishes moving keyboard focus to it.
+            await handoffDisclosure.focus();
+            await focusSettled(page);
+            assert.ok(await handoffDisclosure.evaluate(button => document.activeElement === button),
+                'Keyboard focus stays on the handoff disclosure before activation.');
+            await page.keyboard.press('Enter');
+            const handoffOriginal = page.getByText('ls -la /handoff-sample', { exact: false });
+            await handoffOriginal.first().waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(await handoffOriginal.count(), 1, 'The handoff disclosure opens by keyboard.');
             await originalDisclosure.dispatchEvent('click');
             await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
             await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });
