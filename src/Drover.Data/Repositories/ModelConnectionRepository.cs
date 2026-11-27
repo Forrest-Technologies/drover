@@ -6,7 +6,31 @@ namespace Drover.Data.Repositories;
 /// </summary>
 public sealed class ModelConnectionRepository(DroverDbContext db)
 {
+    #region Private Fields
+
+    // Mixed into the advisory lock key so it cannot collide with another lock taken on the same space.
+    private const long KindLockSeed = 0x44524F56_4552000D;
+
+    #endregion
+
     #region Public Methods
+
+    /// <summary>
+    /// Makes the rest of the transaction the only one that adds the space's connection of a kind there is one of per
+    /// space, such as a sign-in kind. Two sign-ins that both find none would otherwise each add one. Held until the
+    /// transaction ends.
+    /// </summary>
+    public Task LockKind(string kind, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended(sys.current_space()::text || {kind}, {KindLockSeed}))",
+            cancellationToken);
+
+    /// <summary>The space's oldest connection of a kind, untracked, or null when it has none.</summary>
+    public Task<ModelConnection?> FindConnectionOfKind(string kind, CancellationToken cancellationToken) =>
+        db.ModelConnections.AsNoTracking()
+            .Where(connection => connection.Kind == kind)
+            .OrderBy(connection => connection.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public void Add(ModelConnection connection) => db.ModelConnections.Add(connection);
 

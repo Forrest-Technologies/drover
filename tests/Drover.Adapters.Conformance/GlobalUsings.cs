@@ -12,6 +12,7 @@ global using System.Threading.Tasks;
 global using AwesomeAssertions;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.Conformance.Files;
+global using Drover.Adapters.Conformance.Models;
 global using Drover.Adapters.Conformance.Push;
 global using Drover.Adapters.Conformance.Sandboxes;
 global using Drover.Adapters.Conformance.Tools;
