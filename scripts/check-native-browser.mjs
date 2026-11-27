@@ -251,7 +251,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
-    ['bot-editor-limits', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-limits', `/bots/${botId}?section=limits`, 'Sample bot'],
     ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
@@ -718,7 +718,7 @@ try {
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
-                const editorLoaded = name === 'bot-editor'
+                const editorLoaded = name === 'bot-editor' || name === 'bot-editor-limits'
                     ? page.waitForResponse(response => response.ok()
                         && response.request().method() === 'GET'
                         && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
@@ -743,8 +743,8 @@ try {
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
                 }
                 if (name === 'bot-editor-limits') {
-                    await page.getByRole('button', { name: /^Limits(?:,|$)/ }).dispatchEvent('click');
-                    await page.getByLabel('Accept requests from other bots', { exact: true }).scrollIntoViewIfNeeded();
+                    await editorLoaded;
+                    await page.getByLabel('Accept requests from other bots', { exact: true }).waitFor({ state: 'visible' });
                 }
                 if (name === 'bot-editor-tools') {
                     await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
@@ -1562,16 +1562,16 @@ async function checkStopBounds(page, width) {
 
 async function checkBotRequests(page, width, theme) {
     const accepts = page.getByLabel('Accept requests from other bots', { exact: true });
-    await accepts.click();
+    await accepts.click({ force: true, position: { x: 20, y: 20 } });
     const save = page.getByRole('button', { name: 'Save changes', exact: true });
     const saved = page.waitForResponse(reply => reply.request().method() === 'PUT'
         && new URL(reply.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`);
-    await save.click();
+    await save.press('Enter');
     const reply = await saved;
     assert(reply.ok());
     assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
         'Incoming bot requests default on and the editor can opt out');
-    await accepts.scrollIntoViewIfNeeded();
+    await save.waitFor({ state: 'hidden' });
     await page.screenshot({ path: path.join(pictures, `bot-editor-limits-off-${width}-${theme}.png`) });
 }
 

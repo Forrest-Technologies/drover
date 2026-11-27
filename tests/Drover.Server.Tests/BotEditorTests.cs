@@ -870,6 +870,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                     ("crew.change", "ask", "current"),
                     ("crew.list", "ask", "current"),
                     ("crew.remove", "ask", "current"),
+                    ("message_bot", "allow", "current"),
                     ("time.now", "allow", "current"));
         }
 
