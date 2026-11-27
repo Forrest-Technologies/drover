@@ -51,6 +51,40 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
     }
 
     [Fact]
+    public async Task Signing_in_again_hands_the_provider_what_the_persons_own_sign_in_left_and_nobody_elses()
+    {
+        var owner = await SeedPerson("owner");
+        var member = await SeedMember(owner.SpaceId, "member", MembershipRole.Member);
+        var ownerClient = await SignedIn(owner.Email, owner.Password);
+        var memberClient = await SignedIn(member.Email, member.Password);
+
+        await SignInThrough(ownerClient, owner.SpaceId);
+        await SignInThrough(memberClient, owner.SpaceId);
+        await SignInThrough(ownerClient, owner.SpaceId);
+
+        plan.Earliers[0].Should().BeEmpty("a first sign-in has nothing earlier");
+        plan.Earliers[1].Should().BeEmpty("another member's sign-in is never read for this person");
+        plan.Earliers[2].Should().ContainKey("client").WhoseValue.Should().StartWith("fake-client-");
+    }
+
+    [Fact]
+    public async Task A_refusal_with_the_providers_own_reason_is_answered_with_drovers_sentence_for_it()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        plan.RefusalSentence = "ChatGPT signed you in but did not allow plan use. Try again and allow it.";
+        var started = await Start(client, owner.SpaceId, FakeModelSignIn.RedirectUri.AbsoluteUri);
+
+        var finish = await client.Post(
+            $"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}/finish",
+            new FinishModelSignInRequest(plan.Approve(FakeModelSignIn.StateOf(new Uri(started.Address))).Text));
+
+        finish.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await finish.Content.ReadAsStringAsync(Token)).Should().Contain(plan.RefusalSentence);
+        (await ReadCredentialCount(owner.SpaceId, owner.UserId)).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Another_member_sees_no_sign_in_of_theirs_and_cannot_finish_read_or_remove_anothers()
     {
         var owner = await SeedPerson("owner");

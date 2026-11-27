@@ -16,7 +16,18 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, OpenAIPlan);
+        kinds.Single(kind => kind.Kind == OpenAIPlan).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            OpenAIPlan,
+            "ChatGPT plan",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            null,
+            false,
+            [],
+            SignIn: true));
+        kinds.Where(kind => kind.Kind != OpenAIPlan).Should().OnlyContain(kind => !kind.SignIn, "only a sign-in kind is connected by signing in");
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
             "OpenAI",
@@ -91,6 +102,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     private const string Venice = "venice";
 
     private const string OpenAI = "openai";
+
+    private const string OpenAIPlan = "openai_signin";
 
     #endregion
 
@@ -230,7 +243,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai");
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "openai_signin");
     }
 
     #endregion

@@ -49,6 +49,8 @@ public sealed class FakeModelSignIn(
 
     private readonly TimeProvider clock = time ?? TimeProvider.System;
 
+    private readonly ConcurrentQueue<IReadOnlyDictionary<string, string>> earliers = new();
+
     #endregion
 
     #region Properties
@@ -80,6 +82,12 @@ public sealed class FakeModelSignIn(
     public int Refreshes => received.Count(request => request.Grant == "refresh_token");
 
     public int Begins { get; private set; }
+
+    /// <summary>What each attempt was handed of the person's earlier sign-in, in the order the attempts began.</summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, string>> Earliers => [.. earliers];
+
+    /// <summary>When set, an approval is refused with this sentence, as a provider that signed the person in but allowed too little.</summary>
+    public string? RefusalSentence { get; set; }
 
     /// <summary>Every access and refresh token this provider has handed out.</summary>
     public IReadOnlyList<string> Issued => [.. issued];
@@ -119,6 +127,7 @@ public sealed class FakeModelSignIn(
     public Task<ModelSignInStep> Begin(ModelSignInAttempt attempt, CancellationToken cancellation)
     {
         Begins++;
+        earliers.Enqueue(attempt.Earlier);
         var challenge = System.Buffers.Text.Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(attempt.Verifier)));
         challengesByState[attempt.State] = challenge;
         var address = new UriBuilder(AuthorizeAddress)
@@ -137,6 +146,11 @@ public sealed class FakeModelSignIn(
             throw new ModelSignInRefusedException();
         }
 
+        if (RefusalSentence is { } sentence)
+        {
+            throw new ModelSignInRefusedException(sentence);
+        }
+
         received.Enqueue(new FakeTokenRequest("authorization_code", code, attempt.Verifier, null));
         var expected = System.Buffers.Text.Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(attempt.Verifier)));
 
@@ -145,7 +159,8 @@ public sealed class FakeModelSignIn(
             throw new ModelSignInRefusedException();
         }
 
-        return Task.FromResult<ModelTokens?>(NewTokens());
+        // What a provider keeps for a later sign-in, such as a client id it issued to the person.
+        return Task.FromResult<ModelTokens?>(NewTokens() with { Details = new Dictionary<string, string> { ["client"] = $"fake-client-{Guid.NewGuid():N}" } });
     }
 
     public async Task<ModelTokens> Refresh(ModelTokens current, CancellationToken cancellation)
@@ -163,7 +178,7 @@ public sealed class FakeModelSignIn(
             FakeRefreshAnswer.ServerError => throw ModelProviderException.FromStatus(503),
             FakeRefreshAnswer.Unreachable => throw ModelProviderException.FromNetwork(),
             _ when current.RefreshToken is null || !spent.TryAdd(current.RefreshToken, true) => throw new SignInEndedException(),
-            _ => NewTokens(),
+            _ => NewTokens() with { Details = current.Details },
         };
     }
 
