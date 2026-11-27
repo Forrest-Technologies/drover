@@ -392,6 +392,7 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
+            let acceptsBotRequests;
             // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
             const uploadedFiles = [];
             let projectMoved = false;
@@ -471,9 +472,10 @@ try {
                 else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : current === 'conversation-unusable-tool-request' ? [bot, helperBot] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
                 else if (address.endsWith(`/bots/${botId}/definition`)) {
-                    body = method === 'PUT'
-                        ? { ...botDetail, acceptsBotRequests: route.request().postDataJSON().acceptsBotRequests }
-                        : botDetail;
+                    if (method === 'PUT') {
+                        acceptsBotRequests = route.request().postDataJSON().acceptsBotRequests;
+                    }
+                    body = { ...botDetail, acceptsBotRequests };
                 }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
                 else if (address.endsWith(`/bots/${helperBotId}`)) { body = helperBot; }
@@ -484,7 +486,11 @@ try {
                 else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
-                else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
+                else if (address.endsWith('/limits/options')) {
+                    body = current === 'bot-editor-limits'
+                        ? { maxSteps: null, maxTokens: 5000000, maxDelegations: 2147483647, canRemoveUsageLimit: true }
+                        : { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 };
+                }
                 else if (address.endsWith(`/bots/${botId}/threads`)) { body = [thread]; }
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
@@ -1572,6 +1578,13 @@ async function checkBotRequests(page, width, theme) {
     assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
         'Incoming bot requests default on and the editor can opt out');
     await save.waitFor({ state: 'hidden' });
+    await page.reload();
+    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+    await accepts.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+        const box = document.querySelector('[aria-label="Accept requests from other bots"]')?.getBoundingClientRect();
+        return box && box.top > 0 && box.bottom < window.innerHeight - 60;
+    });
     await page.screenshot({ path: path.join(pictures, `bot-editor-limits-off-${width}-${theme}.png`) });
 }
 
