@@ -20,6 +20,9 @@ public sealed class FakeSpeech : ISpeechToText, ITextToSpeech, IRealtimeVoice
 
     public ConcurrentQueue<(Uri Address, string? Key, SpeechRequest Request)> Spoken { get; } = [];
 
+    /// <summary>When set, the live model only holds the conversation and hands its work over.</summary>
+    public bool HandsOver { get; set; }
+
     public ConcurrentQueue<FakeCall> Calls { get; } = [];
 
     #endregion
@@ -57,6 +60,8 @@ public sealed class FakeSpeech : ISpeechToText, ITextToSpeech, IRealtimeVoice
 
     public IReadOnlyList<VoiceOption> ListVoices(string model) => Voices;
 
+    public bool HandsWorkOver(string model) => HandsOver;
+
     public Task<IRealtimeVoiceSession> Open(ModelEndpoint connection, string? apiKey, RealtimeVoiceOptions options, CancellationToken cancellationToken)
     {
         if (Failure is not null)
@@ -84,6 +89,8 @@ public sealed class FakeCall(Uri address, string? key, RealtimeVoiceOptions opti
 
     private readonly Channel<int> interrupts = Channel.CreateUnbounded<int>();
 
+    private readonly Channel<(string WorkId, string Text)> reports = Channel.CreateUnbounded<(string WorkId, string Text)>();
+
     #endregion
 
     #region Properties
@@ -99,6 +106,9 @@ public sealed class FakeCall(Uri address, string? key, RealtimeVoiceOptions opti
     public ChannelReader<byte[]> Heard => heard.Reader;
 
     public ChannelReader<int> Interrupts => interrupts.Reader;
+
+    /// <summary>What the model was told its handed-over work came to, in order.</summary>
+    public ChannelReader<(string WorkId, string Text)> Reports => reports.Reader;
 
     #endregion
 
@@ -123,6 +133,9 @@ public sealed class FakeCall(Uri address, string? key, RealtimeVoiceOptions opti
 
     public ValueTask Interrupt(int heardMilliseconds, CancellationToken cancellationToken) =>
         interrupts.Writer.WriteAsync(heardMilliseconds, cancellationToken);
+
+    public ValueTask Report(string workId, string text, CancellationToken cancellationToken) =>
+        reports.Writer.WriteAsync((workId, text), cancellationToken);
 
     public IAsyncEnumerable<RealtimeVoiceEvent> Read(CancellationToken cancellationToken) => events.Reader.ReadAllAsync(cancellationToken);
 

@@ -23,3 +23,10 @@ public sealed record RealtimeTurnUsage(long InputTokens, long OutputTokens) : Re
 
 /// <summary>The provider reported a failure. The message is one of Drover's own sentences, never the provider's text.</summary>
 public sealed record RealtimeFailed(ModelFailure Failure, string Message) : RealtimeVoiceEvent;
+
+/// <summary>
+/// The model handed a piece of work over: it holds the conversation and something else is to answer what the person
+/// just asked. It carries no words; what was asked is what the person said. The answer goes back through
+/// <see cref="IRealtimeVoiceSession.Report"/> with the same id.
+/// </summary>
+public sealed record RealtimeWorkHandedOver(string WorkId) : RealtimeVoiceEvent;
