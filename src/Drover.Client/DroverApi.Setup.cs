@@ -135,19 +135,23 @@ public sealed partial class DroverApi
         return await response.ReadValue<List<ModelCatalogResponse>>(cancellationToken);
     }
 
-    /// <summary>Says whether a model of a compatible connection reads pictures. False clears the mark.</summary>
-    public async Task<ModelCatalogResponse> SetModelVision(
+    /// <summary>
+    /// Says what one model of a connection can do and costs, over what the provider reported. A member left null is
+    /// cleared. A model the catalog does not have is added. Admins only.
+    /// </summary>
+    public Task<ModelCatalogResponse> SetModelSettings(
         Guid spaceId,
         Guid connectionId,
-        SetModelVisionRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await http.PutAsJsonAsync(
-            $"api/spaces/{spaceId}/model-connections/{connectionId}/models/vision",
-            request,
+        SetModelSettingsRequest request,
+        CancellationToken cancellationToken = default) =>
+        Send<ModelCatalogResponse>(HttpMethod.Put, $"{Space(spaceId)}/model-connections/{connectionId}/model-settings", request, cancellationToken);
+
+    /// <summary>Clears everything said about one model, so the provider's values are in effect again. Admins only.</summary>
+    public Task ClearModelSettings(Guid spaceId, Guid connectionId, string model, CancellationToken cancellationToken = default) =>
+        SendForNothing(
+            HttpMethod.Delete,
+            $"{Space(spaceId)}/model-connections/{connectionId}/model-settings?model={Uri.EscapeDataString(model)}",
             cancellationToken);
-        return await response.ReadValue<ModelCatalogResponse>(cancellationToken);
-    }
 
     /// <summary>
     /// Starts the caller's own sign-in to a sign-in kind. The request names where this device receives

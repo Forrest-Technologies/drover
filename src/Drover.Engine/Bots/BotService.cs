@@ -696,7 +696,7 @@ public sealed class BotService(
 
     private static string? FindCapabilityProblem(ModelSettings settings, ModelCatalogEntry known)
     {
-        var can = known.Capabilities;
+        var can = known.EffectiveCapabilities;
 
         if (settings.MaxOutputTokens > can.MaxOutputTokens)
         {
@@ -845,7 +845,7 @@ public sealed class BotService(
         return await connections.FindCatalogEntry(reader.ModelConnectionId, model, cancellationToken) switch
         {
             null => $"Drover does not know whether {model} can read images, so it cannot read the screen. Choose a model its connection lists as reading images.",
-            { Capabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
+            { EffectiveCapabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
             _ => null,
         };
     }

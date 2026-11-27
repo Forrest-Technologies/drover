@@ -53,6 +53,22 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
             .OrderBy(entry => entry.DisplayName).ThenBy(entry => entry.Model)
             .ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// Adds an available row for a model the catalog does not have, and does nothing when a row is already there, so two
+    /// requests that add the same model both go on to update it instead of one of them failing on the key.
+    /// </summary>
+    public Task<int> AddCatalogEntryIfMissing(Guid connectionId, string model, DateTimeOffset seenAt, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO model_catalog (space_id, model_connection_id, model, display_name, state, last_seen_at)
+            VALUES (sys.current_space(), {connectionId}, {model}, {model}, 'available', {seenAt})
+            ON CONFLICT DO NOTHING
+            """,
+            cancellationToken);
+
+    public Task<int> CountCatalog(Guid connectionId, CancellationToken cancellationToken) =>
+        db.ModelCatalog.CountAsync(entry => entry.ModelConnectionId == connectionId, cancellationToken);
+
     /// <summary>Every catalog row of the space that is offered now, across its connections.</summary>
     public Task<List<ModelCatalogEntry>> ListAvailableCatalog(CancellationToken cancellationToken) =>
         db.ModelCatalog.AsNoTracking()
