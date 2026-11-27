@@ -562,9 +562,10 @@ try {
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
                 else if (address.endsWith('/stream')) {
-                    if (current === 'conversation-load-failed') {
+                    if (current === 'conversation-load-failed' || current === 'conversation-unusable-tool-request') {
                         // A stream that ends reports a reconnection, which reads the conversation again by itself.
-                        // Hold this one open so the scene checks the button, not the automatic retry.
+                        // Hold this one open so the retry scene checks the button rather than an automatic retry,
+                        // and the unusable-tool-request scene is not redrawn mid-keypress by a reconnect loop.
                         return;
                     }
 
@@ -1105,7 +1106,7 @@ try {
                 name: "Sample bot's model returned a tool request that could not be used.",
                 exact: true,
             });
-            await unusableHeading.waitFor({ state: 'attached', timeout: 60000 });
+            await unusableHeading.first().waitFor({ state: 'attached', timeout: 60000 });
             assert.equal(await unusableHeading.count(), 1, 'Only the protocol-only reply should show the unusable tool-request state, not the quoted DSML code sample.');
             const handoffCard = page.getByRole('button', { name: 'Sample bot asked Sample helper: List the workspace files.', exact: true });
             await handoffCard.waitFor({ state: 'attached', timeout: 10000 });
@@ -1114,18 +1115,35 @@ try {
                 name: "Sample helper's model returned a tool request that could not be used.",
                 exact: true,
             });
-            await handoffHeading.waitFor({ state: 'attached', timeout: 10000 });
+            await handoffHeading.first().waitFor({ state: 'attached', timeout: 10000 });
             assert.equal(await handoffHeading.count(), 1, 'A handoff answer cut off inside a tool request shows the plain words, not the raw text.');
             const disclosures = page.getByRole('button', { name: 'Original response', exact: true });
+            await disclosures.nth(1).waitFor({ state: 'attached', timeout: 10000 });
             assert.equal(await disclosures.count(), 2, 'The reply and the handoff answer each keep their original behind a disclosure.');
             const originalDisclosure = disclosures.first();
             const handoffDisclosure = disclosures.last();
-            await originalDisclosure.waitFor({ state: 'attached', timeout: 10000 });
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
             assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
-            await handoffDisclosure.press('Enter');
+            await focusSettled(page);
+            // Uno can move focus during the first layout or scroll after the card opens. Reacquire the
+            // button if that happens, then send one keypress once it owns settled focus.
+            const focusDeadline = Date.now() + 10000;
+            while (true) {
+                await handoffDisclosure.focus();
+                await focusSettled(page);
+                if (await handoffDisclosure.evaluate(button => document.activeElement === button)) {
+                    break;
+                }
+
+                if (Date.now() >= focusDeadline) {
+                    const focused = await page.evaluate(() =>
+                        document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName);
+                    throw new Error(`The handoff disclosure could not keep keyboard focus at ${width}px in ${theme}; focus stayed on ${focused}.`);
+                }
+            }
+            await page.keyboard.press('Enter');
             const handoffOriginal = page.getByText('ls -la /handoff-sample', { exact: false });
-            await handoffOriginal.waitFor({ state: 'attached', timeout: 10000 });
+            await handoffOriginal.first().waitFor({ state: 'attached', timeout: 10000 });
             assert.equal(await handoffOriginal.count(), 1, 'The handoff disclosure opens by keyboard.');
             await originalDisclosure.dispatchEvent('click');
             await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
@@ -1543,6 +1561,7 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     }))), true);
     await page.getByText('Only the first 100 files were taken.').first().waitFor({ state: 'attached', timeout: 10000 });
     const remove = page.getByRole('button', { name: /^Remove / });
+    await remove.nth(102).waitFor({ state: 'attached', timeout: 10000 });
     assert.equal(await remove.count(), 103, 'The hundred files taken stand beside the three attached before.');
     assert.equal(await held(), 0, 'Bytes the conversation did not collect are let go once the paste is reported.');
     while (await remove.count() > 0) {
@@ -1765,6 +1784,7 @@ async function checkWorkspacePanels(page, width, theme) {
         assert.equal(await right.count(), 0);
         await openBeside(page, 'Activity');
         await emptyActivity.waitFor({ state: 'attached' });
+        await composer.waitFor({ state: 'detached', timeout: 10000 });
         assert.equal(await composer.count(), 0);
         await page.screenshot({ path: path.join(pictures, `conversation-activity-${width}-${theme}.png`) });
         await close.dispatchEvent('click');
