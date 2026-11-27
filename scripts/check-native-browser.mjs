@@ -530,7 +530,8 @@ try {
                 }
                 else if (address.endsWith(`/threads/${sideLinkThread.id}`)) { body = sideLinkThread; }
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
-                else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
+                else if ([thread.id, sideLinkThread.id].some(id => address === `/api/spaces/${spaceId}/threads/${id}/models`)
+                    && method === 'GET') {
                     body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
                 }
                 else if (address === `/api/spaces/${spaceId}/threads/search` && route.request().method() === 'POST') {
@@ -633,7 +634,7 @@ try {
                     activeConcurrentPictureRequests--;
                     body = { image: samplePng };
                 }
-                else if (address.endsWith(`/threads/${thread.id}/attachment-rules`)) {
+                else if ([thread.id, sideLinkThread.id].some(id => address.endsWith(`/threads/${id}/attachment-rules`))) {
                     body = { maxFileBytes: 26214400, maxFilesPerMessage: 10, modelReadsImages: true, hasSandbox: true };
                 }
                 else if (address.endsWith(`/threads/${thread.id}/files`) && route.request().method() === 'POST') {
@@ -1173,11 +1174,9 @@ try {
             };
             const openByPointer = async (link, scene) => {
                 await link.waitFor({ state: 'visible', timeout: 60000 });
-                const box = await link.boundingBox();
                 await page.screenshot({ path: path.join(pictures, `${scene}-${width}-${theme}.png`) });
-                assert.ok(box, 'The source link has a visible box to click.');
                 const previousNavigations = sourceNavigations;
-                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                await link.click({ timeout: 10000 });
                 await assertSourceOpened(previousNavigations);
             };
 

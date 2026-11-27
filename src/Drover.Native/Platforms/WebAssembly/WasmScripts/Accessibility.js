@@ -8,13 +8,30 @@
     // able to invoke a link: a pointer click can never reach it. Give the anchors pointer input back, so a pointer
     // click and a keypress take the same invoke path, and the app still decides which addresses may be opened.
     const link = 'a:not([href]):not([role])';
+    const semanticLink = '#uno-semantics-root a[role="link"]:not([href])';
     // The text-selection checks load this script with a document that has no createElement. The style is only a
     // browser concern, so a stub without it simply runs the rest of the adapter as before.
     if (typeof document.createElement === 'function') {
         const styles = document.createElement('style');
-        styles.textContent = '#uno-semantics-root a[role="link"]:not([href]) { pointer-events: auto !important; }';
+        styles.textContent = `${semanticLink} { pointer-events: auto !important; }`;
         document.head.appendChild(styles);
     }
+
+    // Uno also sends pointer presses caught at the body to the canvas. Route primary presses on a semantic
+    // link through its DOM click handler so the canvas cannot activate the same link a second time.
+    const linkPointers = new Set();
+    document.addEventListener('pointerdown', event => {
+        if (event.button === 0 && event.target instanceof Element && event.target.closest(semanticLink)) {
+            linkPointers.add(event.pointerId);
+            event.stopPropagation();
+        }
+    }, true);
+    document.addEventListener('pointerup', event => {
+        if (linkPointers.delete(event.pointerId)) {
+            event.stopPropagation();
+        }
+    }, true);
+    document.addEventListener('pointercancel', event => linkPointers.delete(event.pointerId), true);
 
     function exposeLinks(node) {
         if (node.matches(link)) {
