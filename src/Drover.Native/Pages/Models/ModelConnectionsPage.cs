@@ -31,6 +31,14 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Link keyLink = new();
 
+    private readonly TextBlock planLine = Styles.Text(string.Empty, "DvTextSecondary");
+
+    private readonly StatusNote signInNote = new() { Kind = NoteKind.Info };
+
+    private readonly ContentControl signInNoteHolder = new() { IsTabStop = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+
+    private readonly Button signInAction = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+
     private readonly Field nameField;
 
     private readonly Field baseUrlField;
@@ -99,6 +107,8 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Button changeAddress;
 
+    private readonly Field blankField;
+
     private readonly Button cancelAdd;
 
     private readonly Button addButton;
@@ -115,6 +125,13 @@ public sealed class ModelConnectionsPage : Screen
     {
         nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
         baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url");
+        blankField = PageParts.Field(string.Empty, string.Empty, value =>
+        {
+            if (value != model.Named.BlankValue)
+            {
+                model.Named.SetBlank(value);
+            }
+        });
         keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", model.Named.KeyHint);
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
@@ -125,12 +142,16 @@ public sealed class ModelConnectionsPage : Screen
         nameField.SizeChanged += (_, _) => UpdateAddForm();
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
+        blankField.Submitted += (_, _) => Run(model.Add);
         keyField.Submitted += (_, _) => Run(model.Add);
         newKeyField.Submitted += (_, _) => Run(ReplaceKey);
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add connection", model.Add, Refresh, kind: ButtonKind.Primary);
-        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, baseUrlField, changeAddress, keyField, keyLink, addProblem, addBusy);
+        signInAction.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
+        signInNoteHolder.Content = signInNote;
+        signInNoteHolder.LostFocus += (_, _) => signInNoteHolder.IsTabStop = false;
+        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, blankField, baseUrlField, changeAddress, keyField, keyLink, planLine, signInNoteHolder, signInAction, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -505,11 +526,65 @@ public sealed class ModelConnectionsPage : Screen
         keyField.Disabled = busy;
         keyField.Hint = providers.KeyHint;
         baseUrlField.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
+        blankField.Visibility = providers.ShowsBlank ? Visibility.Visible : Visibility.Collapsed;
+        blankField.Label = providers.Blank?.Label ?? string.Empty;
+        blankField.Error = model.AddressProblem;
+        blankField.Disabled = busy;
+        if (blankField.Value != providers.BlankValue)
+        {
+            blankField.Value = providers.BlankValue;
+        }
+
         addProblem.Text = model.AddProblem;
         addBusy.Text = busy ? "Adding the connection." : string.Empty;
         addBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         cancelAdd.IsEnabled = !busy;
         addButton.IsEnabled = providers.ShowsForm && !busy;
+        UpdateSignInForm();
+    }
+
+    /// <summary>A sign-in kind in "Add a connection" is one line, one sentence for where it stands, and one button.</summary>
+    private void UpdateSignInForm()
+    {
+        var shown = model.ShowsSignIn && model.SigningInTo is null;
+        var flow = model.SignIn;
+        var hidden = shown ? Visibility.Collapsed : Visibility.Visible;
+        nameField.Visibility = hidden;
+        addButton.Visibility = hidden;
+
+        if (shown)
+        {
+            blankField.Visibility = baseUrlField.Visibility = keyField.Visibility = keyLink.Visibility = changeAddress.Visibility = Visibility.Collapsed;
+        }
+
+        planLine.Text = flow.PlanLine;
+        planLine.Visibility = shown && flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
+        var changed = shown && flow.Sentence is { Length: > 0 } && signInNote.Text != flow.Sentence;
+        ShowSignInState(signInNote, signInAction, shown);
+
+        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
+        if (changed && addSheet.Open)
+        {
+            signInNoteHolder.IsTabStop = true;
+            signInNoteHolder.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void ShowSignInState(StatusNote note, Button action, bool shown)
+    {
+        var flow = model.SignIn;
+        note.Text = flow.Sentence ?? string.Empty;
+        note.Kind = flow.Stage switch
+        {
+            ModelSignInStage.Done => NoteKind.Ok,
+            ModelSignInStage.Waiting => NoteKind.Info,
+            _ => NoteKind.Danger,
+        };
+        note.Visibility = shown && flow.Sentence is not null ? Visibility.Visible : Visibility.Collapsed;
+        action.Content = flow.ActionWords;
+        AutomationProperties.SetName(action, flow.ActionWords ?? string.Empty);
+        action.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
+        action.Visibility = shown && flow.ActionWords is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UpdateReplaceForm()
@@ -557,7 +632,7 @@ public sealed class ModelConnectionsPage : Screen
         var card = new ListCard
         {
             Title = connection.Name,
-            Facts = model.Facts(connection),
+            Facts = model.SignInFacts(connection) ?? model.Facts(connection),
             Status = new Badge { Text = status.Words, Kind = status.Kind },
             Trailing = CardMenu(connection),
         };
@@ -572,6 +647,8 @@ public sealed class ModelConnectionsPage : Screen
         {
             beneath.Children.Add(new StatusNote { Kind = NoteKind.Danger, Text = problem });
         }
+
+        AddSignIn(beneath, connection);
 
         if (model.ShownCatalog == connection.Id && model.Catalog is { } catalog)
         {
@@ -590,6 +667,40 @@ public sealed class ModelConnectionsPage : Screen
 
         card.Beneath = beneath.Children.Count > 0 ? beneath : null;
         return card;
+    }
+
+    /// <summary>
+    /// A sign-in connection's card: "Manage usage" while the caller's own sign-in is in use and the provider has the
+    /// page, its one action while it has ended or was never made, and the sign-in's state when it was started here.
+    /// </summary>
+    private void AddSignIn(Panel beneath, Drover.Contracts.Models.ModelConnectionSummary connection)
+    {
+        if (connection.SignIn is not { } own)
+        {
+            return;
+        }
+
+        if (own.Status == Drover.Contracts.Models.ModelSignInStatuses.Active && model.SignInKindOf(connection)?.UsagePage is { } page
+            && Uri.TryCreate(page, UriKind.Absolute, out var address) && address.Scheme == Uri.UriSchemeHttps)
+        {
+            beneath.Children.Add(new Link { Text = "Manage usage", Address = page });
+        }
+
+        if (model.SigningInTo == connection.Id)
+        {
+            var note = new StatusNote();
+            var action = new Button { HorizontalAlignment = HorizontalAlignment.Left };
+            action.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
+            ShowSignInState(note, action, shown: true);
+            beneath.Children.Add(note);
+            beneath.Children.Add(action);
+            return;
+        }
+
+        if (model.SignInActionWords(connection) is { } words)
+        {
+            beneath.Children.Add(PageParts.Action(words, () => model.SignInAgain(connection, PlatformShell.OpenOutside), Refresh, !model.ChangePending, ButtonKind.Primary));
+        }
     }
 
     private Menu? CardMenu(Drover.Contracts.Models.ModelConnectionSummary connection)
@@ -623,7 +734,17 @@ public sealed class ModelConnectionsPage : Screen
         if (model.CanEdit)
         {
             menu.Items.Add(PageParts.MenuEntry("Test connection", () => Run(() => model.Test(connection)), enabled));
-            menu.Items.Add(PageParts.MenuEntry("Replace key", () => OpenReplace(connection), enabled));
+
+            if (connection.SignIn is null)
+            {
+                menu.Items.Add(PageParts.MenuEntry("Replace key", () => OpenReplace(connection), enabled));
+            }
+        }
+
+        // Rare, so it is a text item here: it removes the caller's own sign-in and asks nothing.
+        if (connection.SignIn is { Status: not Drover.Contracts.Models.ModelSignInStatuses.None })
+        {
+            menu.Items.Add(PageParts.MenuEntry("Sign out", () => Run(() => model.SignOut(connection)), enabled));
         }
 
         return menu.Items.Count == 0 ? null : menu;

@@ -259,6 +259,13 @@ public static class ModelConnectionEndpoints
         RunScopes scopes)
     {
         var access = context.GetSpaceAccess();
+
+        // A browser's return is a short query string; one this long is not a sign-in's, and is not passed on.
+        if (request.Query?.Length > FinishModelSignInRequest.MostLength)
+        {
+            return TypedResults.Problem(title: "That return is too long to be a sign-in's.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var outcome = await signIns.Finish(access.SpaceId, access.UserId, attemptId, request.Query, context.RequestAborted);
 
         if (outcome.State is null)

@@ -17,6 +17,7 @@ internal static class PlatformServices
             .AddSingleton<IPushRegistration, BrowserPushRegistration>()
             .AddSingleton(new AppSignInReturn(PlatformShell.ClientPath))
             .AddSingleton(new CallConnection(null))
+            .AddSingleton<IModelSignInListener, NoModelSignInListener>()
             .AddSingleton<BrowserAudio>()
             .AddSingleton<IAudioCapture>(provider => provider.GetRequiredService<BrowserAudio>())
             .AddSingleton<IAudioPlayback>(provider => provider.GetRequiredService<BrowserAudio>())
