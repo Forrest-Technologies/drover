@@ -92,7 +92,7 @@ public static class BotViews
             view.Tool.SourceKind is ToolSourceKind.Builtin ? "builtin" : "connection",
             view.Connection?.Id,
             view.Connection?.Name,
-            Words.Of(view.Tool.Sensitivity),
+            Words.Of(view.Tool.SensitivityOn(view.Connection)),
             GrantService.Word(view.Own),
             GrantService.Word(view.Ceiling),
             view.CeilingBotName,

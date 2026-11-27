@@ -2,7 +2,7 @@ namespace Drover.Engine.Bots;
 
 /// <summary>
 /// One tool as a bot's editor shows it. Own is the bot's own setting, null when it holds no grant. The ceiling is the
-/// most the bot may be given: what its parent can do, or allow for a bot with no parent. A tool that always asks waits
+/// most the editor may give: what its parent can do for built-ins, or allow for connected tools and top-level bots. A tool that always asks waits
 /// for a person before every use, whatever the grant.
 /// </summary>
 public sealed record BotToolView(
@@ -30,8 +30,8 @@ public sealed record GrantsChange(IReadOnlyList<BotToolView>? Tools, string? Pro
 }
 
 /// <summary>
-/// What a person sets a bot's tools to. A bot is never given more than its parent can do, and that is checked when
-/// the grant is written, through the database's effective-grant function, so the editor cannot be talked past it.
+/// What a space administrator sets a bot's tools to. Connected tools are granted directly to the edited bot.
+/// Built-in tools still respect the parent's effective grant.
 /// </summary>
 public sealed class GrantService(
     BotRepository bots,
@@ -70,8 +70,8 @@ public sealed class GrantService(
     }
 
     /// <summary>
-    /// Sets several tools for one bot together. Every change is checked against the parent before any is made, so
-    /// either all of them hold or none does. A null effect is off.
+    /// Sets several tools for one bot together. Built-in changes are checked against the parent before any is made.
+    /// A null effect is off.
     /// </summary>
     public async Task<GrantsChange> SetGrants(Guid botId, IReadOnlyList<WantedGrant> wanted, Guid actorUserId, CancellationToken cancellationToken)
     {
@@ -90,7 +90,7 @@ public sealed class GrantService(
         var parent = await FindParent(bot, cancellationToken);
         var ceilings = parent is null ? null : await tools.ListEffectiveGrants(parent.Id, cancellationToken);
 
-        if (parent is not null && FindCeilingProblem(wanted, ceilings!, parent) is { } problem)
+        if (parent is not null && FindCeilingProblem(wanted.Where(change => all[change.ToolId].ToolConnectionId is null), ceilings!, parent) is { } problem)
         {
             return new GrantsChange(null, problem);
         }
@@ -124,6 +124,7 @@ public sealed class GrantService(
     public static JsonObject Snapshot(ToolGrant? grant) => new()
     {
         ["effect"] = grant is null ? null : Words.Of(grant.Effect),
+        ["direct"] = grant?.IsDirect is true ? true : null,
         ["review_state"] = grant is null ? null : Words.Of(grant.ReviewState),
     };
 
@@ -144,6 +145,7 @@ public sealed class GrantService(
     private async Task<ToolGrant?> Write(Bot bot, Tool tool, ToolGrant? stored, GrantEffect? effect, Guid actorUserId, CancellationToken cancellationToken)
     {
         var before = Snapshot(stored);
+        var isDirect = bot.ParentBotId is not null && tool.ToolConnectionId is not null;
 
         if (effect is null && stored is not null)
         {
@@ -157,15 +159,17 @@ public sealed class GrantService(
                 BotId = bot.Id,
                 ToolId = tool.Id,
                 Effect = set,
+                IsDirect = isDirect,
                 ReviewState = await ReviewStateForNewGrant(tool, cancellationToken),
                 GrantedByUserId = actorUserId,
             };
             tools.Add(stored);
         }
-        else if (effect is { } changed && stored is not null && stored.Effect != changed)
+        else if (effect is { } changed && stored is not null && (stored.Effect != changed || stored.IsDirect != isDirect))
         {
             // The review state is never touched here: choosing an effect is not reading a changed definition.
             stored.Effect = changed;
+            stored.IsDirect = isDirect;
             stored.GrantedByUserId = actorUserId;
             stored.GrantedByBotId = null;
         }
@@ -181,7 +185,7 @@ public sealed class GrantService(
     }
 
     // The first change that would give the bot more than its parent holds, said as the person is told it.
-    private static string? FindCeilingProblem(IReadOnlyList<WantedGrant> wanted, Dictionary<Guid, GrantEffect> ceilings, Bot parent) =>
+    private static string? FindCeilingProblem(IEnumerable<WantedGrant> wanted, Dictionary<Guid, GrantEffect> ceilings, Bot parent) =>
         wanted
             .Where(change => change.Effect is not null)
             .Select(change => FindCeilingProblem(change.Effect!.Value, ceilings.TryGetValue(change.ToolId, out var ceiling) ? ceiling : null, parent))
@@ -210,8 +214,10 @@ public sealed class GrantService(
             tool.ToolConnectionId is { } connectionId ? connections.GetValueOrDefault(connectionId) : null,
             own?.Effect,
             own?.ReviewState is ReviewState.NeedsReview,
-            ceilings is null ? GrantEffect.Allow : ceilings.TryGetValue(tool.Id, out var ceiling) ? ceiling : null,
-            parent?.Name);
+            ceilings is null || tool.ToolConnectionId is not null
+                ? GrantEffect.Allow
+                : ceilings.TryGetValue(tool.Id, out var ceiling) ? ceiling : null,
+            tool.ToolConnectionId is null ? parent?.Name : null);
 
     private async Task<Bot?> FindParent(Bot bot, CancellationToken cancellationToken) =>
         bot.ParentBotId is { } parentId ? await bots.FindBot(parentId, cancellationToken) : null;

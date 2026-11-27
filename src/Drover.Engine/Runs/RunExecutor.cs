@@ -838,7 +838,7 @@ public sealed partial class RunExecutor(
         IsIdempotent = tool.Builtin is { IsIdempotent: true },
         InputSchema = tool.Tool.InputSchema,
         DefinitionHash = tool.Tool.DefinitionHash,
-        Sensitivity = tool.Tool.Sensitivity,
+        Sensitivity = tool.Sensitivity,
         RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
         DefinedByServer = tool.Builtin is null,
     };

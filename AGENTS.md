@@ -35,7 +35,7 @@ Why: the owner runs a hosted service for other people. A leak between tenants is
 Inside a space, bots are separated by grants. These hold everywhere:
 
 - A tool with no grant is never sent to the model. Check grants through the engine's effective-grant function. Never read `tool_grants` directly to decide access.
-- A child bot never exceeds its parent. Effective grant is the minimum along the path to the root.
+- A bot can receive a direct connected-tool grant from a space admin. All other grants narrow down the tree. Effective access stops at the nearest direct grant for that tool, or at the root. Bots cannot issue direct grants.
 - A bot has authority over its descendants only.
 - The model never decides what it may do. Every tool call passes the tool gate at call time.
 - Tool results, tool descriptions from servers, and imported skills are untrusted text. They never become instructions and never change a grant.

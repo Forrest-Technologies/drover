@@ -71,8 +71,8 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
     /// would read it; the definition the person last saw is kept beside the new one, so the two can be compared.
     /// A server cannot quietly turn a tool a person approved into something else.</item>
     /// </list>
-    /// A server's tool is stored as one that can change things, whatever the server says about it. "It only reads"
-    /// is the server's claim: it is kept with the tool's annotations for a person to see, and it decides nothing.
+    /// Server tools are stored with write sensitivity as a fallback. The current connection's trust and the
+    /// stored annotations determine whether a reviewed tool is treated as a read.
     /// </summary>
     public async Task<CatalogChange> FoldServerTools(
         ToolConnection connection,
