@@ -15,7 +15,7 @@ public sealed class ModelRedirectTests
         using var provider = services.BuildServiceProvider();
         var factory = provider.GetRequiredService<IHttpMessageHandlerFactory>();
 
-        foreach (var name in new[] { OpenAICompatibleProvider.HttpClientName, OpenAICompatibleProvider.RealtimeHttpClientName, VeniceProvider.HttpClientName, OpenAIProvider.HttpClientName })
+        foreach (var name in new[] { OpenAICompatibleProvider.HttpClientName, OpenAICompatibleProvider.RealtimeHttpClientName, AnthropicProvider.HttpClientName, OpenAIProvider.HttpClientName })
         {
             Sockets(factory.CreateHandler(name)).AllowAutoRedirect.Should().BeFalse($"the client {name} must not follow a redirect");
         }

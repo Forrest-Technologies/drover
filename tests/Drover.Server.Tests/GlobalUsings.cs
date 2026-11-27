@@ -95,6 +95,7 @@ global using Drover.Engine.Web;
 global using Drover.Server.Accounts;
 global using Drover.Server.Files;
 global using Drover.Server.Health;
+global using Drover.Server.Models;
 global using Drover.Server.Policy;
 global using Drover.Server.Push;
 global using Drover.Server.Sandboxes;
