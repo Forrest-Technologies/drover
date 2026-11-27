@@ -22,6 +22,13 @@
       <dv:Button x:Name="ChangeAddress" HorizontalAlignment="Left" Command="{x:Bind Model.ChangeAddressCommand}" />
       <dv:Field x:Name="Key" Label="Key" Type="password" Value="{x:Bind Model.ApiKey, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
       <dv:Link x:Name="KeyLink" />
+      <StackPanel x:Name="SignInPanel" Spacing="{StaticResource DvSpace3}">
+        <TextBlock x:Name="PlanLine" Style="{StaticResource DvTextSecondary}" TextWrapping="Wrap" />
+        <ContentControl x:Name="SignInNoteHolder" IsTabStop="False" HorizontalContentAlignment="Stretch">
+          <dv:StatusNote x:Name="SignInNote" />
+        </ContentControl>
+        <dv:Button x:Name="SignInAction" HorizontalAlignment="Stretch" Click="ActOnSignIn" />
+      </StackPanel>
       <dv:StatusNote x:Name="Outcome" Text="{x:Bind Model.Outcome, Mode=OneWay}" />
       <TextBlock x:Name="Testing" Style="{StaticResource DvTextSecondary}" AutomationProperties.LiveSetting="Polite" Text="Asking the provider. This can take a few seconds." />
       <Grid x:Name="Actions">

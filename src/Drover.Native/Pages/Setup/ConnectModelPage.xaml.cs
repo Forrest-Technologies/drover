@@ -20,6 +20,7 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(Provider.Value);
             }
         });
+        SignInNoteHolder.LostFocus += (_, _) => SignInNoteHolder.IsTabStop = false;
         ProviderSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
         {
             if (ProviderSegments.Value is { Length: > 0 } chosen && chosen != Model.Named.Choice)
@@ -111,13 +112,60 @@ public sealed partial class ConnectModelPage : Screen
         KeyLink.Address = providers.KeyLinkAddress;
         KeyLink.Visibility = providers.KeyLinkText is null || !providers.ShowsKey ? Visibility.Collapsed : Visibility.Visible;
         Outcome.Kind = Model.Passed ? NoteKind.Ok : NoteKind.Danger;
-        Outcome.Visibility = Model.Busy ? Visibility.Collapsed : Visibility.Visible;
+        Outcome.Visibility = Model.Busy || Model.ShowsSignIn ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;
         Continue.Visibility = Visibility.Visible;
         ArrangeActions();
+        RefreshSignIn();
         Continue.IsEnabled = Test.IsEnabled = !Model.Busy;
         Test.Content = Model.Busy ? "Testing" : Model.Passed ? "Test again" : "Test connection";
     }
+
+    /// <summary>
+    /// A sign-in kind is one line, one sentence for where it stands, and one button: no key, no address, no test.
+    /// </summary>
+    private void RefreshSignIn()
+    {
+        var shown = Model.ShowsSignIn;
+        var flow = Model.SignIn;
+        SignInPanel.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        Test.Visibility = shown ? Visibility.Collapsed : Visibility.Visible;
+
+        if (!shown)
+        {
+            return;
+        }
+
+        // Continue moves on once the person is signed in; there is nothing to save untested.
+        Continue.Visibility = Model.Passed ? Visibility.Visible : Visibility.Collapsed;
+
+        Blank.Visibility = Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
+        PlanLine.Text = flow.PlanLine;
+        PlanLine.Visibility = flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
+        var changed = flow.Sentence is { Length: > 0 } && SignInNote.Text != flow.Sentence;
+        SignInNote.Text = flow.Sentence ?? string.Empty;
+        SignInNote.Kind = flow.Stage switch
+        {
+            ModelSignInStage.Done => NoteKind.Ok,
+            ModelSignInStage.Waiting => NoteKind.Info,
+            _ => NoteKind.Danger,
+        };
+        SignInNote.Visibility = flow.Sentence is null ? Visibility.Collapsed : Visibility.Visible;
+        SignInAction.Content = flow.ActionWords;
+        AutomationProperties.SetName(SignInAction, flow.ActionWords ?? string.Empty);
+        SignInAction.Visibility = flow.ActionWords is null ? Visibility.Collapsed : Visibility.Visible;
+        SignInAction.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
+
+        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
+        if (changed)
+        {
+            SignInNoteHolder.IsTabStop = true;
+            SignInNoteHolder.Focus(FocusState.Programmatic);
+        }
+    }
+
+    // The flow says in its own sentence when the page could not be opened.
+    private void ActOnSignIn(object sender, RoutedEventArgs args) => _ = Model.ActOnSignIn(PlatformShell.OpenOutside);
 
     private bool IsPhone() => XamlRoot is { Size.Width: > 0 } root && root.Size.Width < (double)Styles.Dictionary["DvBreakPhone"];
 

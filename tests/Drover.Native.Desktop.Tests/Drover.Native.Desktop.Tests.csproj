@@ -19,6 +19,7 @@
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopAudio.cs" Link="Desktop/DesktopAudio.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSecrets.cs" Link="Desktop/DesktopSecrets.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSignInReturn.cs" Link="Desktop/DesktopSignInReturn.cs" />
+    <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopModelSignInListener.cs" Link="Desktop/DesktopModelSignInListener.cs" />
     <Compile Include="../../src/Drover.Native/Platforms/Desktop/SystemSecrets.cs" Link="Desktop/SystemSecrets.cs" />
   </ItemGroup>
 

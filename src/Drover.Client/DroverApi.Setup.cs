@@ -149,6 +149,40 @@ public sealed partial class DroverApi
         return await response.ReadValue<ModelCatalogResponse>(cancellationToken);
     }
 
+    /// <summary>
+    /// Starts the caller's own sign-in to a sign-in kind. The request names where this device receives
+    /// the browser's return. The answer is the page to open; no token ever comes to the device.
+    /// </summary>
+    public async Task<ModelSignInStarted> StartModelSignIn(
+        Guid spaceId,
+        StartModelSignInRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync($"api/spaces/{spaceId}/model-connections/sign-in", request, cancellationToken);
+        return await response.ReadValue<ModelSignInStarted>(cancellationToken);
+    }
+
+    /// <summary>Hands the server the query string the browser brought back, and gets the connection once it is done.</summary>
+    public async Task<ModelConnectionSummary> FinishModelSignIn(
+        Guid spaceId,
+        Guid attemptId,
+        FinishModelSignInRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync(
+            $"api/spaces/{spaceId}/model-connections/sign-in/{attemptId}/finish",
+            request,
+            cancellationToken);
+        return await response.ReadValue<ModelConnectionSummary>(cancellationToken);
+    }
+
+    /// <summary>Signs the caller out of their own sign-in to a connection.</summary>
+    public async Task SignOutOfModelConnection(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.DeleteAsync($"api/spaces/{spaceId}/model-connections/{connectionId}/sign-in", cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+    }
+
     public async Task<ModelRefreshResponse> RefreshModels(
         Guid spaceId,
         Guid connectionId,

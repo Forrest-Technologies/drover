@@ -81,6 +81,12 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         kinds.FirstOrDefault(kind => kind.NamedProviders.Any(preset => preset.Id == Choice)) ??
         kinds.FirstOrDefault(kind => kind.Kind == Choice);
 
+    /// <summary>The chosen kind when each person connects it by signing in with their own account. It has no form.</summary>
+    public ModelProviderKindResponse? SignIn => Descriptor is { SignIn: true } kind && kind.Kind == Choice ? kind : null;
+
+    /// <summary>Where "Add a key" goes from a sign-in: the first kind the server offers that takes a key.</summary>
+    public string KeyChoice => kinds.FirstOrDefault(kind => !kind.SignIn && kind.KeyRule != ModelKeyRules.None)?.Kind ?? CompatibleKind;
+
     /// <summary>The kind the server stores for the choice. A named provider is a compatible server with an address.</summary>
     public string Kind => Descriptor?.Kind ?? Choice;
 
@@ -121,9 +127,9 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public string? AddressHint => Selected is null ? Descriptor?.AddressHint : null;
 
-    public bool ShowsKey => Selected is { } named
+    public bool ShowsKey => SignIn is null && (Selected is { } named
         ? named.KeyRule != ModelProviderKeyRules.None
-        : Kind.Length > 0 && (Descriptor?.KeyRule ?? ModelKeyRules.Optional) != ModelKeyRules.None;
+        : Kind.Length > 0 && (Descriptor?.KeyRule ?? ModelKeyRules.Optional) != ModelKeyRules.None);
 
     public bool KeyRequired => Selected is { } named
         ? named.KeyRule == ModelProviderKeyRules.Required
@@ -219,6 +225,9 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         AddressRevealed = true;
         Changed?.Invoke();
     }
+
+    /// <summary>The sign-in kind the server offers with this name, or null.</summary>
+    public ModelProviderKindResponse? SignInKindOf(string kind) => kinds.FirstOrDefault(offered => offered.SignIn && offered.Kind == kind);
 
     /// <summary>Whether this server offers the kind. False while the list is unread or unreadable.</summary>
     public bool Offers(string kind) => kinds.Any(offered => offered.Kind == kind);

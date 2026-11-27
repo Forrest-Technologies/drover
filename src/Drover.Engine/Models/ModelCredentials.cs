@@ -112,7 +112,8 @@ public sealed class ModelCredentials(
 
         if (credential.Status is ModelSignInStatus.NeedsSignIn)
         {
-            return Ended(connection.Name);
+            // A row kept after a sign-out holds no account label and no token: the person is not signed in.
+            return credential.AccountLabel is null ? Missing(connection) : Ended(connection.Name);
         }
 
         if (await RevealTokens(vault, credential, cancellationToken) is not { } tokens)
