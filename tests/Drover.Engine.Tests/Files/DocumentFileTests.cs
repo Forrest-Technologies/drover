@@ -250,6 +250,25 @@ public sealed class DocumentFileTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Two_pdfs_that_each_fit_but_not_together_give_the_second_as_its_text()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Read both.")]));
+        await SetCapabilities(world, new ModelCapabilities { PdfInput = true, PdfMaxPages = 3, PdfMaxBytes = 32 * 1024 * 1024 });
+        var threadId = await world.NewThread();
+        var first = TestDocuments.Pdf("Invoice 4471", "Total due 1,250.00");
+        var firstUpload = await world.Upload(threadId, "first.pdf", first);
+        var secondUpload = await world.Upload(threadId, "second.pdf", TestDocuments.Pdf("Receipt 88", "Paid in full"));
+        world.StartHost();
+
+        var post = await world.PostRaw(threadId, "Compare them", fileIds: [firstUpload.File!.Id, secondUpload.File!.Id]);
+
+        (await world.WaitForStatus(post.Run!.Id, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        world.Model.ImagesSeen[0].Select(data => data.Data.ToArray()).Should().BeEquivalentTo([first], "the two PDFs share one request's page bound");
+        TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains("second.pdf", StringComparison.Ordinal)
+            && text.Contains("Receipt 88", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_word_document_reaches_a_model_that_reads_pdfs_as_its_text()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("On the first.")]));
