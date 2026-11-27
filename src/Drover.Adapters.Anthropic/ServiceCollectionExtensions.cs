@@ -33,5 +33,23 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the Claude plan sign-in and the provider that calls with a person's token. Calls go through the key
+    /// kind's client and pipeline, so register <see cref="AddAnthropicProvider"/> first. The sign-in's own client has
+    /// no retry: an exchange spends a one-time code and a refresh spends a rotating refresh token. Both read
+    /// <see cref="AnthropicPlanSignInOptions"/>, bound by the caller to <see cref="AnthropicPlanSignInOptions.Section"/>,
+    /// and follow a change of it without a restart.
+    /// </summary>
+    public static IServiceCollection AddAnthropicPlan(this IServiceCollection services)
+    {
+        services.AddHttpClient(AnthropicPlanSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        services.AddSingleton<AnthropicPlanProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<AnthropicPlanProvider>());
+        services.AddSingleton<IModelSignIn, AnthropicPlanSignIn>();
+
+        return services;
+    }
+
     #endregion
 }
