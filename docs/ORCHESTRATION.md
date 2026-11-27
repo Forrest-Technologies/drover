@@ -83,7 +83,7 @@ Issue numbers #12 and #13 are out of step order. The order above is correct.
 
 ## Worker tiers
 
-Match the worker to the cost of a mistake, not to the size of the diff. Three tiers, named by role. Which model fills each role is the owner's choice at kickoff and is never written in this repository.
+Match the worker to the cost of a mistake, not to the size of the diff. Three tiers, named by role. Which model fills each role is the owner's choice and is set in each tool's own configuration (for Claude Code, `.claude/`), never in this file. `AGENTS.md` section 15 sets the limits on spend.
 
 | Tier | Does | Never does |
 | --- | --- | --- |

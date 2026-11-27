@@ -180,3 +180,28 @@ If you cannot meet one of these, stop and say which and why. Do not work around 
 - Pull request titles follow Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `build:`, `refactor:`, with `!` for a breaking change.
 - A change that goes against a decision in `docs/adr` adds the ADR that supersedes it, in the same pull request.
 - Never edit `ROADMAP.md` status, close an issue by hand, or mark a criterion done that you did not verify.
+
+## 15. Spend
+
+The owner pays for every token an agent reads, including every token it re-reads. These rules apply to every agent, whatever tool or provider runs it.
+
+- One issue, one session. The session ends when its pull request is open and its checks are reported. Never run several issues, or a whole epic, from one conversation.
+- Never wait inside a session: not for CI, a review, a merge, or another agent. Say what you are waiting for and stop. Every wake re-reads the whole conversation, and after a few idle minutes it is re-read at full price.
+- Hand off in writing, on the issue or the pull request. A new session must be able to continue from that comment alone. Conversation memory is not a handoff.
+- Stop at 150,000 tokens of conversation, or the first time the tool compacts it. Finish the step, write the handoff, end the session.
+- Keep output out of the conversation. Search, filter, and read the part you need. Never print a whole log, a whole test run, or a file you will not edit.
+- At most three workers at a time and eight in one session. A worker gets the issue number and the paths, not pasted text. A worker never starts a worker. The coordinator does not hold file contents or logs; it asks for the conclusion.
+- One independent review and one round of fixes for each pull request. A second review only where sections 2, 3, or 8 apply, or the change is a sign-in. What is left after that becomes an issue, not another round.
+- Bring a branch up to date with `develop` once, when it is otherwise ready to merge. Not each time `develop` moves: every update is a full build, a full test run, and a full CI run.
+- Match the worker to the cost of a mistake, not to the size of the diff:
+
+| Tier | Use it for |
+| --- | --- |
+| Top | Interface design that is new, complex, or not obvious, and anything the owner names when they start the session |
+| Standard | Everything else that changes code: building, fixing, reviewing, coordinating |
+| Light | Work with a checkable answer: finding the failing step in a CI log, searching, a rebase without code conflicts, watching a pull request |
+
+- Which model fills a tier is set in each tool's own configuration, not here. For Claude Code that is `.claude/`.
+- If the work cannot be done inside these limits, stop and tell the owner what it would take. Do not spend past them on your own judgment.
+
+Why: on 2026-11-26 two sessions used most of a month's allowance in a day. One coordinator ran a twelve-step epic from a single conversation on the top tier, grew to 850,000 tokens, and was woken about 160 times by workers and CI; each wake re-read all of it. Its eighteen workers merged `develop` into their branches dozens of times, each one a full build and test run.
