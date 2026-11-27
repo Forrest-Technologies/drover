@@ -492,7 +492,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         await model.Open();
 
         model.Named.Options.Select(option => option.Value).Should().NotContain("sample_sign_in");
-        model.Named.OwnWire.Should().BeNull();
+        model.Named.Kinds.Select(kind => kind.Kind).Should().NotContain("sample_sign_in");
     }
 
     #endregion

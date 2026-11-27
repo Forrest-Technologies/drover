@@ -20,15 +20,15 @@ public static class ModelServiceExtensions
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
         services.AddModelProvider<GeminiProvider>(adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName);
-        services.AddModelProvider<OpenAICompatibleProvider>(
-            adapter => adapter.AddOpenAICompatibleProvider(),
-            OpenAICompatibleProvider.HttpClientName,
-            OpenAICompatibleProvider.RealtimeHttpClientName);
         services.Configure<OpenRouterSignInOptions>(configuration.GetSection(OpenRouterSignInOptions.Section));
         services.AddModelProvider<OpenRouterProvider>(
             adapter => adapter.AddOpenRouterSignIn(),
             OpenRouterProvider.HttpClientName,
             OpenRouterSignIn.HttpClientName);
+        services.AddModelProvider<OpenAICompatibleProvider>(
+            adapter => adapter.AddOpenAICompatibleProvider(),
+            OpenAICompatibleProvider.HttpClientName,
+            OpenAICompatibleProvider.RealtimeHttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));
