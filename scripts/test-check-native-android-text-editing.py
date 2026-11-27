@@ -56,7 +56,11 @@ class SettledSafeAreaTests(unittest.TestCase):
     def the_check_accepts_the_other_dark_palette_from_ci(self):
         capture = frame(63, 64, 1472, dot=bytes((56, 63, 74, 255)), background=bytes((35, 37, 40, 255)))
 
-        with patch.object(check, "capture", return_value=capture),                 patch.object(check, "shell", return_value=DISPLAYS), redirect_stdout(io.StringIO()) as report:
+        with (
+            patch.object(check, "capture", return_value=capture),
+            patch.object(check, "shell", return_value=DISPLAYS),
+            redirect_stdout(io.StringIO()) as report,
+        ):
             check.check_yard_edges("dark")
 
         self.assertIn("1472", report.getvalue())
@@ -64,12 +68,18 @@ class SettledSafeAreaTests(unittest.TestCase):
     def the_check_rejects_dots_inside_the_system_bars(self):
         capture = frame(32, 64, 1472, 1504)
 
-        with patch.object(check, "capture", return_value=capture),                 patch.object(check, "shell", return_value=DISPLAYS):
+        with (
+            patch.object(check, "capture", return_value=capture),
+            patch.object(check, "shell", return_value=DISPLAYS),
+        ):
             with self.assertRaisesRegex(AssertionError, r"dot rows \[32, 64\].*\[1472, 1504\]"):
                 check.check_yard_edges("dark")
 
     def the_check_rejects_a_frame_without_dots(self):
-        with patch.object(check, "capture", return_value=frame()),                 patch.object(check, "shell", return_value=DISPLAYS):
+        with (
+            patch.object(check, "capture", return_value=frame()),
+            patch.object(check, "shell", return_value=DISPLAYS),
+        ):
             with self.assertRaisesRegex(AssertionError, r"dot rows \[\].*\[\]"):
                 check.check_yard_edges("dark")
 
