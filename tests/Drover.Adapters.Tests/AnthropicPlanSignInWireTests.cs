@@ -96,6 +96,34 @@ public sealed class AnthropicPlanSignInWireTests
     }
 
     [Fact]
+    public async Task Pasted_text_longer_than_four_kilobytes_is_refused_before_it_is_read_or_exchanged()
+    {
+        var rig = AnthropicPlanSignInRig.Start();
+        var attempt = Attempt(null);
+        var code = rig.Server.IssueCode();
+        var padding = new string(' ', AnthropicPlanSignIn.MaxPastedBytes);
+
+        var finishing = () => rig.SignIn.Finish(attempt, new($"{padding}{code}#{attempt.State}"), Token);
+
+        await finishing.Should().ThrowAsync<ModelSignInRefusedException>();
+        rig.Server.Sent.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_relative_token_address_is_reported_as_the_setting_to_correct()
+    {
+        var rig = AnthropicPlanSignInRig.Start();
+        var attempt = Attempt(null);
+        rig.Options.CurrentValue = new AnthropicPlanSignInOptions { TokenAddress = new Uri("v1/oauth/token", UriKind.Relative) };
+
+        var finishing = () => rig.SignIn.Finish(attempt, rig.Pasted(attempt.State), Token);
+
+        (await finishing.Should().ThrowAsync<ModelProviderException>()).Which.Message
+            .Should().Contain("Drover:Models:SignIn:anthropic_signin:TokenAddress").And.NotContain("does not understand");
+        rig.Server.Sent.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_browser_return_that_names_no_state_is_refused()
     {
         var rig = AnthropicPlanSignInRig.Start();
@@ -179,6 +207,22 @@ public sealed class AnthropicPlanSignInWireTests
 
         second.AccessToken.Should().NotBe(first.AccessToken);
         second.RefreshToken.Should().Be(first.RefreshToken);
+    }
+
+    [Fact]
+    public async Task A_refresh_keeps_the_account_label_and_details_of_the_sign_in()
+    {
+        var rig = AnthropicPlanSignInRig.Start();
+        var first = await SignedIn(rig) with
+        {
+            AccountLabel = "sample account",
+            Details = new Dictionary<string, string>(StringComparer.Ordinal) { ["kept"] = "yes" },
+        };
+
+        var second = await rig.SignIn.Refresh(first, Token);
+
+        second.AccountLabel.Should().Be("sample account");
+        second.Details.Should().Equal(first.Details);
     }
 
     [Theory]

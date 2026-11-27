@@ -37,7 +37,9 @@ public sealed class AnthropicPlanWireTests
         server.Sent.Should().OnlyContain(request => !request.Headers.Contains("x-api-key"));
         server.Sent.Should().OnlyContain(request => request.Headers.GetValues("anthropic-beta").Single() == "claude-code-20250219,oauth-2025-04-20");
         server.Sent.Should().OnlyContain(request => request.Headers.GetValues("x-app").Single() == "cli");
-        server.Sent.Should().OnlyContain(request => string.Join(' ', request.Headers.GetValues("user-agent")).Contains("claude-cli/2.1.322", StringComparison.Ordinal));
+        server.Sent.Should().OnlyContain(
+            request => request.Headers.GetValues("user-agent").Single() == "claude-cli/2.1.322",
+            "the configured user-agent replaces the client's own rather than joining it");
         server.Sent[1].RequestUri!.AbsolutePath.Should().Be("/v1/messages");
     }
 

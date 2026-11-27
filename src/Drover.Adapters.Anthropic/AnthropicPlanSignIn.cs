@@ -21,6 +21,9 @@ public sealed class AnthropicPlanSignIn(
 
     private const int MaxAnswerBytes = 64 * 1024;
 
+    /// <summary>A pasted <c>code#state</c> or return address is a few hundred bytes; anything longer is refused unread.</summary>
+    public const int MaxPastedBytes = 4 * 1024;
+
     #endregion
 
     #region Properties
@@ -35,7 +38,11 @@ public sealed class AnthropicPlanSignIn(
 
     #region Interface Implementations
 
-    /// <summary>The configured loopback address on any port, or no address at all: such a device pastes the code.</summary>
+    /// <summary>
+    /// A loopback address on the configured path and any port, or no address at all: such a device pastes the code. The
+    /// address sent to the provider names the configured host on the device's port (<see cref="RedirectFor"/>), so a
+    /// device listening on <c>127.0.0.1</c>, as the desktop app does, is reached through <c>localhost</c>.
+    /// </summary>
     public bool AcceptsRedirect(Uri? redirectUri)
     {
         if (redirectUri is null)
@@ -76,6 +83,11 @@ public sealed class AnthropicPlanSignIn(
 
     public async Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation)
     {
+        if (Encoding.UTF8.GetByteCount(arrived.Text) > MaxPastedBytes)
+        {
+            throw new ModelSignInRefusedException();
+        }
+
         var answer = Read(arrived.Text);
 
         // A browser's return always names its state. Pasted text may be the bare code, which names none.
@@ -133,7 +145,16 @@ public sealed class AnthropicPlanSignIn(
     /// </summary>
     private async Task<ModelTokens> Ask(Dictionary<string, string> body, ModelTokens? current, bool refreshing, CancellationToken cancellation)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, options.CurrentValue.TokenAddress) { Content = JsonContent.Create(body) };
+        var address = options.CurrentValue.TokenAddress;
+
+        // A relative address is the operator's setting at fault, not the provider's answer, so it is not reported as one.
+        if (!address.IsAbsoluteUri)
+        {
+            throw ModelProviderException.FromRefusal(
+                $"The server setting {AnthropicPlanSignInOptions.Section}:{nameof(AnthropicPlanSignInOptions.TokenAddress)} is not a whole address. Ask the operator to correct it.");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, address) { Content = JsonContent.Create(body) };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         try
@@ -206,7 +227,10 @@ public sealed class AnthropicPlanSignIn(
 #pragma warning restore DRV0005
     }
 
-    /// <summary>The token set in an answer. A refresh answer that names no new refresh token keeps the current one.</summary>
+    /// <summary>
+    /// The token set in an answer. A refresh answer that names no new refresh token keeps the current one, and a refresh
+    /// keeps the sign-in's account label and details.
+    /// </summary>
     private ModelTokens ToTokens(JsonElement answer, ModelTokens? current)
     {
         if (answer.ValueKind is not JsonValueKind.Object || Text(answer, "access_token") is not { Length: > 0 } accessToken)
@@ -227,6 +251,8 @@ public sealed class AnthropicPlanSignIn(
             RefreshToken = Text(answer, "refresh_token") ?? current?.RefreshToken,
             ExpiresAt = expiresIn is { } lifetime ? time.GetUtcNow() + lifetime : null,
             Scopes = scopes,
+            AccountLabel = current?.AccountLabel,
+            Details = current?.Details ?? new Dictionary<string, string>(StringComparer.Ordinal),
         };
     }
 
