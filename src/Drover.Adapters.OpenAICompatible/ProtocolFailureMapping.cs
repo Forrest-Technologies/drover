@@ -73,6 +73,7 @@ internal static class ProtocolFailureMapping
     private static ModelProviderException? Describe(Exception exception) =>
         exception switch
         {
+            ClientResultException failure when PlanFailures.Read(failure.GetRawResponse()?.Content) is { } plan => plan,
             ClientResultException { Status: 400 } failure when ContextLengthExceeded(failure) =>
                 new ModelProviderException(ModelFailure.TooLong, "The provider says this conversation is longer than the model can read."),
             ClientResultException failure => ModelProviderException.FromStatus(failure.Status, ReadRetryAfter(failure)),

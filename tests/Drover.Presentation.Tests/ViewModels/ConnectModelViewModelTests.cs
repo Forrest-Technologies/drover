@@ -429,7 +429,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
         server.Answer("POST", path, created, HttpStatusCode.Created);
         var navigator = new Navigator();
-        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
         await model.Open();
         model.ApiKey = "sample-key";
 
@@ -445,7 +445,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     {
         server.Answer("GET", PresetsPath, SampleProviders.Kinds());
         var navigator = new Navigator();
-        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
         await model.Open();
 
         await model.Continue();
@@ -539,7 +539,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
     #region Private Methods
 
-    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), NullLogger<ConnectModelViewModel>.Instance);
+    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
 
     #endregion
 }

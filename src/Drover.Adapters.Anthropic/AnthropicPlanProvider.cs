@@ -32,7 +32,8 @@ public sealed class AnthropicPlanProvider(IHttpClientFactory httpClients, IOptio
         ModelAddressRule.Fixed,
         AddressHint: null,
         KeyHint: null,
-        ReportsCapabilities: false);
+        ReportsCapabilities: false,
+        SignInName: "Claude");
 
     #endregion
 

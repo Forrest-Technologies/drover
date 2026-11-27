@@ -15,6 +15,10 @@ namespace Drover.Domain.Models;
 /// <param name="ReportsCapabilities">True when the provider's model list carries capabilities and prices.</param>
 /// <param name="NamedProviders">The providers a person can pick by name for a kind that takes an address, in the order to
 /// show them. Empty for every other kind.</param>
+/// <param name="SignInName">For a kind each person connects by signing in, what the provider is called on its sign-in
+/// button ("Continue with {name}"). Null for every other kind.</param>
+/// <param name="UsagePage">For a sign-in kind whose provider has a page where a person manages what other apps use of
+/// their plan, that public page. Null otherwise.</param>
 public sealed record ModelProviderDescriptor(
     string Kind,
     string DisplayName,
@@ -23,4 +27,6 @@ public sealed record ModelProviderDescriptor(
     string? AddressHint,
     string? KeyHint,
     bool ReportsCapabilities,
-    IReadOnlyList<ModelProviderPreset>? NamedProviders = null);
+    IReadOnlyList<ModelProviderPreset>? NamedProviders = null,
+    string? SignInName = null,
+    Uri? UsagePage = null);

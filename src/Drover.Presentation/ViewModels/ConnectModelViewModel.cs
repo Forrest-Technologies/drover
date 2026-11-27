@@ -5,11 +5,14 @@ public sealed partial class ConnectModelViewModel(
     DroverApi api,
     SessionState session,
     Navigator navigator,
+    IModelSignInListener listener,
     ILogger<ConnectModelViewModel> logger) : ObservableObject
 {
     #region Private Fields
 
     private NamedProviders? named;
+
+    private ModelSignInFlow? signIn;
 
     [ObservableProperty]
     private string baseUrl = string.Empty;
@@ -49,7 +52,13 @@ public sealed partial class ConnectModelViewModel(
 
     public string Kind => Named.Kind;
 
-    public bool Passed => Problem is null && Result is { Succeeded: true };
+    /// <summary>The sign-in shown in place of the key form when the choice is a kind each person signs in to.</summary>
+    public ModelSignInFlow SignIn => signIn ??= MakeSignIn();
+
+    /// <summary>True when the choice is a sign-in kind: the form is one button, not a key.</summary>
+    public bool ShowsSignIn => Named.SignIn is not null;
+
+    public bool Passed => ShowsSignIn ? SignIn.Stage is ModelSignInStage.Done : Problem is null && Result is { Succeeded: true };
 
     public string? Outcome => Problem ?? Result?.Message;
 
@@ -63,6 +72,12 @@ public sealed partial class ConnectModelViewModel(
     {
         await session.Load();
         await Named.Load();
+
+        // The server's first choice can itself be a sign-in kind.
+        if (Named.SignIn is { } kind)
+        {
+            SignIn.Show(kind);
+        }
     }
 
     public void ChooseProvider(string chosen)
@@ -77,6 +92,29 @@ public sealed partial class ConnectModelViewModel(
         Problem = null;
         AddressProblem = null;
         KeyProblem = null;
+
+        if (Named.SignIn is { } kind)
+        {
+            SignIn.Show(kind);
+        }
+    }
+
+    /// <summary>The sign-in state's one action: start or start again, cancel, or move to a provider that takes a key.</summary>
+    public async Task ActOnSignIn(Func<string, Task> open)
+    {
+        switch (SignIn.Action)
+        {
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain:
+                await SignIn.Start(SpaceId, open);
+                Connection = SignIn.Connection ?? Connection;
+                break;
+            case ModelSignInAction.Cancel:
+                SignIn.Cancel();
+                break;
+            case ModelSignInAction.AddKey:
+                ChooseProvider(Named.KeyChoice);
+                break;
+        }
     }
 
     [RelayCommand]
@@ -156,10 +194,23 @@ public sealed partial class ConnectModelViewModel(
         return made;
     }
 
+    private ModelSignInFlow MakeSignIn()
+    {
+        var made = new ModelSignInFlow(api, listener, logger);
+        made.PropertyChanged += (_, _) => OnPropertyChanged(string.Empty);
+        return made;
+    }
+
     // Continue with no passing test is allowed: the connection is saved as it is, not tested, and the step moves on.
     [RelayCommand]
     public async Task Continue()
     {
+        // A sign-in kind has nothing to save untested: the person signs in, or chooses a provider that takes a key.
+        if (ShowsSignIn && !Passed)
+        {
+            return;
+        }
+
         if (!Passed && !await SaveUntested())
         {
             return;

@@ -1,24 +1,5 @@
 namespace Drover.Adapters.Tests.Support;
 
-/// <summary>Settings a test can change between two requests, as a configuration reload would.</summary>
-public sealed class SettableOptions<T>(T value) : IOptionsMonitor<T>
-{
-    #region Properties
-
-    public T CurrentValue { get; set; } = value;
-
-    #endregion
-
-    #region Interface Implementations
-
-    public T Get(string? name) => CurrentValue;
-
-    public IDisposable? OnChange(Action<T, string?> listener) => null;
-
-    #endregion
-}
-
-
 /// <summary>
 /// The Claude plan's token address, played in memory as its working client shows it: JSON bodies, a one-time code
 /// exchanged once, and refresh tokens that rotate and are refused once spent. Every token it makes is random, so a test

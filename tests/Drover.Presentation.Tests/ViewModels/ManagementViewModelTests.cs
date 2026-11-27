@@ -200,6 +200,7 @@ public sealed class ManagementViewModelTests : IDisposable
             server.CreateApi(),
             memberSession,
             new(server.CreateApi(), memberSession, NullLogger<SpaceVoice>.Instance),
+            new NoModelSignInListener(),
             NullLogger<ModelConnectionsViewModel>.Instance);
         await asMember.Open();
 
@@ -252,6 +253,7 @@ public sealed class ManagementViewModelTests : IDisposable
             server.CreateApi(),
             memberSession,
             new(server.CreateApi(), memberSession, NullLogger<SpaceVoice>.Instance),
+            new NoModelSignInListener(),
             NullLogger<ModelConnectionsViewModel>.Instance);
         await asMember.Open();
 
@@ -336,7 +338,7 @@ public sealed class ManagementViewModelTests : IDisposable
 
     private StatusPageViewModel Status() => new(server.CreateApi(), session, NullLogger<StatusPageViewModel>.Instance);
 
-    private ModelConnectionsViewModel Models() => new(server.CreateApi(), session, voice, NullLogger<ModelConnectionsViewModel>.Instance);
+    private ModelConnectionsViewModel Models() => new(server.CreateApi(), session, voice, new NoModelSignInListener(), NullLogger<ModelConnectionsViewModel>.Instance);
 
     #endregion
 }

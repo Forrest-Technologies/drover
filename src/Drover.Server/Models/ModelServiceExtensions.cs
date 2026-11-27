@@ -7,10 +7,10 @@ public static class ModelServiceExtensions
     /// <summary>
     /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
     /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
-    /// provider choice in every form: Venice, OpenAI, Anthropic and Gemini, the hosted providers that need only a key,
-    /// then signing in with a Claude plan, then the compatible kind with the named providers it carries, so the choice
-    /// starts on a provider that needs only a key and "Another compatible server" comes last. A new provider kind is one
-    /// more call here.
+    /// provider choice in every form: Venice, OpenAI, Anthropic and Gemini, the hosted providers that need only a key, the
+    /// ChatGPT plan and the Claude plan, which each person signs in to, then the compatible kind with the named providers
+    /// it carries, so the choice starts on a provider that needs only a key and "Another compatible server" comes last. A
+    /// new provider kind is one more call here.
     /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
     /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
@@ -21,6 +21,11 @@ public static class ModelServiceExtensions
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
         services.AddModelProvider<GeminiProvider>(adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName);
+        services.AddModelProvider<OpenAIPlanProvider>(
+            adapter => adapter.AddOpenAIPlanProvider(),
+            OpenAIPlanProvider.HttpClientName,
+            OpenAIPlanSignIn.HttpClientName);
+        services.Configure<OpenAIPlanOptions>(configuration.GetSection(OpenAIPlanOptions.Section));
         // The plan's calls share the key kind's client, which already has the outbound handler; only its sign-in client is new.
         services.Configure<AnthropicPlanSignInOptions>(configuration.GetSection(AnthropicPlanSignInOptions.Section));
         services.AddModelProvider<AnthropicPlanProvider>(adapter => adapter.AddAnthropicPlan(), AnthropicPlanSignIn.HttpClientName);
