@@ -68,7 +68,17 @@ public sealed class ToolGate(RunContext run, ILogger logger)
             context.Arguments = left;
             request = request with { Arguments = ruled };
         }
+
         var verdict = decision.Verdict is ToolGateVerdict.Ask && request.Approved ? ToolGateVerdict.Run : decision.Verdict;
+
+        // A held call that no person approved runs only when the governor's decision now is to run it, and only for
+        // the arguments its row was held with. The row then says a rule check cleared it.
+        if (verdict is ToolGateVerdict.Run && wrapped && !request.Approved
+            && !await ledger.Clear(request.CallId, request.Arguments, cancellationToken))
+        {
+            logger.LogInformation("Held tool call {CallId} in run {RunId} does not match what was held; refused", request.CallId, request.RunId);
+            return await Finish(request, definition, ToolCallStatus.Failed, ToolCallLedger.Error(NotApproved), cancellationToken);
+        }
 
         if (verdict is not ToolGateVerdict.Run)
         {
