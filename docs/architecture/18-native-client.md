@@ -283,7 +283,7 @@ Every component of the retired web client has a control of the same name in `src
 | `DroverMark` | `Foreground` |
 | `EmptyState` | `Title`, `Cause`, `ActionLabel`, `ActionHref`, `ActionCommand` or the `Action` event |
 | `Field` | `Label`, `Value` (two-way), `Type`, `Placeholder`, `Hint`, `Error`, `Disabled`, `MaxLength` (the web's `maxlength`), `Autofill` (the web's `autocomplete`), the `Submitted` event |
-| `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`. Drawn from `IconShapes` |
+| `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`, `ColorToken`. Drawn from `IconShapes` |
 | `IconButton` | `Icon`, `Label` (required: it throws without one) |
 | `ListCard` | The one frame for a list of things to open. `Title` is the link named by the item; `Facts`, `Leading`, `Status` and `Trailing` fill its four columns; `Beneath` holds a block below the frame. The `Opened` event makes the whole card a tap target and gives its name a keyboard path; with no handler the name is plain text |
 | `ScreenHeader` | The one header at the top of a work screen. `Title` is the level one heading; `BackLabel` and `BackAddress` add the arrow button (`ScreenBack`) when both are set; `Actions` holds icon buttons and icon menus |
@@ -327,6 +327,12 @@ Native only, because the web does these in CSS:
 ### The conversation's pieces
 
 What a conversation shows and what opens beside one is in `src/Drover.Native/Chat`, one control for each component of the retired web client's conversation, with the same name and the same parameters. Their logic is in `Drover.Presentation/ViewModels/Chat`, moved from the components as it was, and tested in `tests/Drover.Presentation.Tests/ViewModels/Chat` with the web client's cases and its recorded event logs (`tests/Drover.Presentation.Tests/Fixtures`).
+
+The turn ledger uses [`ToolIcons`](../../src/Drover.Presentation/Icons/ToolIcons.cs) for the icon beside each
+tool name. To add one, add a switch arm for the tool's qualified ID and its stored spelling if that differs.
+Choose an existing [`IconName`](../../src/Drover.Presentation/Icons/IconName.cs) and, if useful, a `DvHue0` through
+`DvHue11` theme token. A new shape goes in `IconName` and `IconShapes`. Unmapped tools use the neutral tool icon.
+The ledger still names the tool and its outcome in words. Check the new icon in dark and light at 360 px.
 
 | Control | Takes | Raises |
 | --- | --- | --- |
