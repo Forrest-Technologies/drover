@@ -184,7 +184,8 @@ server of the screen checks in the harness with a sandbox provider that records 
 `/health/ready`, and runs `dotnet run --project tests/Drover.Native.UITests -- android-proof <folder>`. Every wait has
 a bound and says what it saw when the bound passes. Four things print one `PROOF PASS` or `PROOF FAIL` line each:
 
-1. **Chat.** The app sends a message and the bot's reply arrives.
+1. **Chat.** The harness opens the on-screen keyboard and touches Send once, holding for 170 ms before lifting.
+   The message goes through and the bot's reply arrives.
 2. **Upload.** The app presses attach. The harness chooses `drover-proof.png` in the system's file picker, so the
    file comes through the same path as a person's screenshot. The app waits for its chip to say it is uploaded, sends
    it, and sees it in the conversation. The harness then reads the stored file from the server and compares its hash
