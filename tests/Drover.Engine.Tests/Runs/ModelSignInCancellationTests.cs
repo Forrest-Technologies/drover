@@ -80,6 +80,10 @@ public sealed class ModelSignInCancellationTests(PostgresServer postgres)
         await renewal.DisposeAsync();
         (await signingOut).Should().BeTrue();
         signIn.Revoked.Should().ContainSingle();
+        (await world.Read(db => db.ModelConnectionCredentials.SingleAsync(RunWorld.Token))).Status
+            .Should().Be(ModelSignInStatus.NeedsSignIn, "only what the provider registered stays, with no token");
+        (await host.Services.GetRequiredService<ModelSignIns>().SignOut(world.SpaceId, world.UserId, world.ConnectionId, RunWorld.Token)).Should().BeTrue();
+        signIn.Revoked.Should().ContainSingle("a sign-in with no token sends nothing");
         (await world.Read(db => db.ModelConnectionCredentials.CountAsync(RunWorld.Token))).Should().Be(0);
     }
 

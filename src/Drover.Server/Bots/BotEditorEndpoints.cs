@@ -41,12 +41,21 @@ public static class BotEditorEndpoints
         bot.MapPost("/rules", CreateRule).WithName("CreateBotRule");
         bot.MapPut("/rules/{ruleId:guid}", UpdateRule).WithName("UpdateBotRule");
         bot.MapDelete("/rules/{ruleId:guid}", RemoveRule).WithName("RemoveBotRule");
-        bot.MapPost("/rules/try", TryRules).WithName("TryBotRules");
         bot.MapGet("/rules/options", GetRuleOptions).WithName("GetBotRuleOptions");
         bot.MapGet("/sandbox/options", GetSandboxOptions).WithName("GetBotSandboxOptions");
         bot.MapGet("/limits/options", GetRunLimitOptions).WithName("GetBotRunLimitOptions")
             .WithSummary("The space's limits on one run, which a bot's own limits may only lower.");
         return bots;
+    }
+
+    /// <summary>
+    /// "Try it" may wait on the space's decision model for a rule written as a sentence, so it sits outside the tenant
+    /// scope filter: the service reads the rules in its own short scope and asks the model with none open.
+    /// </summary>
+    public static RouteGroupBuilder MapRuleTrial(this RouteGroupBuilder space)
+    {
+        space.MapPost("/bots/{botId:guid}/rules/try", TryRules).RequireSpaceRole(MembershipRole.Admin).WithName("TryBotRules");
+        return space;
     }
 
     public static RouteGroupBuilder MapScheduleRunOnce(this RouteGroupBuilder space)
@@ -395,6 +404,8 @@ public static class BotEditorEndpoints
             [.. (outcome?.Applied ?? []).Select(rule => rule.Name)])
         {
             CatchesCommonForms = trial.TriedAPattern,
+            Judgment = trial.Judged is { } judged ? Words.Of(judged.Judgment) : null,
+            Probability = trial.Judged?.Probability,
         });
     }
 

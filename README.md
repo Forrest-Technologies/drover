@@ -31,7 +31,7 @@ The server holds the permissions. A bot can only call a tool you granted it, and
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/images/readme/conversation-light.png" />
-    <img src="docs/images/readme/conversation-dark.png" width="900" alt="Drover in a browser: the crew of bots in the left column, each under the bot that manages it, and a bot's conversation open on the right with one menu in its header for activity, summary, memory, files, and side chats" />
+    <img src="docs/images/readme/conversation-dark.png" width="900" alt="Drover in a browser with a sample conversation and its open ledger. Colored icons mark web search and a page read, and a gray terminal icon marks a command." />
   </picture>
 </p>
 

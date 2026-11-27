@@ -60,7 +60,7 @@ public sealed class CompatibleLiveVoiceTests : IAsyncLifetime
         await socket.ConnectAsync(new Uri($"{address.ToString().Replace("http", "ws", StringComparison.Ordinal)}/live/sessions"), TestContext.Current.CancellationToken);
         await using var session = new LiveVoiceSession(new VoiceSocket(socket), time);
         await session.Start(
-            new RealtimeVoiceOptions("gpt-live-1.1", "marin", "You are the voice of Atlas.")
+            new RealtimeVoiceOptions("gpt-live-1.1", "marin", "You are Atlas. You help plan trips.")
             {
                 History = [new RealtimeTurn(false, "Hi"), new RealtimeTurn(true, "Hello Sam.")],
             },
@@ -96,7 +96,10 @@ public sealed class CompatibleLiveVoiceTests : IAsyncLifetime
         var start = sent[0].GetProperty("session");
         sent[0].GetProperty("type").GetString().Should().Be("session.start");
         start.GetProperty("model").GetString().Should().Be("gpt-live-1.1");
-        start.GetProperty("instructions").GetString().Should().StartWith("You are the voice of Atlas.").And.Contain("Delegate to the backend whenever");
+        start.GetProperty("instructions").GetString().Should().StartWith("You are Atlas. You help plan trips.")
+            .And.Contain("simple questions about your name or role")
+            .And.Contain("using your configured identity and description")
+            .And.Contain("Delegate to the backend for all other questions");
         start.GetProperty("audio").GetProperty("format").GetProperty("type").GetString().Should().Be("audio/pcm");
         start.GetProperty("audio").GetProperty("format").GetProperty("rate").GetInt32().Should().Be(24_000);
         start.GetProperty("audio").GetProperty("output").GetProperty("voice").GetString().Should().Be("marin");
@@ -104,6 +107,7 @@ public sealed class CompatibleLiveVoiceTests : IAsyncLifetime
         start.GetProperty("input")[0].GetProperty("role").GetString().Should().Be("user");
         start.GetProperty("input")[0].GetProperty("content")[0].GetProperty("type").GetString().Should().Be("input_text");
         start.GetProperty("input")[1].GetProperty("content")[0].GetProperty("type").GetString().Should().Be("output_text");
+        start.GetProperty("input")[1].GetProperty("content")[0].GetProperty("text").GetString().Should().Be("Hello Sam.");
         sent[1].GetProperty("type").GetString().Should().Be("session.input_audio.append");
         Convert.FromBase64String(sent[1].GetProperty("audio").GetString()!).Should().Equal(1, 0, 2, 0);
         var report = sent[2];
@@ -149,7 +153,9 @@ public sealed class CompatibleLiveVoiceTests : IAsyncLifetime
     [Fact]
     public void The_first_generation_of_the_model_is_told_to_hand_over_in_its_own_wording()
     {
-        LiveText.Instructions(new RealtimeVoiceOptions("gpt-live-1", "marin", "Voice.")).Should().Contain("Generate <|SpawnThinking|> whenever");
+        LiveText.Instructions(new RealtimeVoiceOptions("gpt-live-1", "marin", "Voice.")).Should()
+            .Contain("Do not generate <|SpawnThinking|> for greetings")
+            .And.Contain("Generate <|SpawnThinking|> for all other questions");
         LiveText.Instructions(new RealtimeVoiceOptions("gpt-live-1.1", "marin", "Voice.")).Should().NotContain("SpawnThinking");
     }
 

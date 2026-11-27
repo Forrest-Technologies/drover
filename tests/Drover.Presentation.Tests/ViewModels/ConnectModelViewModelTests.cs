@@ -45,6 +45,28 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task The_gemini_kind_the_server_offers_is_a_key_only_choice_with_its_helper_sentence()
+    {
+        server.Answer("GET", PresetsPath, new ModelProviderKindResponse[]
+        {
+            new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, []),
+            new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
+            new("gemini", "Google Gemini", "required", "fixed", null, "Paste a Gemini API key. A personal plan cannot be used here.", true, []),
+        });
+        var model = Step();
+        await model.Open();
+
+        model.ChooseProvider("gemini");
+
+        model.Named.Options.Select(option => option.Label).Should().Contain("Google Gemini");
+        model.Kind.Should().Be("gemini");
+        model.Named.ShowsAddress.Should().BeFalse();
+        model.Named.OffersAddressChange.Should().BeFalse();
+        model.Named.ShowsKey.Should().BeTrue();
+        model.Named.KeyHint.Should().Be("Paste a Gemini API key. A personal plan cannot be used here.");
+    }
+
+    [Fact]
     public async Task A_server_with_no_named_providers_offers_the_two_choices_of_before()
     {
         server.Answer("GET", PresetsPath, SampleProviders.Kinds());
@@ -125,7 +147,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_failed_read_of_the_list_still_offers_another_compatible_server()
+    public async Task A_failed_read_of_the_list_draws_no_form_until_it_is_read_again()
     {
         server.Answer("GET", PresetsPath, HttpStatusCode.InternalServerError);
         var model = Step();
@@ -134,19 +156,14 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
         model.Named.State.Should().Be(NamedProvidersState.Failed);
         model.Named.ShowsFailure.Should().BeTrue();
-        NamedProviders.FailedWords.Should().Be("Could not read the provider list.");
-        model.Named.Options.Select(option => option.Label).Should().Equal("Venice", "Another compatible server");
-
-        model.ChooseProvider("openai_compatible");
-        model.BaseUrl = "https://models.example.test/v1";
-        model.Named.ShowsAddress.Should().BeTrue();
+        model.Named.ShowsForm.Should().BeFalse("the form is not drawn until the kinds are read");
 
         server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
         await model.RetryProvidersCommand.ExecuteAsync(null);
 
         model.Named.State.Should().Be(NamedProvidersState.Loaded);
+        model.Named.ShowsForm.Should().BeTrue();
         model.Named.Options.Should().HaveCount(5);
-        model.Named.Choice.Should().Be("openai_compatible");
     }
 
     [Fact]
@@ -186,6 +203,331 @@ public sealed class ConnectModelViewModelTests : IDisposable
         sent.Should().BeEquivalentTo(new CreateModelConnectionRequest(
             "openai_compatible", "Sample hosted", "https://hosted.example.test/v1", "sample-key", null));
         model.Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_provider_with_a_blank_asks_for_that_one_value_in_place_of_the_address()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.Blank));
+        var model = Step();
+        await model.Open();
+
+        model.ChooseProvider("sample-blank");
+
+        model.Named.ShowsBlank.Should().BeTrue();
+        model.Named.Blank!.Label.Should().Be("Sample account");
+        model.Named.ShowsAddress.Should().BeFalse();
+        model.Named.OffersAddressChange.Should().BeFalse();
+        model.BaseUrl.Should().BeEmpty();
+        model.Named.BlankAddress.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_connection_made_from_a_blank_sends_the_built_address_and_a_bad_value_sends_nothing()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample blank", "openai_compatible", "https://acct-1.blank.example.test/v1", true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.Blank));
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("sample-blank");
+        model.ApiKey = "sample-key";
+
+        foreach (var bad in new[] { "", "a/b", "a@b", "a:1", "a?b", "a#b", "a b" })
+        {
+            model.Named.SetBlank(bad);
+            await model.Test();
+
+            model.Passed.Should().BeFalse(bad);
+            model.AddressProblem.Should().Be("Sample account is not valid.", bad);
+        }
+
+        server.Sent("POST", path).Should().BeEmpty();
+
+        model.Named.SetBlank("acct-1");
+        await model.Test();
+
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest(
+                "openai_compatible", "Sample blank", "https://acct-1.blank.example.test/v1", "sample-key", null));
+        model.Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_provider_choice_is_built_from_the_servers_kinds()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.Options.Select(option => option.Label).Should().Equal("Venice", "Another compatible server", "Sample third");
+        model.Named.Options.Select(option => option.Value).Should().Equal("venice", "openai_compatible", "sample-third");
+        model.Named.UsesList.Should().BeFalse("up to four choices are segments");
+        model.Named.Choice.Should().Be("venice", "the first kind in the server's order is chosen at first");
+
+        model.ChooseProvider("sample-third");
+
+        model.Kind.Should().Be("sample-third");
+        model.Named.ShowsAddress.Should().BeTrue();
+        model.Named.AddressHint.Should().Be("Sample address hint.");
+        model.Named.ShowsKey.Should().BeTrue();
+        model.Named.KeyLabel.Should().Be("Key (optional)");
+        model.Named.KeyHint.Should().Be("Sample third key hint.");
+    }
+
+    [Fact]
+    public async Task Five_or_more_choices_are_a_list_and_one_kind_is_no_choice()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All));
+        var model = Step();
+        await model.Open();
+
+        model.Named.Options.Should().HaveCount(5);
+        model.Named.UsesList.Should().BeTrue();
+
+        server.Answer("GET", PresetsPath, new[] { SampleProviders.Third });
+        await model.RetryProvidersCommand.ExecuteAsync(null);
+
+        model.Named.ShowsChoice.Should().BeFalse();
+        model.Named.OnlyKindWords.Should().Be("This server uses Sample third.");
+        model.Kind.Should().Be("sample-third");
+    }
+
+    [Fact]
+    public async Task Four_choices_are_segments_and_five_are_a_list()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All[0], SampleProviders.All[1]));
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.Options.Should().HaveCount(4);
+        model.Named.UsesList.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_kind_with_a_fixed_address_shows_no_address_field()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        var model = Step();
+        await model.Open();
+
+        model.Named.ShowsAddress.Should().BeFalse();
+        model.Named.AddressHint.Should().BeNull();
+        model.Named.ShowsKey.Should().BeTrue();
+        model.Named.KeyLabel.Should().Be("Key");
+
+        model.ChooseProvider("openai_compatible");
+        model.Named.ShowsAddress.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_kind_that_uses_no_key_shows_no_key_field()
+    {
+        server.Answer("GET", PresetsPath, new[] { SampleProviders.Third with { KeyRule = ModelKeyRules.None } });
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.ShowsKey.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_kind_whose_key_is_optional_can_continue_with_the_key_empty()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "models.example.test", "sample-third", "https://models.example.test/v1", false, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("sample-third");
+        model.BaseUrl = "https://models.example.test/v1";
+
+        await model.Test();
+
+        model.KeyProblem.Should().BeNull();
+        model.Passed.Should().BeTrue();
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest(
+                "sample-third", "models.example.test", "https://models.example.test/v1", null, null));
+    }
+
+    [Fact]
+    public async Task A_required_field_left_empty_says_what_to_enter_and_sends_nothing()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        var model = Step();
+        await model.Open();
+
+        await model.Test();
+
+        model.KeyProblem.Should().Be("Enter the key.");
+        model.AddressProblem.Should().BeNull();
+        server.Sent("POST", $"{space}/model-connections").Should().BeEmpty();
+
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = string.Empty;
+        await model.Test();
+
+        model.AddressProblem.Should().Be("Enter the base address.");
+    }
+
+    [Fact]
+    public async Task Changing_the_provider_keeps_a_typed_address_and_clears_a_typed_key()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = "https://models.example.test/v1";
+        model.ApiKey = "sample-key";
+
+        model.ChooseProvider("sample-third");
+
+        model.BaseUrl.Should().Be("https://models.example.test/v1");
+        model.ApiKey.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_failed_read_of_the_kinds_says_so_and_offers_Try_again()
+    {
+        server.Answer("GET", PresetsPath, HttpStatusCode.InternalServerError);
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.ShowsFailure.Should().BeTrue();
+        model.Named.ShowsForm.Should().BeFalse();
+        model.Named.FailureWords.Should().NotBeNullOrWhiteSpace("the failure sentence is drawn under the title");
+        NamedProviders.FailedTitle.Should().Be("Drover could not load the providers");
+        NamedProviders.RetryWords.Should().Be("Try again");
+        model.Named.OnlyKindWords.Should().BeNull("a list that could not be read does not say the server has one kind");
+
+        server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
+        await model.RetryProvidersCommand.ExecuteAsync(null);
+
+        model.Named.ShowsFailure.Should().BeFalse();
+        model.Named.Options.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task Continue_with_no_passing_test_saves_the_connection_untested_and_moves_on()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Venice", "venice", null, true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        var navigator = new Navigator();
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
+        await model.Open();
+        model.ApiKey = "sample-key";
+
+        await model.Continue();
+
+        server.Sent("POST", path).Should().ContainSingle();
+        server.Sent("POST", $"{path}/{created.Id}/test").Should().BeEmpty("nothing was tested");
+        navigator.Current.Should().Be(Addresses.SetupBot);
+    }
+
+    [Fact]
+    public async Task Continue_with_a_required_field_empty_says_what_to_enter_and_stays()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        var navigator = new Navigator();
+        var model = new ConnectModelViewModel(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
+        await model.Open();
+
+        await model.Continue();
+
+        model.KeyProblem.Should().Be("Enter the key.");
+        navigator.Current.Should().NotBe(Addresses.SetupBot);
+    }
+
+    [Fact]
+    public async Task A_server_that_offers_no_kind_draws_a_state_in_place_of_the_form()
+    {
+        server.Answer("GET", PresetsPath, Array.Empty<ModelProviderKindResponse>());
+        var model = Step();
+
+        await model.Open();
+
+        model.Named.OffersNone.Should().BeTrue();
+        model.Named.ShowsForm.Should().BeFalse();
+        model.Named.ShowsState.Should().BeTrue();
+        model.Named.StateTitle.Should().Be("This server offers no model provider");
+        model.Named.StateCause.Should().Contain("The operator of this server has switched every provider off");
+        await model.Test();
+        server.Sent("POST", $"{space}/model-connections").Should().BeEmpty("there is no kind to connect");
+    }
+
+    [Fact]
+    public async Task A_choice_the_server_stopped_offering_falls_back_to_the_first_kind()
+    {
+        server.Answer("GET", PresetsPath, SampleProviders.KindsWithThird());
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("sample-third");
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+
+        await model.RetryProvidersCommand.ExecuteAsync(null);
+
+        model.Kind.Should().Be("venice");
+    }
+
+    [Fact]
+    public async Task An_address_the_server_rewrote_is_shown_as_saved_and_found_again_by_the_next_test()
+    {
+        var path = $"{space}/model-connections";
+        var stored = "https://sample.example.test/v1/";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample", "openai_compatible", stored, true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = "https://sample.example.test/";
+        model.ApiKey = "sample-key";
+
+        await model.Test();
+        await model.Test();
+
+        model.BaseUrl.Should().Be(stored);
+        model.Outcome.Should().Be("Sample connected.");
+        server.Sent("POST", path).Should().ContainSingle("the second test finds the saved connection");
+    }
+
+    [Fact]
+    public async Task The_first_test_of_a_rewritten_address_says_where_it_was_saved()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample", "openai_compatible", "https://sample.example.test/v1/", true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds());
+        server.Answer("GET", path, Array.Empty<ModelConnectionSummary>());
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Step();
+        await model.Open();
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = "https://sample.example.test/";
+
+        await model.Test();
+
+        model.Outcome.Should().Be("Saved as https://sample.example.test/v1/. Sample connected.");
     }
 
     [Fact]
@@ -242,7 +584,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
 
     #region Private Methods
 
-    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), NullLogger<ConnectModelViewModel>.Instance);
+    private ConnectModelViewModel Step() => new(server.CreateApi(), session, new Navigator(), new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
 
     #endregion
 }
@@ -259,12 +601,25 @@ public static class SampleProviders
         new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
     ];
 
+    /// <summary>A kind the client has never heard of: a required address and an optional key.</summary>
+    public static ModelProviderKindResponse Third { get; } =
+        new("sample-third", "Sample third", "optional", "required", "Sample address hint.", "Sample third key hint.", false, []);
+
+    public static ModelProviderKindResponse[] KindsWithThird() => [.. Kinds(), Third];
+
     /// <summary>The same, with a kind that has its own wire, a fixed address and a required key.</summary>
     public static ModelProviderKindResponse[] WithOwnWire(params ModelProviderPresetResponse[] named) =>
     [
-        new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
         new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
         new("sample_own_wire", "Sample own wire", "required", "fixed", null, "Sample own wire hint.", false, []),
+        new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
+    ];
+
+    /// <summary>A named provider whose address holds one value only the person knows.</summary>
+    public static ModelProviderPresetResponse[] Blank { get; } =
+    [
+        new("sample-blank", "Sample blank", "https://{blank}.blank.example.test/v1", "required", null, false,
+            new ModelProviderAddressBlankResponse("Sample account", "^[a-z0-9-]{1,20}\\z")),
     ];
 
     public static ModelProviderPresetResponse[] All { get; } =

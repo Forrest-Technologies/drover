@@ -76,6 +76,9 @@ public static class RunEventTypes
     /// <summary>A rule a person wrote on the bot applied. Data is <see cref="RuleFired"/>.</summary>
     public const string RuleFired = "rule.fired";
 
+    /// <summary>A decision model checked a rule written as a sentence. Data is <see cref="RuleChecked"/>.</summary>
+    public const string RuleChecked = "rule.checked";
+
     /// <summary>The configured memory service timed out or failed during recall; the run continues without it. Data is <see cref="MemoryServiceUnavailable"/>.</summary>
     public const string MemoryServiceUnavailable = "memory_service_unavailable";
 

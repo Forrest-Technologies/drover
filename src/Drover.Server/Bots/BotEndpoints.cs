@@ -18,6 +18,7 @@ public static class BotEndpoints
         bots.MapBotEditorEndpoints();
         bots.MapMemoryEndpoints();
         space.MapScheduleRunOnce();
+        space.MapRuleTrial();
         return space;
     }
 

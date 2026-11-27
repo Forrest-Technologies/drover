@@ -63,6 +63,11 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunEventFeed>();
         services.AddSingleton<ConversationSummarizer>();
         services.AddSingleton<RunExecutor>();
+
+        // A space's decision model is found before every rule check; a space with none ready has its judged rules unsure.
+        services.AddSingleton<SpaceDecisionModels>();
+        services.AddSingleton<FindDecisionModel>(provider => provider.GetRequiredService<SpaceDecisionModels>().Find);
+        services.AddScoped<DecisionConnectionService>();
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();
         services.AddScoped<ToolConnectionService>();

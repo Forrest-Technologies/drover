@@ -65,29 +65,28 @@ public static class CatalogUpsert
     private static void Refresh(ModelCatalogEntry entry, ModelInfo model, DateTimeOffset now)
     {
         entry.DisplayName = Truncate(model.DisplayName, MaxModelIdLength);
-        entry.Capabilities = KeepOperatorMarks(entry.Capabilities, model.Capabilities);
-        entry.Pricing = model.Pricing;
+        entry.Capabilities = model.FactsRead ? KeepOperatorMarks(entry.Capabilities, model.Capabilities) : entry.Capabilities;
+        entry.Pricing = model.FactsRead ? model.Pricing : entry.Pricing;
         entry.PrivacyMode = model.Privacy is PrivacyMode.Unknown ? null : model.Privacy.ToString().ToLowerInvariant();
         entry.Traits = [.. model.Traits];
         entry.State = AvailabilityState.Available;
         entry.LastSeenAt = now;
     }
 
-    /// <summary>What an admin marked by hand outlives a refresh: the provider's list cannot contradict it.</summary>
-    private static ModelCapabilities KeepOperatorMarks(ModelCapabilities kept, ModelCapabilities listed)
-    {
-        var merged = kept.VisionSetByOperator ? listed with { Vision = true, VisionSetByOperator = true } : listed;
-
-        return kept.VoiceSetByOperator
-            ? merged with
+    /// <summary>
+    /// What an admin marked for speech outlives a refresh: the provider's list cannot contradict it. What an admin
+    /// set for the other abilities and for prices lives in its own columns, which a refresh never writes.
+    /// </summary>
+    private static ModelCapabilities KeepOperatorMarks(ModelCapabilities kept, ModelCapabilities listed) =>
+        kept.VoiceSetByOperator
+            ? listed with
             {
                 SpeechToText = kept.SpeechToText,
                 TextToSpeech = kept.TextToSpeech,
                 RealtimeVoice = kept.RealtimeVoice,
                 VoiceSetByOperator = true,
             }
-            : merged;
-    }
+            : listed;
 
     private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];
 

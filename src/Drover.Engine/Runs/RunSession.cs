@@ -20,10 +20,12 @@ public sealed class RunLimitException(string reason, string message, string kind
 public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin, ToolConnection? Connection = null)
 {
     /// <summary>Drover knows this tool only reads: it is built in and marked so. A server's word for it is not enough.</summary>
+    public ToolSensitivity Sensitivity => Tool.SensitivityOn(Connection);
+
     public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
 
     /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
-    public bool IsDelegation => Builtin is not null && Builtin.Name == DelegateTool.Name;
+    public bool IsDelegation => Builtin?.Name is DelegateTool.Name or DelegateTool.MessageBotName;
 
     /// <summary>
     /// A call cut off by a restart is asked again: it only reads, it resolves to the same child run, or Drover knows
@@ -193,19 +195,29 @@ public sealed class RunSession(
     }
 
     /// <summary>
-    /// True when a rule asks a person before this tool is used, going by the rule's conditions about the tool alone.
-    /// The framework can stop for approval only on tools marked for it when the agent is built, before any argument
-    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask.
+    /// True when a rule decided by code asks a person before this tool is used, going by the rule's conditions about
+    /// the tool alone. The framework can stop for approval only on tools marked for it when the agent is built, before
+    /// any argument is known, so a rule that asks only for some arguments makes every call of the tools it could apply
+    /// to ask.
     /// </summary>
     public bool RuleAsks(RunTool tool) =>
-        RulesAtBuild.Any(rule =>
-            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask }
-            && rule.Conditions.All(condition => condition.Kind switch
-            {
-                RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
-                RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Tool.Sensitivity),
-                _ => true,
-            }));
+        RulesAtBuild.Any(rule => rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask, Judged: null } && Reaches(rule, tool));
+
+    /// <summary>
+    /// True when a rule written as a sentence, of this bot or one above it, is about calls of this tool, going by its
+    /// conditions about the tool alone (every tool, when it has none). Such a tool is held for approval at each call, and
+    /// the rule check then decides whether a person is asked: see <see cref="RunGovernor.ClearsWithoutAPerson"/>.
+    /// </summary>
+    public bool JudgedRuleReaches(RunTool tool) =>
+        RulesAtBuild.Any(rule => rule is { Checkpoint: RuleCheckpoint.BeforeTool, Judged: not null } && Reaches(rule, tool));
+
+    private static bool Reaches(ActiveRule rule, RunTool tool) =>
+        rule.Conditions.All(condition => condition.Kind switch
+        {
+            RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
+            RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Sensitivity),
+            _ => true,
+        });
 
     /// <summary>
     /// A child run of this one waits for a person. This run stops where it is and waits too: its call to the child
@@ -553,6 +565,45 @@ public sealed class RunSession(
         };
 
     public int CurrentStep => step;
+
+    /// <summary>Counts one rule check by a decision model. It is stored with the run's usage when the check is recorded.</summary>
+    public void CountJudgedCheck() => usage = usage with { JudgedChecks = usage.JudgedChecks + 1 };
+
+    /// <summary>
+    /// Records one model call against the run: the run's own, one a tool made for it, such as reading the screen, or
+    /// a rule check. The record names the model that answered, so a call by another model is told apart from the
+    /// bot's own. It is not a step.
+    /// </summary>
+    public async Task RecordModelUsage(ToolModelUsage reported)
+    {
+        var used = RunGovernor.NonNegative(reported);
+        var cost = RunGovernor.Cost(used);
+        AddUsage(used.InputTokens, used.OutputTokens, cost ?? 0);
+        var recorded = new UsageRecorded(CurrentStep, used.InputTokens, used.OutputTokens, 0, cost, used.Pricing.Currency);
+        await writer.Write(
+            async services =>
+            {
+                var runs = services.GetRequiredService<RunRepository>();
+                runs.Add(new UsageRecord
+                {
+                    RunId = RunId,
+                    RootRunId = RootRunId,
+                    BotId = BotId,
+                    ModelConnectionId = used.ModelConnectionId,
+                    Model = used.Model,
+                    InputTokens = used.InputTokens,
+                    OutputTokens = used.OutputTokens,
+                    Cost = cost,
+                    Currency = used.Pricing.Currency,
+                });
+
+                if (await runs.GetRunForUpdate(RunId, CancellationToken.None) is { } stored)
+                {
+                    stored.Usage = usage;
+                }
+            },
+            [RunEventWriter.Event(RunId, RunEventTypes.UsageRecorded, recorded)]);
+    }
 
     /// <summary>The tokens every model call of this run has read and written so far, earlier executions included.</summary>
     public long TokensUsed => usage.InputTokens + usage.OutputTokens;

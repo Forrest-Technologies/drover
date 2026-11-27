@@ -99,7 +99,7 @@ public static class VoiceChoices
             .OrderBy(source => source.Connection.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(source => source.Connection.Id)
             .SelectMany(source => source.Catalog
-                .Where(entry => entry.State == AvailabilityState.Available && entry.Capabilities.Fills(slot))
+                .Where(entry => entry.State == AvailabilityState.Available && entry.EffectiveCapabilities.Fills(slot))
                 .OrderBy(entry => entry.Model, StringComparer.Ordinal)
                 .Select(entry => new VoiceCandidate(
                     source.Connection.Id,

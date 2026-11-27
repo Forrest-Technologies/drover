@@ -48,9 +48,10 @@ public sealed class DeploymentPolicyTests
 
         allowed.Select(rule => rule.Name).Should().Equal(
             nameof(DeploymentPolicy.AllowBotsBuildingBots),
+            nameof(DeploymentPolicy.AllowBotMessaging),
             nameof(DeploymentPolicy.AllowConversationSummaries));
         allowed.Select(rule => $"{rule.IsLocked} {rule.ReadText(DeploymentPolicy.Hosted)}").Should().AllBe("True true", "each is locked and on in the hosted preset");
-        (DeploymentPolicy.Hosted with { AllowBotsBuildingBots = false, AllowConversationSummaries = false })
+        (DeploymentPolicy.Hosted with { AllowBotsBuildingBots = false, AllowBotMessaging = false, AllowConversationSummaries = false })
             .FindLoosenedRules(DeploymentPolicy.Hosted).Should().BeEmpty("an operator may always turn one off");
     }
 

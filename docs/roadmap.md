@@ -272,7 +272,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 
 [Milestone on GitHub](https://github.com/Forrest-Technologies/drover/milestone/7)
 
-**Goal.** A model provider or an agent runtime is added as one adapter project with one registration, and a conformance suite proves it keeps Drover's rules.
+**Goal.** A model provider, an agent runtime or a memory service is added as one adapter project with one registration, and a conformance suite proves it keeps Drover's rules.
 
 **Starts now.** This milestone does not wait for the ones before it. It shares no code with them.
 
@@ -294,6 +294,12 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - #854 feat: a first external agent SDK as an agent runtime (good first issue)
 - #855 feat: choose what runs a bot in the bot editor
 
+**Memory service, first in this milestone (owner, 2026-11-27).** A bot learns about its person from their private conversations through a memory service, with Honcho as the first one. Lanes take these three, in order, before the rest of this milestone.
+
+- #1052 feat: a memory service learns about a bot's person from their conversations, through a provider seam with a conformance suite
+- #1053 feat: Honcho as the first memory service
+- #1054 feat: turn the memory service on or off per bot, and see whether it is working
+
 **Interface specs.** [providers.md](ux/providers.md)
 
 **Exit criteria.**
@@ -302,6 +308,7 @@ Milestones 13 to 20 complete the product. Their issues are assigned and carry th
 - The client names no provider. It draws its forms from what the server offers.
 - Three more model adapters pass the conformance suite.
 - The decision record for agent runtimes is approved, and one external agent SDK runs a bot under the tool gate.
+- A bot with memory on is given what a configured Honcho server learned about its person, and a conformance suite proves one person's memory never reaches another person or another bot.
 
 ### 08 Apple apps
 

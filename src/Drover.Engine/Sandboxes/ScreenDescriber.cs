@@ -153,7 +153,7 @@ public sealed class ScreenDescriber(
             return new Found(null, "The model connection of the model set to read this bot's screen no longer exists.");
         }
 
-        if (await connections.FindCatalogEntry(connection.Id, chosen.Model, cancellationToken) is not { Capabilities.Vision: true } entry)
+        if (await connections.FindCatalogEntry(connection.Id, chosen.Model, cancellationToken) is not { EffectiveCapabilities.Vision: true } entry)
         {
             return new Found(null, $"{chosen.Model}, the model set to read this bot's screen, is no longer listed as reading images.");
         }
@@ -175,16 +175,16 @@ public sealed class ScreenDescriber(
 
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(call.Tenant.SpaceId, cancellationToken);
         var address = provider.FixedAddress ?? new Uri(connection.BaseUrl!);
-        return new Found(new Reader(provider, address, connection.Id, entry.Model, entry.DisplayName, credential, entry.Pricing, policy), null);
+        return new Found(new Reader(provider, address, connection.Id, entry.Model, entry.DisplayName, credential, entry.EffectivePricing, policy), null);
     }
 
     /// <summary>One request, bounded in time, under the space's rule on private addresses. Cancelling the run cancels it.</summary>
     private async Task<ModelChatResponse> Ask(Reader reader, ModelChatRequest request, CancellationToken cancellationToken)
     {
-        var endpoint = new ModelEndpoint(reader.Provider.Kind, reader.Address)
+        var endpoint = reader.Credential.For(new ModelEndpoint(reader.Provider.Kind, reader.Address)
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
-        };
+        });
         using var client = reader.Provider.CreateChatClient(endpoint, reader.Key, reader.Model, new ModelSettings { MaxOutputTokens = MaxAnswerTokens });
         using var outbound = OutboundAttempt.Begin(reader.Policy);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

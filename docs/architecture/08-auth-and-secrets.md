@@ -124,6 +124,10 @@ Built in step 9 for the secrets a run reveals, which today is the model connecti
 
 The redactor is a seatbelt, not a guarantee: a tool that returns a secret in a transformed form (encoded, split) will not be caught. The primary control is that secrets do not enter tool arguments in the first place.
 
+### Decision model keys
+
+A space's decision model key ([15-model-providers.md](15-model-providers.md#a-spaces-decision-model)) is a secret of kind `decision_key`, stored by `DecisionConnectionService` and named by the plain column `decision_connections.key_secret_id`. It arrives in `SetDecisionModelRequest` or `ReplaceDecisionKeyRequest` (inbound forms of the contract test, which print nothing from `ToString`); replacing it stores a new secret and deletes the old one, and disconnecting deletes it. It is revealed only to build a client: for a test, and before each rule check of a run, in a short scope that is closed before the provider is asked. The adapter puts it in the request's header and nowhere else, so it is never in a run's text, an event, a usage record, or an audit entry; a test greps the responses and audit entries for it.
+
 ### Sandbox secrets
 
 A sandbox secret is a credential a person gives bots for their sandboxes, as an environment variable: `DEPLOY_TOKEN`, `PAYMENTS_API_KEY`. Owners and admins manage them under `/api/spaces/{spaceId}/sandbox-secrets` (`SandboxSecretService`, `SandboxSecretEndpoints`).

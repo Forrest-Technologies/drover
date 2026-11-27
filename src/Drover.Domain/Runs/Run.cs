@@ -33,6 +33,9 @@ public sealed class Run : ISpaceOwned
 
     public int Depth { get; set; }
 
+    /// <summary>A bot-to-bot message whose recipient can reply or message another bot.</summary>
+    public bool IsBotRequest { get; set; }
+
     public RunStatus Status { get; set; } = RunStatus.Queued;
 
     public string? StatusReason { get; set; }

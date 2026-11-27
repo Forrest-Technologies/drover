@@ -27,6 +27,7 @@ public static class DataServiceExtensions
         services.AddScoped<ServerHealthRepository>();
         services.AddScoped<SecretRepository>();
         services.AddScoped<ModelConnectionRepository>();
+        services.AddScoped<DecisionConnectionRepository>();
         services.AddScoped<ModelConnectionCredentialRepository>();
         services.AddScoped<MessageRepository>();
         services.AddScoped<AgentSessionRepository>();

@@ -128,10 +128,10 @@ public static class ImageTools
         try
         {
             using var outbound = OutboundAttempt.Begin(prepared.Policy);
-            var endpoint = new ModelEndpoint(prepared.Connection.Kind, address)
+            var endpoint = credential.For(new ModelEndpoint(prepared.Connection.Kind, address)
             {
                 Limits = new DiscoveryLimits(rules.MaxModelListBytes, rules.MaxModelsPerConnection),
-            };
+            });
             var generated = await generator.Generate(
                 endpoint,
                 credential.Value,
@@ -179,12 +179,12 @@ public static class ImageTools
         var entry = catalog.SingleOrDefault(candidate =>
             candidate.Model == model
             && candidate.State == AvailabilityState.Available
-            && candidate.Capabilities.ImageGeneration);
+            && candidate.EffectiveCapabilities.ImageGeneration);
 
         if (entry is null)
         {
             var allowed = catalog
-                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.Capabilities.ImageGeneration)
+                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.EffectiveCapabilities.ImageGeneration)
                 .Select(candidate => candidate.Model)
                 .ToArray();
             throw new BuiltinToolException(
@@ -196,7 +196,7 @@ public static class ImageTools
         var credentials = services.GetRequiredService<ModelCredentials>();
         var credential = await credentials.Read(services, connection, cancellationToken);
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
-        return new Prepared(connection, credential, entry.Pricing, policy, credentials);
+        return new Prepared(connection, credential, entry.EffectivePricing, policy, credentials);
     }
 
     #endregion

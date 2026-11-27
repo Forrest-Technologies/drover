@@ -20,6 +20,8 @@ public sealed class ModelCatalogEntrySeeder : PlainSeeder<ModelCatalogEntry>
         ["model_connection_id"] = seed.Parent("model_connections"),
         ["model"] = seed.Unique("model"),
         ["display_name"] = "Test model",
+        ["operator_capabilities"] = """{"vision":true,"context_tokens":32000}""",
+        ["operator_pricing"] = """{"input_per_million":1.5,"currency":"USD"}""",
         ["state"] = "available",
         ["last_seen_at"] = DateTimeOffset.UtcNow,
     };
@@ -101,6 +103,17 @@ public sealed class ToolSeeder : PlainSeeder<Tool>
     };
 }
 
+public sealed class DecisionConnectionSeeder : PlainSeeder<DecisionConnection>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["kind"] = "systemone_compatible",
+        ["address"] = "https://judge.example.test/api/systemone",
+        ["model"] = seed.Unique("model"),
+        ["status"] = "ready",
+    };
+}
 
 public sealed class MemoryForgetRequestSeeder : PlainSeeder<MemoryForgetRequest>
 {

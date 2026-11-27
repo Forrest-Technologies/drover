@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Drover.Data.Migrations;
 
 /// <inheritdoc />
-public partial class _20261127023818_MemoryForgetRequests : Migration
+public partial class _20261127221237_MemoryForgetRequests : Migration
 {
     /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)

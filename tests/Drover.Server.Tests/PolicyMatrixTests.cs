@@ -205,6 +205,54 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task The_judged_rule_rules_decide_whether_a_sentence_may_be_saved_and_bound_every_check()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        var (client, schedules) = await SignedInClientWithBot();
+        var bot = schedules[..schedules.LastIndexOf('/')];
+
+        var saved = await client.Post($"{bot}/rules", new BotRuleBody("Ask before mail", true, "before_tool", "ask", [new("judged") { Statement = "Always ask me before sending an email." }]));
+
+        rules.MaxJudgedRuleSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxJudgedRuleSeconds)));
+        rules.MaxJudgedChecksPerRun.Should().Be(Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)));
+
+        if (Setting(nameof(DeploymentPolicy.AllowJudgedRules)) == "true")
+        {
+            saved.StatusCode.Should().Be(HttpStatusCode.Created, await saved.Content.ReadAsStringAsync(Token));
+        }
+        else
+        {
+            saved.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await saved.Content.ReadAsStringAsync(Token)).Should().Contain(nameof(DeploymentPolicy.AllowJudgedRules), "the message names the rule an operator would change");
+        }
+    }
+
+    [Fact]
+    public async Task DecisionModelKinds_decides_which_decision_models_a_space_may_connect()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("decisions");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var state = (await (await client.Get($"/api/spaces/{spaceId}/decision-model")).Content.ReadFromJsonAsync<DecisionModelState>(Token))!;
+        var set = await client.Put(
+            $"/api/spaces/{spaceId}/decision-model",
+            new SetDecisionModelRequest("systemone_compatible", "https://judge.example.test/api/systemone", null, "judge-1", null));
+
+        if (Setting(nameof(DeploymentPolicy.DecisionModelKinds)) == "All")
+        {
+            state.Kinds.Select(kind => kind.Kind).Should().Contain("systemone_compatible");
+            set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Token));
+        }
+        else
+        {
+            state.Kinds.Should().BeEmpty("the operator has listed no kind");
+            set.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await set.Content.ReadAsStringAsync(Token)).Should().Contain(nameof(DeploymentPolicy.DecisionModelKinds), "the message names the rule an operator would change");
+        }
+    }
+
+    [Fact]
     public async Task The_sandbox_rules_decide_what_the_bot_editor_offers_and_what_a_bot_may_save()
     {
         var (email, password, _, spaceId) = await SeedPerson("sandboxrules");
@@ -344,7 +392,10 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
             Limit(nameof(DeploymentPolicy.MaxStepsPerRun)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
             new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs,
-            Limit(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)));
+            Limit(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)))
+        {
+            MaxJudgedChecks = Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)),
+        };
 
         policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
         policies.Runs(new SpaceSettings
@@ -352,11 +403,12 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
             MaxStepsPerRun = int.MaxValue,
             MaxTokensPerRun = ceilings.MaxTokens + 1,
             MaxUnmeteredModelCallsPerRun = ceilings.MaxUnmeteredModelCalls + 1,
+            MaxJudgedChecksPerRun = int.MaxValue,
         }).Should().Be(ceilings);
-        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxUnmeteredModelCallsPerRun = 7 });
-        space.Should().Be(new RunCeilings(10, 1000, 3, 7));
-        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");
-        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0 }).Should().Be(new RunCeilings(2, 500, 0, 7));
+        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxUnmeteredModelCallsPerRun = 7, MaxJudgedChecksPerRun = 20 });
+        space.Should().Be(new RunCeilings(10, 1000, 3, 7) { MaxJudgedChecks = 20 });
+        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4, MaxJudgedChecks = 21 }).Should().Be(space, "a bot cannot raise what its space allows");
+        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0, MaxJudgedChecks = 5 }).Should().Be(new RunCeilings(2, 500, 0, 7) { MaxJudgedChecks = 5 });
     }
 
     [Fact]
@@ -404,6 +456,44 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
             personal.StatusCode.Should().Be(HttpStatusCode.Forbidden);
             (await personal.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString().Should().Be(ModelCredentials.NotAvailable);
             plan.Begins.Should().Be(0, "nothing is sent for a refused kind");
+        }
+    }
+
+    [Fact]
+    public async Task SubscriptionSignIn_leaves_the_registered_OpenRouter_sign_in_on_under_every_preset_because_its_flow_is_open_to_any_app()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("router");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var started = await client.Post(
+            $"/api/spaces/{spaceId}/model-connections/sign-in",
+            new StartModelSignInRequest(OpenRouterSignIn.ConnectionKind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+
+        started.StatusCode.Should().Be(HttpStatusCode.OK, await started.Content.ReadAsStringAsync(Token));
+        new Uri((await started.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!.Address).Host.Should().Be("openrouter.ai");
+    }
+
+    [Fact]
+    public async Task SubscriptionSignIn_decides_whether_the_claude_plan_may_be_signed_in_to_from_a_device_that_pastes()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("claude-planner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var started = await client.Post($"/api/spaces/{spaceId}/model-connections/sign-in", new StartModelSignInRequest(AnthropicPlanSignIn.ConnectionKind, null));
+
+        if (Setting(nameof(DeploymentPolicy.SubscriptionSignIn)) == nameof(SubscriptionSignInMode.Available))
+        {
+            started.StatusCode.Should().Be(HttpStatusCode.OK);
+            var step = (await started.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!;
+            step.Wait.Should().Be(ModelSignInWaits.Paste, "a device with no listener pastes the code the provider's page shows");
+            step.Address.Should().StartWith("https://claude.ai/oauth/authorize?");
+        }
+        else
+        {
+            started.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await started.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString().Should().Be(ModelCredentials.NotAvailable);
         }
     }
 

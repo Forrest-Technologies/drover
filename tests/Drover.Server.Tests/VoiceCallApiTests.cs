@@ -23,6 +23,12 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice.Email, alice.Password);
         var seeded = await SeedBotWithSpeech(client, alice.SpaceId, alice.UserId);
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var bot = await services.GetRequiredService<DroverDbContext>().Bots.SingleAsync(bot => bot.Id == seeded.Bot.Id, Token);
+            bot.Name = "Weather Desk";
+            bot.DescriptionForBots = "Explains local weather.";
+        });
         await SeedMessages(
             alice.SpaceId,
             alice.UserId,
@@ -58,7 +64,11 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
 
         ready.Should().Be(new VoiceCallFrame(VoiceCallMessages.Ready) { Model = "realtime-1", Voice = "alloy", MaxMinutes = 10 });
         (call.Address, call.Key).Should().Be((new Uri("https://speech.example.test/v1"), "sk-test-speech-key"));
-        call.Options.Instructions.Should().Be($"Answer briefly.\n\n{VoiceService.SpokenReplyInstruction}");
+        call.Options.Instructions.Should().StartWith("You are Weather Desk, the bot this person called.")
+            .And.Contain("Use Weather Desk when asked who you are.")
+            .And.Contain("Explains local weather.")
+            .And.Contain("Answer briefly.")
+            .And.EndWith(VoiceService.SpokenReplyInstruction);
         call.Options.History.Should().Equal(new RealtimeTurn(false, "Earlier question."), new RealtimeTurn(true, "Earlier answer."));
         call.Options.TranscriptionModel.Should().Be("whisper-1");
         heard.Should().Equal(1, 2, 3, 4);
@@ -80,6 +90,41 @@ public sealed class VoiceCallApiTests(PostgresServer postgres) : VoiceTestBase(p
         thread.ActiveRunId.Should().BeNull("a call starts no run");
         await WaitFor(() => call.HungUp);
         Logs.AllText().Should().NotContainAny("What is the weather?", "Sunny all day.", "sk-test-speech-key");
+    }
+
+    [Fact]
+    public async Task Withheld_messages_do_not_crowd_out_the_conversation_the_call_can_read()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var seeded = await SeedBotWithSpeech(client, alice.SpaceId, alice.UserId);
+        var withheld = Enumerable.Range(0, VoiceService.CallHistoryMessages).Select(_ => new Message
+        {
+            Role = MessageRole.User,
+            AuthorUserId = alice.UserId,
+            Withheld = true,
+            Parts = [new TextPart("Withheld text.")],
+            CreatedAt = Time.GetUtcNow(),
+        });
+        await SeedMessages(alice.SpaceId, alice.UserId, seeded.Thread.Id,
+            [
+                new Message
+                {
+                    Role = MessageRole.User,
+                    AuthorUserId = alice.UserId,
+                    Parts = [new TextPart("Remember my forecast.")],
+                    CreatedAt = Time.GetUtcNow(),
+                },
+                .. withheld,
+            ]);
+
+        using var socket = await Call(client, alice.SpaceId, seeded.Thread.Id);
+        await NextFrame(socket);
+        var options = Speech.Calls.Single().Options;
+        await Send(socket, new VoiceCallFrame(VoiceCallMessages.Hangup));
+        await FramesUntilEnded(socket);
+        options.History.Should().Equal(new RealtimeTurn(false, "Remember my forecast."));
+        options.Instructions.Should().StartWith("You are Helper, the bot this person called.").And.NotContain("Bot description");
     }
 
     [Fact]

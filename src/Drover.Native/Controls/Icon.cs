@@ -34,6 +34,9 @@ public sealed class Icon : SKCanvasElement
     public static readonly DependencyProperty ForegroundProperty =
         Dp.Register<Icon, Brush?>(nameof(Foreground), null, icon => icon.Invalidate());
 
+    public static readonly DependencyProperty ColorTokenProperty =
+        Dp.Register<Icon, string?>(nameof(ColorToken), null, icon => icon.Invalidate());
+
     /// <summary>Which icon. Named so because every element already has a <c>Name</c>.</summary>
     public IconName NameOfIcon
     {
@@ -48,11 +51,18 @@ public sealed class Icon : SKCanvasElement
         set => SetValue(SizeProperty, value);
     }
 
-    /// <summary>The color of the strokes. The text color when not set.</summary>
+    /// <summary>The stroke brush when no color token is specified. Defaults to the text color.</summary>
     public Brush? Foreground
     {
         get => (Brush?)GetValue(ForegroundProperty);
         set => SetValue(ForegroundProperty, value);
+    }
+
+    /// <summary>The theme token for an icon that carries its own color inside another control.</summary>
+    public string? ColorToken
+    {
+        get => (string?)GetValue(ColorTokenProperty);
+        set => SetValue(ColorTokenProperty, value);
     }
 
     #endregion
@@ -61,7 +71,9 @@ public sealed class Icon : SKCanvasElement
 
     protected override void RenderOverride(SKCanvas canvas, Size area)
     {
-        var color = (Foreground as SolidColorBrush)?.Color ?? Tokens.Color(this, "DvText");
+        var color = ColorToken is { } token
+            ? Tokens.Color(this, token)
+            : (Foreground as SolidColorBrush)?.Color ?? Tokens.Color(this, "DvText");
         canvas.Scale((float)area.Width / Grid);
 
         foreach (var shape in SvgParts.Read(IconShapes.For(NameOfIcon)))

@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261127023818_MemoryForgetRequests")]
-partial class _20261127023818_MemoryForgetRequests
+[Migration("20261127060421_BotMessaging")]
+partial class _20261127060421_BotMessaging
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -355,6 +355,12 @@ partial class _20261127023818_MemoryForgetRequests
                 b.Property<Guid>("Id")
                     .HasColumnType("uuid")
                     .HasColumnName("id");
+
+                b.Property<bool>("AcceptsBotRequests")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true)
+                    .HasColumnName("accepts_bot_requests");
 
                 b.Property<string>("Avatar")
                     .IsRequired()
@@ -928,58 +934,6 @@ partial class _20261127023818_MemoryForgetRequests
                         t.HasCheckConstraint("ck_files_project_audience", "project_id IS NULL OR (message_id IS NULL AND audience_user_id = sys.everyone())");
 
                         t.HasCheckConstraint("ck_files_size", "size >= 0");
-                    });
-            });
-
-        modelBuilder.Entity("Drover.Domain.Memory.MemoryForgetRequest", b =>
-            {
-                b.Property<Guid>("Id")
-                    .HasColumnType("uuid")
-                    .HasColumnName("id");
-
-                b.Property<DateTimeOffset?>("AttemptedAt")
-                    .HasColumnType("timestamp with time zone")
-                    .HasColumnName("attempted_at");
-
-                b.Property<Guid?>("BotId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("bot_id");
-
-                b.Property<DateTimeOffset>("CreatedAt")
-                    .ValueGeneratedOnAdd()
-                    .HasColumnType("timestamp with time zone")
-                    .HasColumnName("created_at")
-                    .HasDefaultValueSql("now()");
-
-                b.Property<string>("Kind")
-                    .IsRequired()
-                    .HasMaxLength(32)
-                    .HasColumnType("character varying(32)")
-                    .HasColumnName("kind");
-
-                b.Property<Guid>("PersonId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("person_id");
-
-                b.Property<Guid>("SpaceId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("space_id");
-
-                b.Property<Guid?>("ThreadId")
-                    .HasColumnType("uuid")
-                    .HasColumnName("thread_id");
-
-                b.HasKey("Id")
-                    .HasName("pk_memory_forget_requests");
-
-                b.HasIndex("SpaceId", "AttemptedAt", "CreatedAt", "Id")
-                    .HasDatabaseName("ix_memory_forget_requests_space_id_attempted_at_created_at_id");
-
-                b.ToTable("memory_forget_requests", t =>
-                    {
-                        t.HasCheckConstraint("ck_memory_forget_requests_kind", "kind IN ('conversation', 'person')");
-
-                        t.HasCheckConstraint("ck_memory_forget_requests_scope", "(kind = 'conversation' AND bot_id IS NOT NULL AND thread_id IS NOT NULL) OR (kind = 'person' AND bot_id IS NULL AND thread_id IS NULL)");
                     });
             });
 
@@ -1665,6 +1619,12 @@ partial class _20261127023818_MemoryForgetRequests
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("finished_at");
 
+                b.Property<bool>("IsBotRequest")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("is_bot_request");
+
                 b.Property<long>("LastEventSeq")
                     .HasColumnType("bigint")
                     .HasColumnName("last_event_seq");
@@ -1996,7 +1956,7 @@ partial class _20261127023818_MemoryForgetRequests
                     .HasColumnType("character varying(200)")
                     .HasColumnName("model");
 
-                b.Property<Guid>("ModelConnectionId")
+                b.Property<Guid?>("ModelConnectionId")
                     .HasColumnType("uuid")
                     .HasColumnName("model_connection_id");
 
@@ -3403,7 +3363,6 @@ partial class _20261127023818_MemoryForgetRequests
                     .HasForeignKey("SpaceId", "ModelConnectionId")
                     .HasPrincipalKey("SpaceId", "Id")
                     .OnDelete(DeleteBehavior.Restrict)
-                    .IsRequired()
                     .HasConstraintName("fk_usage_records_model_connections_space_id_model_connection_id");
 
                 b.HasOne("Drover.Domain.Runs.Run", null)

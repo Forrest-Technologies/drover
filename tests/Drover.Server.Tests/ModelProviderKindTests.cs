@@ -16,7 +16,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, Anthropic);
+        kinds.Select(kind => kind.Kind).Should().Equal(Venice, OpenAI, Anthropic, Gemini, OpenAIPlan, AnthropicPlanSignIn.ConnectionKind, OpenRouterSignIn.ConnectionKind, ModelConnectionKinds.CopilotSignIn, ModelConnectionKinds.Compatible);
         kinds.Single(kind => kind.Kind == Anthropic).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Anthropic,
             "Anthropic",
@@ -26,6 +26,51 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             "Paste an API key from your Anthropic account. A personal plan cannot be used here.",
             false,
             []));
+        kinds.Single(kind => kind.Kind == OpenAIPlan).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            OpenAIPlan,
+            "ChatGPT plan",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            null,
+            false,
+            [],
+            SignIn: true,
+            SignInName: "ChatGPT",
+            UsagePage: "https://chatgpt.com/settings/usage",
+            PersonalPlan: true,
+            SignInReturn: "http://127.0.0.1:1455/auth/callback"));
+        kinds.Single(kind => kind.Kind == AnthropicPlanSignIn.ConnectionKind).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            AnthropicPlanSignIn.ConnectionKind,
+            "Claude plan",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            null,
+            false,
+            [],
+            SignIn: true,
+            SignInName: "Claude",
+            UsagePage: null,
+            PersonalPlan: true,
+            SignInReturn: "http://localhost:53692/callback"));
+        kinds.Single(kind => kind.Kind == ModelConnectionKinds.CopilotSignIn).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            ModelConnectionKinds.CopilotSignIn,
+            "GitHub Copilot",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            null,
+            true,
+            [],
+            SignIn: true,
+            SignInName: "GitHub Copilot",
+            UsagePage: "https://github.com/settings/copilot",
+            PersonalPlan: true,
+            SignInReturn: "http://127.0.0.1:1455/auth/callback"));
+        kinds.Where(kind => kind.Kind != OpenAIPlan && kind.Kind != AnthropicPlanSignIn.ConnectionKind
+                && kind.Kind != OpenRouterSignIn.ConnectionKind && kind.Kind != ModelConnectionKinds.CopilotSignIn)
+            .Should().OnlyContain(kind => !kind.SignIn, "only a sign-in kind is connected by signing in");
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
             "OpenAI",
@@ -34,6 +79,15 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             null,
             "Paste an API key from your OpenAI account.",
             false,
+            []));
+        kinds.Single(kind => kind.Kind == Gemini).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            Gemini,
+            "Google Gemini",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            "Paste a Gemini API key. A personal plan cannot be used here.",
+            true,
             []));
         kinds.Single(kind => kind.Kind == Venice).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Venice,
@@ -52,6 +106,18 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     }
 
     [Fact]
+    public async Task A_sign_in_kind_says_so_and_a_key_kind_does_not()
+    {
+        var client = await SignedInClient();
+
+        var kinds = (await (await client.Get(Route)).Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
+
+        kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).SignIn.Should().BeTrue();
+        kinds.Where(kind => kind.SignIn).Select(kind => kind.Kind).Should().Equal(OpenAIPlan, AnthropicPlanSignIn.ConnectionKind, OpenRouterSignIn.ConnectionKind, ModelConnectionKinds.CopilotSignIn);
+        kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).Should().Match<ModelProviderKindResponse>(kind => kind.SignInName == "OpenRouter" && !kind.PersonalPlan);
+    }
+
+    [Fact]
     public async Task The_list_carries_no_address_of_a_kind_that_has_its_own_address()
     {
         var client = await SignedInClient();
@@ -62,9 +128,15 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
         var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
         withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com")
-            .And.NotContain("api.anthropic.com");
-        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible), JsonSerializerOptions.Web)
+            .And.NotContain("api.anthropic.com").And.NotContain("googleapis.com");
+        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Select(kind => kind with { UsagePage = null, SignInReturn = null }), JsonSerializerOptions.Web)
             .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
+        kinds.Where(kind => kind.UsagePage is not null).Should().OnlyContain(
+            kind => kind.SignIn && kind.UsagePage!.StartsWith("https://", StringComparison.Ordinal),
+            "the one page a kind may name is a sign-in provider's public usage page");
+        kinds.Where(kind => kind.SignInReturn is not null).Should().OnlyContain(
+            kind => kind.SignIn && new Uri(kind.SignInReturn!).IsLoopback,
+            "the one return address a kind may name is on the person's own computer");
     }
 
     [Fact]
@@ -103,6 +175,9 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     private const string OpenAI = "openai";
 
     private const string Anthropic = "anthropic";
+    private const string Gemini = "gemini";
+
+    private const string OpenAIPlan = "openai_signin";
 
     #endregion
 
@@ -242,7 +317,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", "anthropic");
+        kinds.Select(kind => kind.Kind).Should().Equal("venice", "openai", "anthropic", "gemini", "openai_signin", AnthropicPlanSignIn.ConnectionKind, OpenRouterSignIn.ConnectionKind, ModelConnectionKinds.CopilotSignIn, ModelConnectionKinds.Compatible);
     }
 
     #endregion

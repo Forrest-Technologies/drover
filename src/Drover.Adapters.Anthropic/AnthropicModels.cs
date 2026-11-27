@@ -83,11 +83,7 @@ internal static class AnthropicModels
     {
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", destination.Credential);
         request.Headers.TryAddWithoutValidation("anthropic-version", ApiVersion);
-
-        foreach (var (name, value) in destination.Headers)
-        {
-            request.Headers.TryAddWithoutValidation(name, value);
-        }
+        AnthropicHeaderReplacement.Replace(request, destination.Headers);
     }
 
     #endregion

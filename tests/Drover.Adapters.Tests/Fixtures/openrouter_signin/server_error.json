@@ -1,0 +1,16 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public chat completions format OpenRouter documents at https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 500,
+      "body": {
+        "error": {
+          "message": "The server had an error"
+        }
+      }
+    }
+  ]
+}

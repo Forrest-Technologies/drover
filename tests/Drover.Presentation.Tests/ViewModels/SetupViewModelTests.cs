@@ -27,6 +27,7 @@ public sealed class SetupViewModelTests : IDisposable
     {
         session = new(server.CreateApi(), new ShareInbox());
         server.Answer("GET", "/api/session", Samples.Session());
+        server.Answer("GET", "/api/model-provider-kinds", SampleProviders.Kinds());
     }
 
     #endregion
@@ -132,7 +133,7 @@ public sealed class SetupViewModelTests : IDisposable
         server.Sent("PUT", $"{path}/{connectionId}/key").Single().Should().Contain("sample-corrected-key");
         model.Passed.Should().BeTrue();
         model.Outcome.Should().Be("Sample connected.");
-        model.Continue();
+        await model.Continue();
         navigator.Current.Should().Be(Addresses.SetupBot);
     }
 
@@ -145,6 +146,7 @@ public sealed class SetupViewModelTests : IDisposable
         server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
         var model = ConnectionStep();
         await model.Open();
+        model.ApiKey = "sample-key";
         await model.Test();
 
         model.ChooseProvider("openai_compatible");
@@ -214,7 +216,7 @@ public sealed class SetupViewModelTests : IDisposable
         await first.Open();
         first.ApiKey = "sample-key";
         await first.Test();
-        first.Continue();
+        await first.Continue();
 
         var again = ConnectionStep();
         await again.Open();
@@ -308,7 +310,7 @@ public sealed class SetupViewModelTests : IDisposable
 
     private CreateAccountViewModel Account() => new(server.CreateApi(), session, navigator, NullLogger<CreateAccountViewModel>.Instance);
 
-    private ConnectModelViewModel ConnectionStep() => new(server.CreateApi(), session, navigator, NullLogger<ConnectModelViewModel>.Instance);
+    private ConnectModelViewModel ConnectionStep() => new(server.CreateApi(), session, navigator, new NoModelSignInListener(), NullLogger<ConnectModelViewModel>.Instance);
 
     private MeetBotViewModel MeetStep() => new(server.CreateApi(), session, NullLogger<MeetBotViewModel>.Instance);
 

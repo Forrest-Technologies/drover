@@ -128,7 +128,7 @@ public sealed class ModelVisionTests(PostgresServer postgres) : ServerTestBase(p
         await SeedModels(alice, connection.Id, "plain");
         Scripted.OnList = _ => Task.FromResult<IReadOnlyList<ModelInfo>>(
             [new ModelInfo("plain", "plain", new ModelCapabilities { ContextTokens = 8192 }, [])]);
-        await using var admin = await HoldCatalogRow(alice, "plain", capabilities => capabilities with { Vision = true, VisionSetByOperator = true });
+        await using var admin = await HoldCatalogRow(alice, "plain", entry => entry.OperatorCapabilities = new ModelCapabilityOverrides { Vision = true });
 
         var refreshing = client.Post($"{Path(alice.SpaceId)}/{connection.Id}/models/refresh");
         await WaitForAWriterToWait();
@@ -148,7 +148,7 @@ public sealed class ModelVisionTests(PostgresServer postgres) : ServerTestBase(p
         var connection = await CreateScripted(client, alice.SpaceId);
         await SeedModels(alice, connection.Id, "plain");
         await ChangeKind(alice, connection.Id, ModelConnectionKinds.Compatible);
-        await using var refresh = await HoldCatalogRow(alice, "plain", capabilities => capabilities with { ContextTokens = 8192 });
+        await using var refresh = await HoldCatalogRow(alice, "plain", entry => entry.Capabilities = entry.Capabilities with { ContextTokens = 8192 });
 
         var marking = Mark(client, alice.SpaceId, connection.Id, "plain", true);
         await WaitForAWriterToWait();
@@ -256,14 +256,14 @@ public sealed class ModelVisionTests(PostgresServer postgres) : ServerTestBase(p
     private async Task<HeldWrite> HoldCatalogRow(
         (string Email, string Password, Guid UserId, Guid SpaceId) person,
         string modelId,
-        Func<ModelCapabilities, ModelCapabilities> change)
+        Action<ModelCatalogEntry> change)
     {
         var scope = Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(person.SpaceId, person.UserId);
         var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
         var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
         var entry = await db.ModelCatalog.SingleAsync(row => row.Model == modelId, Token);
-        entry.Capabilities = change(entry.Capabilities);
+        change(entry);
         await db.SaveChangesAsync(Token);
         return new HeldWrite(scope, work);
     }

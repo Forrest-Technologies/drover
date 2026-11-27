@@ -69,6 +69,13 @@ public sealed record ToolCompleted(Guid ToolCallId, string Outcome, bool IsError
 /// </summary>
 public sealed record RuleFired(Guid RuleId, string RuleName, string Checkpoint, string Effect, string Why, Guid? ToolCallId);
 
+/// <summary>
+/// One check of a rule written as a sentence. The outcome is "applies", "passes", "unsure", or "failed"; the
+/// probability is the one the decision model gave that the rule applies, when it gave one. It never holds the
+/// sentence, the checked text, or anything else that was sent.
+/// </summary>
+public sealed record RuleChecked(Guid RuleId, string Checkpoint, string Outcome, double? Probability, long ElapsedMs, Guid? ToolCallId);
+
 /// <summary>Data of <c>usage.recorded</c>: what one model call used. <see cref="Cost"/> is null when its price is not known.</summary>
 public sealed record UsageRecorded(int Step, long Input, long Output, long Cached, decimal? Cost, string Currency);
 
