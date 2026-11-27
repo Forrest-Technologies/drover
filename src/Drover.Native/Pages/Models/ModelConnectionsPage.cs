@@ -33,11 +33,11 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly TextBlock planLine = Styles.Text(string.Empty, "DvTextSecondary");
 
-    private readonly StatusNote signInNote = new() { Kind = NoteKind.Info };
+    /// <summary>The sign-in's state in "Add a connection": its sentence, a code or a pasted one, and its actions.</summary>
+    private readonly ModelSignInPanel signInState;
 
-    private readonly ContentControl signInNoteHolder = new() { IsTabStop = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-
-    private readonly Button signInAction = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    /// <summary>The sign-in's state on the card it was started from, while it is drawn there.</summary>
+    private ModelSignInPanel? cardSignIn;
 
     private readonly Field nameField;
 
@@ -54,6 +54,56 @@ public sealed class ModelConnectionsPage : Screen
     private readonly StatusNote replaceProblem = new() { Kind = NoteKind.Danger };
 
     private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
+
+    private readonly Sheet settingsSheet = new();
+
+    private readonly Dialog clearDialog;
+
+    private readonly TextBlock settingsIntro = Styles.Text(string.Empty, "DvTextSecondary");
+
+    private readonly TextBlock clearBody = Styles.Text(string.Empty);
+
+    private readonly TextBlock effortsLabel = Styles.Text("Effort levels", "DvTextLabel");
+
+    private readonly TextBlock priceHeading = Styles.Text("Price per million tokens", "DvTextLabel");
+
+    private readonly Switch toolsSwitch = new() { Label = "Calls tools" };
+
+    private readonly Switch visionSwitch = new() { Label = "Reads images" };
+
+    private readonly Switch reasoningSwitch = new() { Label = "Thinks before answering" };
+
+    private readonly Switch structuredSwitch = new() { Label = "Answers in a set shape" };
+
+    private readonly Switch imageSwitch = new() { Label = "Makes images" };
+
+    private readonly Dictionary<string, Switch> effortSwitches = ModelSettingsForm.EffortLevels.ToDictionary(level => level, level => new Switch { Label = level });
+
+    private readonly StackPanel efforts = PageParts.Column();
+
+    private readonly Field contextField;
+
+    private readonly Field outputField;
+
+    private readonly Field inputPriceField;
+
+    private readonly Field outputPriceField;
+
+    private readonly Field cachedPriceField;
+
+    private readonly Field currencyField;
+
+    private readonly StatusNote settingsProblem = new() { Kind = NoteKind.Danger };
+
+    private readonly StatusNote settingsBusy = new() { Kind = NoteKind.Info };
+
+    private readonly Button useProvidersValues;
+
+    private readonly Button saveSettings;
+
+    private readonly Button keepThem;
+
+    private readonly Button removeSettings;
 
     private readonly Button changeAddress;
 
@@ -98,10 +148,16 @@ public sealed class ModelConnectionsPage : Screen
 
         cancelAdd = PageParts.Action("Cancel", CancelAdd, Refresh);
         addButton = PageParts.Action("Add connection", model.Add, Refresh, kind: ButtonKind.Primary);
-        signInAction.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
-        signInNoteHolder.Content = signInNote;
-        signInNoteHolder.LostFocus += (_, _) => signInNoteHolder.IsTabStop = false;
-        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, blankField, baseUrlField, changeAddress, keyField, keyLink, planLine, signInNoteHolder, signInAction, addProblem, addBusy);
+        signInState = SignInPanel(stretch: true);
+
+        // A sign-in by code changes state while it waits (the code, then done or ran out): both drawings follow it at
+        // once, without rebuilding the cards, so a code being pasted keeps its field and its focus.
+        model.SignIn.PropertyChanged += (_, _) =>
+        {
+            UpdateSignInForm();
+            cardSignIn?.Refresh(shown: true, takeFocus: true);
+        };
+        addSheet.Body = PageParts.SheetBody(onlyKind, providerSegments, provider, providersLoading, providersFailed, nameField, reach, blankField, baseUrlField, changeAddress, keyField, keyLink, planLine, signInState, addProblem, addBusy);
         addSheet.Actions = PageParts.Row(cancelAdd, addButton);
         nameField.Loaded += (_, _) => { if (addSheet.Open) { nameField.TakeFocus(); } };
         addSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
@@ -133,9 +189,66 @@ public sealed class ModelConnectionsPage : Screen
             }
         });
 
+        contextField = PageParts.Field("Context size (tokens)", string.Empty, value => model.Settings.ContextSize = value, "number");
+        outputField = PageParts.Field("Longest answer (tokens)", string.Empty, value => model.Settings.MaxOutputSize = value, "number");
+        inputPriceField = PageParts.Field("Input", string.Empty, value => model.Settings.InputPrice = value, "number");
+        outputPriceField = PageParts.Field("Output", string.Empty, value => model.Settings.OutputPrice = value, "number");
+        cachedPriceField = PageParts.Field("Cached", string.Empty, value => model.Settings.CachedPrice = value, "number");
+        currencyField = PageParts.Field("Currency", string.Empty, value => model.Settings.Currency = value);
+        currencyField.MaxLength = FieldLimits.CurrencyCode;
+        BindSwitch(toolsSwitch, on => model.Settings.ToolCalling = on);
+        BindSwitch(visionSwitch, on => model.Settings.Vision = on);
+        BindSwitch(reasoningSwitch, on => { model.Settings.Reasoning = on; UpdateSettingsForm(); });
+        BindSwitch(structuredSwitch, on => model.Settings.StructuredOutput = on);
+        BindSwitch(imageSwitch, on => model.Settings.ImageGeneration = on);
+
+        foreach (var (level, toggle) in effortSwitches)
+        {
+            BindSwitch(toggle, on => _ = on ? model.Settings.Efforts.Add(level) : model.Settings.Efforts.Remove(level));
+            efforts.Children.Add(toggle);
+        }
+
+        foreach (var price in (Field[])[inputPriceField, outputPriceField, cachedPriceField, currencyField])
+        {
+            price.MinWidth = Tokens.Number("DvSpace7") * 3;
+        }
+
+        var prices = PageParts.Row(inputPriceField, outputPriceField, cachedPriceField, currencyField);
+        useProvidersValues = PageParts.Action("Use the provider's values", () => { model.AskUseProvidersValues(); return Task.CompletedTask; }, Refresh);
+        saveSettings = PageParts.Action("Save", model.SaveSettings, Refresh, kind: ButtonKind.Primary);
+        settingsSheet.Body = PageParts.SheetBody(
+            settingsIntro, contextField, outputField, toolsSwitch, visionSwitch, reasoningSwitch, effortsLabel, efforts,
+            structuredSwitch, imageSwitch, priceHeading, prices, settingsProblem, settingsBusy);
+        settingsSheet.Actions = PageParts.Row(useProvidersValues, saveSettings);
+        settingsSheet.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (!settingsSheet.Open && model.EditingSettings)
+            {
+                model.CancelSettings();
+                Refresh();
+            }
+        });
+
+        keepThem = PageParts.Action(ModelSettingsForm.KeepThem, () => { model.KeepSettings(); return Task.CompletedTask; }, Refresh);
+        removeSettings = PageParts.Action("Remove", model.UseProvidersValues, Refresh);
+        removeSettings.Kind = ButtonKind.Danger;
+        clearDialog = new Dialog { Title = ModelSettingsForm.UseProviderTitle, InitialFocus = keepThem };
+        clearDialog.Body = PageParts.SheetBody(clearBody);
+        clearDialog.Actions = PageParts.Row(keepThem, removeSettings);
+        clearDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) =>
+        {
+            if (!clearDialog.Open && model.ConfirmingClear)
+            {
+                model.KeepSettings();
+                Refresh();
+            }
+        });
+
         layout.Body.Add(headerContent);
         layout.Body.Add(addSheet);
         layout.Body.Add(replaceDialog);
+        layout.Body.Add(settingsSheet);
+        layout.Body.Add(clearDialog);
         Unloaded += (_, _) => CloseAll();
         Content = layout;
         Refresh();
@@ -160,6 +273,7 @@ public sealed class ModelConnectionsPage : Screen
     private void Refresh()
     {
         headerContent.Children.Clear();
+        cardSignIn = null;
 
         var header = new ScreenHeader { Title = "Model connections" };
         if (model.CanEdit && model.Connections is { Count: > 0 })
@@ -211,8 +325,89 @@ public sealed class ModelConnectionsPage : Screen
 
         UpdateAddForm();
         UpdateReplaceForm();
+        UpdateSettingsForm();
         addSheet.Open = model.Adding;
         replaceDialog.Open = model.Replacing is not null;
+        settingsSheet.Open = model.EditingSettings;
+        clearDialog.Open = model.ConfirmingClear;
+    }
+
+    private static void BindSwitch(Switch toggle, Action<bool> changed) =>
+        toggle.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => changed(toggle.Value));
+
+    private void OpenSettings(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry)
+    {
+        model.OpenSettings(connection, entry);
+        settingsSheet.Title = entry.DisplayName;
+        UpdateSettingsForm();
+        settingsSheet.Open = true;
+        settingsSheet.DispatcherQueue.TryEnqueue(() => contextField.TakeFocus());
+    }
+
+    private void UpdateSettingsForm()
+    {
+        var form = model.Settings;
+        var busy = model.SettingsBusy;
+        settingsIntro.Text = form.Intro;
+        ShowNumber(contextField, form.ContextSize, nameof(ModelSettingsForm.ContextSize), "contextSize", busy);
+        ShowNumber(outputField, form.MaxOutputSize, nameof(ModelSettingsForm.MaxOutputSize), "maxOutputSize", busy);
+        ShowSwitch(toolsSwitch, form.ToolCalling, "toolCalling", busy);
+        ShowSwitch(visionSwitch, form.Vision, "vision", busy);
+        ShowSwitch(reasoningSwitch, form.Reasoning, "reasoning", busy);
+        ShowSwitch(structuredSwitch, form.StructuredOutput, "structuredOutput", busy);
+        ShowSwitch(imageSwitch, form.ImageGeneration, "imageGeneration", busy);
+        var shown = form.ShowsEfforts ? Visibility.Visible : Visibility.Collapsed;
+        effortsLabel.Visibility = shown;
+        efforts.Visibility = shown;
+
+        foreach (var (level, toggle) in effortSwitches)
+        {
+            ShowSwitch(toggle, form.Efforts.Contains(level), "reasoningEfforts", busy);
+        }
+
+        ShowNumber(inputPriceField, form.InputPrice, nameof(ModelSettingsForm.InputPrice), "inputPerMillion", busy);
+        ShowNumber(outputPriceField, form.OutputPrice, nameof(ModelSettingsForm.OutputPrice), "outputPerMillion", busy);
+        ShowNumber(cachedPriceField, form.CachedPrice, nameof(ModelSettingsForm.CachedPrice), "cachedInputPerMillion", busy);
+        currencyField.Disabled = busy;
+        currencyField.Error = form.Problems.GetValueOrDefault(nameof(ModelSettingsForm.Currency));
+
+        if (currencyField.Value != form.Currency)
+        {
+            currencyField.Value = form.Currency;
+        }
+
+        settingsProblem.Text = model.SettingsProblem;
+        settingsBusy.Text = busy ? "Saving what you set." : string.Empty;
+        settingsBusy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        useProvidersValues.Visibility = form.OffersUseProvidersValues ? Visibility.Visible : Visibility.Collapsed;
+        useProvidersValues.IsEnabled = !busy;
+        saveSettings.IsEnabled = !busy;
+        clearBody.Text = form.UseProvidersValuesBody;
+        keepThem.IsEnabled = !busy;
+        removeSettings.IsEnabled = !busy;
+    }
+
+    private void ShowNumber(Field field, string value, string problem, string member, bool busy)
+    {
+        field.Disabled = busy;
+        field.Error = model.Settings.Problems.GetValueOrDefault(problem);
+        field.Hint = model.Settings.Caption(member);
+
+        if (field.Value != value)
+        {
+            field.Value = value;
+        }
+    }
+
+    private void ShowSwitch(Switch toggle, bool on, string member, bool busy)
+    {
+        toggle.IsEnabled = !busy;
+        toggle.About = model.Settings.Caption(member);
+
+        if (toggle.Value != on)
+        {
+            toggle.Value = on;
+        }
     }
 
     private UIElement Empty()
@@ -371,33 +566,16 @@ public sealed class ModelConnectionsPage : Screen
 
         planLine.Text = flow.PlanLine;
         planLine.Visibility = shown && flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
-        var changed = shown && flow.Sentence is { Length: > 0 } && signInNote.Text != flow.Sentence;
-        ShowSignInState(signInNote, signInAction, shown);
-
-        // Focus moves to the sentence when the state changes, so a keyboard or screen reader lands on it.
-        if (changed && addSheet.Open)
-        {
-            signInNoteHolder.IsTabStop = true;
-            signInNoteHolder.Focus(FocusState.Programmatic);
-        }
+        signInState.Refresh(shown, takeFocus: addSheet.Open);
     }
 
-    private void ShowSignInState(StatusNote note, Button action, bool shown)
-    {
-        var flow = model.SignIn;
-        note.Text = flow.Sentence ?? string.Empty;
-        note.Kind = flow.Stage switch
+    /// <summary>A drawing of the sign-in's state whose main action is the screen's own.</summary>
+    private ModelSignInPanel SignInPanel(bool stretch) =>
+        new(model.SignIn, () =>
         {
-            ModelSignInStage.Done => NoteKind.Ok,
-            ModelSignInStage.Waiting => NoteKind.Info,
-            _ => NoteKind.Danger,
-        };
-        note.Visibility = shown && flow.Sentence is not null ? Visibility.Visible : Visibility.Collapsed;
-        action.Content = flow.ActionWords;
-        AutomationProperties.SetName(action, flow.ActionWords ?? string.Empty);
-        action.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
-        action.Visibility = shown && flow.ActionWords is not null ? Visibility.Visible : Visibility.Collapsed;
-    }
+            Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
+            return Task.CompletedTask;
+        }, stretch, ButtonKind.Primary);
 
     private void UpdateReplaceForm()
     {
@@ -500,12 +678,8 @@ public sealed class ModelConnectionsPage : Screen
 
         if (model.SigningInTo == connection.Id)
         {
-            var note = new StatusNote();
-            var action = new Button { HorizontalAlignment = HorizontalAlignment.Left };
-            action.Click += (_, _) => Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
-            ShowSignInState(note, action, shown: true);
-            beneath.Children.Add(note);
-            beneath.Children.Add(action);
+            cardSignIn = SignInPanel(stretch: false);
+            beneath.Children.Add(cardSignIn);
             return;
         }
 
@@ -574,21 +748,31 @@ public sealed class ModelConnectionsPage : Screen
     {
         var state = entry.State is "available" ? string.Empty : $" ({entry.State})";
         var words = ModelConnectionsViewModel.VisionWords(entry) is { } vision ? $" · {vision}" : string.Empty;
-        var line = Styles.Text($"{entry.DisplayName} · {entry.Model}{state}{(model.CanMarkVision(connection) ? string.Empty : words)}");
+        var line = Styles.Text($"{entry.DisplayName} · {entry.Model}{state}{words}");
+        line.TextWrapping = TextWrapping.Wrap;
 
-        if (!model.CanMarkVision(connection))
+        if (!model.CanEdit)
         {
             return line;
         }
 
-        var reads = new Switch
+        var menu = new Menu
         {
-            Label = ModelConnectionsViewModel.VisionLabel(entry),
-            Value = entry.Capabilities.Vision,
-            IsEnabled = !model.ChangePending,
+            Label = "More",
+            AccessibleLabel = $"More for {entry.DisplayName}",
+            TriggerIcon = IconName.More,
+            ShowTriggerLabel = false,
         };
-        reads.OnChanged(() => model.ChangePending, on => Run(() => model.SetVision(connection, entry, on)));
-        return PageParts.Column(line, reads);
+        menu.Items.Add(PageParts.MenuEntry("Edit what this model can do", () => OpenSettings(connection, entry), !model.ChangePending));
+
+        var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
+        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        line.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(menu, 1);
+        row.Children.Add(line);
+        row.Children.Add(menu);
+        return row;
     }
 
     private void Run(Func<Task> work)

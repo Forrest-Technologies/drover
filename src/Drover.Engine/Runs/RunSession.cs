@@ -20,6 +20,8 @@ public sealed class RunLimitException(string reason, string message, string kind
 public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin, ToolConnection? Connection = null)
 {
     /// <summary>Drover knows this tool only reads: it is built in and marked so. A server's word for it is not enough.</summary>
+    public ToolSensitivity Sensitivity => Tool.SensitivityOn(Connection);
+
     public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
 
     /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
@@ -213,7 +215,7 @@ public sealed class RunSession(
         rule.Conditions.All(condition => condition.Kind switch
         {
             RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
-            RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Tool.Sensitivity),
+            RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Sensitivity),
             _ => true,
         });
 

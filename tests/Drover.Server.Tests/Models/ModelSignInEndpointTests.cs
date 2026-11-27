@@ -135,6 +135,38 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
         plan.Begins.Should().Be(2, "the stranger started nothing");
     }
 
+    [Fact]
+    public async Task A_device_that_cannot_listen_gets_a_code_the_server_finishes_by_itself_and_reads_it_done()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignedIn(owner.Email, owner.Password);
+        plan.CodeWait = ModelSignInWait.Poll;
+        plan.PollInterval = TimeSpan.FromMilliseconds(200);
+
+        var started = await Start(client, owner.SpaceId, null);
+        var finish = await client.Post($"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}/finish", new FinishModelSignInRequest("code=anything"));
+        var waiting = await Progress(client, owner.SpaceId, started.AttemptId);
+        plan.DeviceApproved = true;
+        var done = waiting;
+
+        for (var tries = 0; tries < 100 && done.Status != ModelSignInStatuses.Done; tries++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), Token);
+            done = await Progress(client, owner.SpaceId, started.AttemptId);
+        }
+
+        started.Wait.Should().Be(ModelSignInWaits.Poll);
+        started.Code.Should().Be(FakeModelSignIn.DeviceCode);
+        started.Address.Should().Be(FakeModelSignIn.DevicePage.AbsoluteUri);
+        finish.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the device takes no part in finishing a code");
+        waiting.Status.Should().Be(ModelSignInStatuses.Waiting);
+        done.Status.Should().Be(ModelSignInStatuses.Done);
+        done.Connection!.SignIn.Should().Be(new ModelSignInSummary(ModelSignInStatuses.Active, FakeModelSignIn.AccountLabel));
+        var read = await client.Get($"{Path(owner.SpaceId)}/sign-in/{started.AttemptId}");
+        (await read.Content.ReadAsStringAsync(Token)).Should().NotContainAny(plan.Issued);
+        Logs.AllText().Should().NotContainAny(plan.Issued);
+    }
+
     [Theory]
     [InlineData("http://127.0.0.1:49152/auth/callback", HttpStatusCode.OK)]
     [InlineData("http://127.0.0.1:1455/elsewhere", HttpStatusCode.BadRequest)]
@@ -303,13 +335,25 @@ public sealed class ModelSignInEndpointTests(PostgresServer postgres) : ServerTe
         return client;
     }
 
-    private static async Task<ModelSignInStarted> Start(ApiClient client, Guid spaceId, string redirectUri)
+    private static async Task<ModelSignInStarted> Start(ApiClient client, Guid spaceId, string? redirectUri)
     {
         var response = await client.Post($"{Path(spaceId)}/sign-in", new StartModelSignInRequest(ScriptedModelProvider.ConnectionKind, redirectUri));
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
         var started = (await response.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!;
-        started.Wait.Should().Be(ModelSignInWaits.Return);
+
+        if (redirectUri is not null)
+        {
+            started.Wait.Should().Be(ModelSignInWaits.Return);
+        }
+
         return started;
+    }
+
+    private static async Task<ModelSignInProgress> Progress(ApiClient client, Guid spaceId, Guid attemptId)
+    {
+        var response = await client.Get($"{Path(spaceId)}/sign-in/{attemptId}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<ModelSignInProgress>(Token))!;
     }
 
     /// <summary>Starts, approves on the fake provider's page, and hands the return to the finish route, as a device does.</summary>

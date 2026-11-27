@@ -117,6 +117,7 @@ api.MapAppearanceEndpoints();
 api.MapToolSignInFinish();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
+app.MapModelSignInReturn();
 
 // The API description is for building Drover; a running server does not hand it to strangers.
 if (app.Environment.IsDevelopment())

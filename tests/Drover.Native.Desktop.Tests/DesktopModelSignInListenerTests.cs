@@ -61,6 +61,33 @@ public sealed class DesktopModelSignInListenerTests
         second.RedirectUri.Port.Should().NotBe(first.RedirectUri.Port);
     }
 
+    [Fact]
+    public async Task The_listener_keeps_the_host_and_path_the_kind_names_and_takes_a_return_only_there()
+    {
+        using var listening = new DesktopModelSignInListener(NullLogger<DesktopModelSignInListener>.Instance).Open(new Uri("http://localhost:0/callback"));
+
+        var elsewhere = await Visit(listening.RedirectUri, "/auth/callback?code=c&state=s");
+        var answer = await Visit(listening.RedirectUri, "/callback?code=c&state=s");
+
+        listening.RedirectUri.ToString().Should().MatchRegex(@"^http://localhost:\d+/callback$");
+        elsewhere.Should().StartWith("HTTP/1.1 404 Not Found\r\n", "another kind's path is not this one's");
+        answer.Should().StartWith("HTTP/1.1 200 OK\r\n");
+        (await listening.Returned.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Should().Be("code=c&state=s");
+    }
+
+    [Theory]
+    [InlineData("https://127.0.0.1:1455/callback")]
+    [InlineData("http://example.test:1455/callback")]
+    [InlineData("http://192.168.1.10:1455/callback")]
+    [InlineData("http://127.0.0.1:1455/callback?next=1")]
+    [InlineData("http://user@127.0.0.1:1455/callback")]
+    public void A_return_address_that_is_not_this_computers_loopback_is_not_listened_for(string address)
+    {
+        var opening = () => new DesktopModelSignInListener(NullLogger<DesktopModelSignInListener>.Instance).Open(new Uri(address));
+
+        opening.Should().Throw<DeviceCallFailedException>();
+    }
+
     [Theory]
     [InlineData("GET /auth/callback?code=a&state=s HTTP/1.1", "code=a&state=s")]
     [InlineData("GET /auth/callback?error=access_denied&state=s HTTP/1.1", "error=access_denied&state=s")]

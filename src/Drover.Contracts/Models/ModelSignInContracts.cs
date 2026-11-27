@@ -2,12 +2,15 @@ namespace Drover.Contracts.Models;
 
 /// <summary>
 /// Starts a person's own sign-in to a model provider. <see cref="RedirectUri"/> is the address on the person's device
-/// that receives the browser's return, or null on a device that cannot listen.
+/// that receives the browser's return, or null on a device that cannot listen, which signs in by code.
 /// </summary>
 public sealed record StartModelSignInRequest(string? Kind, string? RedirectUri);
 
-/// <summary>Where the person goes to approve, and how the answer comes back (<see cref="ModelSignInWaits"/>).</summary>
-public sealed record ModelSignInStarted(Guid AttemptId, string Address, string Wait);
+/// <summary>
+/// Where the person goes to approve, how the answer comes back (<see cref="ModelSignInWaits"/>), and the short code they
+/// enter there when the flow has one. <see cref="Code"/> is shown on the device; it is not a secret.
+/// </summary>
+public sealed record ModelSignInStarted(Guid AttemptId, string Address, string Wait, string? Code = null);
 
 /// <summary>
 /// Input only: the query string the person's device received from the provider's page, or what the person pasted from
@@ -29,8 +32,11 @@ public sealed record FinishModelSignInRequest(string? Query)
     #endregion
 }
 
-/// <summary>Where a sign-in stands (<see cref="ModelSignInStatuses"/>), and the connection once it is done.</summary>
-public sealed record ModelSignInProgress(string Status, ModelConnectionSummary? Connection);
+/// <summary>
+/// Where a sign-in stands (<see cref="ModelSignInStatuses"/>), the connection once it is done, and Drover's own
+/// sentence for why it ended without one when there is one.
+/// </summary>
+public sealed record ModelSignInProgress(string Status, ModelConnectionSummary? Connection, string? Problem = null);
 
 /// <summary>
 /// The caller's own sign-in to a connection each person signs in to: <c>none</c>, <c>active</c>, <c>needs_sign_in</c>
@@ -78,6 +84,12 @@ public static class ModelSignInWaits
 
     /// <summary>The provider's page shows a code; the person pastes it and the device posts it to finish.</summary>
     public const string Paste = "paste";
+
+    /// <summary>
+    /// The person enters <see cref="ModelSignInStarted.Code"/> on the provider's page; the server finishes by itself and
+    /// the device reads progress until it is done.
+    /// </summary>
+    public const string Poll = "poll";
 
     #endregion
 }

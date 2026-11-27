@@ -12,8 +12,9 @@ namespace Drover.Adapters.OpenAICompatible;
 /// https://developers.openai.com/api/docs/guides/streaming-responses.
 /// </summary>
 /// <remarks>
-/// Under <see cref="ResponsesRules.Plan"/> (a person's ChatGPT plan) every call streams, a whole answer is the stream
-/// gathered, and <see cref="PlanRequestShaping"/> shapes each request body as the plan requires.
+/// Under <see cref="ResponsesRules.Plan"/> and <see cref="ResponsesRules.PlanByCode"/> (a person's ChatGPT plan) every
+/// call streams, a whole answer is the stream gathered, and <see cref="PlanRequestShaping"/> shapes each request body as
+/// the plan requires.
 /// </remarks>
 internal sealed class ResponsesChatClient(
     HttpClient httpClient,
@@ -39,7 +40,7 @@ internal sealed class ResponsesChatClient(
 
     public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
-        if (rules is ResponsesRules.Plan)
+        if (rules is not ResponsesRules.Key)
         {
             return await GatherStream(request, cancellation);
         }
@@ -127,7 +128,7 @@ internal sealed class ResponsesChatClient(
                 if (!hasNext)
                 {
                     // A plan's answer is only whole once the stream says it ended ("Wait for completed inference").
-                    if (rules is ResponsesRules.Plan && !ended)
+                    if (rules is not ResponsesRules.Key && !ended)
                     {
                         throw ProtocolChatClient.WithHeaders(CutShort(), headers.Headers);
                     }
@@ -203,7 +204,7 @@ internal sealed class ResponsesChatClient(
     {
         var effective = ProtocolChatClient.WithDefaults(options, settings);
 
-        if (rules is ResponsesRules.Plan)
+        if (rules is not ResponsesRules.Key)
         {
             effective = PlanRequestShaping.LeaveOutRefusedSettings(effective);
         }
@@ -253,9 +254,9 @@ internal sealed class ResponsesChatClient(
             options.AddPolicy(new ProtocolRequestHeaders(destination.Headers), PipelinePosition.PerCall);
         }
 
-        if (rules is ResponsesRules.Plan)
+        if (rules is not ResponsesRules.Key)
         {
-            options.AddPolicy(PlanRequestShaping.Instance, PipelinePosition.PerCall);
+            options.AddPolicy(rules is ResponsesRules.PlanByCode ? PlanRequestShaping.ByCode : PlanRequestShaping.Instance, PipelinePosition.PerCall);
         }
 
         return new OpenAIClient(new ApiKeyCredential(destination.Credential), options).GetResponsesClient().AsIChatClient(modelId);

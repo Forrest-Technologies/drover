@@ -33,6 +33,7 @@ public sealed class ModelConnectionService(
     ISecretVault vault,
     ModelProviderCatalog catalog,
     PolicyService policy,
+    AuditLog audit,
     TenantScope scope,
     TenantContext tenant,
     TimeProvider time,
@@ -48,6 +49,7 @@ public sealed class ModelConnectionService(
 
     private const int MaxAddressLength = 2048;
 
+    private const string ModelSettingsChanged = "model.settings_changed";
     private const string SignInKindProblem = "Each person connects that provider by signing in with their own account, not with a key.";
 
     #endregion
@@ -108,6 +110,11 @@ public sealed class ModelConnectionService(
         if (credentials.IsSignInKind(kind))
         {
             return ConnectionChange.Invalid(SignInKindProblem);
+        }
+
+        if (kind == ModelConnectionKinds.Compatible)
+        {
+            (baseUrl, defaultModel) = AzureAddress.Normalize(baseUrl, defaultModel);
         }
 
         var provider = catalog.IsOffered(kind) ? catalog.Find(kind) : null;
@@ -202,9 +209,80 @@ public sealed class ModelConnectionService(
             return null;
         }
 
-        entry.Capabilities = entry.Capabilities with { Vision = readsImages, VisionSetByOperator = readsImages };
+        entry.OperatorCapabilities = ModelSettingsRules.Normalize(
+            (entry.OperatorCapabilities ?? new()) with { Vision = readsImages ? true : null });
         logger.LogInformation("Model connection {ConnectionId} marked a model as reading pictures: {ReadsImages}", connectionId, readsImages);
         return new ModelVisionChange(entry, null);
+    }
+
+    /// <summary>
+    /// Records what a space admin says one model can do and costs, on any connection. The request is the whole set:
+    /// a member that is null is cleared, and the provider's value is in effect for it. A model the catalog does not
+    /// have is added, which is how an admin adds a model on a server that lists none. Null when the connection is not
+    /// in this space; a sentence when a value is wrong or the connection already holds as many models as it may.
+    /// </summary>
+    public async Task<ModelVisionChange?> SetSettings(
+        Guid connectionId,
+        string model,
+        ModelCapabilityOverrides abilities,
+        ModelPricing prices,
+        string? currency,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        if (await connections.FindConnection(connectionId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        var name = model.Trim();
+
+        if (name.Length > CatalogUpsert.MaxModelIdLength)
+        {
+            return new ModelVisionChange(null, "The model name is too long.");
+        }
+
+        var found = await GetOrAddSettingsEntry(connectionId, name, cancellationToken);
+
+        if (found.Problem is { } refused)
+        {
+            return new ModelVisionChange(null, refused);
+        }
+
+        var stored = found.Entry!;
+        var tidy = abilities with { ReasoningEfforts = abilities.ReasoningEfforts?.Select(effort => effort.Trim().ToLowerInvariant()).ToList() };
+        var problem = ModelSettingsRules.FindProblem(tidy, tidy.Reasoning ?? stored.Capabilities.Reasoning)
+            ?? ModelSettingsRules.FindProblem(prices, currency);
+
+        if (problem is not null)
+        {
+            return new ModelVisionChange(null, problem);
+        }
+
+        var before = OperatorValues(stored);
+        stored.OperatorCapabilities = ModelSettingsRules.Normalize(tidy);
+        stored.OperatorPricing = HasPrice(prices) ? prices with { Currency = currency?.ToUpperInvariant() ?? stored.Pricing.Currency } : null;
+        audit.Record(actorUserId, ModelSettingsChanged, AuditTargets.ModelConnection, connectionId, before, OperatorValues(stored), About(name));
+        return new ModelVisionChange(stored, null);
+    }
+
+    /// <summary>
+    /// Clears everything an admin set for one model, so the provider's values are in effect again. The row stays.
+    /// Null when the connection or the model is not in this space's catalog.
+    /// </summary>
+    public async Task<ModelCatalogEntry?> ClearSettings(Guid connectionId, string model, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        if (await connections.FindConnection(connectionId, cancellationToken) is null
+            || await connections.GetCatalogEntryForUpdate(connectionId, model.Trim(), cancellationToken) is not { } entry)
+        {
+            return null;
+        }
+
+        var before = OperatorValues(entry);
+        entry.OperatorCapabilities = null;
+        entry.OperatorPricing = null;
+        audit.Record(actorUserId, ModelSettingsChanged, AuditTargets.ModelConnection, connectionId, before, OperatorValues(entry), About(model.Trim()));
+        return entry;
     }
 
     /// <summary>
@@ -366,7 +444,7 @@ public sealed class ModelConnectionService(
             return null;
         }
 
-        var (connection, effective, read) = found;
+        var (connection, effective, read, filled) = found;
 
         // A kind the operator switched off is refused before anything is sent, a renewal included.
         var resolution = catalog.Resolve(connection.Kind);
@@ -376,12 +454,12 @@ public sealed class ModelConnectionService(
         var credential = provider is null ? read : await credentials.Ready(read, cancellationToken);
         var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
         var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
-        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits };
+        var endpoint = address is null ? null : credential.For(new ModelEndpoint(connection.Kind, address) { Limits = limits, Filled = filled });
         return new PreparedCall(connection, provider, endpoint, credential, effective, resolution.Refusal);
     }
 
     /// <summary>The connection, the space's rule and the credential as read, in a scope that is over when this returns.</summary>
-    private async Task<(ModelConnection Connection, EffectivePolicy Policy, ModelCredential Read)?> ReadForCall(
+    private async Task<(ModelConnection Connection, EffectivePolicy Policy, ModelCredential Read, IReadOnlySet<string> Filled)?> ReadForCall(
         Guid connectionId,
         CancellationToken cancellationToken)
     {
@@ -396,8 +474,12 @@ public sealed class ModelConnectionService(
         var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("No space is set for this request.");
         var effective = await policy.GetEffective(spaceId, cancellationToken);
         var read = await credentials.Read(tenant, signIns, vault, connection, cancellationToken);
+        var filled = (await connections.ListCatalog(connectionId, cancellationToken))
+            .Where(entry => entry.Capabilities.ContextTokens is not null)
+            .Select(entry => entry.Model)
+            .ToHashSet(StringComparer.Ordinal);
         await work.Commit(cancellationToken);
-        return (connection, effective, read);
+        return (connection, effective, read, filled);
     }
 
     /// <summary>No scope is open here. The adapter's requests carry the space's outbound rule.</summary>
@@ -534,6 +616,50 @@ public sealed class ModelConnectionService(
 
     private static bool HasChanged(ModelConnection now, ModelConnection before) =>
         now.SecretId != before.SecretId || now.BaseUrl != before.BaseUrl;
+
+    #endregion
+
+    #region Model Settings
+
+    /// <summary>The locked row of the model, or a new one when the catalog has none and has room for one.</summary>
+    private async Task<(ModelCatalogEntry? Entry, string? Problem)> GetOrAddSettingsEntry(Guid connectionId, string model, CancellationToken cancellationToken)
+    {
+        if (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken) is { } existing)
+        {
+            return (existing, null);
+        }
+
+        if (await connections.CountCatalog(connectionId, cancellationToken) >= policy.Deployment.MaxModelsPerConnection)
+        {
+            return (null, $"This connection already holds {policy.Deployment.MaxModelsPerConnection} models, the most this server keeps for one connection.");
+        }
+
+        await connections.AddCatalogEntryIfMissing(connectionId, model, time.GetUtcNow(), cancellationToken);
+        return (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken), null);
+    }
+
+    private static bool HasPrice(ModelPricing prices) =>
+        prices.InputPerMillion is not null || prices.OutputPerMillion is not null || prices.CachedInputPerMillion is not null;
+
+    /// <summary>What an admin set, one member to a name, so the audit row says which members changed.</summary>
+    private static JsonObject OperatorValues(ModelCatalogEntry entry) =>
+        AuditLog.Snapshot(new
+        {
+            entry.OperatorCapabilities?.ContextTokens,
+            entry.OperatorCapabilities?.MaxOutputTokens,
+            entry.OperatorCapabilities?.ToolCalling,
+            entry.OperatorCapabilities?.Vision,
+            entry.OperatorCapabilities?.Reasoning,
+            entry.OperatorCapabilities?.ReasoningEfforts,
+            entry.OperatorCapabilities?.StructuredOutput,
+            entry.OperatorCapabilities?.ImageGeneration,
+            entry.OperatorPricing?.InputPerMillion,
+            entry.OperatorPricing?.OutputPerMillion,
+            entry.OperatorPricing?.CachedInputPerMillion,
+            PriceCurrency = entry.OperatorPricing?.Currency,
+        });
+
+    private static JsonObject About(string model) => new() { ["model"] = model };
 
     #endregion
 

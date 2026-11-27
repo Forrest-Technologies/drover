@@ -23,9 +23,10 @@ public sealed class AnthropicPlanProvider(IHttpClientFactory httpClients, IOptio
 
     /// <summary>
     /// Every call needs a credential, the person's token, so the rule is the key kind's; a person never types it, and a
-    /// connection of this kind is never made with a key or an address.
+    /// connection of this kind is never made with a key or an address. It names the loopback return a desktop listens
+    /// on, read for each request so a changed setting needs no restart.
     /// </summary>
-    public ModelProviderDescriptor Descriptor { get; } = new(
+    public ModelProviderDescriptor Descriptor => new(
         AnthropicPlanSignIn.ConnectionKind,
         "Claude plan",
         ModelKeyRule.Required,
@@ -33,7 +34,8 @@ public sealed class AnthropicPlanProvider(IHttpClientFactory httpClients, IOptio
         AddressHint: null,
         KeyHint: null,
         ReportsCapabilities: false,
-        SignInName: "Claude");
+        SignInName: "Claude",
+        SignInReturn: options.CurrentValue.RedirectUri);
 
     #endregion
 

@@ -19,11 +19,14 @@ public sealed class FakeModelSignInListener : IModelSignInListener
 
     public int Opened { get; private set; }
 
+    /// <summary>The return address the last <see cref="Open"/> was asked to listen at.</summary>
+    public Uri? Wanted { get; private set; }
+
     #endregion
 
     #region Interface Implementations
 
-    public IModelSignInReturn Open()
+    public IModelSignInReturn Open(Uri? wanted = null)
     {
         if (Fails)
         {
@@ -31,6 +34,7 @@ public sealed class FakeModelSignInListener : IModelSignInListener
         }
 
         Opened++;
+        Wanted = wanted;
         Current = new FakeReturn();
         return Current;
     }

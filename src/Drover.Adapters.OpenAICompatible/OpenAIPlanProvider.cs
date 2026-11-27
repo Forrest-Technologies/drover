@@ -10,6 +10,10 @@ namespace Drover.Adapters.OpenAICompatible;
 /// is <c>{"models":[{slug, display_name, visibility}]}</c>, shown where <c>visibility</c> is <c>list</c>, in the
 /// provider's order) and "Preview limitations" (images and files where the model takes them; no image generation, file
 /// search, code interpreter, computer use, hosted connectors or tool search; no audio input).
+/// A person who signed in by code (<see cref="OpenAIPlanCodeOptions"/>) holds a token for the address the provider's own
+/// command line tool calls: their calls go to <c>codex/responses</c> and <c>codex/models</c> on
+/// <see cref="OpenAIPlanCodeOptions.ApiAddress"/>, with that flow's headers and the account the token names. The flow
+/// travels with each call in <see cref="ModelEndpoint.SignInDetails"/>, so one connection serves people signed in either way.
 /// </summary>
 public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsMonitor<OpenAIPlanOptions> options) : IModelClientProvider
 {
@@ -57,7 +61,8 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
 
     public Uri? FixedAddress => options.CurrentValue.ApiAddress;
 
-    public ModelProviderDescriptor Descriptor { get; } = new(
+    /// <summary>Read for each request, so a changed return address in the settings needs no restart.</summary>
+    public ModelProviderDescriptor Descriptor => new(
         ConnectionKind,
         DisplayName,
         ModelKeyRule.Required,
@@ -66,7 +71,8 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
         KeyHint: null,
         ReportsCapabilities: false,
         SignInName: "ChatGPT",
-        UsagePage: UsagePage);
+        UsagePage: UsagePage,
+        SignInReturn: options.CurrentValue.RedirectUri);
 
     #endregion
 
@@ -79,12 +85,23 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
             throw ModelProviderException.FromStatus((int)HttpStatusCode.Unauthorized);
         }
 
+        if (!IsByCode(connection))
+        {
+            return new ResponsesChatClient(
+                httpClients.CreateClient(HttpClientName),
+                new ResponsesDestination(options.CurrentValue.ApiAddress, apiKey, noHeaders),
+                modelId,
+                settings,
+                ResponsesRules.Plan);
+        }
+
+        var code = options.CurrentValue.Code;
         return new ResponsesChatClient(
             httpClients.CreateClient(HttpClientName),
-            new ResponsesDestination(options.CurrentValue.ApiAddress, apiKey, noHeaders),
+            new ResponsesDestination(new Uri(WithTrailingSlash(code.ApiAddress), "codex/"), apiKey, CodeHeaders(code, connection, apiKey)),
             modelId,
             settings,
-            ResponsesRules.Plan);
+            ResponsesRules.PlanByCode);
     }
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(ModelEndpoint connection, string? apiKey, CancellationToken cancellation) =>
@@ -114,8 +131,7 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
 
     private async Task<List<PlanModel>> ReadModels(ModelEndpoint connection, string? apiKey, CancellationToken cancellation)
     {
-        var address = options.CurrentValue.ApiAddress;
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(WithTrailingSlash(address), "models"));
+        using var request = ModelListRequest(connection, apiKey);
 
         if (!string.IsNullOrEmpty(apiKey))
         {
@@ -145,6 +161,53 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
         {
             throw mapped;
         }
+    }
+
+    /// <summary>
+    /// The model list request of the connection's flow. A sign-in by code asks its own address with the tool version and
+    /// the flow's headers, and asks for JSON: the flow's <c>accept</c> header is for runs, which stream.
+    /// </summary>
+    private HttpRequestMessage ModelListRequest(ModelEndpoint connection, string? apiKey)
+    {
+        if (!IsByCode(connection))
+        {
+            return new HttpRequestMessage(HttpMethod.Get, new Uri(WithTrailingSlash(options.CurrentValue.ApiAddress), "models"));
+        }
+
+        var code = options.CurrentValue.Code;
+        var address = new Uri(WithTrailingSlash(code.ApiAddress), $"codex/models?client_version={Uri.EscapeDataString(code.ClientVersion)}");
+        var request = new HttpRequestMessage(HttpMethod.Get, address);
+
+        foreach (var (name, value) in CodeHeaders(code, connection, apiKey))
+        {
+            if (!name.Equals("accept", StringComparison.OrdinalIgnoreCase))
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
+            }
+        }
+
+        request.Headers.Accept.ParseAdd("application/json");
+        return request;
+    }
+
+    /// <summary>True when the person's sign-in was made by code (<see cref="OpenAIPlanSignIn.FlowDetail"/>).</summary>
+    private static bool IsByCode(ModelEndpoint connection) =>
+        connection.SignInDetails.GetValueOrDefault(OpenAIPlanSignIn.FlowDetail) == OpenAIPlanSignIn.CodeFlow;
+
+    /// <summary>
+    /// The flow's configured headers and the account the token names. A token that names none is sent with the
+    /// account its sign-in recorded.
+    /// </summary>
+    private static Dictionary<string, string> CodeHeaders(OpenAIPlanCodeOptions code, ModelEndpoint connection, string? apiKey)
+    {
+        Dictionary<string, string> headers = new(code.Headers, StringComparer.OrdinalIgnoreCase);
+
+        if ((PlanAccount.Of(apiKey) ?? connection.SignInDetails.GetValueOrDefault(OpenAIPlanSignIn.AccountDetail)) is { Length: > 0 } account)
+        {
+            headers["chatgpt-account-id"] = account;
+        }
+
+        return headers;
     }
 
     /// <summary>The entries meant for a picker, in the provider's order. One without a slug, or a slug seen before, is left out.</summary>

@@ -409,7 +409,15 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     private async Task SendMessage()
     {
         await Type("ComposerField", Message);
-        await Press("ComposerSend");
+        if (settings.IsProof)
+        {
+            Report("ui-check wait: touch Send with the keyboard open");
+        }
+        else
+        {
+            await Press("ComposerSend");
+        }
+
         await Until($"the reply \"{settings.Reply}\" in MessageList", () =>
             Find("MessageList") is { } list && Words(list).Any(words => words.Contains(settings.Reply, StringComparison.Ordinal))
                 ? list

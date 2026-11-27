@@ -21,6 +21,28 @@ public static class VeniceRig
     #endregion
 }
 
+public static class CopilotRig
+{
+    #region Public Methods
+
+    public const string ModelId = "gpt-4.1";
+
+    public static Rig Start(string fixtureName)
+    {
+        var folder = fixtureName is ConformanceScenarios.ListModels or ConformanceScenarios.TestConnection
+            ? "copilot"
+            : "openai-compatible";
+        var handler = new RecordedHandler(RecordedFixture.Load(folder, fixtureName));
+        var clients = new FixtureHttpClientFactory(handler);
+        var provider = new CopilotPlanProvider(clients, new SettableOptions<CopilotPlanOptions>(new CopilotPlanOptions()));
+        var connection = new ModelEndpoint(ModelConnectionKinds.CopilotSignIn, provider.FixedAddress!);
+
+        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
+    }
+
+    #endregion
+}
+
 public static class CompatibleRig
 {
     #region Public Methods
@@ -29,11 +51,30 @@ public static class CompatibleRig
 
     public static readonly Uri Address = new("https://models.example.test/v1");
 
-    public static Rig Start(string fixtureName)
+    public static Rig Start(string fixtureName, Uri? address = null)
     {
         var handler = new RecordedHandler(RecordedFixture.Load("openai-compatible", fixtureName));
         var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
-        var connection = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, Address);
+        var connection = new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, address ?? Address);
+
+        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
+    }
+
+    #endregion
+}
+
+public static class OpenRouterRig
+{
+    #region Public Methods
+
+    public const string ModelId = "local-model";
+
+    public static Rig Start(string fixtureName)
+    {
+        var handler = new RecordedHandler(RecordedFixture.Load("openrouter_signin", fixtureName));
+        var settings = new ChangingOptions<OpenRouterSignInOptions>(new OpenRouterSignInOptions());
+        var provider = new OpenRouterProvider(new FixtureHttpClientFactory(handler), settings);
+        var connection = new ModelEndpoint(OpenRouterProvider.ConnectionKind, settings.CurrentValue.ApiAddress);
 
         return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
     }

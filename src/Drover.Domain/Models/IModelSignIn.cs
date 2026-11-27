@@ -21,8 +21,16 @@ public interface IModelSignIn
     bool IsPersonalPlan { get; }
 
     /// <summary>
+    /// True when the provider's page may send the browser back to this server's own address, for a person whose device
+    /// cannot listen. Drover then gives the attempt that address as its <see cref="ModelSignInAttempt.RedirectUri"/>;
+    /// it is only used where the server has an <c>https</c> public address. False for a kind that needs the device.
+    /// </summary>
+    bool CanReturnToServer => false;
+
+    /// <summary>
     /// Whether the person's device may receive the browser's return at this address. A kind compares it with the
-    /// address it is configured for, where only the port may vary. Null is a device that cannot listen.
+    /// address it is configured for, where only the port may vary. Null is a device that cannot listen: a kind accepts
+    /// it when it has a flow by code (<see cref="ModelSignInWait.Paste"/> or <see cref="ModelSignInWait.Poll"/>).
     /// </summary>
     bool AcceptsRedirect(Uri? redirectUri);
 
@@ -31,7 +39,10 @@ public interface IModelSignIn
 
     /// <summary>
     /// Exchanges what the person's device received for a token set. Throws <see cref="ModelSignInRefusedException"/>
-    /// when the answer is a refusal or does not belong to the attempt; nothing is exchanged then.
+    /// when the answer is a refusal or does not belong to the attempt; nothing is exchanged then. For a
+    /// <see cref="ModelSignInWait.Poll"/> attempt Drover calls it at the provider's interval with an empty return: null
+    /// means the person has not approved yet, and <see cref="ModelSignInSlowDownException"/> that the provider asked
+    /// Drover to wait longer between asks.
     /// </summary>
     Task<ModelTokens?> Finish(ModelSignInAttempt attempt, ModelSignInReturn arrived, CancellationToken cancellation);
 

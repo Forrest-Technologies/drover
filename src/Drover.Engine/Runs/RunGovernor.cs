@@ -392,7 +392,7 @@ public sealed class RunGovernor(
     {
         Checkpoint = RuleCheckpoint.BeforeTool,
         ToolName = tool.Tool.Name,
-        ToolKind = tool.Tool.Sensitivity,
+        ToolKind = tool.Sensitivity,
         Json = arguments,
     };
 
@@ -407,7 +407,7 @@ public sealed class RunGovernor(
         {
             Checkpoint = RuleCheckpoint.AfterTool,
             ToolName = tool.Tool.Name,
-            ToolKind = tool.Tool.Sensitivity,
+            ToolKind = tool.Sensitivity,
             Json = result.Result,
         };
 

@@ -19,6 +19,8 @@ public sealed partial class ModelConnectionsViewModel(
 
     private NamedProviders? named;
 
+    private ModelConnectionSummary? settingsFor;
+
     private ModelSignInFlow? signIn;
 
     /// <summary>The connection whose card shows the sign-in in progress, when it was started from the card.</summary>
@@ -75,6 +77,18 @@ public sealed partial class ModelConnectionsViewModel(
     private string? keyProblem;
 
     [ObservableProperty]
+    private bool editingSettings;
+
+    [ObservableProperty]
+    private bool settingsBusy;
+
+    [ObservableProperty]
+    private string? settingsProblem;
+
+    [ObservableProperty]
+    private bool confirmingClear;
+
+    [ObservableProperty]
     private string? addressProblem;
 
     [ObservableProperty]
@@ -99,7 +113,12 @@ public sealed partial class ModelConnectionsViewModel(
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
-    public bool ChangePending => Busy is not null || AddingBusy;
+    public bool ChangePending => Busy is not null || AddingBusy || SettingsBusy;
+
+    /// <summary>What an admin is saying about one model: the form behind "Edit what this model can do".</summary>
+    public ModelSettingsForm Settings { get; } = new();
+
+    public ModelConnectionSummary? SettingsConnection => settingsFor;
 
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
     public bool CanEdit => session.Space?.Role is "owner" or "admin";
@@ -164,14 +183,16 @@ public sealed partial class ModelConnectionsViewModel(
     /// </summary>
     public string? SignInFacts(ModelConnectionSummary connection)
     {
-        var provider = SignInKindOf(connection)?.SignInName ?? connection.Name;
+        var kind = SignInKindOf(connection);
+        var provider = kind?.SignInName ?? connection.Name;
+        var noun = kind?.PersonalPlan is false ? "account" : "plan";
 
         return connection.SignIn?.Status switch
         {
-            ModelSignInStatuses.Active => connection.SignIn.AccountLabel is { Length: > 0 } label ? $"Using {provider} plan · {label}" : $"Using {provider} plan",
+            ModelSignInStatuses.Active => connection.SignIn.AccountLabel is { Length: > 0 } label ? $"Using {provider} {noun} · {label}" : $"Using {provider} {noun}",
             ModelSignInStatuses.NeedsSignIn => $"Your {provider} sign-in has ended.",
-            ModelSignInStatuses.SignedOut => $"Signed out of your {provider} plan.",
-            ModelSignInStatuses.None => $"Sign in with your own {provider} plan to use it.",
+            ModelSignInStatuses.SignedOut => $"Signed out of your {provider} {noun}.",
+            ModelSignInStatuses.None => $"Sign in with your own {provider} {noun} to use it.",
             _ => null,
         };
     }
@@ -190,7 +211,7 @@ public sealed partial class ModelConnectionsViewModel(
     {
         switch (SignIn.Action)
         {
-            case ModelSignInAction.Continue or ModelSignInAction.TryAgain:
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain or ModelSignInAction.GetNewCode:
                 await SignIn.Start(SpaceId, open);
                 await SettleSignIn();
                 break;
@@ -361,26 +382,64 @@ public sealed partial class ModelConnectionsViewModel(
             Catalog = await api.ListModels(SpaceId, connection.Id);
         });
 
-    /// <summary>
-    /// Whether a person may say a model of this connection reads pictures. Only a compatible endpoint takes it: it
-    /// lists models and nothing about them. A provider that reports its own capabilities offers no toggle.
-    /// </summary>
-    public bool CanMarkVision(ModelConnectionSummary connection) => CanEdit && connection.Kind == CompatibleKind;
-
-    public static string VisionLabel(ModelCatalogResponse entry) => $"{entry.DisplayName} reads pictures";
-
-    /// <summary>Says, for a model whose reading of pictures nobody can change here, what the catalog says.</summary>
+    /// <summary>What the catalog says a model does with pictures, wherever that came from: the provider or an admin.</summary>
     public static string? VisionWords(ModelCatalogResponse entry) => entry.Capabilities.Vision ? "reads pictures" : null;
 
-    public Task SetVision(ModelConnectionSummary connection, ModelCatalogResponse entry, bool readsImages) =>
-        Change(connection, async () =>
+    public void OpenSettings(ModelConnectionSummary connection, ModelCatalogResponse entry)
+    {
+        Settings.Open(entry);
+        settingsFor = connection;
+        SettingsProblem = null;
+        ConfirmingClear = false;
+        EditingSettings = true;
+    }
+
+    public void CancelSettings()
+    {
+        EditingSettings = false;
+        ConfirmingClear = false;
+        SettingsProblem = null;
+    }
+
+    /// <summary>Sends what the admin changed. A value that is out of range stays on the form with its sentence.</summary>
+    public async Task SaveSettings()
+    {
+        if (settingsFor is not { } connection || !Settings.Check())
         {
-            var changed = await api.SetModelVision(SpaceId, connection.Id, new(entry.Model, readsImages));
-            Catalog = [.. (Catalog ?? []).Select(row => row.Model == changed.Model ? changed : row)];
-            Say(false, readsImages
-                ? $"{entry.DisplayName} is marked as reading pictures. Pictures attached for a bot that uses it go to it as pictures."
-                : $"{entry.DisplayName} is no longer marked as reading pictures.");
+            OnPropertyChanged(string.Empty);
+            return;
+        }
+
+        await Mutate(async () =>
+        {
+            var changed = await api.SetModelSettings(SpaceId, connection.Id, Settings.Request());
+            Catalog = ReplaceRow(changed);
+            EditingSettings = false;
+            Say(false, $"{changed.DisplayName} was updated.");
         });
+    }
+
+    public void AskUseProvidersValues() => ConfirmingClear = true;
+
+    public void KeepSettings() => ConfirmingClear = false;
+
+    /// <summary>Clears everything set for the model, so what the provider reported is in effect again.</summary>
+    public async Task UseProvidersValues()
+    {
+        if (settingsFor is not { } connection || Settings.Entry is not { } entry)
+        {
+            return;
+        }
+
+        await Mutate(async () =>
+        {
+            await api.ClearModelSettings(SpaceId, connection.Id, entry.Model);
+            Catalog = [.. await api.ListModels(SpaceId, connection.Id)];
+            ConfirmingClear = false;
+            EditingSettings = false;
+            Say(false, $"{entry.DisplayName} uses the provider's values.");
+        });
+    }
 
     public void HideCatalog()
     {
@@ -418,6 +477,35 @@ public sealed partial class ModelConnectionsViewModel(
         if (problems.Remove(connection.Id, out var reason))
         {
             KeyProblem = reason;
+        }
+    }
+
+    private IReadOnlyList<ModelCatalogResponse> ReplaceRow(ModelCatalogResponse changed) =>
+        Catalog is null || Catalog.All(row => row.Model != changed.Model)
+            ? [.. (Catalog ?? []), changed]
+            : [.. Catalog.Select(row => row.Model == changed.Model ? changed : row)];
+
+    /// <summary>A change made from the sheet: its problem shows in the sheet, not under the connection.</summary>
+    private async Task Mutate(Func<Task> action)
+    {
+        SettingsBusy = true;
+        SettingsProblem = null;
+        Notice = null;
+
+        try
+        {
+            await action();
+            voice.Forget();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
+            SettingsProblem = Failures.Sentence(exception, "Check that the server is running.");
+            ConfirmingClear = false;
+        }
+        finally
+        {
+            SettingsBusy = false;
         }
     }
 

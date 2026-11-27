@@ -6,7 +6,7 @@ The default look is Front Office (see [Themes](#themes)). **Night Yard** was the
 
 ## Principles
 
-1. **Light means live.** Color and motion mark what is working right now. Everything at rest is neutral.
+1. **Light means live.** Glow and motion mark what is working right now. Bot and tool icons can also carry a steady identity hue.
 2. **Show the work.** Tool activity and the bot tree are content, not debug panels.
 3. **One thing at a time.** A screen starts with what most people need. Controls appear when a choice makes them relevant.
 4. **Fast first.** Every effect has a job: showing state or confirming an action. If removing it loses no information, remove it.

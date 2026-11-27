@@ -123,6 +123,30 @@ public sealed class UsageTests(PostgresServer postgres)
 
     #endregion
 
+    #region Prices Set By An Admin
+
+    [Fact]
+    public async Task A_run_on_a_model_priced_through_the_sheet_records_its_cost()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hello.")]));
+        await world.Read(async db =>
+        {
+            var entry = await db.ModelCatalog.SingleAsync(found => found.ModelConnectionId == world.ConnectionId && found.Model == "scripted", RunWorld.Token);
+            entry.Pricing = new ModelPricing();
+            entry.OperatorPricing = new ModelPricing { InputPerMillion = 2_000_000m, OutputPerMillion = 4_000_000m };
+            return true;
+        });
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Hi.");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await world.ReadUsage(runId)).Should().ContainSingle().Which.Cost.Should().Be(40m, "the provider listed no price and the admin's price is trusted");
+    }
+
+    #endregion
+
     #region Unknown Prices
 
     [Fact]

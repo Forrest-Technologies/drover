@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261127081644_ToolCallsClearedByRuleCheck")]
-partial class ToolCallsClearedByRuleCheck
+[Migration("20261127213903_ToolCallsClearedByRuleCheck")]
+partial class _20261127213903_ToolCallsClearedByRuleCheck
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1122,6 +1122,14 @@ partial class ToolCallsClearedByRuleCheck
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("last_seen_at");
 
+                b.Property<string>("OperatorCapabilities")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_capabilities");
+
+                b.Property<string>("OperatorPricing")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_pricing");
+
                 b.Property<string>("Pricing")
                     .IsRequired()
                     .ValueGeneratedOnAdd()
@@ -1398,6 +1406,10 @@ partial class ToolCallsClearedByRuleCheck
                 b.Property<Guid?>("GrantedByUserId")
                     .HasColumnType("uuid")
                     .HasColumnName("granted_by_user_id");
+
+                b.Property<bool>("IsDirect")
+                    .HasColumnType("boolean")
+                    .HasColumnName("is_direct");
 
                 b.Property<string>("ReviewState")
                     .IsRequired()

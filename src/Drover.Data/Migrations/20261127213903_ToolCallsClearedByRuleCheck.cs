@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Drover.Data.Migrations;
 
 /// <inheritdoc />
-public partial class ToolCallsClearedByRuleCheck : Migration
+public partial class _20261127213903_ToolCallsClearedByRuleCheck : Migration
 {
     /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)

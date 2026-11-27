@@ -18,6 +18,8 @@ public static class ModelConnectionEndpoints
         scoped.MapGet("/{connectionId:guid}/models", ListModels).WithName("ListModels");
         scoped.MapPut("/{connectionId:guid}/models/vision", SetModelVision).RequireSpaceRole(MembershipRole.Admin).WithName("SetModelVision");
         scoped.MapPut("/{connectionId:guid}/models/voice", SetModelVoice).RequireSpaceRole(MembershipRole.Admin).WithName("SetModelVoice");
+        scoped.MapPut("/{connectionId:guid}/model-settings", SetModelSettings).RequireSpaceRole(MembershipRole.Admin).WithName("SetModelSettings");
+        scoped.MapDelete("/{connectionId:guid}/model-settings", ClearModelSettings).RequireSpaceRole(MembershipRole.Admin).WithName("ClearModelSettings");
 
         var calling = space.MapGroup("/model-connections");
         calling.MapPost("/{connectionId:guid}/test", TestConnection).RequireSpaceRole(MembershipRole.Admin).WithName("TestModelConnection");
@@ -27,7 +29,7 @@ public static class ModelConnectionEndpoints
         // their own short scopes as the caller. Any member may sign in; only the person who started a sign-in can
         // finish or read it, and only their own sign-in can be removed.
         calling.MapPost("/sign-in", StartSignIn).WithName("StartModelSignIn");
-        calling.MapPost("/sign-in/{attemptId:guid}/finish", FinishSignIn).WithBodyLimit(RequestLimits.Account).WithName("FinishModelSignIn");
+        calling.MapPost("/sign-in/{attemptId:guid}/finish", FinishSignIn).WithName("FinishModelSignIn");
         calling.MapGet("/sign-in/{attemptId:guid}", ReadSignIn).WithName("ReadModelSignIn");
         calling.MapDelete("/{connectionId:guid}/sign-in", SignOut).WithName("SignOutOfModelConnection");
         return space;
@@ -112,6 +114,58 @@ public static class ModelConnectionEndpoints
             : TypedResults.Problem(title: change.Problem, statusCode: StatusCodes.Status400BadRequest);
     }
 
+    private static async Task<Results<Ok<ModelCatalogResponse>, NotFound, ProblemHttpResult>> SetModelSettings(
+        Guid connectionId,
+        SetModelSettingsRequest request,
+        HttpContext context,
+        ModelConnectionService models)
+    {
+        if (string.IsNullOrWhiteSpace(request.Model))
+        {
+            return TypedResults.Problem(title: "Name the model.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var prices = request.Pricing;
+        var change = await models.SetSettings(
+            connectionId,
+            request.Model,
+            request.Capabilities.ToOverrides(),
+            new ModelPricing
+            {
+                InputPerMillion = prices?.InputPerMillion,
+                OutputPerMillion = prices?.OutputPerMillion,
+                CachedInputPerMillion = prices?.CachedInputPerMillion,
+            },
+            prices?.Currency,
+            context.GetSpaceAccess().UserId,
+            context.RequestAborted);
+
+        if (change is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        return change.Entry is { } entry
+            ? TypedResults.Ok(entry.ToResponse())
+            : TypedResults.Problem(title: change.Problem, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> ClearModelSettings(
+        Guid connectionId,
+        string? model,
+        HttpContext context,
+        ModelConnectionService models)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return TypedResults.Problem(title: "Name the model.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return await models.ClearSettings(connectionId, model, context.GetSpaceAccess().UserId, context.RequestAborted) is null
+            ? TypedResults.NotFound()
+            : TypedResults.NoContent();
+    }
+
     private static async Task<Results<Ok<ModelCatalogResponse>, NotFound, ProblemHttpResult>> SetModelVoice(
         Guid connectionId,
         SetModelVoiceRequest request,
@@ -193,7 +247,7 @@ public static class ModelConnectionEndpoints
         var begun = await signIns.Begin(access.SpaceId, access.UserId, request.Kind ?? string.Empty, redirect, context.RequestAborted);
 
         return begun.Address is { } address
-            ? TypedResults.Ok(new ModelSignInStarted(begun.AttemptId, address.AbsoluteUri, ToWireName(begun.Wait)))
+            ? TypedResults.Ok(new ModelSignInStarted(begun.AttemptId, address.AbsoluteUri, ToWireName(begun.Wait), begun.Code))
             : TypedResults.Problem(title: begun.Problem, statusCode: begun.Status);
     }
 
@@ -240,7 +294,7 @@ public static class ModelConnectionEndpoints
         }
 
         var connection = outcome.ConnectionId is { } connectionId ? await Summarize(scopes, access, connectionId, context.RequestAborted) : null;
-        return TypedResults.Ok(new ModelSignInProgress(ToWireName(state), connection));
+        return TypedResults.Ok(new ModelSignInProgress(ToWireName(state), connection, outcome.Problem));
     }
 
     private static async Task<Results<NoContent, NotFound>> SignOut(Guid connectionId, HttpContext context, ModelSignIns signIns)
@@ -279,6 +333,7 @@ public static class ModelConnectionEndpoints
         wait switch
         {
             ModelSignInWait.Paste => ModelSignInWaits.Paste,
+            ModelSignInWait.Poll => ModelSignInWaits.Poll,
             _ => ModelSignInWaits.Return,
         };
 

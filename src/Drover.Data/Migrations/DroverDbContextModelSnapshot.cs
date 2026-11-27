@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261127081644_ToolCallsClearedByRuleCheck";
+    public override string LastMigrationId => "20261127213903_ToolCallsClearedByRuleCheck";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1124,6 +1124,14 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("last_seen_at");
 
+                b.Property<string>("OperatorCapabilities")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_capabilities");
+
+                b.Property<string>("OperatorPricing")
+                    .HasColumnType("jsonb")
+                    .HasColumnName("operator_pricing");
+
                 b.Property<string>("Pricing")
                     .IsRequired()
                     .ValueGeneratedOnAdd()
@@ -1400,6 +1408,10 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid?>("GrantedByUserId")
                     .HasColumnType("uuid")
                     .HasColumnName("granted_by_user_id");
+
+                b.Property<bool>("IsDirect")
+                    .HasColumnType("boolean")
+                    .HasColumnName("is_direct");
 
                 b.Property<string>("ReviewState")
                     .IsRequired()

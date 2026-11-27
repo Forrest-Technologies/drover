@@ -11,13 +11,20 @@ namespace Drover.Adapters.Gemini;
 /// models think but not which levels each takes, so a thinking model offers <c>low</c> and <c>high</c>, which every
 /// level table on that page shares (decided 2026-11-26).
 /// </summary>
-public sealed class GeminiProvider(IHttpClientFactory httpClients) : IModelClientProvider
+public sealed class GeminiProvider(IHttpClientFactory httpClients) : IModelClientProvider, IRealtimeVoice
 {
     #region Private Fields
 
     public const string ConnectionKind = "gemini";
 
     public const string HttpClientName = "drover-gemini";
+
+    public const string LiveHttpClientName = "drover-gemini-live";
+
+    internal const string LivePath = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+
+    private static readonly IReadOnlyList<VoiceOption> liveVoices =
+        [new("Kore", "Kore"), new("Aoede", "Aoede"), new("Charon", "Charon"), new("Fenrir", "Fenrir"), new("Puck", "Puck")];
 
     public static readonly Uri BaseAddress = new("https://generativelanguage.googleapis.com/");
 
@@ -106,6 +113,37 @@ public sealed class GeminiProvider(IHttpClientFactory httpClients) : IModelClien
         return models;
     }
 
+    public IReadOnlyList<VoiceOption> ListVoices(string model) => liveVoices;
+
+    public async Task<IRealtimeVoiceSession> Open(
+        ModelEndpoint connection,
+        string? apiKey,
+        RealtimeVoiceOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(apiKey) || apiKey.Any(character => !char.IsAscii(character) || char.IsControl(character)))
+        {
+            throw ModelProviderException.FromStatus((int)HttpStatusCode.Unauthorized);
+        }
+
+        var address = new UriBuilder(BaseAddress) { Scheme = "wss", Path = LivePath }.Uri;
+        var socket = new ClientWebSocket();
+        socket.Options.CollectHttpResponseDetails = true;
+        socket.Options.SetRequestHeader(GeminiChatClient.KeyHeader, apiKey);
+        var session = new GeminiLiveSession(socket);
+
+        try
+        {
+            await session.Start(httpClients.CreateClient(LiveHttpClientName), address, options, cancellationToken);
+            return session;
+        }
+        catch
+        {
+            await session.DisposeAsync();
+            throw;
+        }
+    }
+
     public async Task<ConnectionTestResult> TestConnection(ModelEndpoint connection, string? apiKey, CancellationToken cancellation)
     {
         if (string.IsNullOrEmpty(apiKey))
@@ -129,10 +167,18 @@ public sealed class GeminiProvider(IHttpClientFactory httpClients) : IModelClien
 
     #region Private Methods
 
-    /// <summary>A model that cannot generate content (an embedding or an image model) is not listed. No name is looked at.</summary>
+    /// <summary>Lists models that can answer chat or hold a live call, as the provider reports.</summary>
     private static ModelInfo? ToModel(JsonElement model)
     {
-        if (model.ValueKind != JsonValueKind.Object || !CanGenerateContent(model) || Text(model, "name") is not { } name)
+        if (model.ValueKind != JsonValueKind.Object || Text(model, "name") is not { } name)
+        {
+            return null;
+        }
+
+        var chat = Supports(model, "generateContent");
+        var live = Supports(model, "bidiGenerateContent");
+
+        if (!chat && !live)
         {
             return null;
         }
@@ -146,18 +192,19 @@ public sealed class GeminiProvider(IHttpClientFactory httpClients) : IModelClien
             {
                 ContextTokens = Limit(model, "inputTokenLimit"),
                 MaxOutputTokens = Limit(model, "outputTokenLimit"),
-                ToolCalling = true,
-                Streaming = true,
-                Vision = true,
-                StructuredOutput = true,
-                Reasoning = thinks,
-                ReasoningEfforts = thinks ? thinkingLevels : [],
-            }, []);
+                ToolCalling = chat,
+                Streaming = chat,
+                Vision = chat,
+                StructuredOutput = chat,
+                Reasoning = chat && thinks,
+                ReasoningEfforts = chat && thinks ? thinkingLevels : [],
+                RealtimeVoice = live,
+            }, chat ? [] : ["voice-only"]);
     }
 
-    private static bool CanGenerateContent(JsonElement model) =>
+    private static bool Supports(JsonElement model, string operation) =>
         model.TryGetProperty("supportedGenerationMethods", out var methods) && methods.ValueKind == JsonValueKind.Array
-        && methods.EnumerateArray().Any(method => method.ValueKind == JsonValueKind.String && method.GetString() == "generateContent");
+        && methods.EnumerateArray().Any(method => method.ValueKind == JsonValueKind.String && string.Equals(method.GetString(), operation, StringComparison.OrdinalIgnoreCase));
 
     private static int? Limit(JsonElement model, string name) =>
         model.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var count) && count > 0

@@ -35,9 +35,15 @@ public sealed record ModelCredential(string? Value, ModelCredentialProblem? Prob
     /// <summary>When the access token runs out, or null when it has no end.</summary>
     public DateTimeOffset? ExpiresAt { get; init; }
 
+    /// <summary>What the person's sign-in says about calling the provider (<see cref="ModelTokens.Details"/>). Empty for a key.</summary>
+    public IReadOnlyDictionary<string, string> Details { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
     #endregion
 
     #region Public Methods
+
+    /// <summary>The endpoint a call with this credential goes to: <paramref name="endpoint"/> with the sign-in's details.</summary>
+    public ModelEndpoint For(ModelEndpoint endpoint) => Details.Count == 0 ? endpoint : endpoint with { SignInDetails = Details };
 
     public static ModelCredential Of(string? value) => new(value, null, null);
 
@@ -58,5 +64,8 @@ public sealed class ModelCredentialException(ModelCredential credential) : Excep
     #endregion
 }
 
-/// <summary>Which sign-in a renewal works on: ids only, and the kind whose adapter renews it.</summary>
-public sealed record ModelSignInHandle(Guid SpaceId, Guid UserId, Guid ConnectionId, Guid CredentialId, string Kind, string ConnectionName);
+/// <summary>
+/// Which sign-in a renewal works on: ids only, and the kind whose adapter renews it. <paramref name="SecretId"/> is the
+/// token set the credential was read with, so an ending that follows only ends that set, not a sign-in made since.
+/// </summary>
+public sealed record ModelSignInHandle(Guid SpaceId, Guid UserId, Guid ConnectionId, Guid CredentialId, string Kind, string ConnectionName, Guid? SecretId = null);

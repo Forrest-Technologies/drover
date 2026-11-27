@@ -65,5 +65,8 @@ public sealed class OpenAIPlanOptions
     /// <summary>The address runs and the model list go to. Only <c>GET models</c> and <c>POST responses</c> are called on it.</summary>
     public Uri ApiAddress { get; set; } = new("https://api.openai.com/v1/");
 
+    /// <summary>The sign-in by code, for a device that cannot listen for the browser's return, and its runs.</summary>
+    public OpenAIPlanCodeOptions Code { get; set; } = new();
+
     #endregion
 }

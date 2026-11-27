@@ -1,6 +1,6 @@
 # 0005. Tool grants are per bot and per tool, narrow down the bot tree, and are enforced outside the model
 
-- Status: Accepted
+- Status: Accepted. The ancestor ceiling is amended by [ADR 0028](0028-admins-grant-connected-tools-directly.md).
 - Date: 2026-11-11
 - Source: [04-tenancy-and-permissions.md](../architecture/04-tenancy-and-permissions.md)
 

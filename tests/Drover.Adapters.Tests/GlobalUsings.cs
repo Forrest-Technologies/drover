@@ -10,6 +10,7 @@ global using System.Linq;
 global using System.Net;
 global using System.Net.Http;
 global using System.Net.Sockets;
+global using System.Net.WebSockets;
 global using System.Runtime.CompilerServices;
 global using System.Runtime.Versioning;
 global using System.Security.Cryptography;

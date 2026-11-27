@@ -11,4 +11,10 @@ public enum ModelSignInWait
     /// that cannot listen for the browser's return.
     /// </summary>
     Paste,
+
+    /// <summary>
+    /// The person enters a short code on the provider's page; Drover asks the provider until they approve, refuse, or
+    /// the code runs out. Nothing comes back to the device.
+    /// </summary>
+    Poll,
 }

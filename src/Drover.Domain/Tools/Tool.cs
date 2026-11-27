@@ -45,4 +45,20 @@ public sealed class Tool : ISpaceOwned
     public DateTimeOffset LastSeenAt { get; set; }
 
     #endregion
+
+    #region Public Methods
+
+    /// <summary>Interprets read-only hints from trusted MCP connections using the current tool definition.</summary>
+    public ToolSensitivity SensitivityOn(ToolConnection? connection) =>
+        SourceKind is ToolSourceKind.Mcp
+            && connection?.Trust is TrustLevel.Trusted
+            && ReviewedDefinition is null
+            && Annotations is { ValueKind: JsonValueKind.Object } hints
+            && hints.TryGetProperty("readOnlyHint", out var readOnly)
+            && readOnly.ValueKind is JsonValueKind.True
+            && (!hints.TryGetProperty("destructiveHint", out var destructive) || destructive.ValueKind is JsonValueKind.False)
+                ? ToolSensitivity.Read
+                : Sensitivity;
+
+    #endregion
 }

@@ -36,6 +36,15 @@ public sealed class VoiceCallWorkTests(PostgresServer postgres) : VoiceTestBase(
     {
         script = new ScriptedModel([new TextOutput("Two things are **waiting**.")]);
         var (client, alice, bot, thread) = await SeedCall();
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var stored = await services.GetRequiredService<DroverDbContext>().Bots.SingleAsync(found => found.Id == bot.Id, Token);
+            stored.Name = "Inbox Desk";
+            stored.DescriptionForBots = "Helps triage the inbox.";
+        });
+        await SeedMessages(alice.SpaceId, alice.UserId, thread.Id,
+            new Message { Role = MessageRole.User, AuthorUserId = alice.UserId, Parts = [new TextPart("Check my inbox.")], CreatedAt = Time.GetUtcNow() },
+            new Message { Role = MessageRole.Assistant, AuthorBotId = bot.Id, Parts = [new TextPart("Your inbox is open.")], CreatedAt = Time.GetUtcNow() });
 
         using var socket = await Call(client, alice.SpaceId, thread.Id);
         await NextFrame(socket);
@@ -55,18 +64,29 @@ public sealed class VoiceCallWorkTests(PostgresServer postgres) : VoiceTestBase(
         var frames = await FramesUntilEnded(socket);
         var messages = await Read<List<MessageResponse>>(await client.Get($"{Space(alice.SpaceId)}/threads/{thread.Id}/messages"));
 
-        call.Options.Instructions.Should().Be($"You are the voice of Helper, an assistant. {VoiceService.SpokenReplyInstruction}");
+        call.Options.Instructions.Should().StartWith("You are Inbox Desk, the bot this person called.")
+            .And.Contain("Use Inbox Desk when asked who you are.")
+            .And.Contain("Helps triage the inbox.")
+            .And.EndWith(VoiceService.SpokenReplyInstruction);
         call.Options.Instructions.Should().NotContain("Answer briefly.", "the bot's instructions stay with its runs");
+        call.Options.History.Should().Equal(new RealtimeTurn(false, "Check my inbox."), new RealtimeTurn(true, "Your inbox is open."));
         report.Should().Be(("work_1", "Two things are waiting."), "the reply is made plain for speech");
         frames[^1].Reason.Should().Be(VoiceCallEndReasons.HungUp);
         messages.Select(message => (message.Role, message.Parts.Single(part => part.Kind == "text").Text, InARun: message.RunId is not null)).Should().Equal(
+            ("user", "Check my inbox.", false),
+            ("assistant", "Your inbox is open.", false),
             ("user", "Hello.", false),
             ("assistant", "Hi there.", false),
             ("user", "What is waiting for me?", false),
             ("assistant", "Two things are **waiting**.", true),
             ("user", "Thanks.", false),
             ("assistant", "Any time.", false));
-        model!.TransactionWasOpen.Should().NotContain(true, "the run a call starts is an ordinary run");
+        var backend = model!.Requests.Single();
+        var systemText = backend.Messages.Where(message => message.Role is "system" or "developer")
+            .SelectMany(message => message.Contents.OfType<ModelText>())
+            .Select(text => text.Text);
+        string.Join("\n", systemText.Prepend(backend.Options.Instructions)).Should().Contain("Answer briefly.");
+        model.TransactionWasOpen.Should().NotContain(true, "the run a call starts is an ordinary run");
     }
 
     [Fact]

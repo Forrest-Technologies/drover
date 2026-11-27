@@ -12,7 +12,7 @@ public sealed class ContractsCarryNoSecretsTests
     private static readonly string[] secretWords =
         ["password", "secret", "token", "apikey", "credential", "ciphertext", "passphrase", "privatekey", "code", "value"];
 
-    private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
+    private static readonly string[] allowedWords = ["hasvalue", "requirescode", "usercode"];
 
     private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ConnectExtensionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "MovePushDeviceRequest", "FinishToolSignInRequest", "CreateSandboxSecretRequest", "RotateSandboxSecretRequest", "SetDecisionModelRequest", "ReplaceDecisionKeyRequest"];
 
@@ -23,6 +23,11 @@ public sealed class ContractsCarryNoSecretsTests
         (typeof(Drover.Contracts.Cards.CardAnswer), nameof(Drover.Contracts.Cards.CardAnswer.Values)),
         (typeof(Drover.Contracts.Cards.CardFigure), nameof(Drover.Contracts.Cards.CardFigure.Value)),
         (typeof(Drover.Contracts.Cards.CardRow), nameof(Drover.Contracts.Cards.CardRow.Value)),
+
+        // A sign-in by code's user code is made to be shown to the person, who types it on the provider's page. It
+        // finishes nothing without the device code, which the server holds and never sends (#526 layer 5). This one
+        // property only: every other "code" in a contract is still refused.
+        (typeof(Drover.Contracts.Models.ModelSignInStarted), nameof(Drover.Contracts.Models.ModelSignInStarted.Code)),
     ];
 
     #endregion
@@ -98,6 +103,14 @@ public sealed class ContractsCarryNoSecretsTests
         ReachableProperties(typeof(Drover.Contracts.Cards.CardFigure)).Should().BeEmpty();
         ReachableProperties(typeof(Drover.Contracts.Cards.CardRow)).Should().BeEmpty();
         ReachableProperties(typeof(HoldsAValue)).Should().Equal("HoldsAValue.Value");
+    }
+
+    [Fact]
+    public void The_only_code_a_contract_may_carry_is_the_user_code_a_sign_in_shows()
+    {
+        ReachableProperties(typeof(Drover.Contracts.Models.ModelSignInStarted)).Should().BeEmpty();
+        ReachableProperties(typeof(Drover.Contracts.Models.FinishModelSignInRequest)).Should().BeEmpty("its query is input only, and is not named a code");
+        ReachableProperties(typeof(HoldsACode)).Should().Equal("HoldsACode.Code");
     }
 
     #endregion
@@ -176,6 +189,8 @@ public sealed class ContractsCarryNoSecretsTests
     private sealed record HoldsTokens(string RefreshTokens, int Token);
 
     private sealed record HoldsAValue(string Value);
+
+    private sealed record HoldsACode(string Code);
 
     private sealed record WrapsALeak(List<LeakyResponse> Inner);
 

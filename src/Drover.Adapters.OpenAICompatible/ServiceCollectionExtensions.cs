@@ -41,6 +41,24 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Registers OpenRouter's own sign-in and the provider that calls with the key it makes. The provider's client has
+    /// the same wide timeouts and retry rules as the other model clients. The sign-in's client has no retry: its one
+    /// request spends a one-time code. Both flows read <see cref="OpenRouterSignInOptions"/>, bound by the caller
+    /// to <see cref="OpenRouterSignInOptions.Section"/>, and follow a change of it without a restart.
+    /// </summary>
+    public static IServiceCollection AddOpenRouterSignIn(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenRouterProvider.HttpClientName);
+        services.AddHttpClient(OpenRouterSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        services.AddSingleton<OpenRouterProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenRouterProvider>());
+        services.AddSingleton<IModelSignIn, OpenRouterSignIn>();
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers the ChatGPT plan: its provider, on the Responses API with the person's own token, and its sign-in.
     /// The model calls have their own client and pipeline, under the same rules as OpenAI's except that a call the
     /// plan limited is not sent again: the plan's limit is the person's, and the provider asks apps to pause, not to
@@ -71,6 +89,25 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISpeechToText>(provider => provider.GetRequiredService<OperatorSpeech>());
         services.AddSingleton<ITextToSpeech>(provider => provider.GetRequiredService<OperatorSpeech>());
         return services.AddHttpClient(OperatorSpeech.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(5));
+    }
+
+    /// <summary>
+    /// Registers Copilot as a sign-in provider. Chat and model listing share the compatible transport with the
+    /// GitHub user token as bearer; GitHub's OAuth calls go through a second named client. Register the compatible
+    /// transport first. The operator's <c>Drover:Models:SignIn:copilot_signin</c> section is bound in
+    /// <c>AddDroverModels</c>.
+    /// </summary>
+    public static IServiceCollection AddCopilotPlanProvider(this IServiceCollection services)
+    {
+        services.AddOptions<CopilotPlanOptions>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddModelHttpClient(CopilotPlanProvider.HttpClientName);
+        services.AddHttpClient(CopilotPlanSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<CopilotPlanProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<CopilotPlanProvider>());
+        services.AddSingleton<CopilotPlanSignIn>();
+        services.AddSingleton<IModelSignIn>(provider => provider.GetRequiredService<CopilotPlanSignIn>());
+        return services;
     }
 
     #endregion

@@ -488,7 +488,7 @@ public sealed class BotService(
         var own = await tools.ListOwnGrants(moved.Id, cancellationToken);
         var names = await tools.ListToolNames([.. own.Select(grant => grant.ToolId)], cancellationToken);
 
-        foreach (var grant in own)
+        foreach (var grant in own.Where(grant => !grant.IsDirect))
         {
             var lowered = ceilings.TryGetValue(grant.ToolId, out var ceiling) ? GrantRules.Min(grant.Effect, ceiling) : (GrantEffect?)null;
 
@@ -696,7 +696,7 @@ public sealed class BotService(
 
     private static string? FindCapabilityProblem(ModelSettings settings, ModelCatalogEntry known)
     {
-        var can = known.Capabilities;
+        var can = known.EffectiveCapabilities;
 
         if (settings.MaxOutputTokens > can.MaxOutputTokens)
         {
@@ -845,7 +845,7 @@ public sealed class BotService(
         return await connections.FindCatalogEntry(reader.ModelConnectionId, model, cancellationToken) switch
         {
             null => $"Drover does not know whether {model} can read images, so it cannot read the screen. Choose a model its connection lists as reading images.",
-            { Capabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
+            { EffectiveCapabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
             _ => null,
         };
     }
@@ -998,7 +998,7 @@ public sealed class BotService(
 
         foreach (var held in own)
         {
-            if (ceilings is not null && !ceilings.ContainsKey(held.ToolId))
+            if (!held.IsDirect && ceilings is not null && !ceilings.ContainsKey(held.ToolId))
             {
                 continue;
             }
@@ -1007,7 +1007,7 @@ public sealed class BotService(
             {
                 BotId = copy.Id,
                 ToolId = held.ToolId,
-                Effect = ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
+                Effect = held.IsDirect || ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
                 ReviewState = held.ReviewState,
                 GrantedByUserId = actorUserId,
             };

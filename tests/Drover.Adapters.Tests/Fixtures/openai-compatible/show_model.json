@@ -1,0 +1,34 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written from the documented shape of a local server's model details (https://docs.ollama.com/api-reference/show-model-details): a capabilities list and a model_info object with a key ending in .context_length. The host is a placeholder; no real server produced this. Its plain model list (/models) carries only ids, and every model is answered by the one /api/show exchange.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "object": "list",
+        "data": [
+          { "id": "llama-like:8b", "object": "model", "owned_by": "library" },
+          { "id": "vision-like:7b", "object": "model", "owned_by": "library" },
+          { "id": "plain-like:1b", "object": "model", "owned_by": "library" }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "status": 200,
+      "body": {
+        "modelfile": "FROM placeholder",
+        "details": { "family": "llama", "parameter_size": "8B" },
+        "model_info": {
+          "general.architecture": "llama",
+          "llama.context_length": 131072,
+          "llama.embedding_length": 4096
+        },
+        "capabilities": ["completion", "tools", "thinking"]
+      }
+    }
+  ]
+}
