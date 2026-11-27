@@ -204,6 +204,35 @@ public sealed class ModelConnectionsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_connection_added_from_a_blank_provider_sends_the_built_address_and_a_bad_value_sends_nothing()
+    {
+        var path = $"{space}/model-connections";
+        var created = new ModelConnectionSummary(
+            Guid.NewGuid(), "Sample blank", "openai_compatible", "https://acct-1.blank.example.test/v1", true, "pending", null, [], null, null);
+        server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.Blank));
+        server.Answer("POST", path, created, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{created.Id}/test", new ConnectionTestResponse(true, "Sample connected.", null, created));
+        var model = Models();
+        await model.Open();
+        model.StartAdding();
+        model.ChooseProvider("sample-blank");
+        model.ApiKey = "sample-key";
+
+        model.Named.SetBlank("a/b");
+        await model.Add();
+
+        model.AddressProblem.Should().Be("Sample account is not valid.");
+        server.Sent("POST", path).Should().BeEmpty();
+
+        model.Named.SetBlank("acct-1");
+        await model.Add();
+
+        JsonSerializer.Deserialize<CreateModelConnectionRequest>(server.Sent("POST", path).Single(), JsonSerializerOptions.Web)!
+            .Should().BeEquivalentTo(new CreateModelConnectionRequest(
+                "openai_compatible", "Sample blank", "https://acct-1.blank.example.test/v1", "sample-key", null));
+    }
+
+    [Fact]
     public async Task A_connection_added_with_a_kind_of_its_own_wire_takes_its_name_its_hint_and_no_address()
     {
         var path = $"{space}/model-connections";

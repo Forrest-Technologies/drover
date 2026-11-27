@@ -28,6 +28,13 @@ public sealed partial class ConnectModelPage : Screen
                 Model.ChooseProvider(chosen);
             }
         });
+        Blank.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) =>
+        {
+            if (Blank.Value != Model.Named.BlankValue)
+            {
+                Model.Named.SetBlank(Blank.Value);
+            }
+        });
         Model.PropertyChanged += (_, _) => Refresh();
         SizeChanged += (_, _) => Refresh();
         Form.SizeChanged += (_, _) => Refresh();
@@ -89,6 +96,14 @@ public sealed partial class ConnectModelPage : Screen
         Reach.Text = providers.ReachNote ?? string.Empty;
         Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
         Address.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
+        Blank.Visibility = providers.ShowsBlank ? Visibility.Visible : Visibility.Collapsed;
+        Blank.Label = providers.Blank?.Label ?? string.Empty;
+        Blank.Error = Model.AddressProblem;
+        if (Blank.Value != providers.BlankValue)
+        {
+            Blank.Value = providers.BlankValue;
+        }
+
         ChangeAddress.Visibility = providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
         Key.Label = providers.KeyLabel;
         Key.Hint = providers.KeyHint;
@@ -124,7 +139,7 @@ public sealed partial class ConnectModelPage : Screen
         // Continue moves on once the person is signed in; there is nothing to save untested.
         Continue.Visibility = Model.Passed ? Visibility.Visible : Visibility.Collapsed;
 
-        Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
+        Blank.Visibility = Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
         PlanLine.Text = flow.PlanLine;
         PlanLine.Visibility = flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
         var changed = flow.Sentence is { Length: > 0 } && SignInNote.Text != flow.Sentence;

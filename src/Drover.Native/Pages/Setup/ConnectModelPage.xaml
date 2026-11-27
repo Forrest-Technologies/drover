@@ -18,6 +18,7 @@
       <dv:Select x:Name="Provider" Label="Provider" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
       <TextBlock x:Name="Reach" Style="{StaticResource DvTextSecondary}" />
       <dv:Field x:Name="Address" Label="Base address" Type="url" Value="{x:Bind Model.BaseUrl, Mode=TwoWay}" Placeholder="https://" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <dv:Field x:Name="Blank" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
       <dv:Button x:Name="ChangeAddress" HorizontalAlignment="Left" Command="{x:Bind Model.ChangeAddressCommand}" />
       <dv:Field x:Name="Key" Label="Key" Type="password" Value="{x:Bind Model.ApiKey, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
       <dv:Link x:Name="KeyLink" />

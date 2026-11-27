@@ -39,7 +39,8 @@ public static class ModelResponses
             preset.Address,
             preset.KeyRule.ToString().ToLowerInvariant(),
             preset.KeyPage,
-            preset.Local);
+            preset.Local,
+            preset.AddressBlank is { } blank ? new ModelProviderAddressBlankResponse(blank.Label, blank.Pattern) : null);
 
     public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor, bool signIn = false) =>
         new(
