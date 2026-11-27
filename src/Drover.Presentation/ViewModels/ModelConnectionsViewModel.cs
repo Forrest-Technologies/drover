@@ -74,13 +74,19 @@ public sealed partial class ModelConnectionsViewModel(
     [ObservableProperty]
     private string? keyProblem;
 
+    [ObservableProperty]
+    private string? addressProblem;
+
+    [ObservableProperty]
+    private string? addKeyProblem;
+
     #endregion
 
     #region Properties
 
     public IReadOnlyDictionary<Guid, string> Problems => problems;
 
-    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    /// <summary>The provider choice and what the form shows for it, drawn from the kinds the server offers.</summary>
     public NamedProviders Named => named ??= MakeNamed();
 
     public string Kind => Named.Kind;
@@ -107,6 +113,12 @@ public sealed partial class ModelConnectionsViewModel(
         if (await session.Load() is not null)
         {
             await Task.WhenAll(Load(), Named.Load());
+
+            // The server's first choice can itself be a sign-in kind.
+            if (Named.SignIn is { } kind)
+            {
+                SignIn.Show(kind);
+            }
         }
     }
 
@@ -114,16 +126,29 @@ public sealed partial class ModelConnectionsViewModel(
 
     #region Private Methods
 
-    public static (BadgeKind Kind, string Words) StatusOf(ModelConnectionSummary connection) => connection.Status switch
-    {
-        "ready" => (BadgeKind.Ok, "Working"),
-        "failed" => (BadgeKind.Danger, "Not working"),
-        _ => (BadgeKind.Neutral, "Not tested"),
-    };
+    /// <summary>
+    /// Whether the operator switched this connection's kind off: the server lists the kinds it offers, and the
+    /// connection's is not among them. Never said while the list is unread.
+    /// </summary>
+    public bool IsOff(ModelConnectionSummary connection) =>
+        Named.State == NamedProvidersState.Loaded && !Named.Offers(connection.Kind);
 
-    public static string Facts(ModelConnectionSummary connection)
+    public (BadgeKind Kind, string Words) StatusOf(ModelConnectionSummary connection) => IsOff(connection)
+        ? (BadgeKind.Neutral, "Off")
+        : connection.Status switch
+        {
+            "ready" => (BadgeKind.Ok, "Working"),
+            "failed" => (BadgeKind.Danger, "Not working"),
+            _ => (BadgeKind.Neutral, "Not tested"),
+        };
+
+    /// <summary>The sentence under the name of a connection whose kind the operator switched off, or null.</summary>
+    public string? OffWords(ModelConnectionSummary connection) =>
+        IsOff(connection) ? $"The operator of this server switched {KindName(connection)} off." : null;
+
+    public string Facts(ModelConnectionSummary connection)
     {
-        var kindWords = connection.Kind == CompatibleKind ? "compatible endpoint" : connection.Kind;
+        var kindWords = KindName(connection);
         var key = connection.HasKey ? "key stored" : "no key";
         var checkedWords = connection.LastCheckedAt is { } at ? $"checked {at.ToLocalTime():g}" : "never checked";
         return $"{kindWords} · {key} · {checkedWords}";
@@ -219,6 +244,9 @@ public sealed partial class ModelConnectionsViewModel(
         }
     }
 
+    private string KindName(ModelConnectionSummary connection) =>
+        Named.Kinds.FirstOrDefault(kind => kind.Kind == connection.Kind)?.DisplayName ?? connection.Kind;
+
     public void ChooseProvider(string chosen)
     {
         if (Named.Choose(chosen) is { } address)
@@ -226,6 +254,7 @@ public sealed partial class ModelConnectionsViewModel(
             BaseUrl = address;
         }
 
+        ApiKey = string.Empty;
         if (Named.SignIn is { } kind)
         {
             SigningInTo = null;
@@ -233,6 +262,8 @@ public sealed partial class ModelConnectionsViewModel(
         }
 
         AddProblem = null;
+        AddressProblem = null;
+        AddKeyProblem = null;
     }
 
     public void ChangeAddress() => Named.RevealAddress();
@@ -243,6 +274,8 @@ public sealed partial class ModelConnectionsViewModel(
     {
         Adding = true;
         AddProblem = null;
+        AddressProblem = null;
+        AddKeyProblem = null;
         Notice = null;
         ApiKey = string.Empty;
         BaseUrl = Named.Selected?.Address ?? string.Empty;
@@ -280,12 +313,26 @@ public sealed partial class ModelConnectionsViewModel(
 
     public async Task Add()
     {
-        AddingBusy = true;
+        // A sign-in kind is connected by signing in, never added with a key.
+        if (ShowsSignIn)
+        {
+            return;
+        }
+
         AddProblem = null;
+        (AddressProblem, var missingKey) = Named.Missing(BaseUrl, ApiKey);
+        if (AddressProblem is not null || missingKey is not null || Kind.Length == 0)
+        {
+            AddKeyProblem = missingKey;
+            return;
+        }
+
+        AddKeyProblem = null;
+        AddingBusy = true;
 
         try
         {
-            var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+            var address = Named.TakesAddress ? BaseUrl.Trim() : null;
             var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
             var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? Named.NameFor(address) : Name.Trim(), address, key, null));
             Connections!.Add(added);

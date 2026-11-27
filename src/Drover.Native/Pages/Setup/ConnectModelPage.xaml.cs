@@ -9,8 +9,9 @@ public sealed partial class ConnectModelPage : Screen
     {
         InitializeComponent();
         ProvidersLoading.Text = NamedProviders.LoadingWords;
-        ProvidersFailedNote.Text = NamedProviders.FailedWords;
-        ProvidersRetry.Content = NamedProviders.RetryWords;
+        ProvidersFailed.Title = NamedProviders.FailedTitle;
+        ProvidersFailed.ActionLabel = NamedProviders.RetryWords;
+        ProvidersFailed.Cause = NamedProviders.FailedCause;
         ChangeAddress.Content = NamedProviders.ChangeAddressWords;
         Provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
         {
@@ -20,7 +21,16 @@ public sealed partial class ConnectModelPage : Screen
             }
         });
         SignInNoteHolder.LostFocus += (_, _) => SignInNoteHolder.IsTabStop = false;
+        ProviderSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
+        {
+            if (ProviderSegments.Value is { Length: > 0 } chosen && chosen != Model.Named.Choice)
+            {
+                Model.ChooseProvider(chosen);
+            }
+        });
         Model.PropertyChanged += (_, _) => Refresh();
+        SizeChanged += (_, _) => Refresh();
+        Form.SizeChanged += (_, _) => Refresh();
         Refresh();
     }
 
@@ -52,8 +62,30 @@ public sealed partial class ConnectModelPage : Screen
             Provider.Value = providers.Choice;
         }
 
+        if (!ProviderSegments.Options.SequenceEqual(providers.Options))
+        {
+            ProviderSegments.Options = providers.Options;
+        }
+
+        if (ProviderSegments.Value != providers.Choice)
+        {
+            ProviderSegments.Value = providers.Choice;
+        }
+
+        var list = providers.UsesList || (providers.ShowsChoice && Form.ActualWidth > 0 && ProviderSegments.MinimumWidth > Form.ActualWidth);
+        Provider.Visibility = providers.ShowsChoice && list ? Visibility.Visible : Visibility.Collapsed;
+        ProviderSegments.Visibility = providers.ShowsChoice && !list ? Visibility.Visible : Visibility.Collapsed;
+        OnlyKind.Text = providers.OnlyKindWords ?? string.Empty;
+        OnlyKind.Visibility = providers.OnlyKindWords is null ? Visibility.Collapsed : Visibility.Visible;
+        Address.Hint = providers.AddressHint;
+        Address.Error = Model.AddressProblem;
+        Key.Error = Model.KeyProblem;
+
         ProvidersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
-        ProvidersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        ProvidersFailed.Title = providers.StateTitle;
+        ProvidersFailed.Cause = providers.StateCause;
+        ProvidersFailed.Visibility = providers.ShowsState ? Visibility.Visible : Visibility.Collapsed;
+        Form.Visibility = providers.ShowsForm ? Visibility.Visible : Visibility.Collapsed;
         Reach.Text = providers.ReachNote ?? string.Empty;
         Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
         Address.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
@@ -67,12 +99,10 @@ public sealed partial class ConnectModelPage : Screen
         Outcome.Kind = Model.Passed ? NoteKind.Ok : NoteKind.Danger;
         Outcome.Visibility = Model.Busy || Model.ShowsSignIn ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;
-        Continue.Visibility = Model.Passed ? Visibility.Visible : Visibility.Collapsed;
+        Continue.Visibility = Visibility.Visible;
+        ArrangeActions();
         RefreshSignIn();
-        Actions.ColumnDefinitions[1].Width = Model.Passed ? new(1, GridUnitType.Star) : GridLength.Auto;
-        Actions.ColumnSpacing = Model.Passed ? Tokens.Number("DvSpace2") : 0;
         Continue.IsEnabled = Test.IsEnabled = !Model.Busy;
-        Test.Kind = Model.Passed ? ButtonKind.Quiet : ButtonKind.Primary;
         Test.Content = Model.Busy ? "Testing" : Model.Passed ? "Test again" : "Test connection";
     }
 
@@ -90,6 +120,9 @@ public sealed partial class ConnectModelPage : Screen
         {
             return;
         }
+
+        // Continue moves on once the person is signed in; there is nothing to save untested.
+        Continue.Visibility = Model.Passed ? Visibility.Visible : Visibility.Collapsed;
 
         Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
         PlanLine.Text = flow.PlanLine;
@@ -118,6 +151,22 @@ public sealed partial class ConnectModelPage : Screen
 
     // The flow says in its own sentence when the page could not be opened.
     private void ActOnSignIn(object sender, RoutedEventArgs args) => _ = Model.ActOnSignIn(PlatformShell.OpenOutside);
+
+    private bool IsPhone() => XamlRoot is { Size.Width: > 0 } root && root.Size.Width < (double)Styles.Dictionary["DvBreakPhone"];
+
+    // Test connection is Quiet and Continue is Primary, side by side with a gap. Below the phone width the two stack,
+    // Continue first.
+    private void ArrangeActions()
+    {
+        var phone = IsPhone();
+        Actions.ColumnSpacing = phone ? 0 : Tokens.Number("DvSpace2");
+        Actions.RowSpacing = phone ? Tokens.Number("DvSpace2") : 0;
+        Actions.ColumnDefinitions[1].Width = phone ? new(0) : new(1, GridUnitType.Star);
+        Grid.SetRow(Continue, 0);
+        Grid.SetColumn(Continue, phone ? 0 : 1);
+        Grid.SetRow(Test, phone ? 1 : 0);
+        Grid.SetColumn(Test, 0);
+    }
 
     private void Submit(object? sender, EventArgs args)
     {

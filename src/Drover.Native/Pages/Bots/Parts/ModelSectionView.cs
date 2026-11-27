@@ -35,8 +35,6 @@ public sealed class ModelSectionView : EditorPart
 
     private readonly Switch structured;
 
-    private readonly TextBlock withoutTools = BotParts.Hint(ModelSectionViewModel.AppliesWithoutTools);
-
     private readonly Field temperature;
 
     private readonly Field maxOutput;
@@ -75,7 +73,7 @@ public sealed class ModelSectionView : EditorPart
         foreach (var child in new UIElement[]
         {
             connection, loading, model, modelName, entryToggle, manage, unknown, readersNotKnown, noReaders, reader, readerHint, needsScreen, reasoning,
-            webSearchChoice, structured, withoutTools, pair,
+            webSearchChoice, structured, pair,
         })
         {
             Parts.Add(child);
@@ -115,7 +113,6 @@ public sealed class ModelSectionView : EditorPart
         webSearchChoice.Shown(part.WebSearchShown);
         webSearch.Show(ModelSectionViewModel.WebSearchOptions, Draft.WebSearch);
         structured.Shown(part.StructuredOutputShown).Show(Draft.StructuredOutput);
-        withoutTools.Shown(part.StructuredOutputShown && part.AppliesWithoutToolsShown);
         temperature.Show(Draft.Temperature);
         maxOutput.Hint = part.MaxOutputHint;
         maxOutput.Show(Draft.MaxOutputTokens);

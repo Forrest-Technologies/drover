@@ -5,19 +5,18 @@ public static class ModelServiceExtensions
     #region Public Methods
 
     /// <summary>
-    /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each, in the
-    /// order their registrations require (the compatible transport first, because Venice builds its chat client from
-    /// it), then OpenAI and the ChatGPT plan. A new provider kind is one more call here.
+    /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
+    /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
+    /// provider choice in every form: Venice, OpenAI and Anthropic, the hosted providers that need only a key, the ChatGPT plan, which
+    /// each person signs in to, then the compatible kind
+    /// with the named providers it carries, so the choice starts on a provider that needs only a key and "Another
+    /// compatible server" comes last. A new provider kind is one more call here.
     /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
     /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
     public static IServiceCollection AddDroverModels(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
-        services.AddModelProvider<OpenAICompatibleProvider>(
-            adapter => adapter.AddOpenAICompatibleProvider(),
-            OpenAICompatibleProvider.HttpClientName,
-            OpenAICompatibleProvider.RealtimeHttpClientName);
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
@@ -26,6 +25,10 @@ public static class ModelServiceExtensions
             OpenAIPlanProvider.HttpClientName,
             OpenAIPlanSignIn.HttpClientName);
         services.Configure<OpenAIPlanOptions>(configuration.GetSection(OpenAIPlanOptions.Section));
+        services.AddModelProvider<OpenAICompatibleProvider>(
+            adapter => adapter.AddOpenAICompatibleProvider(),
+            OpenAICompatibleProvider.HttpClientName,
+            OpenAICompatibleProvider.RealtimeHttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));

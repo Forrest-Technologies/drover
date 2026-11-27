@@ -10,8 +10,6 @@ public sealed partial class ConnectModelViewModel(
 {
     #region Private Fields
 
-    public const string CompatibleKind = NamedProviders.CompatibleKind;
-
     private NamedProviders? named;
 
     private ModelSignInFlow? signIn;
@@ -37,13 +35,19 @@ public sealed partial class ConnectModelViewModel(
     private string? problem;
 
     [ObservableProperty]
+    private string? addressProblem;
+
+    [ObservableProperty]
+    private string? keyProblem;
+
+    [ObservableProperty]
     private bool busy;
 
     #endregion
 
     #region Properties
 
-    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    /// <summary>The provider choice and what the form shows for it, drawn from the kinds the server offers.</summary>
     public NamedProviders Named => named ??= MakeNamed();
 
     public string Kind => Named.Kind;
@@ -68,6 +72,12 @@ public sealed partial class ConnectModelViewModel(
     {
         await session.Load();
         await Named.Load();
+
+        // The server's first choice can itself be a sign-in kind.
+        if (Named.SignIn is { } kind)
+        {
+            SignIn.Show(kind);
+        }
     }
 
     public void ChooseProvider(string chosen)
@@ -77,8 +87,11 @@ public sealed partial class ConnectModelViewModel(
             BaseUrl = address;
         }
 
+        ApiKey = string.Empty;
         Result = null;
         Problem = null;
+        AddressProblem = null;
+        KeyProblem = null;
 
         if (Named.SignIn is { } kind)
         {
@@ -113,9 +126,14 @@ public sealed partial class ConnectModelViewModel(
     [RelayCommand]
     public async Task Test()
     {
-        Busy = true;
         Problem = null;
         Result = null;
+        if (!FormIsFilled())
+        {
+            return;
+        }
+
+        Busy = true;
         try
         {
             Connection = await SaveConnection();
@@ -138,7 +156,7 @@ public sealed partial class ConnectModelViewModel(
     // second row for the same provider and address would sit on the Models screen as another one.
     private async Task<ModelConnectionSummary> SaveConnection()
     {
-        var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+        var address = Named.TakesAddress ? BaseUrl.Trim() : null;
         var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
 
         if (Connection is null || Connection.Kind != Kind || !string.Equals(Connection.BaseUrl, address, StringComparison.Ordinal))
@@ -183,8 +201,55 @@ public sealed partial class ConnectModelViewModel(
         return made;
     }
 
+    // Continue with no passing test is allowed: the connection is saved as it is, not tested, and the step moves on.
     [RelayCommand]
-    public void Continue() => navigator.NavigateTo(Addresses.SetupBot);
+    public async Task Continue()
+    {
+        // A sign-in kind has nothing to save untested: the person signs in, or chooses a provider that takes a key.
+        if (ShowsSignIn && !Passed)
+        {
+            return;
+        }
+
+        if (!Passed && !await SaveUntested())
+        {
+            return;
+        }
+
+        navigator.NavigateTo(Addresses.SetupBot);
+    }
+
+    private async Task<bool> SaveUntested()
+    {
+        Problem = null;
+        if (!FormIsFilled())
+        {
+            return false;
+        }
+
+        Busy = true;
+        try
+        {
+            Connection = await SaveConnection();
+            return true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ConnectModelViewModel));
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
+            return false;
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private bool FormIsFilled()
+    {
+        (AddressProblem, KeyProblem) = Named.Missing(BaseUrl, ApiKey);
+        return AddressProblem is null && KeyProblem is null && Kind.Length > 0;
+    }
 
     #endregion
 }

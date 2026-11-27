@@ -152,7 +152,7 @@ public sealed class ModelSignInFlowTests : IDisposable
         model.SignIn.ActionWords.Should().Be("Add a key");
         opened.Should().BeEmpty();
         await model.ActOnSignIn(Open);
-        model.Named.Choice.Should().Be("sample_own_wire", "\"Add a key\" moves to the first provider that takes one");
+        model.Named.Choice.Should().Be("venice", "\"Add a key\" moves to the first provider the server offers that takes one");
         model.Named.ShowsKey.Should().BeTrue();
     }
 

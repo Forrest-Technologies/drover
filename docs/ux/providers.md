@@ -53,7 +53,7 @@ An address a person pastes is sent as typed. The server may correct it (#530), a
 
 ### Named providers
 
-Until the kinds come from the server (#850), the provider choice is Venice, then each other kind the server offers with its own wire (such as `openai`, the provider's Responses API, and `anthropic`, the provider's Messages API), then the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
+The provider choice is drawn from `GET /api/model-provider-kinds`, in the server's order. A kind contributes its named providers first, then itself, labeled with its display name (the compatible kind is labeled `Another compatible server`). Each kind with its own wire (such as `openai` and `anthropic`) is a choice of its own, in the server's order. Up to four choices are a `SegmentedControl`, five or more a `Select`, both labeled `Provider`, in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address. The address hint, the key hint and the key rule come from the kind's descriptor. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice, and the client does not hide any.
 
 | Choice | Drawn as |
 | --- | --- |
@@ -67,9 +67,12 @@ Until the kinds come from the server (#850), the provider choice is Venice, then
 
 | State | Words |
 | --- | --- |
-| Loading the list | `Loading the provider list.` Venice and `Another compatible server` can be chosen meanwhile |
-| The list could not be read | `Could not read the provider list.` with `Try again`. `Another compatible server` still works |
-| A server with no named providers | The two choices of before |
+| Loading the list | `Asking this server which providers it offers.` in place of the form |
+| The list could not be read | `EmptyState` in place of the form: title `Drover could not load the providers`, the failure sentence, action `Try again` |
+| A server with one kind and no named providers | No choice. `This server uses {kind}.` |
+| A server whose kind is switched off for an existing connection | The Models row shows the `Off` badge and `The operator of this server switched {kind} off.` |
+| The server offers no kind | `EmptyState` in place of the form: title `This server offers no model provider`, cause `The operator of this server has switched every provider off. Ask them to turn one on, then try again.`, action `Try again` |
+| A required field is empty and a button is pressed | Under the field: `Enter the base address.` or `Enter the key.` |
 
 No provider name or id is written in the client; all of it comes from the server.
 
@@ -105,7 +108,7 @@ A kind each person signs in to (the server marks it `SignIn`) is one more entry 
 | Phone or browser head, until the code flow | "Signing in with a {Name} plan needs the Drover desktop app for now. You can add an API key here." | "Add a key" |
 | Hosted server, or the kind is switched off | the server's "Signing in with a personal plan is not available on this server. You can add an API key instead." | "Add a key" |
 
-"Add a key" moves the choice to the first provider the server offers with its own wire and a key, else to another compatible server. Each sentence is a `StatusNote`. On Models, a sign-in connection's card reads "Using {Name} plan · {account}" with a `Link` "Manage usage" to the provider's usage page while the caller's own sign-in is in use, "Your {Name} sign-in has ended." with "Sign in again" (which starts the flow at once), or "Sign in with your own {Name} plan to use it." with "Continue with {Name}". "Sign out" is a text item in the card's More menu and asks nothing; it keeps only what the provider registered for the person, so the card then reads as ended, and signing out again removes the sign-in entirely. Focus moves to the sentence when the state changes. A card never says who else has signed in.
+"Add a key" moves the choice to the first provider the server offers that takes a key, in the server's order. Each sentence is a `StatusNote`. On Models, a sign-in connection's card reads "Using {Name} plan · {account}" with a `Link` "Manage usage" to the provider's usage page while the caller's own sign-in is in use, "Your {Name} sign-in has ended." with "Sign in again" (which starts the flow at once), or "Sign in with your own {Name} plan to use it." with "Continue with {Name}". "Sign out" is a text item in the card's More menu and asks nothing; it keeps only what the provider registered for the person, so the card then reads as ended, and signing out again removes the sign-in entirely. Focus moves to the sentence when the state changes. A card never says who else has signed in.
 
 ## 2. Models: change and remove a connection (#52)
 
@@ -218,6 +221,7 @@ In a conversation, the status line above the message field reads `{model} on {ru
 
 ## Layout at each width
 
+- The provider choice is a `SegmentedControl` for up to four choices and a `Select` for five or more. A segmented control never breaks a word, so each column is as wide as its widest word; when the choices need more width than the form's own column has (the setup form and the sheet are 400 px wide with padding, so four choices with long names often do not fit), the same choices are drawn as the `Select`. The rule measures the control's own available width, not the window.
 - Below 560 the two buttons of the connect form stack, `Continue` first. Price fields stack two per row.
 - The sheet in section 3 opens from the bottom below 640 px and from the trailing edge at 640 px and wider.
 
