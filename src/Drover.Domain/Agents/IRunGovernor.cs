@@ -57,6 +57,13 @@ public interface IRunGovernor
     Task<JsonElement> RuleOnCallArguments(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken) => Task.FromResult(arguments);
 
     /// <summary>
+    /// True when a call the framework holds for approval may go on with no person: its grant as it stands allows it, no
+    /// rule asks about it, and nothing else marked it for a person. Asked after the held calls are recorded and the
+    /// session is saved, with no tenant scope open. A governor that cannot say clears nothing.
+    /// </summary>
+    Task<bool> ClearsWithoutAPerson(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken) => Task.FromResult(false);
+
+    /// <summary>
     /// Checks a person's messages that arrived during the run, before the model sees them. When a rule does not
     /// let one through, the run ends and this throws <see cref="OperationCanceledException"/>.
     /// </summary>

@@ -316,6 +316,38 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
 
     #endregion
 
+    #region Proof: An Approval Answered In The Same Execution
+
+    /// <summary>
+    /// Issue 1021: a pending approval request is answered inside the execution that raised it, by handing the
+    /// framework the response on the same session object, with nothing saved, reloaded or released between. The
+    /// wrapped tool runs once, after the answer, and the model is called for its next turn on the same session.
+    /// </summary>
+    [Fact]
+    public async Task A_pending_approval_can_be_answered_inside_the_same_execution()
+    {
+        var invoked = 0;
+        var send = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(() => { invoked++; return "sent"; }, "send_email"));
+        var model = new ScriptedModel([new ToolCallOutput("c1", "send_email")], [new TextOutput("Sent.")]);
+        var agent = new ScriptedChatClient(model).AsAIAgent(new ChatClientAgentOptions { ChatOptions = new ChatOptions { Tools = [send] } });
+        var session = await agent.CreateSessionAsync(TestContext.Current.CancellationToken);
+
+        var first = await agent.RunAsync("Email the report", session, cancellationToken: TestContext.Current.CancellationToken);
+        var request = first.Messages.SelectMany(message => message.Contents).OfType<ToolApprovalRequestContent>().Should().ContainSingle().Subject;
+        var call = request.ToolCall.Should().BeOfType<FunctionCallContent>().Subject;
+        invoked.Should().Be(0, "nothing runs before the request is answered");
+
+        var answer = new ChatMessage(ChatRole.User, [new ToolApprovalResponseContent(request.RequestId, true, new FunctionCallContent(call.CallId, string.Empty))]);
+        var second = await agent.RunAsync(answer, session, cancellationToken: TestContext.Current.CancellationToken);
+
+        invoked.Should().Be(1, "the answered call runs once, in the same execution");
+        second.Text.Should().Be("Sent.");
+        model.Requests.Should().HaveCount(2, "one model call raised the request and one more follows the answer: no call is repeated");
+        model.Requests[1].Should().Contain(new SeenMessage("tool", "c1 = \"sent\""));
+    }
+
+    #endregion
+
     #region Private Methods
 
     private RunDatabase Database(IServiceProvider provider) =>

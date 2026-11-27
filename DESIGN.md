@@ -32,7 +32,7 @@ Not: playful, loud, decorative, stiff, or "AI-themed".
 
 ## The one idea
 
-**Light means live.** Color and motion mark what is working right now. Everything at rest is neutral.
+**Light means live.** Glow and motion mark what is working right now. Bot and tool icons can also carry a steady identity hue.
 
 - Warm (`ember`) is a person's intent: the primary action, the focus ring, send, and the tint of their own messages. It is the one color a person may turn: to an accent the theme offers, never to one near the other two.
 - Cool (`ion`) is a bot working: thinking and streaming. The line that travels around a working frame is the one exception: it takes the theme's own color, `ember`, so it matches the accent a person chose.
