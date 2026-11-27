@@ -467,5 +467,11 @@ public static class RunReasons
 
     public const string BudgetExceeded = "budget_exceeded";
 
+    /// <summary>The bot's model connection is one each person signs in to, and the run's person has not. No model was called.</summary>
+    public const string SignInRequired = "sign_in_required";
+
+    /// <summary>The provider ended the run's person's sign-in. They sign in again. No model was called.</summary>
+    public const string SignInEnded = "sign_in_ended";
+
     #endregion
 }

@@ -8,8 +8,10 @@ public static class ModelServiceExtensions
     /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each, in the
     /// order their registrations require (the compatible transport first, because Venice builds its chat client from
     /// it). A new provider kind is one more call here.
+    /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
+    /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
-    public static IServiceCollection AddDroverModels(this IServiceCollection services)
+    public static IServiceCollection AddDroverModels(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddModelProvider<OpenAICompatibleProvider>(
@@ -20,6 +22,8 @@ public static class ModelServiceExtensions
         services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
+        services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));
+        services.AddHostedService<ModelSignInRenewer>();
         return services;
     }
 

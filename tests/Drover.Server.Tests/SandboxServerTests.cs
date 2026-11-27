@@ -156,6 +156,11 @@ public sealed class SandboxKeySettingTests
         services.AddSingleton<RunScopes>();
         // The engine's registration provides the catalog of model providers the screen reader picks one from.
         services.AddSingleton<ModelProviderCatalog>();
+        // The engine's registration provides what a model call sends, which the screen reader needs; nothing here
+        // makes a model call or takes a lock.
+        services.AddSingleton(provider => new ModelCredentialLocks(
+            "Host=unused", provider.GetRequiredService<ILogger<ModelCredentialLocks>>()));
+        services.AddSingleton<ModelCredentials>();
         services.AddDroverSandboxes(configuration, policy ?? DeploymentPolicy.SelfHosted);
         return services.BuildServiceProvider();
     }

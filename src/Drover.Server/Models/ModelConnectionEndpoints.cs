@@ -24,6 +24,14 @@ public static class ModelConnectionEndpoints
         var calling = space.MapGroup("/model-connections");
         calling.MapPost("/{connectionId:guid}/test", TestConnection).RequireSpaceRole(MembershipRole.Admin).WithName("TestModelConnection");
         calling.MapPost("/{connectionId:guid}/models/refresh", RefreshModels).RequireSpaceRole(MembershipRole.Admin).WithName("RefreshModels");
+
+        // A person's own sign-in. Each waits on the provider, so none sits under the scope filter: the services open
+        // their own short scopes as the caller. Any member may sign in; only the person who started a sign-in can
+        // finish or read it, and only their own sign-in can be removed.
+        calling.MapPost("/sign-in", StartSignIn).WithName("StartModelSignIn");
+        calling.MapPost("/sign-in/{attemptId:guid}/finish", FinishSignIn).WithName("FinishModelSignIn");
+        calling.MapGet("/sign-in/{attemptId:guid}", ReadSignIn).WithName("ReadModelSignIn");
+        calling.MapDelete("/{connectionId:guid}/sign-in", SignOut).WithName("SignOutOfModelConnection");
         return space;
     }
 
@@ -31,8 +39,12 @@ public static class ModelConnectionEndpoints
 
     #region Endpoints
 
-    private static async Task<Ok<List<ModelConnectionSummary>>> ListConnections(HttpContext context, ModelConnectionService models) =>
-        TypedResults.Ok((await models.ListConnections(context.RequestAborted)).Select(connection => connection.ToSummary()).ToList());
+    private static async Task<Ok<List<ModelConnectionSummary>>> ListConnections(HttpContext context, ModelConnectionService models)
+    {
+        var listed = await models.ListConnections(context.RequestAborted);
+        var own = await models.ListOwnSignIns(listed, context.RequestAborted);
+        return TypedResults.Ok(listed.Select(connection => connection.ToSummary(ViewOf(connection, own))).ToList());
+    }
 
     private static async Task<Results<Created<ModelConnectionSummary>, ProblemHttpResult>> CreateConnection(
         CreateModelConnectionRequest request,
@@ -190,13 +202,17 @@ public static class ModelConnectionEndpoints
     {
         var check = await models.Test(connectionId, context.RequestAborted);
 
-        return check is null
-            ? TypedResults.NotFound()
-            : TypedResults.Ok(new ConnectionTestResponse(
-                check.Result?.Succeeded ?? false,
-                check.Message,
-                check.Failure?.ToWireName(),
-                check.Connection.ToSummary()));
+        if (check is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var own = await models.ReadOwnSignIns([check.Connection], context.RequestAborted);
+        return TypedResults.Ok(new ConnectionTestResponse(
+            check.Result?.Succeeded ?? false,
+            check.Message,
+            check.Failure?.ToWireName(),
+            check.Connection.ToSummary(ViewOf(check.Connection, own))));
     }
 
     private static async Task<Results<Ok<ModelRefreshResponse>, NotFound>> RefreshModels(
@@ -214,6 +230,112 @@ public static class ModelConnectionEndpoints
                 check.Failure?.ToWireName(),
                 [.. check.Catalog.Select(entry => entry.ToResponse())]));
     }
+
+    private static async Task<Results<Ok<ModelSignInStarted>, ProblemHttpResult>> StartSignIn(
+        StartModelSignInRequest request,
+        HttpContext context,
+        ModelSignIns signIns)
+    {
+        Uri? redirect = null;
+
+        if (request.RedirectUri is { Length: > 0 } given && !Uri.TryCreate(given, UriKind.Absolute, out redirect))
+        {
+            return TypedResults.Problem(title: "That return address is not an address.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var access = context.GetSpaceAccess();
+        var begun = await signIns.Begin(access.SpaceId, access.UserId, request.Kind ?? string.Empty, redirect, context.RequestAborted);
+
+        return begun.Address is { } address
+            ? TypedResults.Ok(new ModelSignInStarted(begun.AttemptId, address.AbsoluteUri, ToWireName(begun.Wait)))
+            : TypedResults.Problem(title: begun.Problem, statusCode: begun.Status);
+    }
+
+    private static async Task<Results<Ok<ModelConnectionSummary>, NotFound, ProblemHttpResult>> FinishSignIn(
+        Guid attemptId,
+        FinishModelSignInRequest request,
+        HttpContext context,
+        ModelSignIns signIns,
+        RunScopes scopes)
+    {
+        var access = context.GetSpaceAccess();
+        var outcome = await signIns.Finish(access.SpaceId, access.UserId, attemptId, request.Query, context.RequestAborted);
+
+        if (outcome.State is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (outcome.ConnectionId is not { } connectionId)
+        {
+            return TypedResults.Problem(title: outcome.Problem ?? "Sign-in was cancelled.", statusCode: outcome.Status);
+        }
+
+        return await Summarize(scopes, access, connectionId, context.RequestAborted) is { } summary
+            ? TypedResults.Ok(summary)
+            : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<ModelSignInProgress>, NotFound>> ReadSignIn(Guid attemptId, HttpContext context, ModelSignIns signIns, RunScopes scopes)
+    {
+        var access = context.GetSpaceAccess();
+        var outcome = signIns.Read(access.SpaceId, access.UserId, attemptId);
+
+        if (outcome.State is not { } state)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var connection = outcome.ConnectionId is { } connectionId ? await Summarize(scopes, access, connectionId, context.RequestAborted) : null;
+        return TypedResults.Ok(new ModelSignInProgress(ToWireName(state), connection));
+    }
+
+    private static async Task<Results<NoContent, NotFound>> SignOut(Guid connectionId, HttpContext context, ModelSignIns signIns)
+    {
+        var access = context.GetSpaceAccess();
+        return await signIns.SignOut(access.SpaceId, access.UserId, connectionId, context.RequestAborted)
+            ? TypedResults.NoContent()
+            : TypedResults.NotFound();
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static SignInView? ViewOf(ModelConnection connection, Dictionary<Guid, ModelConnectionCredential?> own) =>
+        own.TryGetValue(connection.Id, out var credential) ? new SignInView(credential) : null;
+
+    /// <summary>The connection as the caller sees it, read in a short scope of their own, or null when it is gone.</summary>
+    private static Task<ModelConnectionSummary?> Summarize(RunScopes scopes, SpaceAccess access, Guid connectionId, CancellationToken cancellationToken) =>
+        scopes.For(access.SpaceId, access.UserId).Transact(
+            async services =>
+            {
+                var models = services.GetRequiredService<ModelConnectionService>();
+
+                if (await services.GetRequiredService<ModelConnectionRepository>().FindConnection(connectionId, cancellationToken) is not { } connection)
+                {
+                    return null;
+                }
+
+                var own = await models.ListOwnSignIns([connection], cancellationToken);
+                return connection.ToSummary(ViewOf(connection, own));
+            },
+            cancellationToken);
+
+    private static string ToWireName(ModelSignInWait wait) =>
+        wait switch
+        {
+            _ => ModelSignInWaits.Return,
+        };
+
+    private static string ToWireName(ModelSignInState state) =>
+        state switch
+        {
+            ModelSignInState.Done => ModelSignInStatuses.Done,
+            ModelSignInState.Refused => ModelSignInStatuses.Refused,
+            ModelSignInState.Expired => ModelSignInStatuses.Expired,
+            _ => ModelSignInStatuses.Waiting,
+        };
 
     #endregion
 }

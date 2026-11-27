@@ -38,6 +38,12 @@ A connection is created and managed under `/api/spaces/{spaceId}/model-connectio
 | `POST /{id}/test` | admin | Ask the provider whether the connection works. Records `ready` or `failed`, the time, and any balances. A rate-limit answer leaves the status alone. A passing test makes a second provider call to list models and refreshes the stored catalog as `POST /{id}/models/refresh` does. A failed listing leaves both the catalog and the test result alone. |
 | `GET /{id}/models` | member | The stored catalog (`model_catalog`), in Drover's own shape, with the effective capabilities and prices and `operatorSet`. |
 | `POST /{id}/models/refresh` | admin | Discover the provider's models and upsert the catalog. A model that is no longer listed keeps its row, marked `missing`. An empty list marks nothing missing. If the provider cannot answer, the stored catalog is returned with the reason. |
+| `POST /sign-in` | member | Start the caller's own sign-in to a sign-in kind (below). |
+| `POST /sign-in/{attemptId}/finish` | the member who started it | Finish it with what the device received. |
+| `GET /sign-in/{attemptId}` | the member who started it | Where it stands. |
+| `DELETE /{id}/sign-in` | member | Sign the caller out of their own sign-in. |
+
+`POST /` and `PUT /{id}/key` refuse a sign-in kind: each person connects it by signing in. A connection's summary carries `signIn`: null for a key connection, otherwise the caller's own sign-in only (`none`, `active`, `needs_sign_in`, and the account label the provider reports). It never says who else has signed in. A test of a sign-in connection uses the admin's own sign-in, and one person's missing or ended sign-in is not recorded on the connection.
 
 Creating a connection to a literal private address is refused when the space or the deployment forbids private addresses; a host name is checked each time a connection is made, because what it resolves to can change.
 
@@ -292,7 +298,39 @@ Live calls are described in [03-run-lifecycle.md](03-run-lifecycle.md#live-calls
 
 ## Signing in with a subscription
 
-Supported only where the provider's terms permit a third-party app to do it.
+A person signs in to a model provider with their own account, and Drover uses that account in place of an API key. The token set is always the signing-in person's own, never a space credential ([ADR 0006](../adr/0006-credentials-belong-to-users-or-spaces.md)). The server side is built (issue #526, layer 1); the provider adapters and the connect screen follow, one provider at a time.
+
+### Shape
+
+| Part | What it is |
+| --- | --- |
+| `IModelSignIn` (`Drover.Domain/Models`) | One per sign-in kind, in that provider's adapter project. A kind is a sign-in kind because one is registered for it; no column says so. It names the kind, what a person calls it (the name of the connection it makes), whether it uses a personal paid plan, which return address the device may use (the configured one, where only the port may vary), and does `Begin`, `Finish`, `Refresh` and `Revoke`. `Refresh` throws `SignInEndedException` when the provider says the sign-in is over and `ModelProviderException` for anything that may pass. `Finish` throws `ModelSignInRefusedException` for a refusal or a return that is not the attempt's; nothing is exchanged then. No message holds a token. |
+| `ModelSignInConformance` (`tests/Drover.Adapters.Conformance/Models`) | What every sign-in must do: PKCE (`S256`) with the attempt's own fresh state, nothing exchanged for a wrong state or a refusal, a refresh token never sent twice, each "over" answer and only those end a sign-in, no token in an exception. It runs against the in-memory reference provider the engine and API tests use. The cases for the pasted-code and polling flows arrive with those flows. |
+| `model_connection_credentials` | One row per connection and person, always one person's ([02-data-model.md](02-data-model.md#tools-and-connections)). The token set (access token, refresh token, expiry, scopes, account label, and what the provider needs to sign in again) is one JSON value in the vault as `oauth_tokens`, private to that person. |
+| `ModelSignIns` (`Drover.Engine/Models`) | Starts and finishes attempts. A pending attempt (PKCE verifier, state, nonce, person, space, kind, return address) lives in memory for 10 minutes, one per person and kind in a space; starting another ends the first. Only the person who started it, in the same space, can finish or read it; anyone else gets 404. On finish the exchange runs on the server with no transaction open, the token set is stored as a new secret (a person who signs in again gets a new one and the old one is deleted), the space's one connection of the kind is made if there is none (named for the kind, `ready`), and its models are listed once, as a refresh lists them. |
+| `ModelCredentials` (`Drover.Engine/Models`) | The one place that decides what a model call sends. A key connection sends its key. A sign-in connection sends the access token of the person the call acts for, read inside that person's tenant transaction: the run's `principal_user_id` (the person talking, the owner of a routine, or for a delegated run its parent's person), or the person making a request. A person with no sign-in has no credential; there is no fallback to another person's sign-in or a key. Every model call goes through it: runs (`RunExecutor`), conversation summaries, the screen reader, image generation, connection tests and refreshes, and voice (which serves key connections only). |
+| `ModelSignInRenewal` and `ModelSignInRenewer` | Once an hour, renew active sign-ins with an end that no call has renewed for seven days, found through `sys.model_sign_ins_due` (ids only) and each renewed in its own space as its own person. At most 50 a pass. Each one taken up is noted (`renew_attempted_at`) before anything else, and a renewal clears the note; one taken up and not renewed, because it failed or its kind is refused here, waits a day, so those cannot fill every pass. |
+
+### Renewing
+
+A call whose access token runs out within five minutes renews it first, after its read transaction has closed and been disposed. A run checks again before every model call (`RenewingChatClient`), so a token that runs out while a run goes on is renewed before the next call, and every token a run is handed is added to its redactor. It takes the credential's refresh lock, a session advisory lock on a connection of its own that reads and writes no row, so the provider is asked with no tenant transaction open; reads the row again in a short transaction (another call may have renewed it already, and then its tokens are used); asks the provider; and writes the new set with `ISecretVault.Replace` in another short transaction before letting go. Two runs that find the token running out make one refresh between them. A refresh whose answer says the sign-in is over marks the row `needs_sign_in` and keeps it; the run stops before any model call with `sign_in_ended`. Anything else (a network failure, a 5xx) leaves the credential as it was, and the call fails as `unreachable`. If the person signed in again while the provider answered, the new sign-in's tokens stand. Once the provider has answered a refresh or an exchange, the tokens are stored whatever happens to the call that asked (a stopped run, a closed request), because the old refresh token or the one-time code is already spent. Signing out holds the same refresh lock while it tells the provider and removes the row, so no renewal in flight can leave new tokens behind.
+
+A run on a sign-in connection whose person has not signed in stops before any model call with `sign_in_required` and a sentence naming the bot and the connection.
+
+### Routes
+
+| Route | Request | Response |
+| --- | --- | --- |
+| `POST /sign-in` | `{ kind, redirectUri }` | `{ attemptId, address, wait }`. An unknown kind or a return address the kind does not take is 400, and so is none (a device with no listener) until a flow without one exists. A refused kind is 403 with the rule's sentence. |
+| `POST /sign-in/{attemptId}/finish` | `{ query }`: the query string the device received | The connection's summary. A refusal, a return that is not the attempt's, or an attempt that ran out is 400 with a sentence, and the attempt is over. |
+| `GET /sign-in/{attemptId}` | none | `{ status, connection }`: `waiting`, `done`, `refused` or `expired`, and the connection once it is done |
+| `DELETE /{connectionId}/sign-in` | none | 204. Tells the provider where it can be told, then deletes the token set and the row, with no confirmation. 404 when the caller has no sign-in to it. |
+
+Each waits on the provider, so none sits under the tenant scope filter; the services open short scopes as the caller. `FinishModelSignInRequest` carries a one-time code and prints nothing of it.
+
+### Who may sign in where
+
+A sign-in kind is a provider kind too: its `IModelClientProvider` registers through `AddModelProvider` with a descriptor like any other, and the provider catalog decides first. A sign-in kind with no provider in the catalog, or one the deployment does not offer (`ModelProviders`, `AllowedModelProviderKinds`), is refused on every route, every use and the renewal with the catalog's sentence, before anything is sent. The deployment rule `SubscriptionSignIn` ([16-deployment-policies.md](16-deployment-policies.md)) is `Available` on a self-hosted server: every sign-in kind is on with nothing to set. Under the hosted preset it is `OnlyWithOperatorApproval`: every route and every use refuses a kind that uses a personal plan with "Signing in with a personal plan is not available on this server. You can add an API key instead.", before any request leaves; a flow the provider offers to any app stays on. Signing out is never refused: it deletes the person's own tokens and, for a refused kind, sends nothing. The operator's `Drover:Models:SignInOff` (a list of kinds, empty by default) switches a kind off the same way on any server, without a release.
 
 ### ChatGPT plan, for self-hosted servers
 
@@ -325,4 +363,4 @@ OpenRouter and Hugging Face offer standard OAuth for third-party apps, including
 
 Anthropic and Google prohibit third-party use of consumer plans. Those connections are key-only, and the setup screen says why.
 
-Sign-in adapters can each be switched off by a server setting without a release, in case a provider's terms change.
+Sign-in adapters can each be switched off by a server setting (`Drover:Models:SignInOff`) without a release, in case a provider's terms change.

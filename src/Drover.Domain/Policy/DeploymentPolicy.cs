@@ -391,7 +391,12 @@ public sealed record DeploymentPolicy
     /// <summary>How many minutes before an access token runs out it is renewed in the background. More means renewing more often.</summary>
     public int MaxToolSignInRenewalLeadMinutes { get; init; } = ToolSignInRenewalLeadMinutes;
 
-    public SubscriptionSignInMode SubscriptionSignIn { get; init; } = SubscriptionSignInMode.WhereProviderPermits;
+    /// <summary>
+    /// Whether a person may sign in to a model provider with their own paid plan. Under <c>Available</c> every
+    /// sign-in kind is on; under <c>OnlyWithOperatorApproval</c> a personal plan kind is refused, and a sign-in the
+    /// provider offers to any app stays on.
+    /// </summary>
+    public SubscriptionSignInMode SubscriptionSignIn { get; init; } = SubscriptionSignInMode.Available;
 
     public ModelProviderSet ModelProviders { get; init; } = ModelProviderSet.All;
 
@@ -676,7 +681,7 @@ public sealed record DeploymentPolicy
         PolicyRule.Choice(
             nameof(SubscriptionSignIn),
             policy => policy.SubscriptionSignIn,
-            Enforcement.Later("Model providers: subscription sign-in adapters (15-model-providers.md)")),
+            Enforcement.Now("ModelSignIns, on every sign-in route, and ModelCredentials, on every use of a sign-in")),
         PolicyRule.Choice(
             nameof(ModelProviders),
             policy => policy.ModelProviders,

@@ -28,6 +28,8 @@ public sealed record ModelRefresh(ModelFailure? Failure, string? Message, IReadO
 /// </summary>
 public sealed class ModelConnectionService(
     ModelConnectionRepository connections,
+    ModelConnectionCredentialRepository signIns,
+    ModelCredentials credentials,
     ISecretVault vault,
     ModelProviderCatalog catalog,
     PolicyService policy,
@@ -48,6 +50,7 @@ public sealed class ModelConnectionService(
     private const int MaxAddressLength = 2048;
 
     private const string ModelSettingsChanged = "model.settings_changed";
+    private const string SignInKindProblem = "Each person connects that provider by signing in with their own account, not with a key.";
 
     #endregion
 
@@ -55,6 +58,36 @@ public sealed class ModelConnectionService(
 
     public Task<List<ModelConnection>> ListConnections(CancellationToken cancellationToken) =>
         connections.ListConnections(cancellationToken);
+
+    /// <summary>
+    /// How the caller stands with each sign-in connection: their own sign-in, or none. A key connection is left out.
+    /// Nothing here says who else has signed in: the database shows the caller only their own rows.
+    /// </summary>
+    public async Task<Dictionary<Guid, ModelConnectionCredential?>> ListOwnSignIns(
+        IReadOnlyCollection<ModelConnection> listed,
+        CancellationToken cancellationToken)
+    {
+        List<Guid> ids = [.. listed.Where(connection => credentials.IsSignInKind(connection.Kind)).Select(connection => connection.Id)];
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var own = await signIns.ListCredentials(ids, cancellationToken);
+        return ids.ToDictionary(id => id, id => own.FirstOrDefault(credential => credential.ModelConnectionId == id));
+    }
+
+    /// <summary>As <see cref="ListOwnSignIns"/>, in a short scope of its own, for a caller outside the scope filter.</summary>
+    public async Task<Dictionary<Guid, ModelConnectionCredential?>> ReadOwnSignIns(
+        IReadOnlyCollection<ModelConnection> listed,
+        CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var own = await ListOwnSignIns(listed, cancellationToken);
+        await work.Commit(cancellationToken);
+        return own;
+    }
 
     /// <summary>The stored catalog of one connection, or null when the connection does not exist in this space.</summary>
     public async Task<List<ModelCatalogEntry>?> ListModels(Guid connectionId, CancellationToken cancellationToken) =>
@@ -74,6 +107,11 @@ public sealed class ModelConnectionService(
         string? defaultModel,
         CancellationToken cancellationToken)
     {
+        if (credentials.IsSignInKind(kind))
+        {
+            return ConnectionChange.Invalid(SignInKindProblem);
+        }
+
         var provider = catalog.IsOffered(kind) ? catalog.Find(kind) : null;
         var problem = provider is null ? catalog.NotOffered(kind) : FindProblem(provider, name, baseUrl, apiKey, defaultModel);
 
@@ -119,6 +157,11 @@ public sealed class ModelConnectionService(
         if (connection is null)
         {
             return ConnectionChange.NotFound;
+        }
+
+        if (credentials.IsSignInKind(connection.Kind))
+        {
+            return ConnectionChange.Invalid(SignInKindProblem);
         }
 
         var key = apiKey.Trim();
@@ -300,6 +343,15 @@ public sealed class ModelConnectionService(
         }
 
         var answer = await Ask(call, (provider, key, token) => provider.TestConnection(call.Endpoint!, key, token), cancellationToken);
+
+        // A sign-in connection is as good as each person's own sign-in: one person's missing or ended sign-in says
+        // nothing about the connection, so it is not recorded on it.
+        if (call.Credential.Problem is not null && credentials.IsSignInKind(call.Snapshot.Kind))
+        {
+            var failure = answer.Failure ?? ModelFailure.Rejected;
+            return new ProviderCheck<ConnectionTestResult>(ConnectionTestResult.Failed(failure, answer.Message), failure, answer.Message, call.Snapshot);
+        }
+
         var outcome = answer.Value ?? ConnectionTestResult.Failed(answer.Failure ?? ModelFailure.Unreachable, answer.Message);
         var connection = await Record(call, outcome.Succeeded, outcome.Failure, outcome.Balances ?? [], cancellationToken);
         logger.LogInformation(
@@ -382,6 +434,30 @@ public sealed class ModelConnectionService(
     /// <summary>First scope: read the connection, reveal its key, and work out the space's rule. Then close.</summary>
     private async Task<PreparedCall?> Prepare(Guid connectionId, CancellationToken cancellationToken)
     {
+        if (await ReadForCall(connectionId, cancellationToken) is not { } found)
+        {
+            return null;
+        }
+
+        var (connection, effective, read, filled) = found;
+
+        // A kind the operator switched off is refused before anything is sent, a renewal included.
+        var resolution = catalog.Resolve(connection.Kind);
+        var provider = resolution.Provider;
+
+        // The scope is closed and disposed: a sign-in that runs out soon is renewed now, waiting on the provider.
+        var credential = provider is null ? read : await credentials.Ready(read, cancellationToken);
+        var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
+        var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
+        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits, Filled = filled };
+        return new PreparedCall(connection, provider, endpoint, credential, effective, resolution.Refusal);
+    }
+
+    /// <summary>The connection, the space's rule and the credential as read, in a scope that is over when this returns.</summary>
+    private async Task<(ModelConnection Connection, EffectivePolicy Policy, ModelCredential Read, IReadOnlySet<string> Filled)?> ReadForCall(
+        Guid connectionId,
+        CancellationToken cancellationToken)
+    {
         await using var work = await scope.Begin(cancellationToken);
         var connection = await connections.FindConnection(connectionId, cancellationToken);
 
@@ -392,19 +468,13 @@ public sealed class ModelConnectionService(
 
         var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("No space is set for this request.");
         var effective = await policy.GetEffective(spaceId, cancellationToken);
-        var key = connection.SecretId is { } secretId ? await vault.Reveal(secretId, cancellationToken) : null;
+        var read = await credentials.Read(tenant, signIns, vault, connection, cancellationToken);
         var filled = (await connections.ListCatalog(connectionId, cancellationToken))
             .Where(entry => entry.Capabilities.ContextTokens is not null)
             .Select(entry => entry.Model)
             .ToHashSet(StringComparer.Ordinal);
         await work.Commit(cancellationToken);
-
-        var resolution = catalog.Resolve(connection.Kind);
-        var provider = resolution.Provider;
-        var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
-        var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
-        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits, Filled = filled };
-        return new PreparedCall(connection, provider, endpoint, key, effective, resolution.Refusal);
+        return (connection, effective, read, filled);
     }
 
     /// <summary>No scope is open here. The adapter's requests carry the space's outbound rule.</summary>
@@ -418,11 +488,17 @@ public sealed class ModelConnectionService(
             return new Answer<T>(default, ModelFailure.Rejected, call.Refusal ?? "This server has no adapter for that connection.");
         }
 
+        if (call.Credential.Problem is { } problem)
+        {
+            var failure = problem is ModelCredentialProblem.Unreachable ? ModelFailure.Unreachable : ModelFailure.Rejected;
+            return new Answer<T>(default, failure, call.Credential.Message ?? string.Empty);
+        }
+
         using var attempt = OutboundAttempt.Begin(call.Policy);
 
         try
         {
-            return new Answer<T>(await ask(call.Provider, call.Key, cancellationToken), null, string.Empty);
+            return new Answer<T>(await ask(call.Provider, call.Credential.Value, cancellationToken), null, string.Empty);
         }
         catch (ModelProviderException failure)
         {
@@ -654,7 +730,7 @@ public sealed class ModelConnectionService(
         ModelConnection Snapshot,
         IModelClientProvider? Provider,
         ModelEndpoint? Endpoint,
-        string? Key,
+        ModelCredential Credential,
         EffectivePolicy Policy,
         string? Refusal);
 

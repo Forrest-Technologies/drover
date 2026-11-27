@@ -14,7 +14,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations;
 
 [DbContext(typeof(DroverDbContext))]
-[Migration("20261126220315_ModelOperatorSettings")]
+[Migration("20261127015951_ModelOperatorSettings")]
 partial class ModelOperatorSettings
 {
     /// <inheritdoc />
@@ -1160,6 +1160,66 @@ partial class ModelOperatorSettings
                         t.HasCheckConstraint("ck_model_connections_credential_scope", "credential_scope IN ('space', 'per_user')");
 
                         t.HasCheckConstraint("ck_model_connections_status", "status IN ('pending', 'ready', 'failed', 'disabled')");
+                    });
+            });
+
+        modelBuilder.Entity("Drover.Domain.Models.ModelConnectionCredential", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<string>("AccountLabel")
+                    .HasMaxLength(320)
+                    .HasColumnType("character varying(320)")
+                    .HasColumnName("account_label");
+
+                b.Property<Guid>("AudienceUserId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("audience_user_id");
+
+                b.Property<DateTimeOffset?>("ExpiresAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("expires_at");
+
+                b.Property<Guid>("ModelConnectionId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("model_connection_id");
+
+                b.Property<DateTimeOffset?>("RenewAttemptedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renew_attempted_at");
+
+                b.Property<DateTimeOffset?>("RenewedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("renewed_at");
+
+                b.Property<Guid>("SecretId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("secret_id");
+
+                b.Property<Guid>("SpaceId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("space_id");
+
+                b.Property<string>("Status")
+                    .IsRequired()
+                    .HasMaxLength(32)
+                    .HasColumnType("character varying(32)")
+                    .HasColumnName("status");
+
+                b.HasKey("Id")
+                    .HasName("pk_model_connection_credentials");
+
+                b.HasIndex("SpaceId", "ModelConnectionId", "AudienceUserId")
+                    .IsUnique()
+                    .HasDatabaseName("ix_model_connection_credentials_space_id_model_connection_id_a");
+
+                b.ToTable("model_connection_credentials", t =>
+                    {
+                        t.HasCheckConstraint("ck_model_connection_credentials_one_person", "audience_user_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                        t.HasCheckConstraint("ck_model_connection_credentials_status", "status IN ('active', 'needs_sign_in')");
                     });
             });
 
@@ -3064,6 +3124,17 @@ partial class ModelOperatorSettings
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired()
                     .HasConstraintName("fk_model_catalog_model_connections_space_id_model_connection_id");
+            });
+
+        modelBuilder.Entity("Drover.Domain.Models.ModelConnectionCredential", b =>
+            {
+                b.HasOne("Drover.Domain.Models.ModelConnection", null)
+                    .WithMany()
+                    .HasForeignKey("SpaceId", "ModelConnectionId")
+                    .HasPrincipalKey("SpaceId", "Id")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired()
+                    .HasConstraintName("fk_model_connection_credentials_model_connections_space_id_mod");
             });
 
         modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
