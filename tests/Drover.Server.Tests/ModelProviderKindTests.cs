@@ -97,7 +97,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await (await client.Get(Route)).Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).SignIn.Should().BeTrue();
-        kinds.Where(kind => kind.SignIn).Select(kind => kind.Kind).Should().Equal(OpenAIPlan, OpenRouterSignIn.ConnectionKind);
+        kinds.Where(kind => kind.SignIn).Select(kind => kind.Kind).Should().Equal(OpenAIPlan, AnthropicPlanSignIn.ConnectionKind, OpenRouterSignIn.ConnectionKind);
         kinds.Single(kind => kind.Kind == OpenRouterSignIn.ConnectionKind).Should().Match<ModelProviderKindResponse>(kind => kind.SignInName == "OpenRouter" && !kind.PersonalPlan);
     }
 
