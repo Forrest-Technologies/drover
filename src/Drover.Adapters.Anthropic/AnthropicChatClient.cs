@@ -366,7 +366,8 @@ internal sealed class AnthropicChatClient(
 
     /// <summary>
     /// Text, reasoning, tool calls and usage cross the boundary. A redacted thinking block is reasoning whose words the
-    /// provider withheld, so it is marked as such and goes back as redacted. Anything else the vendor client can hand
+    /// provider withheld, so it is marked as such and goes back as redacted. A streamed thinking block opens with an
+    /// empty signature and gets its real one at its end, so the empty one is not a signature. Anything else the vendor client can hand
     /// over (the blocks of provider-hosted tools, which this adapter never asks for) is dropped on purpose.
     /// </summary>
     private static void KeepWhatDroverCarries(IList<AIContent> contents)
@@ -377,6 +378,9 @@ internal sealed class AnthropicChatClient(
             {
                 case TextReasoningContent { RawRepresentation: RedactedThinkingBlock } redacted:
                     (redacted.AdditionalProperties ??= [])[ModelResponseKeys.ReasoningNotAvailable] = true;
+                    break;
+                case TextReasoningContent { ProtectedData: "" } opening:
+                    opening.ProtectedData = null;
                     break;
                 case UsageContent usage:
                     RenameCacheWrites(usage.Details);

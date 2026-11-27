@@ -80,7 +80,7 @@ internal static class AnthropicFailures
     }
 
     /// <summary>A status and the provider's error object, as Drover's failure.</summary>
-    public static ModelProviderException FromError(int? status, ProviderError error, TimeSpan? retryAfter)
+    public static ModelProviderException FromError(int? status, AnthropicError error, TimeSpan? retryAfter)
     {
         if (error.Code is { } code && spendLimitCodes.Contains(code))
         {
@@ -132,8 +132,8 @@ internal static class AnthropicFailures
 
     private static ModelProviderException? Describe(Exception exception, TimeSpan? retryAfter) => exception switch
     {
-        AnthropicApiException failure => FromError((int)failure.StatusCode, ProviderError.Parse(failure.ResponseBody), retryAfter),
-        AnthropicSseException failure => FromError(null, ProviderError.From(failure.Body), retryAfter),
+        AnthropicApiException failure => FromError((int)failure.StatusCode, AnthropicError.Parse(failure.ResponseBody), retryAfter),
+        AnthropicSseException failure => FromError(null, AnthropicError.From(failure.Body), retryAfter),
         AnthropicInvalidDataException => ModelProviderException.FromMalformedResponse(),
         BrokenCircuitException => ModelProviderException.FromCircuitOpen(),
         TimeoutRejectedException or TaskCanceledException { InnerException: TimeoutException } => ModelProviderException.FromTimeout(),
@@ -142,18 +142,18 @@ internal static class AnthropicFailures
         _ => null,
     };
 
-    private static async Task<ProviderError> ReadErrorBody(HttpContent content, int maxBytes, CancellationToken cancellation)
+    private static async Task<AnthropicError> ReadErrorBody(HttpContent content, int maxBytes, CancellationToken cancellation)
     {
         try
         {
             using var document = await BoundedResponse.ReadJson(content, maxBytes, "error", cancellation);
-            return ProviderError.From(document.RootElement);
+            return AnthropicError.From(document.RootElement);
         }
         // An error body that is too large or not JSON says nothing more than its status does.
 #pragma warning disable DRV0005
         catch (Exception exception) when (exception is JsonException or ModelProviderException)
         {
-            return ProviderError.None;
+            return AnthropicError.None;
         }
 #pragma warning restore DRV0005
     }
@@ -162,17 +162,17 @@ internal static class AnthropicFailures
 }
 
 /// <summary>What the provider said went wrong: the error's type, its message (never shown), and its code.</summary>
-internal sealed record ProviderError(string? Type, string? Message, string? Code)
+internal sealed record AnthropicError(string? Type, string? Message, string? Code)
 {
     #region Properties
 
-    public static ProviderError None { get; } = new(null, null, null);
+    public static AnthropicError None { get; } = new(null, null, null);
 
     #endregion
 
     #region Public Methods
 
-    public static ProviderError Parse(string body)
+    public static AnthropicError Parse(string body)
     {
         if (string.IsNullOrEmpty(body) || body.Length > 64 * 1024)
         {
@@ -194,7 +194,7 @@ internal sealed record ProviderError(string? Type, string? Message, string? Code
     }
 
     /// <summary>Reads <c>{"error": {"type", "message", "details": {"error_code"}}}</c>, or the error object itself.</summary>
-    public static ProviderError From(JsonElement root)
+    public static AnthropicError From(JsonElement root)
     {
         if (root.ValueKind is not JsonValueKind.Object)
         {
