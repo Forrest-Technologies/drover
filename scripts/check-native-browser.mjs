@@ -80,7 +80,7 @@ const connection = { id: connectionId, name: 'Sample connection', kind: 'venice'
 // The kinds the server offers, in the contract's shape. The compatible kind carries two named providers made up for the
 // check and marked as samples: one hosted with a key page, one on the person's own machine with no key.
 const providerKinds = [
-    { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, namedProviders: [] },
+    { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, namedProviders: [], signIn: false },
     {
         kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required',
         addressHint: 'The address of the server, starting with http:// or https://.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false,
@@ -88,6 +88,7 @@ const providerKinds = [
             { id: 'sample-hosted', displayName: 'Sample hosted provider', address: 'https://hosted.example.test/v1', keyRule: 'required', keyPage: 'https://keys.example.test/', local: false },
             { id: 'sample-local', displayName: 'Sample local server', address: 'http://localhost:9/v1', keyRule: 'none', keyPage: null, local: true },
         ],
+        signIn: false,
     },
 ];
 // A server with three kinds and nothing named, so the choice is a segmented control. The third kind is a sample: a
@@ -1123,7 +1124,9 @@ try {
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
             assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
             await handoffDisclosure.press('Enter');
-            assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 1, 'The handoff disclosure opens by keyboard.');
+            const handoffOriginal = page.getByText('ls -la /handoff-sample', { exact: false });
+            await handoffOriginal.waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(await handoffOriginal.count(), 1, 'The handoff disclosure opens by keyboard.');
             await originalDisclosure.dispatchEvent('click');
             await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
             await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });

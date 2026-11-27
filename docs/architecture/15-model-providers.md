@@ -22,10 +22,11 @@ A provider is a `Drover.Adapters.*` project compiled into the server and added b
 | `anthropic` | Anthropic | Required | Fixed | No (its list says what each model can do, but carries no prices) |
 | `gemini` | Google Gemini | Required | Fixed | Yes |
 | `openai_signin` | ChatGPT plan (each person signs in) | Required (the person's token) | Fixed | No |
+| `copilot_signin` | GitHub Copilot (each person signs in) | Required (the person's GitHub token) | Fixed | Yes |
 
 **The catalog.** `ModelProviderCatalog` (`Drover.Engine`, a singleton) holds the registered providers in registration order and answers which are offered. It is built when the server starts (`ModelProviderStartupCheck`): two providers with one kind, or a provider whose descriptor names another kind, stop the server with a sentence that names the kind. Every place that picks a provider for a connection asks it, so the deployment policy applies to a test, a refresh, a run, a screen reader, a summary, an image, and speech alike.
 
-**The route.** `GET /api/model-provider-kinds` answers a signed-in person with the kinds this server offers, in registration order (Venice, OpenAI, Anthropic, Gemini, the ChatGPT plan, the Claude plan, then the compatible kind, so a form starts on a provider that needs only a key and ends on "Another compatible server"; `AddDroverModels` is where the order is set and `ModelProviderKindTests` pins it), as `ModelProviderKindResponse` (`Kind`, `DisplayName`, `KeyRule` and `AddressRule` as the words in `ModelKeyRules` and `ModelAddressRules`, the two hints, `ReportsCapabilities`, and for a sign-in kind `SignIn`, its `SignInName` for the button and the provider's public `UsagePage`). It is the same for everyone and is not in a space. A signed-out caller gets 401. `DroverApi.ListModelProviderKinds` is the client's call.
+**The route.** `GET /api/model-provider-kinds` answers a signed-in person with the kinds this server offers, in registration order (Venice, OpenAI, Anthropic, Gemini, the ChatGPT plan, the Claude plan, OpenRouter, GitHub Copilot, then the compatible kind, so a form starts on a provider that needs only a key and ends on "Another compatible server"; `AddDroverModels` is where the order is set and `ModelProviderKindTests` pins it), as `ModelProviderKindResponse` (`Kind`, `DisplayName`, `KeyRule` and `AddressRule` as the words in `ModelKeyRules` and `ModelAddressRules`, the two hints, `ReportsCapabilities`, and for a sign-in kind `SignIn`, its `SignInName` for the button and the provider's public `UsagePage`). It is the same for everyone and is not in a space. A signed-out caller gets 401. `DroverApi.ListModelProviderKinds` is the client's call.
 
 **Which kinds are offered.** The deployment policy rules `ModelProviders` and `AllowedModelProviderKinds` ([16-deployment-policies.md](16-deployment-policies.md)): under `All` every registered kind is offered; under `OperatorList` (the hosted preset, or an operator's choice) only the kinds in the list. A kind that is not registered or not offered cannot be given to a new connection (`POST /api/spaces/{spaceId}/model-connections` answers 400 with "The kind {kind} is not available on this server." or "The operator of this server switched {kind} off."). A connection that already exists keeps being listed, and its next call fails with "The operator of this server switched {kind} off." without reaching the provider. The rule only narrows: no space setting turns a kind back on.
 
@@ -66,7 +67,8 @@ The boundary preserves text, images, reasoning (including opaque protected reaso
 | `openai_signin` | The person's own ChatGPT plan, signed in by browser ([ChatGPT plan](#chatgpt-plan)) | `Drover.Adapters.OpenAICompatible` | 1 |
 | `anthropic_signin` | The user's own Claude plan, self-hosted only, on the Messages API ([Claude plan](#claude-plan-for-self-hosted-servers)) | `Drover.Adapters.Anthropic` | 1 |
 | `openrouter_signin` | The user's own OpenRouter account, authorization code with PKCE; the exchange makes a key that belongs to the person ([OpenRouter sign-in](#openrouter-sign-in)) | `Drover.Adapters.OpenAICompatible` | 1 |
-| `huggingface_signin`, `copilot_signin` | OAuth to the user's own account | One adapter each | 2 |
+| `copilot_signin` | The user's own GitHub Copilot plan, through a GitHub OAuth app the operator registers ([GitHub Copilot](#github-copilot-for-self-hosted-servers)) | `Drover.Adapters.OpenAICompatible` | 1 |
+| `huggingface_signin` | OAuth to the user's own account | One adapter | 2 |
 
 Every adapter must pass the model provider conformance suite: list models, plain reply, streaming, tool call round trip, structured output where claimed, reasoning text where claimed, protected reasoning sent back unchanged in a tool loop where claimed, cached input tokens reported where claimed, a rate-limit response mapped to "retry later", an invalid key mapped to a clear setup message. The suite reads the wire through `IChatWire` (`tests/Drover.Adapters.Conformance/ChatWire.cs`), which each adapter's test class gives on its `ProviderUnderTest`: which requests are model calls, the tool names offered, the text sent back for a tool call, the structured output asked for, and the protected reasoning sent back. `ChatCompletionsWire` is the default and serves the compatible and Venice adapters; `ResponsesWire` serves OpenAI, `AnthropicWire` serves Anthropic and `GeminiWire` serves Gemini. A wire also gives the PDFs a call sent as documents (`SentPdfs`, empty where it has none) and says whether it names a schema (`NamesSchemas`: Anthropic's and Gemini's send the schema alone). `ConformanceClaims` says which optional features an adapter's test model has: `StructuredOutput`, `ReasoningText`, `ProtectedReasoning`, `CachedUsage`, `JsonObject` (a bare JSON reply with no schema; where it is not claimed, a bot set to JSON-only is refused in words before anything is sent) and `PdfInput` (the model record says it reads PDFs, and a PDF goes on the wire as a document; checked both ways).
 
@@ -499,9 +501,23 @@ The return is a loopback address on the machine with the browser, so the browser
 
 Not confirmed by any working source, and left to the owner's `Live` test (`AnthropicPlanLiveTests`): whether the provider accepts a `state` that is not the verifier, whether its model list answers a plan token, and whether it serves tool names of Drover's own spelling.
 
+### GitHub Copilot, for self-hosted servers
+
+`CopilotPlanSignIn` and `CopilotPlanProvider` in `Drover.Adapters.OpenAICompatible`, kind `copilot_signin`, connection name "GitHub Copilot" (#526 layer 8, [ADR 0029](../adr/0029-copilot-registered-oauth-model-client.md)). Sign-in is GitHub's OAuth for an app the operator registers. The GitHub user token is stored in the vault and is the bearer a model call sends. Chat is one `IModelChatClient` call; Drover does not reference the Copilot SDK. Editor-impersonation headers and `copilot_internal` token exchange are not used.
+
+| Aspect | Design |
+| --- | --- |
+| Operator setup | A GitHub OAuth app or GitHub App, with callback `http://127.0.0.1:1455/auth/callback`. Client id and secret under `Drover:Models:SignIn:copilot_signin`. Empty client id refuses sign-in and names the setting. |
+| Sign-in flow | A device that listens waits on `return`: authorize at `https://github.com/login/oauth/authorize` with PKCE (`S256`) and Drover's `state`. A device that cannot listen waits on `poll`: GitHub's device-code flow of that same app. `CanReturnToServer` is false. |
+| Tokens | The GitHub user token is `AccessToken`. Refresh uses GitHub's `refresh_token` when one was issued and rotates; a token with none is handed back unchanged. `invalid_grant`, `bad_refresh_token`, 401 and 403 end the sign-in. The account label is GitHub's `login`. |
+| Runs | The compatible chat protocol on `https://api.individual.githubcopilot.com/`, User-Agent `Drover` only. Tool object schemas are closed (`additionalProperties: false`) so Copilot's backends take them. |
+| Who | Each person signs in with their own plan; the hosted preset refuses the kind (`SubscriptionSignIn`), and `Drover:Models:SignInOff` switches it off on any server. |
+
+Unconfirmed, and left to the owner's `Live` test (`CopilotLiveTests`): whether a registered-app GitHub token lists models and completes a chat without the internal exchange. If it cannot, ADR 0029 is reopened rather than impersonating another client.
+
 ### Others
 
-OpenRouter and Hugging Face offer standard OAuth for third-party apps, including hosted ones, and GitHub Copilot does through its SDK. They follow the same pattern as MCP OAuth: per-user credential, tokens in the vault, a reconnect prompt when refresh fails. Phase 2.
+Hugging Face offers standard OAuth for third-party apps, including hosted ones. It follows the same pattern as MCP OAuth: per-user credential, tokens in the vault, a reconnect prompt when refresh fails. Phase 2.
 
 Google prohibits third-party use of consumer plans. Its connections are key-only, and the setup screen says why.
 
