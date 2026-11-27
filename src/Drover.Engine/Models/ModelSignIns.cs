@@ -86,8 +86,11 @@ public sealed class ModelSignIns(
         }
 
         ForgetExpired();
+        var tenant = scopes.For(spaceId, userId);
+        var (policy, left) = await tenant.Transact(services => ReadBeginning(services, spaceId, userId, kind, cancellationToken), cancellationToken);
+
         // A random id, not a time-ordered one: a later return route takes the id as its only secret.
-        var attempt = new ModelSignInAttempt(Guid.NewGuid(), Random(), Random(), Random(), redirectUri);
+        var attempt = new ModelSignInAttempt(Guid.NewGuid(), Random(), Random(), Random(), redirectUri) { Earlier = left };
 
         // One sign-in per person and kind in a space: starting another ends the first.
         foreach (var (id, earlier) in attempts)
@@ -98,9 +101,6 @@ public sealed class ModelSignIns(
             }
         }
 
-        var policy = await scopes.For(spaceId, userId).Transact(
-            services => services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken),
-            cancellationToken);
         ModelSignInStep step;
 
         using (OutboundAttempt.Begin(policy))
@@ -206,7 +206,7 @@ public sealed class ModelSignIns(
 
         if (tokens is null)
         {
-            return Outcome(pending, Cancelled, 400);
+            return Outcome(pending, pending.Problem ?? Cancelled, 400);
         }
 
         // The one-time code is spent: the tokens are kept whatever happens to the request now.
@@ -236,7 +236,7 @@ public sealed class ModelSignIns(
         {
             // Only the kind of failure: its text could hold what the provider sent.
             logger.LogInformation("Model sign-in {AttemptId} to {Kind} ended without tokens: {Failure}", pending.Attempt.Id, pending.Kind, failure.GetType().Name);
-            pending.End(ModelSignInState.Refused);
+            pending.End(ModelSignInState.Refused, failure is ModelSignInRefusedException refused ? refused.Message : null);
             return null;
         }
     }
@@ -302,6 +302,31 @@ public sealed class ModelSignIns(
         {
             logger.LogWarning("The models of connection {ConnectionId} could not be listed after a sign-in: {Failure}", connectionId, failure.GetType().Name);
         }
+    }
+
+    #endregion
+
+    #region Beginning
+
+    /// <summary>
+    /// The space's rule, and what the person's own earlier sign-in of the kind in the space left for the provider (a
+    /// client id it issued to them, for example), read as that person. Nobody else's is ever read. A sign-in that
+    /// cannot be read leaves nothing, and the provider is asked as for a first sign-in.
+    /// </summary>
+    private async Task<(EffectivePolicy Policy, IReadOnlyDictionary<string, string> Earlier)> ReadBeginning(
+        IServiceProvider services,
+        Guid spaceId,
+        Guid userId,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
+        var connection = await services.GetRequiredService<ModelConnectionRepository>().FindConnectionOfKind(kind, cancellationToken);
+        var credential = connection is null
+            ? null
+            : await services.GetRequiredService<ModelConnectionCredentialRepository>().GetCredential(connection.Id, userId, cancellationToken);
+        var tokens = credential is null ? null : await credentials.RevealTokens(services.GetRequiredService<ISecretVault>(), credential, cancellationToken);
+        return (policy, tokens?.Details ?? new Dictionary<string, string>(StringComparer.Ordinal));
     }
 
     #endregion
@@ -412,6 +437,9 @@ public sealed class ModelSignIns(
 
         public Guid? ConnectionId { get; private set; }
 
+        /// <summary>Drover's own sentence for why the sign-in ended without tokens, or null for a plain cancel.</summary>
+        public string? Problem { get; private set; }
+
         #endregion
 
         #region Public Methods
@@ -439,14 +467,15 @@ public sealed class ModelSignIns(
             }
         }
 
-        /// <summary>Ends a sign-in still waiting. One that is done stays done.</summary>
-        public void End(ModelSignInState state)
+        /// <summary>Ends a sign-in still waiting, with Drover's own sentence for why when there is one. One that is done stays done.</summary>
+        public void End(ModelSignInState state, string? problem = null)
         {
             lock (sync)
             {
                 if (State is ModelSignInState.Waiting)
                 {
                     State = state;
+                    Problem = problem;
                 }
             }
         }

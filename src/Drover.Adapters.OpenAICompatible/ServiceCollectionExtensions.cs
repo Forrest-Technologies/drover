@@ -41,6 +41,26 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Registers the ChatGPT plan: its provider, on the Responses API with the person's own token, and its sign-in.
+    /// The model calls have their own client and pipeline, under the same rules as OpenAI's except that a call the
+    /// plan limited is not sent again: the plan's limit is the person's, and the provider asks apps to pause, not to
+    /// repeat. The sign-in's client has no retries at all, because a code is spent once and a refresh token rotates.
+    /// The server binds <see cref="OpenAIPlanOptions"/> from <see cref="OpenAIPlanOptions.Section"/>.
+    /// </summary>
+    public static IServiceCollection AddOpenAIPlanProvider(this IServiceCollection services)
+    {
+        services.AddModelHttpClient(OpenAIPlanProvider.HttpClientName, retryRateLimits: false);
+        services.AddHttpClient(OpenAIPlanSignIn.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddOptions<OpenAIPlanOptions>();
+        services.AddSingleton<OpenAIPlanProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAIPlanProvider>());
+        services.AddSingleton<OpenAIPlanSignIn>();
+        services.AddSingleton<IModelSignIn>(provider => provider.GetRequiredService<OpenAIPlanSignIn>());
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers the server's own speech service and returns its client's builder, so the server can give it the
     /// handler that marks its requests as going to an address the operator configured. A first sound from a speech
     /// model on a small machine can take a while, so the wait for the answer to begin is wider than the default.
@@ -57,7 +77,7 @@ public static class ServiceCollectionExtensions
 
     #region Private Methods
 
-    private static void AddModelHttpClient(this IServiceCollection services, string name) =>
+    private static void AddModelHttpClient(this IServiceCollection services, string name, bool retryRateLimits = true) =>
         services.AddHttpClient(name)
             .AddStandardResilienceHandler(options =>
             {
@@ -66,7 +86,7 @@ public static class ServiceCollectionExtensions
                 options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
 
                 options.Retry.ShouldHandle = arguments =>
-                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome));
+                    ValueTask.FromResult(RetryRules.ShouldRetry(arguments.Context, arguments.Outcome, retryRateLimits));
                 options.CircuitBreaker.ShouldHandle = arguments =>
                     ValueTask.FromResult(RetryRules.CountsAgainstCircuit(arguments.Outcome));
             })

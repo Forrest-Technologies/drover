@@ -40,7 +40,7 @@ public static class ModelResponses
             preset.KeyPage,
             preset.Local);
 
-    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor) =>
+    public static ModelProviderKindResponse ToResponse(this ModelProviderDescriptor descriptor, bool signIn = false) =>
         new(
             descriptor.Kind,
             descriptor.DisplayName,
@@ -54,7 +54,8 @@ public static class ModelResponses
             descriptor.AddressHint,
             descriptor.KeyHint,
             descriptor.ReportsCapabilities,
-            [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())]);
+            [.. (descriptor.NamedProviders ?? []).Select(named => named.ToResponse())],
+            signIn);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry) =>
         new(

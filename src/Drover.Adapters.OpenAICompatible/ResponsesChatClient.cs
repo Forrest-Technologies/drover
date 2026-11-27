@@ -11,11 +11,16 @@ namespace Drover.Adapters.OpenAICompatible;
 /// "Reasoning summaries"), https://developers.openai.com/api/docs/guides/function-calling,
 /// https://developers.openai.com/api/docs/guides/streaming-responses.
 /// </summary>
+/// <remarks>
+/// Under <see cref="ResponsesRules.Plan"/> (a person's ChatGPT plan) every call streams, a whole answer is the stream
+/// gathered, and <see cref="PlanRequestShaping"/> shapes each request body as the plan requires.
+/// </remarks>
 internal sealed class ResponsesChatClient(
     HttpClient httpClient,
     ResponsesDestination destination,
     string modelId,
-    ModelSettings settings) : IModelChatClient
+    ModelSettings settings,
+    ResponsesRules rules = ResponsesRules.Key) : IModelChatClient
 {
     #region Private Fields
 
@@ -34,6 +39,11 @@ internal sealed class ResponsesChatClient(
 
     public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
+        if (rules is ResponsesRules.Plan)
+        {
+            return await GatherStream(request, cancellation);
+        }
+
         RefuseFilesOtherThanPictures(request);
         var headers = new ProtocolHeaderCapture();
         ChatResponse response;
@@ -143,6 +153,24 @@ internal sealed class ResponsesChatClient(
 
     #region Request Shaping
 
+    /// <summary>
+    /// A whole answer on a wire that only streams: the stream read to its end and put together, so a cut or failed
+    /// stream fails the call as it would fail a streamed one.
+    /// </summary>
+    private async Task<ModelChatResponse> GatherStream(ModelChatRequest request, CancellationToken cancellation)
+    {
+        List<ChatResponseUpdate> updates = [];
+        IReadOnlyDictionary<string, string> headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        await foreach (var update in GetStreamingResponse(request, cancellation))
+        {
+            headers = update.Headers;
+            updates.Add(ModelChatMapping.ToChatUpdate(update));
+        }
+
+        return ModelChatMapping.ToModelResponse(updates.ToChatResponse()) with { Headers = headers };
+    }
+
     private async Task<ChatResponse> Send(ModelChatRequest request, ProtocolHeaderCapture headers, bool askForSummary, CancellationToken cancellation)
     {
         using var client = CreateClient(headers);
@@ -166,6 +194,12 @@ internal sealed class ResponsesChatClient(
     private ChatOptions ToChatOptions(ModelChatOptions options, bool askForSummary)
     {
         var effective = ProtocolChatClient.WithDefaults(options, settings);
+
+        if (rules is ResponsesRules.Plan)
+        {
+            effective = PlanRequestShaping.LeaveOutRefusedSettings(effective);
+        }
+
         var effort = effective.ReasoningEffort?.ToLowerInvariant();
         var mapped = ModelChatMapping.ToChatOptions(effective with { ReasoningEffort = null });
         mapped.RawRepresentationFactory = _ => ShapeRequest(effort, askForSummary);
@@ -209,6 +243,11 @@ internal sealed class ResponsesChatClient(
         if (destination.Headers.Count > 0)
         {
             options.AddPolicy(new ProtocolRequestHeaders(destination.Headers), PipelinePosition.PerCall);
+        }
+
+        if (rules is ResponsesRules.Plan)
+        {
+            options.AddPolicy(PlanRequestShaping.Instance, PipelinePosition.PerCall);
         }
 
         return new OpenAIClient(new ApiKeyCredential(destination.Credential), options).GetResponsesClient().AsIChatClient(modelId);
@@ -363,7 +402,7 @@ internal sealed class ResponsesChatClient(
     /// retry later.
     /// </summary>
     internal static ModelProviderException FailureFor(string? code) =>
-        code?.Replace("_", string.Empty, StringComparison.Ordinal).ToLowerInvariant() switch
+        PlanFailures.For(code) ?? code?.Replace("_", string.Empty, StringComparison.Ordinal).ToLowerInvariant() switch
         {
             "ratelimitexceeded" or "slowdown" or "serverisoverloaded" => ModelProviderException.FromStatus((int)HttpStatusCode.TooManyRequests),
             "insufficientquota" => ModelProviderException.FromStatus((int)HttpStatusCode.PaymentRequired),

@@ -82,6 +82,8 @@ global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Logging.Abstractions;
 global using Microsoft.Extensions.Options;
 global using Microsoft.Extensions.Time.Testing;
+global using Microsoft.IdentityModel.JsonWebTokens;
+global using Microsoft.IdentityModel.Tokens;
 global using ModelContextProtocol.AspNetCore;
 global using ModelContextProtocol.Server;
 global using Npgsql;
