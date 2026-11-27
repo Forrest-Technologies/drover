@@ -37,7 +37,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             [],
             SignIn: true,
             SignInName: "ChatGPT",
-            UsagePage: "https://chatgpt.com/settings/usage"));
+            UsagePage: "https://chatgpt.com/settings/usage",
+            SignInReturn: "http://127.0.0.1:1455/auth/callback"));
         kinds.Where(kind => kind.Kind != OpenAIPlan).Should().OnlyContain(kind => !kind.SignIn, "only a sign-in kind is connected by signing in");
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
@@ -85,11 +86,14 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
         withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com")
             .And.NotContain("api.anthropic.com").And.NotContain("googleapis.com");
-        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Select(kind => kind with { UsagePage = null }), JsonSerializerOptions.Web)
+        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Select(kind => kind with { UsagePage = null, SignInReturn = null }), JsonSerializerOptions.Web)
             .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
         kinds.Where(kind => kind.UsagePage is not null).Should().OnlyContain(
             kind => kind.SignIn && kind.UsagePage!.StartsWith("https://", StringComparison.Ordinal),
             "the one page a kind may name is a sign-in provider's public usage page");
+        kinds.Where(kind => kind.SignInReturn is not null).Should().OnlyContain(
+            kind => kind.SignIn && new Uri(kind.SignInReturn!).IsLoopback,
+            "the one return address a kind may name is on the person's own computer");
     }
 
     [Fact]
