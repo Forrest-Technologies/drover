@@ -26,6 +26,8 @@ public static class ConformanceScenarios
 
     public const string CachedUsage = "cached_usage";
 
+    public const string PdfInput = "pdf_input";
+
     public const string RateLimited = "rate_limited";
 
     public const string InvalidKey = "invalid_key";
