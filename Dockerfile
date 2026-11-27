@@ -67,7 +67,7 @@ RUN DOTNET_GCHeapHardLimit=0x56000000 DOTNET_GCConserveMemory=7 EMCC_CORES=1 BIN
     && mkdir -p /app/publish/wwwroot \
     && cp -a /src/native-publish/wwwroot/. /app/publish/wwwroot/
 
-FROM mcr.microsoft.com/dotnet/aspnet:11.0@sha256:bc0d6653979efba491ab3d6f589d691f96c309c3c3ef81325efa6978e7b7f242 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0@sha256:ca396ece3f2a2e62c7a03f1d7d710b8bc7e8c9dea5597d091178d9f5bfca13f0 AS runtime
 WORKDIR /app
 
 # The volumes for the key ring and files are created here so they start out writable by the non-root user.
