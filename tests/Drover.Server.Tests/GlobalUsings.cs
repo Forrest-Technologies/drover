@@ -26,6 +26,7 @@ global using System.Threading.Tasks;
 global using AwesomeAssertions;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.Conformance.Tools;
+global using Drover.Adapters.Anthropic;
 global using Drover.Adapters.DataProtection;
 global using Drover.Adapters.E2B;
 global using Drover.Adapters.LocalFiles;
