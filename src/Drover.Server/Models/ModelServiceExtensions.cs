@@ -62,9 +62,9 @@ public static class ModelServiceExtensions
         {
             // It never follows a redirect: .NET drops Authorization on a redirect to another host but not a header the
             // adapter adds itself (Azure's api-key), so the key would go to whatever host the answer names.
+            // It turns redirects off on the handler the policy built for every client, and replaces nothing.
             services.AddHttpClient(name)
-                .ConfigurePrimaryHttpMessageHandler(provider =>
-                    OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
+                .ConfigurePrimaryHttpMessageHandler((handler, _) => OutboundHttp.DisableRedirects(handler))
                 .AddHttpMessageHandler<SpaceOutboundHandler>();
         }
 

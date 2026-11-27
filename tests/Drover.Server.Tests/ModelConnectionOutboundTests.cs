@@ -40,28 +40,16 @@ public abstract class ModelConnectionOutboundTests(PostgresServer postgres) : Se
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services)
-    {
-        services.ConfigureHttpClientDefaults(http => http.ConfigurePrimaryHttpMessageHandler(_ => Handler(true)));
-
-        // A model client never follows a redirect (AddModelProvider), so it names its own handler; this one resolves
-        // through the test's names as the defaults do.
-        foreach (var name in new[] { OpenAICompatibleProvider.HttpClientName, OpenAICompatibleProvider.RealtimeHttpClientName })
-        {
-            services.AddHttpClient(name).ConfigurePrimaryHttpMessageHandler(_ => Handler(false));
-        }
-    }
+    protected override void ConfigureServices(IServiceCollection services) =>
+        services.ConfigureHttpClientDefaults(http => http.ConfigurePrimaryHttpMessageHandler(_ =>
+            OutboundHttp.CreateHandler(
+                Rules,
+                (host, _) => Task.FromResult(new[] { names[host] }),
+                address => OnlyTheFirstLoopbackIsPrivate ? address.Equals(loopback) : PrivateAddresses.Contains(address))));
 
     #endregion
 
     #region Helpers
-
-    private HttpMessageHandler Handler(bool followRedirects) =>
-        OutboundHttp.CreateHandler(
-            Rules,
-            (host, _) => Task.FromResult(new[] { names[host] }),
-            address => OnlyTheFirstLoopbackIsPrivate ? address.Equals(loopback) : PrivateAddresses.Contains(address),
-            followRedirects);
 
     protected TestWebServer StartServer(Func<string, string>? answer = null) =>
         new(request =>
