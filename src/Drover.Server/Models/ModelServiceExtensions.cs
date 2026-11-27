@@ -5,27 +5,30 @@ public static class ModelServiceExtensions
     #region Public Methods
 
     /// <summary>
-    /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each, in the
-    /// order their registrations require (the compatible transport first, because Venice builds its chat client from
-    /// it). A new provider kind is one more call here.
+    /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
+    /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
+    /// provider choice in every form: Venice, OpenAI, Anthropic and Gemini, the hosted providers that need only a key, then the compatible kind
+    /// with the named providers it carries, so the choice starts on a provider that needs only a key and "Another
+    /// compatible server" comes last. A new provider kind is one more call here.
     /// <c>Drover:Models:SignInOff</c> lists the sign-in kinds the operator switched off; the renewer keeps people's
     /// sign-ins from lapsing unused. A sign-in kind is also a provider kind: it registers here like any other.
     /// </summary>
     public static IServiceCollection AddDroverModels(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
+        services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
+        services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
+        services.AddModelProvider<GeminiProvider>(adapter => adapter.AddGeminiProvider(), GeminiProvider.HttpClientName);
         services.AddModelProvider<OpenAICompatibleProvider>(
             adapter => adapter.AddOpenAICompatibleProvider(),
             OpenAICompatibleProvider.HttpClientName,
             OpenAICompatibleProvider.RealtimeHttpClientName);
-        services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
-        services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.Configure<OpenRouterSignInOptions>(configuration.GetSection(OpenRouterSignInOptions.Section));
         services.AddModelProvider<OpenRouterProvider>(
             adapter => adapter.AddOpenRouterSignIn(),
             OpenRouterProvider.HttpClientName,
             OpenRouterSignIn.HttpClientName);
-        services.AddModelProvider<AnthropicProvider>(adapter => adapter.AddAnthropicProvider(), AnthropicProvider.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         services.Configure<ModelSignInOptions>(configuration.GetSection("Drover:Models"));
