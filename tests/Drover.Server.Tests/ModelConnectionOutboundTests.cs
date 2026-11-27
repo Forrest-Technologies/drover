@@ -40,16 +40,28 @@ public abstract class ModelConnectionOutboundTests(PostgresServer postgres) : Se
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services) =>
-        services.ConfigureHttpClientDefaults(http => http.ConfigurePrimaryHttpMessageHandler(_ =>
-            OutboundHttp.CreateHandler(
-                Rules,
-                (host, _) => Task.FromResult(new[] { names[host] }),
-                address => OnlyTheFirstLoopbackIsPrivate ? address.Equals(loopback) : PrivateAddresses.Contains(address))));
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        services.ConfigureHttpClientDefaults(http => http.ConfigurePrimaryHttpMessageHandler(_ => Handler(true)));
+
+        // A model client never follows a redirect (AddModelProvider), so it names its own handler; this one resolves
+        // through the test's names as the defaults do.
+        foreach (var name in new[] { OpenAICompatibleProvider.HttpClientName, OpenAICompatibleProvider.RealtimeHttpClientName })
+        {
+            services.AddHttpClient(name).ConfigurePrimaryHttpMessageHandler(_ => Handler(false));
+        }
+    }
 
     #endregion
 
     #region Helpers
+
+    private HttpMessageHandler Handler(bool followRedirects) =>
+        OutboundHttp.CreateHandler(
+            Rules,
+            (host, _) => Task.FromResult(new[] { names[host] }),
+            address => OnlyTheFirstLoopbackIsPrivate ? address.Equals(loopback) : PrivateAddresses.Contains(address),
+            followRedirects);
 
     protected TestWebServer StartServer(Func<string, string>? answer = null) =>
         new(request =>
@@ -259,7 +271,7 @@ public sealed class HostedModelConnectionOutboundTests(PostgresServer postgres) 
     }
 
     [Fact]
-    public async Task A_redirect_from_a_public_name_to_a_private_address_is_refused()
+    public async Task A_redirect_from_a_public_name_to_a_private_address_is_not_followed()
     {
         OnlyTheFirstLoopbackIsPrivate = true;
         using var server = StartServer(request => request.Contains(PublicName, StringComparison.Ordinal)
@@ -270,7 +282,7 @@ public sealed class HostedModelConnectionOutboundTests(PostgresServer postgres) 
         var test = await Test(client, spaceId, connection.Id);
 
         test.Succeeded.Should().BeFalse();
-        test.Message.Should().Contain("private addresses");
+        test.Message.Should().Contain("HTTP 302", "a model client never follows a redirect");
         lock (Requests)
         {
             Requests.Should().ContainSingle("only the redirecting request reached the server");
