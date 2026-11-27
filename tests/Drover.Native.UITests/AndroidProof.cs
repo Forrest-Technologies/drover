@@ -2,9 +2,8 @@ namespace Drover.Native.UITests;
 
 /// <summary>
 /// The manual proof of the Android basics, on the one emulator adb sees: the app installed on it is the build made
-/// for the checks, and it talks to the test server of this run. The app's own steps send a message, attach a picture
-/// and open the sandbox screen; this class does what the app cannot do from inside: it chooses the picture in the
-/// system's file picker, drags a finger over the sandbox picture with real touch events, and then asks the server
+/// for the checks, and it talks to the test server of this run. This class sends a message by touch with the keyboard
+/// open, chooses a picture in the system's file picker, drags over the sandbox picture, and asks the server
 /// what reached it. Each of the four things prints one pass or fail line. Everything a failure needs is kept in the
 /// artifacts folder: a screenshot, the device log, the last screen the harness read, and a recording of the run.
 /// </summary>
@@ -93,10 +92,11 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
     #region Driving
 
     // Reads the app's report until it says it is done or has failed. When it says it is waiting for something only
-    // the harness can do, the harness does it: choosing the picture in the picker, and the drag.
+    // the harness can do, the harness does it: touching Send, choosing the picture, and the drag.
     private async Task<IReadOnlyList<string>> Drive(string serial, string runId, MemorySandboxProvider sandbox)
     {
         var watch = Stopwatch.StartNew();
+        var sendAttempted = false;
         var picked = false;
         var dragged = false;
         IReadOnlyList<string> lines = [];
@@ -111,7 +111,12 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
                 return lines;
             }
 
-            if (!picked && lines.Any(line => line.StartsWith("ui-check wait: choose", StringComparison.Ordinal)))
+            if (!sendAttempted && lines.Contains("ui-check wait: touch Send with the keyboard open"))
+            {
+                sendAttempted = true;
+                await SendWithKeyboard(serial);
+            }
+            else if (!picked && lines.Any(line => line.StartsWith("ui-check wait: choose", StringComparison.Ordinal)))
             {
                 picked = true;
                 await Pick(serial);
@@ -131,6 +136,37 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
         logger.LogError("The app did not finish its steps in {Minutes} minutes", patience.TotalMinutes);
         return lines;
+    }
+
+    private async Task SendWithKeyboard(string serial)
+    {
+        var fieldId = $"{AndroidApp.Package}:id/ComposerField";
+        var sendId = $"{AndroidApp.Package}:id/ComposerSend";
+        var watch = Stopwatch.StartNew();
+        var focused = false;
+        while (watch.Elapsed < pickPatience)
+        {
+            var nodes = await Screen(serial);
+            if (!focused && nodes.FirstOrDefault(node => node.Id == fieldId) is { } field)
+            {
+                await Tap(serial, field);
+                focused = true;
+            }
+            else if (focused && nodes.FirstOrDefault(node => node.Id == sendId) is { } send
+                && (await AndroidApp.Adb(serial, "shell", "dumpsys", "input_method"))
+                    .Contains("mInputShown=true", StringComparison.Ordinal))
+            {
+                var x = (send.Left + send.Right) / 2;
+                var y = (send.Top + send.Bottom) / 2;
+                // Separate down and up so a keyboard dismissal can move the button during the touch.
+                await AndroidApp.Adb(serial, "shell", "input", "swipe", $"{x}", $"{y}", $"{x}", $"{y}", "170");
+                return;
+            }
+
+            await Task.Delay(poll);
+        }
+
+        logger.LogError("The proof did not find Send with the Android keyboard open");
     }
 
     // The system's picker is another app. It opens where it was last left, so the picture is looked for where it is,
@@ -270,7 +306,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
         byte[] attachment,
         IReadOnlyList<string> lines)
     {
-        Say(1, "chat: a message is sent and the bot's reply arrives", InApp(lines, 1));
+        Say(1, "chat: one touch on Send with the keyboard open sends the message and the bot replies", InApp(lines, 1));
         Say(
             2,
             "upload: the picture is attached and sent, and the server stored the same bytes",
@@ -482,6 +518,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
     /// <summary>One element of the screen the device's accessibility service reports, with its box in pixels.</summary>
     private sealed record ScreenNode(
         string Package,
+        string Id,
         string Text,
         string Description,
         int Left,
@@ -500,6 +537,7 @@ internal sealed class AndroidProof(ILogger logger, string artifacts)
 
             return new ScreenNode(
                 node.Attribute("package")?.Value ?? string.Empty,
+                node.Attribute("resource-id")?.Value ?? string.Empty,
                 node.Attribute("text")?.Value ?? string.Empty,
                 node.Attribute("content-desc")?.Value ?? string.Empty,
                 box.ElementAtOrDefault(0),

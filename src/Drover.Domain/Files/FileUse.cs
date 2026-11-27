@@ -2,11 +2,12 @@ namespace Drover.Domain.Files;
 
 /// <summary>
 /// What a bot can do with files in one conversation: whether its model reads pictures, whether it has a sandbox to put
-/// a file in, and whether everyone who can reach that sandbox can see the conversation. A bot's sandbox is reachable
+/// a file in, whether everyone who can reach that sandbox can see the conversation, and whether its model reads a PDF
+/// as a PDF. A bot's sandbox is reachable
 /// beyond one conversation (by the space's admins, and by the bot's runs for other people), so a file is copied into
 /// it only when the conversation is shared with the whole space, or the space is personal and has one member.
 /// </summary>
-public sealed record FileAbilities(bool ModelReadsImages, bool HasSandbox, bool AudienceCoversSandbox);
+public sealed record FileAbilities(bool ModelReadsImages, bool HasSandbox, bool AudienceCoversSandbox, bool ModelReadsPdf = false);
 
 /// <summary>How a file reaches a bot.</summary>
 public enum FileUse
@@ -22,6 +23,12 @@ public enum FileUse
     /// model that reads pictures as pictures.
     /// </summary>
     Document,
+
+    /// <summary>
+    /// The model is given the PDF itself, because its model reads PDFs. One past the server's or the provider's bound
+    /// is given as a <see cref="Document"/> instead.
+    /// </summary>
+    NativeDocument,
 
     /// <summary>The file is copied into the bot's sandbox and the model is told where.</summary>
     Sandbox,
@@ -54,6 +61,15 @@ public static class FileUses
         : abilities.HasSandbox ? FileRefusals.PrivateConversation
         : kind is FileKind.Image ? FileRefusals.ModelCannotReadImages
         : FileRefusals.NothingCanOpenIt;
+
+    /// <summary>
+    /// As <see cref="For(FileKind, FileAbilities)"/> for a file of this content type, except that a PDF goes to a model
+    /// that reads PDFs as itself.
+    /// </summary>
+    public static FileUse For(string contentType, FileAbilities abilities) =>
+        contentType is DocumentTypes.Pdf && abilities.ModelReadsPdf
+            ? FileUse.NativeDocument
+            : For(FileInspector.KindOf(contentType), abilities);
 
     #endregion
 }

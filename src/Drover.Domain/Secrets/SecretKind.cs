@@ -10,4 +10,5 @@ public enum SecretKind
     SandboxToken,
     PushKey,
     SandboxEnvironment,
+    DecisionKey,
 }

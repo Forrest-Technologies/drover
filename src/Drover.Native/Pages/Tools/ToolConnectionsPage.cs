@@ -97,6 +97,7 @@ public sealed class ToolConnectionsPage : Screen
         addressField = Field("Address", value => draft.Url = value, "url", "The address of the server's MCP endpoint.");
         addressField.Placeholder = "https://";
         headerNameField = Field("Header name", value => draft.HeaderName = value);
+        headerNameField.MaxLength = FieldLimits.HeaderName;
         headerValueField = Field("Header value", value => draft.HeaderValue = value, "password", "Stored encrypted. It is not shown again.");
         headerPart = PageParts.Column(headerNameField, headerValueField);
 
@@ -116,7 +117,7 @@ public sealed class ToolConnectionsPage : Screen
         var kindName = Styles.Text(kind.Label, "DvTextLabel");
         AutomationProperties.SetAccessibilityView(kindName, AccessibilityView.Raw);
         kindPart = new StackPanel { Spacing = Tokens.Number("DvSpace2"), Children = { kindName, kind } };
-        trust = Toggle("Trust what this server's tools return", value => draft.Trusted = value);
+        trust = Toggle("Trust this server’s output and tool annotations", value => draft.Trusted = value);
         protocol = Choice("Protocol", value => draft.ProtocolMode = value,
             [new("automatic", "Chosen by Drover"), new("stateless_only", "Without sessions only"), new("session_only", "With sessions only")]);
         var more = new Disclosure
@@ -157,6 +158,7 @@ public sealed class ToolConnectionsPage : Screen
         });
 
         replaceNameField = PageParts.Field("Header name", string.Empty, value => model.HeaderName = value);
+        replaceNameField.MaxLength = FieldLimits.HeaderName;
         replaceValueField = PageParts.Field("Header value", string.Empty, value => model.HeaderValue = value, "password",
             "Stored encrypted. It is not shown again.");
         replaceNameField.Submitted += (_, _) => Run(SaveHeader);

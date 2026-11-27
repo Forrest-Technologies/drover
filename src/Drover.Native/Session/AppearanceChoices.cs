@@ -19,6 +19,8 @@ public sealed class AppearanceChoices : StackPanel
 
     private IReadOnlyList<LookOption> looks = [];
 
+    private IReadOnlyList<LookOption> offered = [];
+
     private IReadOnlyList<ThemeOption> modes = [];
 
     private IReadOnlyList<AccentOption> accents = [];
@@ -76,7 +78,7 @@ public sealed class AppearanceChoices : StackPanel
     // One change to the theme is told once for each list, and is drawn once.
     private void ModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
     {
-        if (!looks.SequenceEqual(model.Looks) || !modes.SequenceEqual(model.Themes)
+        if (!looks.SequenceEqual(model.Looks) || !offered.SequenceEqual(model.OfferedLooks) || !modes.SequenceEqual(model.Themes)
             || !accents.SequenceEqual(model.AccentChoices) || note != model.WaitingNote
             || syncNote != model.SyncNote)
         {
@@ -89,10 +91,10 @@ public sealed class AppearanceChoices : StackPanel
     {
         var retryFocus = retryButton?.FocusState ?? FocusState.Unfocused;
         focusOwed = Focused() ?? focusOwed;
-        (looks, modes, accents, note, syncNote) =
-            (model.Looks, model.Themes, model.AccentChoices, model.WaitingNote, model.SyncNote);
+        (looks, offered, modes, accents, note, syncNote) =
+            (model.Looks, model.OfferedLooks, model.Themes, model.AccentChoices, model.WaitingNote, model.SyncNote);
         if (syncNote is null && retryFocus is not FocusState.Unfocused && focusOwed is null
-            && looks.FirstOrDefault(look => look.InUse) is { } activeLook)
+            && looks.Concat(offered).FirstOrDefault(look => look.InUse) is { } activeLook)
         {
             focusOwed = ($"look:{activeLook.Id}", retryFocus);
         }
@@ -102,6 +104,12 @@ public sealed class AppearanceChoices : StackPanel
         body.Children.Clear();
 
         body.Children.Add(Group("Theme", Rows(looks.Select(LookRow))));
+
+        // A space with no extension that offers a theme has nothing more to list.
+        if (offered.Count > 0)
+        {
+            body.Children.Add(Group(AppearanceViewModel.OfferedLegend, Rows(offered.Select(LookRow))));
+        }
         body.Children.Add(Group("Mode", Rows(modes.Select(ModeRow))));
 
         // A theme with no accent but its own has nothing to choose here.
@@ -197,7 +205,7 @@ public sealed class AppearanceChoices : StackPanel
 
     private AppearanceOption LookRow(LookOption look) => Option(
         $"look:{look.Id}",
-        Row(look.Name, look.Intent, look.InUse),
+        Row(look.Name, look.Source is null ? look.Intent : $"{look.Intent} From {look.Source}.", look.InUse),
         look.InUse,
         look.AccessibleName,
         () => model.ChooseLook(look.Id));

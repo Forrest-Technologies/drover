@@ -1,0 +1,67 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written from the documented shape of a routing service's model list (https://openrouter.ai/docs/api-reference/models/get-models): context_length, pricing strings in US dollars per token, architecture.input_modalities, supported_parameters, top_provider.max_completion_tokens. The host is a placeholder; no real server produced this. The third entry is a plain one with the context size key of a server that serves one model (max_model_len); the fourth carries nothing but an id. The last exchange is a server with no /api/show route.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "id": "vendor/routed-vision",
+            "name": "Routed vision",
+            "context_length": 200000,
+            "architecture": {
+              "input_modalities": ["text", "image"],
+              "output_modalities": ["text"]
+            },
+            "pricing": {
+              "prompt": "0.000003",
+              "completion": "0.000015",
+              "input_cache_read": "0.0000003"
+            },
+            "top_provider": {
+              "context_length": 200000,
+              "max_completion_tokens": 64000
+            },
+            "supported_parameters": ["tools", "reasoning", "structured_outputs", "max_tokens"]
+          },
+          {
+            "id": "vendor/routed-text",
+            "context_length": 8192,
+            "architecture": {
+              "input_modalities": ["text"]
+            },
+            "pricing": {
+              "prompt": "-1",
+              "completion": "not a number"
+            },
+            "top_provider": {
+              "max_completion_tokens": null
+            },
+            "supported_parameters": ["max_tokens"]
+          },
+          {
+            "id": "served-model",
+            "object": "model",
+            "owned_by": "vllm",
+            "max_model_len": 32768
+          },
+          {
+            "id": "bare-model",
+            "object": "model"
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "status": 404,
+      "body": {
+        "error": "Not found"
+      }
+    }
+  ]
+}

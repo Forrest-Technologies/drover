@@ -1,0 +1,55 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's generateContent reference and guides (https://ai.google.dev/api/generate-content, https://ai.google.dev/api/models, https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking/thought-signatures, read 2026-11-27). The model id and every value are made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "models": [
+          {
+            "name": "models/gemini-test-thinker",
+            "displayName": "Gemini Test Thinker",
+            "inputTokenLimit": 1048576,
+            "outputTokenLimit": 65536,
+            "supportedGenerationMethods": [
+              "generateContent",
+              "countTokens"
+            ],
+            "thinking": true
+          },
+          {
+            "name": "models/gemini-test-embedding",
+            "displayName": "Gemini Test Embedding",
+            "inputTokenLimit": 2048,
+            "outputTokenLimit": 1,
+            "supportedGenerationMethods": [
+              "embedContent"
+            ]
+          }
+        ],
+        "nextPageToken": "page-two"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "models": [
+          {
+            "name": "models/gemini-test-plain",
+            "displayName": "Gemini Test Plain",
+            "inputTokenLimit": 131072,
+            "outputTokenLimit": 8192,
+            "supportedGenerationMethods": [
+              "generateContent"
+            ],
+            "thinking": false
+          }
+        ]
+      }
+    }
+  ]
+}

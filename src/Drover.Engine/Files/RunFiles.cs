@@ -20,7 +20,8 @@ public sealed class RunFiles(
     int maxDocumentPages,
     IFileStore store,
     SandboxBroker? sandboxes,
-    ILogger logger)
+    ILogger logger,
+    PdfReading? pdf = null)
 {
     #region Private Fields
 
@@ -77,9 +78,13 @@ public sealed class RunFiles(
             },
             cancellationToken);
 
+        // The provider's PDF bounds are for one request, so the PDFs one model call is given share them.
+        var pdfAllowance = pdf is null ? null : new PdfAllowance(pdf);
+
         foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), cancellationToken);
+            var abilities = new FileAbilities(modelReadsImages, hasSandbox, covered, pdf is not null);
+            opened[file.Id] = await Give(file, abilities, pdfAllowance, cancellationToken);
         }
 
         return opened;
@@ -496,7 +501,7 @@ public sealed class RunFiles(
     #region Private Methods
 
     /// <summary>Opens a conversation attachment within the bot's current file abilities.</summary>
-    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, CancellationToken cancellationToken)
+    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, PdfAllowance? pdfAllowance, CancellationToken cancellationToken)
     {
         if (given.TryGetValue(file.Id, out var known))
         {
@@ -504,13 +509,14 @@ public sealed class RunFiles(
         }
 
         var kind = FileInspector.KindOf(file.ContentType);
-        var use = FileUses.For(kind, can);
+        var use = FileUses.For(file.ContentType, can);
 
         var result = use switch
         {
             FileUse.Image => await Picture(file, AttachmentCaption, cancellationToken),
             FileUse.Text => await Text(file, AttachmentCaption, cancellationToken),
             FileUse.Document => await Document(file, can, cancellationToken),
+            FileUse.NativeDocument => await NativeDocument(file, can, pdfAllowance!, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
             _ => Note(file, FileUses.RefusalFor(kind, can) switch
             {
@@ -567,6 +573,44 @@ public sealed class RunFiles(
             _ => new FileForModel(file.Id, DocumentWords.WithoutText(file.Name, file.ContentType, read), read.PageImages),
         };
 
+        return await AlsoIntoSandbox(file, given, can, cancellationToken);
+    }
+
+    /// <summary>
+    /// A PDF given as itself to a model that reads PDFs, when it fits in what is left of the server's and the
+    /// provider's bounds for this model call (<see cref="PdfAllowance"/>); otherwise it is given as a
+    /// <see cref="FileUse.Document"/> is. Its pages are counted by reading it, which also leaves its text ready for the
+    /// text path.
+    /// </summary>
+    private async Task<FileForModel> NativeDocument(StoredFile file, FileAbilities can, PdfAllowance allowance, CancellationToken cancellationToken)
+    {
+        if (file.Size > allowance.Bytes)
+        {
+            return await Document(file, can, cancellationToken);
+        }
+
+        if (await ReadAll(file, cancellationToken) is not { } bytes)
+        {
+            return Missing(file);
+        }
+
+        var (read, _) = ReadDocument(file, bytes, modelReadsImages: false);
+
+        if (read is null || !allowance.TryTake(read.Total, bytes.Length))
+        {
+            return await Document(file, can, cancellationToken);
+        }
+
+        var given = new FileForModel(
+            file.Id,
+            $"[{AttachmentCaption} {file.Name}, a PDF of {read.Total} pages:]",
+            [new ToolImage(bytes, DocumentTypes.Pdf)]);
+        return await AlsoIntoSandbox(file, given, can, cancellationToken);
+    }
+
+    /// <summary>With a sandbox the bot may use, the file is put there as well, so its tools can work on the original.</summary>
+    private async Task<FileForModel> AlsoIntoSandbox(StoredFile file, FileForModel given, FileAbilities can, CancellationToken cancellationToken)
+    {
         if (can is not { HasSandbox: true, AudienceCoversSandbox: true })
         {
             return given;

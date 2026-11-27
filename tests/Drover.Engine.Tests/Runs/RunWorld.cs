@@ -132,7 +132,7 @@ public sealed class RunWorld : IAsyncDisposable
         });
 
     /// <summary>A bot made beneath another through the engine, as a person makes one in the crew.</summary>
-    public Task<Guid> NewBotBeneath(Guid parentId, string name, string description = "") =>
+    public Task<Guid> NewBotBeneath(Guid? parentId, string name, string description = "") =>
         Transact(async services =>
         {
             var change = await services.GetRequiredService<BotService>()
@@ -290,7 +290,11 @@ public sealed class RunWorld : IAsyncDisposable
 
     public Task<Run> ReadRun(Guid runId) => Read(db => db.Runs.AsNoTracking().SingleAsync(run => run.Id == runId, Token));
 
-    public async Task<Run> WaitForStatus(Guid runId, params RunStatus[] statuses)
+    public Task<Run> WaitForStatus(Guid runId, params RunStatus[] statuses) =>
+        WaitForStatusWithin(runId, patience, statuses);
+
+    /// <summary>Waits for a run's status with a longer bound than the usual one, for a run that makes many calls.</summary>
+    public async Task<Run> WaitForStatusWithin(Guid runId, TimeSpan wait, params RunStatus[] statuses)
     {
         var watch = Stopwatch.StartNew();
 
@@ -303,7 +307,7 @@ public sealed class RunWorld : IAsyncDisposable
                 return run;
             }
 
-            (watch.Elapsed < patience).Should().BeTrue($"run {runId} should reach {string.Join(" or ", statuses)}; it is {run.Status}");
+            (watch.Elapsed < wait).Should().BeTrue($"run {runId} should reach {string.Join(" or ", statuses)}; it is {run.Status}");
             await Task.Delay(25, Token);
         }
     }

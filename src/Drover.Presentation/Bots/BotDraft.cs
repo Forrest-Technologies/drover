@@ -97,7 +97,16 @@ public sealed class BotDraft
 
     public string MaxTokens { get; set; } = string.Empty;
 
+    public bool UnlimitedTokens { get; set; }
+
+    public bool UncappedUsageAcknowledged { get; set; }
+
+    /// <summary>The bot's limit on rule checks, kept as it was read: the editor does not change it yet.</summary>
+    public int? MaxJudgedChecks { get; set; }
+
     public string MaxDelegations { get; set; } = string.Empty;
+
+    public bool AcceptsBotRequests { get; set; } = true;
 
     /// <summary>
     /// Tool grants a person chose in the Sandbox section, by tool, applied through the tools API when the bot is saved
@@ -141,7 +150,11 @@ public sealed class BotDraft
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
         MaxSteps = Text(bot.RunLimits.MaxSteps),
         MaxTokens = Text(bot.RunLimits.MaxTokens),
+        UnlimitedTokens = bot.RunLimits.UncappedUsageAcknowledged,
+        UncappedUsageAcknowledged = bot.RunLimits.UncappedUsageAcknowledged,
         MaxDelegations = Text(bot.RunLimits.MaxDelegations),
+        MaxJudgedChecks = bot.RunLimits.MaxJudgedChecks,
+        AcceptsBotRequests = bot.AcceptsBotRequests,
     };
 
     /// <summary>
@@ -162,6 +175,11 @@ public sealed class BotDraft
     /// <summary>What a number field holds that is not a number, as a sentence, or null when every one reads.</summary>
     public string? FindProblem()
     {
+        if (UnlimitedTokens && !UncappedUsageAcknowledged)
+        {
+            return "Confirm that you understand the API spending risk before saving.";
+        }
+
         if (Temperature.Trim().Length > 0 && ReadDecimal(Temperature) is null)
         {
             return "Temperature is a number, such as 0.7.";
@@ -176,7 +194,7 @@ public sealed class BotDraft
             ("The number of bots it may build", MaxChildren),
             ("The number of levels beneath it", MaxDepthBelow),
             ("The limit on model calls", MaxSteps),
-            ("The limit on tokens", MaxTokens),
+            ("The limit on tokens", UnlimitedTokens ? string.Empty : MaxTokens),
             ("The limit on handoffs", MaxDelegations),
         ];
 
@@ -211,8 +229,14 @@ public sealed class BotDraft
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
-            new RunLimitsBody(ReadWhole(MaxSteps), ReadWhole(MaxTokens), ReadWhole(MaxDelegations)),
-            HandleFollowsName: !HandleChosen);
+            new RunLimitsBody(
+                ReadWhole(MaxSteps),
+                UnlimitedTokens ? null : ReadWhole(MaxTokens),
+                ReadWhole(MaxDelegations),
+                UnlimitedTokens && UncappedUsageAcknowledged,
+                MaxJudgedChecks),
+            HandleFollowsName: !HandleChosen,
+            AcceptsBotRequests: AcceptsBotRequests);
 
     /// <summary>
     /// Clears the model settings the chosen model does not have, so a setting made for another model is not sent

@@ -17,7 +17,7 @@ The Blazor web client (`Drover.Ui`, `Drover.Web`) and the MAUI Android shell (`D
 | `src/Drover.Presentation` | `net11.0` library, in `Drover.slnx` | The moved framework-free code (`Drover.Ui.*`), view models (`Drover.Presentation.ViewModels`), the router (`Drover.Presentation.Routing`), the readers for drawings kept as data (`Drover.Presentation.Drawing`), `IDeviceSettings` |
 | `src/Drover.Native` | Uno single project, in `Drover.Native.slnx` | The app: tokens, controls, layouts, shell, pages, platform code |
 | `src/Shared/Transport` | Source files, linked | `AntiforgeryHandler` (compiled into the browser build); `AppRequests`, `NativeSession`, `NativeSessionTokens`, `ServerAddress` (compiled into the device builds) |
-| `src/Shared/Web` | Browser files, linked | `boot.js`, `cookies.js`, `push.js`, `push-worker.js`, `service-worker.published.js`, the icons: copied into the browser build, which the server serves at the root |
+| `src/Shared/Web` | Browser files, linked | `boot.js`, `cookies.js`, `push.js`, `push-worker.js`, `voice.js`, `voice-worklet.js`, `service-worker.published.js`, the icons: copied into the browser build, which the server serves at the root |
 | `src/Shared/Android` | Source files, linked | UnifiedPush registration, transport, receivers and delivery service, notifications, shares in (`AndroidShares`), files out (`AndroidFileDelivery`, `DocumentDestination`), and `IncomingIntents`, written for the retired Android shell; compiled into the Android build |
 | `tests/Drover.Presentation.Tests` | xunit, in `Drover.slnx` | Router, view models, wording, token parity and contrast, the interface rules for native source, and the shared web files (service worker, the retiring `/native/` worker, the HTML preview) in a real Chromium |
 
@@ -34,9 +34,9 @@ src/Drover.Native/
   Shell/                   AppServices, Screens, ShellView, Screen, PendingScreen, Splash
   Pages/                   one class per screen, in the folders the web client uses
   Device/                  compiled for desktop and phones only: server choice, settings, the phone credential store
-  Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table
-  Platforms/Desktop/       Program.cs, files out, the desktop credential store
-  Platforms/Android/       application, activity, manifest
+  Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table, sound (BrowserAudio)
+  Platforms/Desktop/       Program.cs, files out, the desktop credential store, sound (DesktopAudio)
+  Platforms/Android/       application, activity, manifest, sound (AndroidAudio)
   Platforms/iOS/           entry point, manifest, keychain entitlement, safe areas
   Assets/Fonts/            Inter and JetBrains Mono, with their licenses
 ```
@@ -184,7 +184,8 @@ server of the screen checks in the harness with a sandbox provider that records 
 `/health/ready`, and runs `dotnet run --project tests/Drover.Native.UITests -- android-proof <folder>`. Every wait has
 a bound and says what it saw when the bound passes. Four things print one `PROOF PASS` or `PROOF FAIL` line each:
 
-1. **Chat.** The app sends a message and the bot's reply arrives.
+1. **Chat.** The harness opens the on-screen keyboard and touches Send once, holding for 170 ms before lifting.
+   The message goes through and the bot's reply arrives.
 2. **Upload.** The app presses attach. The harness chooses `drover-proof.png` in the system's file picker, so the
    file comes through the same path as a person's screenshot. The app waits for its chip to say it is uploaded, sends
    it, and sees it in the conversation. The harness then reads the stored file from the server and compares its hash
@@ -283,7 +284,7 @@ Every component of the retired web client has a control of the same name in `src
 | `DroverMark` | `Foreground` |
 | `EmptyState` | `Title`, `Cause`, `ActionLabel`, `ActionHref`, `ActionCommand` or the `Action` event |
 | `Field` | `Label`, `Value` (two-way), `Type`, `Placeholder`, `Hint`, `Error`, `Disabled`, `MaxLength` (the web's `maxlength`), `Autofill` (the web's `autocomplete`), the `Submitted` event |
-| `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`. Drawn from `IconShapes` |
+| `Icon` | `NameOfIcon` (the web's `Name`), `Size`, `Foreground`, `ColorToken`. Drawn from `IconShapes` |
 | `IconButton` | `Icon`, `Label` (required: it throws without one) |
 | `ListCard` | The one frame for a list of things to open. `Title` is the link named by the item; `Facts`, `Leading`, `Status` and `Trailing` fill its four columns; `Beneath` holds a block below the frame. The `Opened` event makes the whole card a tap target and gives its name a keyboard path; with no handler the name is plain text |
 | `ScreenHeader` | The one header at the top of a work screen. `Title` is the level one heading; `BackLabel` and `BackAddress` add the arrow button (`ScreenBack`) when both are set; `Actions` holds icon buttons and icon menus |
@@ -328,10 +329,16 @@ Native only, because the web does these in CSS:
 
 What a conversation shows and what opens beside one is in `src/Drover.Native/Chat`, one control for each component of the retired web client's conversation, with the same name and the same parameters. Their logic is in `Drover.Presentation/ViewModels/Chat`, moved from the components as it was, and tested in `tests/Drover.Presentation.Tests/ViewModels/Chat` with the web client's cases and its recorded event logs (`tests/Drover.Presentation.Tests/Fixtures`).
 
+The turn ledger uses [`ToolIcons`](../../src/Drover.Presentation/Icons/ToolIcons.cs) for the icon beside each
+tool name. To add one, add a switch arm for the tool's qualified ID and its stored spelling if that differs.
+Choose an existing [`IconName`](../../src/Drover.Presentation/Icons/IconName.cs) and, if useful, a `DvHue0` through
+`DvHue11` theme token. A new shape goes in `IconName` and `IconShapes`. Unmapped tools use the neutral tool icon.
+The ledger still names the tool and its outcome in words. Check the new icon in dark and light at 360 px.
+
 | Control | Takes | Raises |
 | --- | --- | --- |
 | `ToolCallCard` | `Card`, `BotName`, `Decide`, `Forget`, `Forgotten`, `MemoryHref` | |
-| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element) | |
+| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element); an unusable answer uses the same card and words as an unusable reply, with its original behind a closed disclosure | |
 | `TakeoverCard` | `BotName`, `Reason`, `Phase`, `Sending`, `Problem`, `Access`, `SetupHref`, `AnswerBesideScreen`, `TakeFocus` | `OpenScreen`, `Done`, `CouldNot` |
 | `TakeoverCall` | `Takeover`, `BotName`, `Takeovers` | |
 | `FileCard` | `File`, `ReadWhole` | |
@@ -339,7 +346,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
 | `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
 | `MessageVersions` (native only, inside `ChatEntry`) | `ShowVersion`, `OnAct`; `Show(message)` draws the message's `Versions` switch ("2 of 3" between previous and next) and Edit or Write another reply when the message offers it | |
-| `UnusableToolRequestCard` (native only, inside `ChatEntry`) | `MessageKey`, `BotName`, `OriginalResponse`, `CanRetry`; shown when a completed bot reply holds only a raw DSML tool-call protocol envelope (`UnusableToolRequests.IsProtocolEnvelope`), with a plain-word explanation, the existing retry action when available, and a collapsed disclosure of the original response | `Retry` |
+| `UnusableToolRequestCard` (native only, inside `ChatEntry` and an unusable handoff answer) | `MessageKey`, `BotName`, `OriginalResponse`, `CanRetry`; shown when a completed bot reply holds a raw DSML tool-call protocol request, whole or cut off before its closing tags (`UnusableToolRequests.IsUnusableRequest`), with a plain-word explanation, the existing retry action where the message list offers it, and a collapsed disclosure of the original response | `Retry` |
 | `ExchangedFiles` | `Bot`, `Version` | |
 | `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
 | `MemoryRail` | `Bot`, `Version` | |
@@ -471,6 +478,7 @@ Every screen of the retired web client has moved; the steps below were how, and 
 - **The development build logs a failed connection to a development server** on every start. It is the hot reload client looking for an editor, and it is not in a release build.
 - **Under a virtual display the message list kept its old picture when a message in it only got shorter.** Seen on the desktop build under `xvfb` only: an older reply's actions were collapsed, the layout was right (the message and the column reported their new heights), and the picture stayed the one from before until something else was drawn. Growing drew at once. It was not shown on a real display or another target, so the client holds no workaround for it; a picture taken under `xvfb` right after something collapses can be one frame behind.
 - **The browser's accessible boxes go stale when an ancestor moves.** Uno 7.0.65 updates the box of a control only when that control's own visual changes its offset or size (`RouteVisualOffsetOrSizeChanged` re-emits descendants only below a scroll source). The composer grows upward from the bottom of the page, so opening or closing its options row, or the field growing a line, moves the composer and leaves the boxes of Attach, More options and Send where they were, off by the distance moved (27, 34, and 40 px were measured). A control's box is also kept relative to its nearest accessible ancestor, so a container that moves must itself be an accessible one, which updates when it moves while the boxes inside it stay right. `Composer` and its input frame therefore carry names (`Message composer`, `Write a message`). Any new part of the interface that grows or collapses above controls the person can reach needs the same: name the container, and add the move to `checkComposerBounds` in `scripts/check-native-browser.mjs`, which focuses each button and compares every edge of the ring it draws, seen in a picture much larger than the box, with the same edge of the accessible box, at 1280 and 360 px and with a run held in progress so that Stop is checked as well (`checkStopBounds`; the mock holds a run by sending its start and never its end). The desktop screen checks compare each peer's rectangle with the control's at both widths, with the options open, the field three lines tall, and a run held in progress (`ScreenChecks.ComposerBounds` and `StopWhileWorking`; the check server's model holds its second run until Stop ends it); a peer reads the live layout, so it was right in every state measured.
+- **A part that moves inside its parent keeps its old accessible box in a browser.** The call surface is one grid whose parts are placed again when it shrinks to a bar; the buttons inside its row of actions did not move within that row, so their boxes stayed where the row had been. `CallSurface` puts its layout back in the tree (`SemanticTree.PutBack`) after it places its parts. The same fault is why a recording's failure is a toast and not a line under the message field: a line there grows the composer, which moves the conversation, and the boxes of a reply's buttons stay behind (57 px was measured). The voice check presses every button where its box stands, so a stale box fails it.
 - **Starting is slow in a development browser build**: about fifteen seconds in headless Chromium, three for a published build.
 
 ## Known differences from the retired web client
@@ -495,7 +503,7 @@ Verified in Chromium against the build of this work. Each was to be decided befo
 | Area | What was found |
 | --- | --- |
 | Accessibility in a browser | The app now sets `FeatureConfiguration.AutomationPeer.AutoEnableAccessibility` before creating its UI, so the semantic tree does not require a hidden opt-in. The resolved 7.0.65 runtime activates too early and can leave an empty semantic root, so the shell rebuilds it through the runtime’s own managed accessibility exports after loading. The published smoke check requires actual headings on every tested route and invokes the download through its accessible button. This deliberately accepts the runtime cost. Screen-reader testing across supported platforms is still required. Historical foundation observation: the interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
-| Links in the browser accessibility tree | Uno 7.0.65 creates semantic anchors without `href` and makes every semantic element pointer transparent, so a pointer click cannot reach an anchor's invoke handler while a keypress can. The browser adapter gives those anchors a link role and lets them take pointer input, keeping Uno's activation handlers and the app's own check on which addresses may open. `scripts/check-native-browser.mjs` opens a source link and an inline markdown link with a real pointer, opens a source link with Enter, and refuses unsafe schemes, at both widths in both modes. No new script evaluation is added: the adapter writes a style rule under the policy's inline style allowance |
+| Links in the browser accessibility tree | Uno 7.0.65 creates semantic anchors without `href` and makes every semantic element pointer transparent, so a pointer click cannot reach an anchor's invoke handler while a keypress can. The browser adapter gives those anchors a link role and lets them take pointer input, keeping Uno's activation handlers and the app's own check on which addresses may open. `scripts/check-native-browser.mjs` opens source links in the main conversation and a side chat with a real pointer, opens a source link with Enter, and checks that an unsafe source address does not become a link. It runs at both widths in both modes. No new script evaluation is added: the adapter writes a style rule under the policy's inline style allowance |
 | A part shown again in the browser accessibility tree | Uno 7.0.65 can leave a node `hidden` for good. Setting `AutomationProperties.AccessibilityView` on an element that is not in the tree, as every `Icon` does when it is made, rebuilds the whole semantic tree. A rebuild that passes a collapsed element marks it as left out; when that element is shown again where it stood before, the runtime adds its node hidden, takes the mark as an order to build it, finds the node there, and does not take `hidden` off it, and with unchanged bounds nothing later does. On a phone this hid the conversation from assistive technology after a panel was opened and closed, and on a wide window the right divider after its panel was opened again. The runtime builds an element's nodes anew, without the mark, when its `AccessibilityView` changes, so `SemanticTree.PutBack` changes it and changes it back, and `TalkWorkspace` calls it for the conversation, the rail and the dividers when it shows them again. The published smoke check opens and closes the activity at 360 px and requires the composer afterwards, and at 1280 px requires the right divider back where it was. Other controls that are collapsed and shown in place are not covered |
 | Where a node stands in the browser accessibility tree | Uno 7.0.65 places an element's semantic node when the element itself is arranged, from the visuals as they are then, and a parent's visual is placed after its children's. A node under an element that has no node of its own is therefore placed as if that element had not moved, and is not placed again when only that element moves; a later rebuild of the whole tree puts it right. In the phone's dock no rebuild followed: the landmark stood at the top of the window and the account button in the first cell. `PhoneNav` calls `SemanticTree.PutBack` for its bar once a layout has moved its parts; the smoke check requires the five cells side by side at 360 px. Other screens still lean on a rebuild that happens to follow |
 | Password managers | The platform keeps one real `input` per field in the accessibility tree (type `text` or `password`, named by the field's label), and focus and typing go to it, by keyboard and by pointer. A field with an `Autofill` name has it written to that input's `autocomplete` while the field is on screen (`Platforms/WebAssembly/WasmScripts/Fields.js`): on `/native/sign-in` the inputs carry `username` and `current-password`, on `/native/setup` `username` and `new-password`, which the browser check asserts. The page still has no `form`, so a manager that offers to save only on a form submission does not offer it; a value a manager fills reaches the field through the input's `input` event. The email input is `type="text"`: the platform sets it. Not yet tried with a real password manager |
@@ -558,6 +566,7 @@ technology (`Tokens in: 100 on its own`), and the drawn column names and phone l
 | `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, edit the last message, ask for another reply, show another version, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
 | `ComposerViewModel`, `MessageListViewModel` | The field and its actions; the messages, what is read out, the moment to land on |
 | `ReplyUsageViewModel`, `BotNotifyMenuViewModel` | What a reply used; the menu about a bot |
+| `VoiceComposerViewModel`, `ReadAloudViewModel`, `CallViewModel`, `SpaceVoice` | A spoken message; reading aloud, one thing at a time for the whole app; a live call; what the space can listen, speak and call with (see [Voice](#voice)) |
 | `ChatRows` | What a row says and how it is shaped, apart from drawing: a bot's row in the crew, a message, a tool call's card, the tray of files |
 
 Opening reads what does not depend on something else at the same time: the model connections and the bots, then
@@ -585,7 +594,7 @@ framework:
 
 The conversation's "More" menu ends with "Save conversation as Markdown" and "Save conversation as JSON". The server
 writes the file (`ConversationSaver` asks for it through `DroverApi.ExportConversation`), and the platform saves it
-the way the extension editor's download does (`PlatformFiles.SaveText`): the system's save dialog on desktop and
+the way a bot's file is saved (`PlatformFiles.SaveText`): the system's save dialog on desktop and
 Android, a download in a browser. A toast says it was saved or why not; a cancelled dialog says nothing.
 
 When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
@@ -608,7 +617,7 @@ scrolled to. Leaving for another screen ends it: the streams stop and unsent fil
 
 The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPane`, `MessageList`, `ChatEntry`,
 `Composer`, `AttachmentTray`, `CrewList`, `SideChatList`, `FailureLine`, `AttentionNote`, `ReplyUsage`,
-`BotNotifyMenu`, `ConversationSearch`.
+`BotNotifyMenu`, `ConversationSearch`, `CallSurface`.
 
 `ConversationSearch` sits above the crew, with a "Mine only" switch under the box (`Switch`, with its hint) that leaves out what other people shared and searches again from the newest messages. Enter searches the person's conversations on the server
 (`ConversationSearchViewModel`), and while a search is shown it stands in place of the crew: the messages found, or a
@@ -738,6 +747,109 @@ None of these was run where the native client was verified; each needs a person 
   check saves the same two states of the browser build as `pasted-picture-<width>-<theme>.png` and
   `drop-cue-<width>-<theme>.png`.
 
+### Voice
+
+A person says a message instead of typing it, has a reply read aloud, and holds a live call with a bot. The design
+is [docs/ux/voice.md](../ux/voice.md); the server's side is in [15-model-providers.md](15-model-providers.md#voice)
+and [03-run-lifecycle.md](03-run-lifecycle.md#live-calls). The server does the work: it writes down a recording,
+makes the speech, and holds the call with the speech model. The client carries sound between the device and the
+server and shows where things stand.
+
+**Two platform services**, in `src/Drover.Presentation/Platform`, one implementation per head:
+
+- `IAudioCapture` is the microphone. `Record` starts a message and hands back an `IAudioRecording`, whose `Finish`
+  gives the clip (bytes in memory and their media type) and whose disposal throws it away. `Listen` hands over what
+  is heard as it is heard, for a call: 16-bit little-endian samples, one channel, 24,000 a second, on the device's
+  own thread. Both throw `AudioCaptureException` with one of three reasons the interface says in three different
+  sentences: the permission was refused, there is no microphone, or it failed. `CancelsEcho` says whether the
+  device takes its own loudspeaker out of what the microphone hears; `Head` chooses the words that say where the
+  permission is allowed.
+- `IAudioPlayback` is the loudspeaker. `Open(sampleRate)` gives an `IAudioOutput`: pieces of 16-bit samples of one
+  channel are queued and played with no gap, `Flush` stops at once and drops what waits, `PlayedMilliseconds` counts
+  what was actually played, and `Drained` says everything queued has been played. `OpenCall(sampleRate)` opens the
+  output of a live call, and is `Open` on every head but Android. Android takes its loudspeaker out of the
+  microphone only for sound played as a conversation, so there a call's output puts the system in its communication
+  mode for as long as it is open, plays with the voice-communication usage, and sends the voice to a connected
+  headset or else the loudspeaker, never the earpiece (`AndroidAudio.CallRoute`, which needs
+  `MODIFY_AUDIO_SETTINGS`). Closing the output gives the system back as it was. Played as media the voice returns
+  through the microphone, the provider hears it as the person, and the bot interrupts and answers itself.
+
+Everything else is written once, on top of those two, and tested without a device:
+
+- **A clip is played by `ClipPlayback.PlayClip`**, the same way on every head. The client asks the speech route for
+  `wav`: the file's header says how fast to play it, and what follows is plain samples, so no head needs a decoder.
+  The header is read, an output is opened at the file's rate, and the samples are queued as they arrive, so a long
+  reply starts when its first sound does. Two channels are averaged into one. The sizes a streamed file states for
+  itself are not trusted; the sound runs to the end of the stream. A clip that is not 16-bit samples is refused in a
+  sentence.
+- **A message is recorded by `PcmRecording`** on a head with no encoder of its own (desktop, Android): it listens as
+  a call does, keeps the samples in memory (at most 64 MiB), and hands them back as a WAV file, which the
+  transcription route takes. The browser uses its own recorder and sends `audio/webm` (or `audio/mp4`, `audio/ogg`).
+- **The socket of a call** is opened through `CallConnection`. A browser passes none: the page's own socket carries
+  its session cookie. A device passes `AppRequests.OpenSocket`, which opens the socket to the HTTPS origin the
+  person chose and nowhere else, with the native session's access token as every request has it.
+
+| Head | Microphone | Loudspeaker | Echo |
+| --- | --- | --- | --- |
+| Browser | `BrowserAudio` over the shared `voice.js`: `getUserMedia` with echo cancellation, noise suppression and gain control on; `MediaRecorder` for a message; for a call an `AudioWorklet` (`voice-worklet.js`, loaded from the app's own origin; a `ScriptProcessorNode` where a browser has no worklet) hands the page the microphone's samples, which the page averages down to 24,000 a second | An `AudioContext` at the rate asked for, with one scheduled buffer for each piece | The browser's own. `CancelsEcho` is true |
+| Android | `AndroidAudio`: `AudioRecord` on the `VOICE_COMMUNICATION` source at 24,000 a second (at 48,000 and halved where a device does not record at that rate), read on a thread of its own; the system's `AcousticEchoCanceler` is switched on where the device has one. `RECORD_AUDIO` is in the manifest and asked the first time something records (`Permissions.RequestMicrophone`) | `AudioTrack` in stream mode, as speech on the media stream, written on a thread of its own; what was played is the track's own head position | The system's, where the device has one (`AcousticEchoCanceler.IsAvailable`) |
+| Desktop: Windows, macOS, Linux | `DesktopAudio` over SoundFlow (miniaudio): the system's default capture device, opened at 24,000 a second in one channel, the system converting from its own format | The system's default playback device at the rate asked for, fed by a component of the sound graph that hands over what is queued and counts the frames it gave | None. `CancelsEcho` is false, so a call ignores the microphone for 600 ms after the bot's voice starts (`CallViewModel.EchoGuard`). With loudspeakers the bot can still hear itself after that and take it for the person talking over it; headphones avoid it |
+| iOS | None yet | None yet | |
+
+iOS registers `NoAudio`, which says neither service is available: no control of voice is shown there, and the Voice
+page says so in one sentence above the space's settings. It was left out because the iOS head cannot be built or
+run where this was written, and sound written blind against `AVAudioSession` is the kind of code that fails only on
+a device. The two services are all it needs.
+
+Sound is never written to storage or to a log on any head. A recording is dropped when its words have arrived or
+it was discarded; what the microphone hears on a call is copied once, into a bounded queue of about four seconds
+that drops its oldest when the socket falls behind, and sent.
+
+**Under the content security policy.** The browser head needed no change to the policy `SecurityHeaders` sends.
+`voice.js` is an ordinary module beside the page (imported as `cookies.js` and `push.js` are), the worklet is
+loaded with `audioWorklet.addModule` from the same origin, which `script-src 'self'` allows, nothing is evaluated
+and no `blob:` or `data:` address is used: a clip is plain samples in scheduled buffers, never a media element. The
+call's socket goes to the page's own origin, which `connect-src 'self'` allows. A context for sound starts
+suspended until the person has pressed something on the page; they have, to get to any of this, and the script
+does not wait for the browser's answer, so a browser that still says no leaves silence and never a control that
+hangs.
+
+**The view models** (`Drover.Presentation/ViewModels`, tests beside them with a stand-in microphone and
+loudspeaker, a clock the test moves, and for the call a scripted socket through the real `VoiceCall`):
+
+- `SpaceVoice` (one for the app) reads `GET /voice/options` once for the space and is told to forget it when the
+  Models screen changes a connection. Every control of voice asks it whether it has anything to offer.
+- `VoiceComposerViewModel` is made by `Composer`: idle, recording with the time, writing it down. The words are
+  handed to `ComposerViewModel.Dictate`, which puts them after what is written and sends nothing. A failure is
+  handed to the composer's own toast.
+- `ReadAloudViewModel` (one for the app, so one thing plays at a time) is asked by every `ReplyFooter` and by the
+  Voice page's sample.
+- `CallViewModel` is made by `TalkWorkspace` and lasts as long as the workspace: leaving the conversations for
+  another screen hangs up. It asks the server first (`DroverApi.OpenCall` asks plainly before it opens a socket, so
+  a refusal arrives as a sentence), then opens the loudspeaker, then asks for the microphone. On `person_started`
+  it flushes the loudspeaker and sends `interrupt` with the milliseconds played since that answer began, and plays
+  nothing more of that answer.
+- `VoiceSettingsViewModel` is the Voice page (`Pages/Voice`).
+
+**Checks.** `scripts/check-native-voice.mjs` runs the published browser build under the server's policy in
+Chromium with its fake microphone (`--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`): it records
+a message and requires the words in the field and nothing sent, discards one, shows a provider's failure and a
+refused microphone, reads a reply aloud to its end and stops one, holds a scripted call (the microphone's samples
+must reach the socket as whole 16-bit samples with the fake device's beep in them, an interruption must say how
+much was heard, a muted microphone must send nothing), and visits the Voice page in each state. It saves a picture
+of every state; the ones in `docs/images/voice/` were taken by it. A press there is a real pointer press where the
+button's accessible box stands, because sound needs the browser to count the press as the person's own. The
+main browser check (`check-native-browser.mjs`) shows the Voice page with nothing connected and with its three
+rows, and the shared screen checks (`ScreenChecks.VoicePage`) open it on every target against the check server,
+which has no speech model: the page must say what voice needs, its link must go to Models, and the conversation
+must show no microphone and no Call. The desktop's sound is run against a real sound service by `DesktopAudioTests` in `tests/Drover.Native.Desktop.Tests`,
+explicit and marked Live because a build machine has no sound device; on Linux a sound server with a null output
+stands in for one.
+
+Not verified here: the Android head on a device or an emulator; a call against a real speech model on any head; a
+real microphone and loudspeakers on Windows and macOS; browsers other than Chromium; a screen reader on the call
+surface.
+
 ### The sandbox screen
 
 `BotSandboxPage` and the control `SandboxScreen` (`src/Drover.Native/Bots/`) are native. What they say and do is in
@@ -838,7 +950,7 @@ Complete state coverage, 200 percent zoom, keyboard navigation, and screen-reade
   This is recorded as an intermittent full-run failure, not a clean full-run sign-off. A preceding full run before
   the final tool-screen additions passed 3,929 tests with 25 live-provider cases excluded.
 - The browser smoke check exercises the trimmed publish under the exact server CSP, actual accessible headings,
-  tool add/review states, extension loading/failure, both themes and widths, and downloaded JSON bytes. Reference
+  tool add/review states, the extensions list with a sample extension, both themes and widths. Reference
   captures use the same fixtures in the existing client. Screenshots are regression evidence, not parity approval.
 - Native package metadata and exact-version license corrections pass the license checker, and NuGet's current
   advisory feed reports no vulnerable packages in the resolved native graph. Actionlint, Zizmor and the staged

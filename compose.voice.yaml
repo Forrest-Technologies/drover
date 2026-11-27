@@ -1,0 +1,30 @@
+# docker compose -f compose.yaml -f compose.voice.yaml up --build
+# Adds a speech server beside Drover, so every space can have replies read aloud with nothing to set up.
+# It runs on this machine's processor and needs no account and no key. Nothing outside this file reaches it.
+# It works whatever the server's rule for private addresses is, so also with open registration: the address is yours, not a space's.
+#
+# Memory: the speech server may use up to DROVER_SPEECH_MEMORY (2g unless you set it), for example
+#   DROVER_SPEECH_MEMORY=4g docker compose -f compose.yaml -f compose.voice.yaml up
+# The voice people hear first is DROVER_SPEECH_VOICE (af_heart unless you set it). A space admin can choose
+# another under Voice, or connect a different speech provider under Models.
+services:
+  drover:
+    environment:
+      Drover__Voice__Speech__BaseUrl: http://speech:8880/v1
+      Drover__Voice__Speech__Model: kokoro
+      Drover__Voice__Speech__Voice: ${DROVER_SPEECH_VOICE:-af_heart}
+    depends_on:
+      speech:
+        condition: service_started
+
+  # Kokoro-FastAPI, Apache-2.0, with the Kokoro-82M voices (Apache-2.0). No port is published: only Drover asks it.
+  speech:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.10.0@sha256:f54c5960c2b9387f6349080a9944f8bc7e8cdb98a4ef9238cb0b0f9ff9795f44
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${DROVER_SPEECH_MEMORY:-2g}
+    memswap_limit: ${DROVER_SPEECH_MEMORY:-2g}
+    pids_limit: 512
+    tmpfs:
+      - /tmp

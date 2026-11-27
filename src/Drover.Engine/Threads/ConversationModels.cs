@@ -15,7 +15,7 @@ public sealed class ConversationModels(ModelConnectionRepository connections, Po
     {
         var catalog = await connections.ListCatalog(bot.ModelConnectionId, cancellationToken);
         var budget = await Budget(bot, cancellationToken);
-        return [.. catalog.Where(entry => entry.State is AvailabilityState.Available && Fits(entry.Pricing, budget))];
+        return [.. catalog.Where(entry => entry.State is AvailabilityState.Available && Fits(entry.EffectivePricing, budget))];
     }
 
     /// <summary>
@@ -32,9 +32,9 @@ public sealed class ConversationModels(ModelConnectionRepository connections, Po
         }
 
         var budget = await Budget(bot, cancellationToken);
-        return Fits(entry.Pricing, budget)
+        return Fits(entry.EffectivePricing, budget)
             ? null
-            : $"{entry.DisplayName} could cost more in one run than this space lets a run cost ({budget.MaxCost:0.00} {entry.Pricing.Currency}).";
+            : $"{entry.DisplayName} could cost more in one run than this space lets a run cost ({budget.MaxCost:0.00} {entry.EffectivePricing.Currency}).";
     }
 
     /// <summary>

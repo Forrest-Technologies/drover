@@ -88,6 +88,51 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
     }
 
     [Theory]
+    [InlineData("https://example.openai.azure.com/", null, "https://example.openai.azure.com/openai/v1/", null)]
+    [InlineData("https://example.openai.azure.com", null, "https://example.openai.azure.com/openai/v1/", null)]
+    [InlineData("https://example.services.ai.azure.com/openai/v1/", null, "https://example.services.ai.azure.com/openai/v1/", null)]
+    [InlineData(
+        "https://example.openai.azure.com/openai/deployments/gpt/chat/completions?api-version=2024-10-21",
+        null,
+        "https://example.openai.azure.com/openai/v1/",
+        "gpt")]
+    [InlineData("https://example.openai.azure.com/openai/deployments/gpt", "mine", "https://example.openai.azure.com/openai/v1/", "mine")]
+    public async Task An_azure_address_is_stored_as_the_v1_address_and_a_classic_one_names_the_default_model(
+        string pasted,
+        string? model,
+        string stored,
+        string? expectedModel)
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+
+        var response = await client.Post(Path(alice.SpaceId), new CreateModelConnectionRequest("openai_compatible", "Azure", pasted, NewKey(), model));
+        var summary = (await response.Content.ReadFromJsonAsync<ModelConnectionSummary>(Token))!;
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        summary.BaseUrl.Should().Be(stored);
+        summary.DefaultModel.Should().Be(expectedModel);
+    }
+
+    [Theory]
+    [InlineData("https://example.openai.azure.com/?key=abc")]
+    [InlineData("https://example.openai.azure.com/openai/deployments/gpt?api-version=2024-10-21&key=abc")]
+    [InlineData("https://example.openai.azure.com/openai/v1/?api-version=preview")]
+    [InlineData("https://models.example.test/v1?api-version=2024-10-21")]
+    [InlineData("https://models.example.test/openai/deployments/gpt?api-version=2024-10-21")]
+    public async Task Any_other_query_keeps_the_refusal(string pasted)
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+
+        var response = await client.Post(Path(alice.SpaceId), new CreateModelConnectionRequest("openai_compatible", "Azure", pasted, null, null));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Token)).Should().Contain("Leave credentials, a query, and a fragment out of the address.");
+        (await ReadConnections(client, alice.SpaceId)).Should().BeEmpty();
+    }
+
+    [Theory]
     [InlineData("unknown_kind", "Name", null, null)]
     [InlineData("scripted", "", null, null)]
     [InlineData("scripted", "Name", null, "a key with spaces")]

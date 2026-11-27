@@ -150,8 +150,8 @@ public sealed class ModelFallbackService(
                 continue;
             }
 
-            var capabilities = catalog?.Capabilities ?? new ModelCapabilities();
-            var pricing = catalog?.Pricing ?? new ModelPricing();
+            var capabilities = catalog?.EffectiveCapabilities ?? new ModelCapabilities();
+            var pricing = catalog?.EffectivePricing ?? new ModelPricing();
             chain.Add(new ModelChainEntry(
                 connection.Id,
                 connection.Name,
@@ -165,7 +165,7 @@ public sealed class ModelFallbackService(
                     capabilities.StructuredOutput),
                 new ModelChainPrices(pricing.InputPerMillion, pricing.OutputPerMillion, pricing.Currency),
                 catalog?.PrivacyMode,
-                FindMismatches(bot, capabilities, primaryCatalog?.Capabilities, grantedTools)));
+                FindMismatches(bot, capabilities, primaryCatalog?.EffectiveCapabilities, grantedTools)));
         }
 
         return new BotModelChain(chain);

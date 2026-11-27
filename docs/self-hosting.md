@@ -109,11 +109,15 @@ Daytona ([#660](https://github.com/Forrest-Technologies/drover/issues/660)) and 
 
 Turn Sandbox on in the bot's editor, then grant the sandbox tools the bot may use. The bot's sandbox page is at `/bots/{botId}/sandbox`. Self-hosted limits are `MaxSandboxCommandSeconds` (3600), `MaxSandboxFileBytes` (50 MB) and `MaxSandboxIdleMinutes` (60); what they bound is in [deployment policies](architecture/16-deployment-policies.md). To turn sandboxes off again, remove `E2B_API_KEY` from `.env` and run `docker compose up -d`; an empty value means no provider is registered. Nothing then clears sandboxes that already exist: with no key the server registers no sandbox provider, no sandbox tools and no sweep, so the rows stay in Drover and the sandboxes stay at the provider with their files until someone removes them in the provider's own console; check the provider's pricing for paused sandboxes. Leave the key in until they have been cleared if you want the server's sweep to handle them. [Issue 649](https://github.com/Forrest-Technologies/drover/issues/649) covers sandboxes left at a previous provider.
 
+## Local model servers
+
+The provider list on Connect a model includes servers that run on a computer of your own: LM Studio, Ollama, vLLM and llama.cpp. Their addresses (`localhost` or `127.0.0.1` and a port) are where the server of that provider listens when it runs on the same computer as the Drover server. "This computer" means the one the Drover server runs on, not the one holding your browser or phone. When Drover runs in a container, `localhost` is the container, so use "Change address" and enter an address the container can reach, such as `http://host.docker.internal:11434/v1` (add `extra_hosts: ["host.docker.internal:host-gateway"]` to the `drover` service on Linux). A server that sets `AllowPrivateAddresses` to false does not list these providers and refuses private addresses.
+
 ## Before you expose it
 
 - Finish setup before making Drover available over the internet. Read the one-time code from `docker compose logs drover`.
 - Leave open registration off for a private server.
-- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled.
+- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled. The services you name in the server's own configuration (the speech container of `compose.voice.yaml`, a search service beside the server) keep working either way: the rule covers addresses a space, a person, or a bot supplies, not yours.
 - Keep database and key ring backups private. Together they can be used to read stored secrets.
 
 ## The public address
@@ -121,6 +125,25 @@ Turn Sandbox on in the bot's editor, then grant the sandbox tools the bot may us
 `DROVER_PUBLIC_URL` is the address people open Drover at. It is empty by default, which is fine on one machine. Tool server sign-ins need it, because the tool server sends the person back to this address. The overlay sets it for you from `DROVER_DOMAIN`.
 
 The status page (`/status`, for admins) has a row for it. It warns when the address is plain HTTP on a name other than this machine.
+
+## Signing in to a model provider
+
+Signing in with a person's own account in place of a key is being added one provider at a time ([#526](https://github.com/Forrest-Technologies/drover/issues/526)); the server side is in place. Each person signs in for themself, and a bot uses that account only for work it does for that person ([model providers](architecture/15-model-providers.md#signing-in-with-a-subscription)). On a self-hosted server every sign-in kind is on. GitHub Copilot needs the operator's GitHub OAuth app first: set `Drover__Models__SignIn__copilot_signin__ClientId` and `Drover__Models__SignIn__copilot_signin__ClientSecret` on the `drover` service, with callback `http://127.0.0.1:1455/auth/callback`. The other sign-in kinds need nothing set. To switch one off without a new release, list its kind: `Drover__Models__SignInOff__0=<kind>`.
+
+Some sign-ins borrow the identifiers of a provider's own tool, because the provider offers no sign-in to other apps. Such a provider can change or block the flow at any time and can act against an account. You accept that risk by leaving the kind on. Every identifier, address, scope and header is a setting under `Drover:Models:SignIn:<kind>` (for example `Drover__Models__SignIn__anthropic_signin__ClientId`), so following a change needs no release.
+
+| Provider | The flow uses | Terms | Forbids this use |
+| --- | --- | --- | --- |
+| Claude plan (`anthropic_signin`) | The client identifier, headers and system prefix of the provider's own tool | https://code.claude.com/docs/en/legal-and-compliance | Yes, and says it may enforce without notice |
+
+## Use Google AI developer credits with Gemini
+
+Eligible Google AI Pro and Ultra plans include monthly Google Cloud developer credits. Apply them to the billing account for your Gemini API project to cover eligible usage. Once the credits run out, API usage draws from your Prepay balance or is billed through Postpay. [Google Developer Program benefits](https://developers.google.com/profile/help/benefits)
+
+1. Claim your cloud credits and apply them to a Cloud Billing account. Select **Always use this billing account** to apply future monthly credits to it. [Google Developer Program benefits page](https://me.developers.google.com/benefits)
+2. In Google AI Studio, use a project linked to that billing account and create a Gemini API key for it. If the account uses Prepay, Google requires a positive prepaid balance before it applies eligible cloud credits. [Gemini API keys](https://aistudio.google.com/docs/api-key) · [Gemini API billing](https://aistudio.google.com/docs/billing#cloud-credits-prepay)
+3. In Drover, open **Models → Add a model connection**. Select **Google Gemini**, enter a connection name, paste the key, and choose **Add connection**.
+4. Open **More** on the saved connection and choose **Test connection**.
 
 ## Backup
 
@@ -211,6 +234,8 @@ Moving is a backup on the old machine and a restore on the new one. Use the same
 ## Upgrading
 
 Check out a newer tag or commit and run the same `docker compose up --build`. Pending database migrations apply before the server starts. Take a backup first. If a release needs a manual step, its notes say so.
+
+Upgrading a server that runs the `hosted` preset, or sets `ModelProviders` to `OperatorList`, to a version that enforces `AllowedModelProviderKinds`: until you list the kinds to offer (`Drover:Policy:Rules:AllowedModelProviderKinds:0`, `:1`, and so on, for example `venice`), no kind is offered, every existing model connection fails with "The operator of this server switched {kind} off.", and no new one can be made. The server logs a warning at start when that is the case. A self-hosted server on the default `All` is not affected.
 
 `docker compose down` keeps your data. `docker compose down --volumes` deletes every volume, including the key ring.
 

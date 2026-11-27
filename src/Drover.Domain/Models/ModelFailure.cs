@@ -17,4 +17,6 @@ public enum ModelFailure
 
     /// <summary>The provider refused the request for another reason.</summary>
     Rejected,
+
+    TooLong,
 }

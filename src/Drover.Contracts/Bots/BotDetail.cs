@@ -24,7 +24,8 @@ public sealed record BotDetail(
     RunLimitsBody RunLimits,
     Guid? CreatedByUserId,
     Guid? CreatedByBotId,
-    bool HandleChosen = false);
+    bool HandleChosen = false,
+    bool AcceptsBotRequests = true);
 
 /// <summary>A bot's picture: an uploaded file, or a short symbol. With neither, the bot's drawn character is shown.</summary>
 public sealed record BotAvatarBody(string? Emoji, Guid? FileId);
@@ -97,16 +98,21 @@ public sealed record BuildLimitsBody(int? MaxChildren, int? MaxDepthBelow);
 
 /// <summary>
 /// What one piece of the bot's work may use before it is stopped: model calls, tokens read and written together, and
-/// times it hands work to a bot beneath it. A null leaves the space's limit.
+/// times it hands work to a bot beneath it, and rule checks by a decision model. A null leaves the space's limit.
 /// </summary>
-public sealed record RunLimitsBody(int? MaxSteps, int? MaxTokens, int? MaxDelegations);
+public sealed record RunLimitsBody(
+    int? MaxSteps,
+    int? MaxTokens,
+    int? MaxDelegations,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool UncappedUsageAcknowledged = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MaxJudgedChecks = null);
 
 /// <summary>
 /// The limits of the bot's space on one piece of work, so the editor says what leaving a limit empty means and the
 /// most a bot's own limit may be. A bot's limit only lowers these. A null model-call limit means the space sets none;
 /// <see cref="NoLimit"/> is used for the other limits that need a numeric sentinel.
 /// </summary>
-public sealed record BotRunLimitOptions(int? MaxSteps, int MaxTokens, int MaxDelegations)
+public sealed record BotRunLimitOptions(int? MaxSteps, int MaxTokens, int MaxDelegations, bool CanRemoveUsageLimit = false)
 {
     /// <summary>A limit the space does not set: the largest number, since every limit narrows by taking the lower.</summary>
     public const int NoLimit = int.MaxValue;

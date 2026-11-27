@@ -88,7 +88,7 @@ public sealed partial class MeetBotViewModel(
     private async Task ListModels(ModelConnectionSummary chosen)
     {
         var refresh = await api.RefreshModels(SpaceId, chosen.Id);
-        Models = [.. refresh.Models.Where(entry => entry.State is "available").OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
+        Models = [.. refresh.Models.Where(ConnectionChoice.IsChatModel).OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
         ListProblem = refresh.Succeeded ? null : refresh.Message;
         Model = Models.FirstOrDefault(entry => entry.Traits.Contains(DefaultTrait))?.Model
             ?? chosen.DefaultModel

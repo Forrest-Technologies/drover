@@ -95,7 +95,7 @@ public sealed class Field : StackPanel
         set => SetValue(ValueProperty, value);
     }
 
-    /// <summary>What the text is: "text", "email", "url", or "password", which hides it.</summary>
+    /// <summary>What the text is: "text", "email", "url", "number", which opens a number keyboard, or "password", which hides it.</summary>
     public string Type
     {
         get => (string)GetValue(TypeProperty);
@@ -239,7 +239,7 @@ public sealed class Field : StackPanel
             Template = Styles.Template("DvTextBoxTemplate"),
             Text = Value,
             InputScope = Scope(DesktopScope()),
-            IsSpellCheckEnabled = Type is not ("url" or "email"),
+            IsSpellCheckEnabled = Type is not ("url" or "email" or "number"),
         };
         text.TextChanged += (_, _) => Take(text.Text);
         return text;
@@ -267,6 +267,7 @@ public sealed class Field : StackPanel
         "Password" => InputScopeNameValue.Password,
         "EmailSmtpAddress" => InputScopeNameValue.EmailSmtpAddress,
         "Url" => InputScopeNameValue.Url,
+        "Number" => InputScopeNameValue.Number,
         _ => InputScopeNameValue.Default,
     };
 
@@ -280,6 +281,11 @@ public sealed class Field : StackPanel
         if (Type is "url")
         {
             return new(PlainText | Android.Text.InputTypes.TextVariationUri | NoSuggestions);
+        }
+
+        if (Type is "number")
+        {
+            return new(Android.Text.InputTypes.ClassNumber | Android.Text.InputTypes.NumberFlagDecimal);
         }
 
         var hint = FieldInput.AndroidHint(Type, Autofill);

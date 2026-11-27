@@ -41,6 +41,10 @@ public sealed partial class DroverApi
     public Task<BotToolEntry> SetBotToolGrant(Guid spaceId, Guid botId, Guid toolId, string grant, CancellationToken cancellationToken = default) =>
         Send<BotToolEntry>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/tools/{toolId}", new SetToolGrantRequest(grant), cancellationToken);
 
+    /// <summary>Sets several tools for the bot at once. Either every change holds or, when one is refused, none does.</summary>
+    public Task<List<BotToolEntry>> SetBotToolGrants(Guid spaceId, Guid botId, List<ToolGrantChange> grants, CancellationToken cancellationToken = default) =>
+        Send<List<BotToolEntry>>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/tools", new SetToolGrantsRequest(grants), cancellationToken);
+
     #endregion
 
     #region Schedules
@@ -62,6 +66,31 @@ public sealed partial class DroverApi
 
     public Task RemoveBotSchedule(Guid spaceId, Guid botId, Guid scheduleId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", cancellationToken);
+
+    #endregion
+
+    #region Files
+
+    /// <summary>
+    /// The bot as a file to share (admin only): its name, what it is for, its instructions, and its model as a
+    /// suggestion. Nothing else of the bot is in it. <see cref="BotFiles.Write"/> turns it into the file's text.
+    /// </summary>
+    public Task<BotFile> ExportBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotFile>($"{Space(spaceId)}/bots/{botId}/export", cancellationToken);
+
+    /// <summary>
+    /// The bot a file would add (admin only), for a person to read before importing it. The server reads the file
+    /// strictly and contacts nothing. A file it cannot read is refused with a sentence that says why.
+    /// </summary>
+    public Task<BotImportPreview> PreviewBotImport(Guid spaceId, string file, CancellationToken cancellationToken = default) =>
+        Post<BotImportPreview>($"{Space(spaceId)}/bots/import/preview", new BotFileText(file), cancellationToken);
+
+    /// <summary>
+    /// Imports a bot file (admin only): the same text that was read for review. The bot thinks with the model the
+    /// preview named and starts paused; turn it on with <see cref="ResumeBot"/>.
+    /// </summary>
+    public Task<BotSummary> ImportBot(Guid spaceId, string file, CancellationToken cancellationToken = default) =>
+        Post<BotSummary>($"{Space(spaceId)}/bots/import", new BotFileText(file), cancellationToken);
 
     #endregion
 

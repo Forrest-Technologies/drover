@@ -77,6 +77,38 @@ const connectionId = '0196f1a0-0000-7000-8000-000000000003';
 const htmlFileId = '0196f1a0-0000-7000-8000-0000000000f1';
 const person = { userId: '00000000-0000-7000-8000-0000000000a1', email: 'sample@example.test', displayName: 'Sample person', spaces: [{ id: spaceId, kind: 'personal', name: 'Sample space', handle: 'sample', role: 'owner' }] };
 const connection = { id: connectionId, name: 'Sample connection', kind: 'venice', baseUrl: null, hasKey: true, status: 'ready', defaultModel: 'sample-model', balances: [], balanceReadAt: null, lastCheckedAt: null };
+// The kinds the server offers, in the contract's shape. The compatible kind carries two named providers made up for the
+// check and marked as samples: one hosted with a key page, one on the person's own machine with no key.
+const providerKinds = [
+    { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, namedProviders: [], signIn: false },
+    {
+        kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required',
+        addressHint: 'The address of the server, starting with http:// or https://.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false,
+        namedProviders: [
+            { id: 'sample-hosted', displayName: 'Sample hosted provider', address: 'https://hosted.example.test/v1', keyRule: 'required', keyPage: 'https://keys.example.test/', local: false },
+            { id: 'sample-local', displayName: 'Sample local server', address: 'http://localhost:9/v1', keyRule: 'none', keyPage: null, local: true },
+        ],
+        signIn: false,
+    },
+];
+// A server with three kinds and nothing named, so the choice is a segmented control. The third kind is a sample: a
+// required address and an optional key, a kind the client has never heard of.
+const fewProviderKinds = [
+    providerKinds[0],
+    { ...providerKinds[1], namedProviders: [] },
+    { kind: 'sample-third', displayName: 'Sample third', keyRule: 'optional', addressRule: 'required', addressHint: 'Sample address hint.', keyHint: 'Sample key hint.', reportsCapabilities: false, namedProviders: [] },
+];
+// Four choices (Venice, two named providers, another compatible server) are segments; this adds a fifth, so it is a list.
+const manyProviderKinds = [
+    providerKinds[0],
+    {
+        ...providerKinds[1],
+        namedProviders: [
+            ...providerKinds[1].namedProviders,
+            { id: 'sample-optional', displayName: 'Sample optional key', address: 'http://localhost:10/v1', keyRule: 'optional', keyPage: null, local: true },
+        ],
+    },
+];
 const bot = { id: botId, name: 'Sample bot', handle: 'sample-bot', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
 const botDetail = {
     ...bot, avatar: {}, descriptionForBots: 'Sample purpose', modelSettings: { webSearch: 'off' },
@@ -84,6 +116,9 @@ const botDetail = {
     sandboxSettings: { network: 'off', allowedHosts: [] }, sandboxSharedWith: [], buildLimits: {}, runLimits: {},
 };
 const thread = { id: '0196f1a0-0000-7000-8000-000000000005', botId, lastActivityAt: '2026-11-18T00:00:00Z', isMain: true };
+const sideLinkThread = {
+    ...thread, id: '0196f1a0-0000-7000-8000-000000000098', isMain: false, title: 'Sample side chat',
+};
 const messages = [{
     id: '0196f1a0-0000-7000-8000-000000000006', threadId: thread.id, position: 1, role: 'assistant',
     parts: [{ kind: 'text', text: 'Sample reply from the conversation history.' }], createdAt: thread.lastActivityAt,
@@ -137,6 +172,31 @@ const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
 const unusableReplyId = '0196f1a0-0000-7000-8000-000000000204';
 const rawDsmlEnvelope = '<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command" string="true">ls -la</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>';
 const quotedDsmlSample = 'Here is a DSML example:\n\n```xml\n<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command">ls</\uFF5CDSML\uFF5Cparameter>\n</\uFF5CDSML\uFF5Cinvoke>\n</\uFF5CDSML\uFF5Ccalls>\n```';
+const cutOffDsmlRequest = '<\uFF5CDSML\uFF5Ccalls>\n<\uFF5CDSML\uFF5Cinvoke name="sandbox.run">\n<\uFF5CDSML\uFF5Cparameter name="command" string="true">ls -la /handoff-sample';
+const helperBotId = '0196f1a0-0000-7000-8000-000000000205';
+const helperBot = { id: helperBotId, name: 'Sample helper', handle: 'sample-helper', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
+const handoffParentRunId = '0196f1a0-0000-7000-8000-000000000206';
+const handoffCallId = '0196f1a0-0000-7000-8000-000000000207';
+const handoffChildRunId = '0196f1a0-0000-7000-8000-000000000208';
+const handoffChildThreadId = '0196f1a0-0000-7000-8000-000000000209';
+const handoffTask = 'List the workspace files.';
+const handoffArguments = JSON.stringify({ bot_id: helperBotId, task: handoffTask });
+const handoffToolEvents = [
+    { seq: 1, runId: handoffParentRunId, type: 'tool.requested', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, toolName: 'delegate', title: 'Hand work to a bot', arguments: handoffArguments, effect: 'allow' }) },
+    { seq: 2, runId: handoffParentRunId, type: 'delegation.started', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, childRunId: handoffChildRunId, childBotId: helperBotId, childThreadId: handoffChildThreadId }) },
+    { seq: 3, runId: handoffChildRunId, type: 'run.started', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ status: 'running', reason: null, error: null, attempt: 1, usage: null }) },
+    { seq: 4, runId: handoffChildRunId, type: 'run.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ status: 'completed', reason: null, error: null, attempt: 1, usage: null }) },
+    { seq: 5, runId: handoffParentRunId, type: 'delegation.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, childRunId: handoffChildRunId, childBotId: helperBotId, outcome: 'completed', summary: cutOffDsmlRequest }) },
+    { seq: 6, runId: handoffParentRunId, type: 'tool.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ toolCallId: handoffCallId, outcome: 'completed', isError: false, preview: '', durationMs: 0 }) },
+    { seq: 7, runId: handoffParentRunId, type: 'run.completed', createdAt: thread.lastActivityAt,
+        data: JSON.stringify({ status: 'completed', reason: null, error: null, attempt: 1, usage: null }) },
+];
 const unusableMessages = [
     {
         id: '0196f1a0-0000-7000-8000-000000000201', threadId: thread.id, position: 1, role: 'user',
@@ -153,6 +213,11 @@ const unusableMessages = [
     {
         id: unusableReplyId, threadId: thread.id, position: 4, role: 'assistant',
         parts: [{ kind: 'text', text: rawDsmlEnvelope }], createdAt: thread.lastActivityAt,
+    },
+    {
+        id: '0196f1a0-0000-7000-8000-00000000020c', threadId: thread.id, position: 5, role: 'assistant',
+        parts: [{ kind: 'tool_call', toolCallId: handoffCallId, toolName: 'delegate', arguments: handoffArguments }],
+        createdAt: thread.lastActivityAt,
     },
 ];
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
@@ -188,13 +253,31 @@ const projectOutsideThread = {
     id: projectOutsideThreadId, botId, title: 'Quarterly planning',
     isShared: false, lastActivityAt: thread.lastActivityAt, activeRunId: null, isMain: false, attention: null, projectId: null,
 };
+// The Tools section's sample tools: a built-in group of one that reads and one that writes, set read only, and a
+// tool server's group whose tools are set one by one.
+const editorTool = (id, name, title, sensitivity, grant, server) => ({
+    toolId: `0196f1a0-0000-7000-8000-0000000007${id}`, name, title, description: 'Sample description.', source: server ? 'connection' : 'builtin',
+    connectionId: server ? connectionId : null, connectionName: server ? 'Sample tools' : null, sensitivity, grant, ceiling: 'allow',
+    ceilingBotName: null, state: 'available', alwaysAsks: false, needsReview: false, definitionHash: `sample-${id}`, reviewed: null,
+});
+const editorTools = [
+    editorTool('01', 'time.now', 'Sample current time', 'read', 'allow', false),
+    editorTool('02', 'files.write', 'Sample file writer', 'write', 'off', false),
+    editorTool('03', 'sample_lookup', 'Sample lookup', 'write', 'ask', true),
+    editorTool('04', 'sample_update', 'Sample update', 'write', 'off', true),
+];
 const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
     ['connect-model', '/setup/model', 'Connect a model'],
+    ['connect-model-few-kinds', '/setup/model', 'Connect a model'],
+    ['connect-model-many-kinds', '/setup/model', 'Connect a model'],
+    ['connect-model-kinds-failed', '/setup/model', 'Connect a model'],
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-limits', `/bots/${botId}?section=limits`, 'Sample bot'],
+    ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
@@ -209,10 +292,31 @@ const screens = [
     ['usage-empty', '/usage', 'Usage'],
     ['usage', '/usage?period=30d', 'Usage'],
     ['extensions-empty', '/extensions', 'Extensions'],
-    ['extension-editor-loading', `/extensions/edit?bot=${botId}`, 'Make an extension'],
-    ['extension-editor-failed', `/extensions/edit?bot=${botId}`, 'Make an extension'],
-    ['extension-editor', '/extensions/edit', 'Make an extension'],
+    ['extensions', '/extensions', 'Extensions'],
 ];
+// A sample installed extension, as the server lists one: a tool server not yet connected, a theme, and a rule.
+const sampleExtension = {
+    id: '0196f1a0-0000-7000-8000-0000000000e1',
+    packageId: 'sample.studio',
+    name: 'Sample studio',
+    description: 'Sample description',
+    installedAt: '2026-01-01T00:00:00Z',
+    connection: {
+        name: 'Sample helpdesk', url: 'https://tools.example.test/mcp', host: 'tools.example.test', auth: 'none', headerName: null,
+        isLocal: false, available: true, dependsOnSettings: false, asksForHeader: false,
+        connectionId: null, status: null, problem: null,
+        tools: [{ name: 'lookup', why: 'Sample reason.', toolId: null }],
+    },
+    parts: {
+        settings: [],
+        themes: [{ id: 'sample-dusk', name: 'Sample dusk', intent: 'A sample look.' }],
+        rules: [{
+            name: 'Sample: ask before writing', enabled: true, checkpoint: 'before_tool', effect: 'ask',
+            conditions: [{ kind: 'tool_kind', toolKinds: ['write'] }], position: null,
+        }],
+    },
+    filledSettings: {},
+};
 const nativeProjectScreens = [
     ['projects-empty', '/projects', 'Projects', 'Projects'],
     ['projects-failed', '/projects', 'Projects', 'Projects'],
@@ -221,6 +325,11 @@ const nativeProjectScreens = [
     ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
     ['project-missing', `/projects/${projectId}`, 'Project', 'Project not found'],
     ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
+    // The Voice page, with nothing connected and with a model for each of its three rows. They stand before the
+    // scene that starts the app afresh, so what they taught the app about voice goes with the runtime: no other
+    // scene has a microphone or a speaker button. scripts/check-native-voice.mjs exercises voice itself.
+    ['voice-nothing', '/voice', 'Voice', 'Voice'],
+    ['voice', '/voice?rows=shown', 'Voice', 'Voice'],
     ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
 const errors = [];
@@ -267,7 +376,6 @@ try {
             let panelPreviewBroken = false;
             let completePreview;
             const previewGate = new Promise(resolve => { completePreview = resolve; });
-            let extensionFailures = 0;
             let conversationLoadRequests = 0;
             let unusableRegenerateRequests = 0;
             page.on('console', message => {
@@ -278,16 +386,12 @@ try {
                     && message.text().includes('A file the browser handed over with a paste could not be read')) {
                     return;
                 }
-                // These two intentional API failures exercise the loading-to-failure and retry states.
-                const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (current === 'conversation' && previewRequests === 5
                     && message.location().url.endsWith(`/files/${sampleFile.id}/native-preview`)
                     && message.text().includes('net::ERR_FAILED')) {
                     return;
                 }
-                if (message.location().url === expectedUrl && message.text() === 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)') {
-                    extensionFailures++;
-                } else if (current === 'sign-in' && (
+                if (current === 'sign-in' && (
                     (message.location().url === `${origin}/api/session` && message.text().includes('401 (Unauthorized)'))
                     || (message.location().url === `${origin}/api/setup` && message.text().includes('404 (Not Found)'))
                 )) {
@@ -296,6 +400,11 @@ try {
                     && (message.location().url === `${origin}/api/spaces/${spaceId}/projects`
                         || message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`)
                     && message.text().includes('503 (Service Unavailable)')) {
+                    return;
+                } else if (current === 'connect-model-kinds-failed'
+                    && message.location().url === `${origin}/api/model-provider-kinds`
+                    && message.text().includes('503 (Service Unavailable)')) {
+                    // The read of the kinds fails on purpose, so the failed state can be checked.
                     return;
                 } else if (current === 'project-missing'
                     && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
@@ -313,6 +422,7 @@ try {
             let current;
             let heldRoute;
             let botCreates = 0;
+            let acceptsBotRequests;
             // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
             const uploadedFiles = [];
             let projectMoved = false;
@@ -365,6 +475,27 @@ try {
                     await route.fulfill({ status: 204 });
                     return;
                 }
+                // Nothing can listen or speak in any scene but the Voice page's own, so no other scene has a microphone,
+                // a speaker or a Call button.
+                else if (address.endsWith('/voice/options')) {
+                    const none = { sources: [], selected: null };
+                    const filled = (model, voice = null) => ({
+                        sources: [{ connectionId, connectionName: 'Sample connection', model, isServer: false, isPrivateAddress: false }],
+                        selected: { connectionId, connectionName: 'Sample connection', model, voice, isServer: false, isPrivateAddress: false, automatic: true },
+                    });
+                    body = {
+                        listen: current === 'voice' ? filled('sample-whisper') : none,
+                        speak: current === 'voice' ? filled('sample-tts', 'sample-voice') : none,
+                        live: current === 'voice' ? filled('sample-realtime', 'sample-voice') : none,
+                        limits: { maxRecordingBytes: 26214400, maxReadAloudCharacters: 4000, maxCallMinutes: null },
+                    };
+                }
+                else if (address.endsWith('/voice/voices') && current === 'voice') { body = [{ id: 'sample-voice', name: 'Sample voice' }]; }
+                else if (address === '/api/model-provider-kinds' && current === 'connect-model-kinds-failed') {
+                    await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                    return;
+                }
+                else if (address === '/api/model-provider-kinds') { body = current === 'connect-model-few-kinds' ? fewProviderKinds : current === 'connect-model-many-kinds' ? manyProviderKinds : providerKinds; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {
@@ -372,15 +503,32 @@ try {
                     await route.fulfill({ status: 201, json: bot });
                     return;
                 }
-                else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : [bot]; }
+                else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : current === 'conversation-unusable-tool-request' ? [bot, helperBot] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
-                else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
+                else if (address.endsWith(`/bots/${botId}/definition`)) {
+                    if (method === 'PUT') {
+                        acceptsBotRequests = route.request().postDataJSON().acceptsBotRequests;
+                    }
+                    body = { ...botDetail, acceptsBotRequests };
+                }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
+                else if (address.endsWith(`/bots/${helperBotId}`)) { body = helperBot; }
+                else if (address.endsWith(`/bots/${helperBotId}/definition`)) { body = { ...botDetail, id: helperBotId, name: 'Sample helper', handle: 'sample-helper' }; }
+                else if (address.endsWith(`/bots/${helperBotId}/notify`)) { body = { notifies: false }; }
+                else if (address.endsWith(`/bots/${helperBotId}/sandbox`)) { body = { available: false, hasSandbox: false, desktop: false, state: 'stopped' }; }
+                else if (address.includes(`/bots/${helperBotId}/`)) { body = []; }
                 else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
-                else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
-                else if (address.endsWith(`/bots/${botId}/threads`)) { body = [thread]; }
+                else if (address.endsWith('/limits/options')) {
+                    body = current === 'bot-editor-limits'
+                        ? { maxSteps: null, maxTokens: 5000000, maxDelegations: 2147483647, canRemoveUsageLimit: true }
+                        : { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 };
+                }
+                else if (address.endsWith(`/bots/${botId}/threads`)) {
+                    body = current === 'conversation-links' ? [thread, sideLinkThread] : [thread];
+                }
+                else if (address.endsWith(`/threads/${sideLinkThread.id}`)) { body = sideLinkThread; }
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
                 else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
                     body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
@@ -540,15 +688,20 @@ try {
                         return;
                     }
 
+                    const sideChat = address.endsWith(`/threads/${sideLinkThread.id}/messages`);
                     body = current === 'conversation-links'
                         ? [{
                             ...messages[0],
+                            id: sideChat ? '0196f1a0-0000-7000-8000-000000000099' : messages[0].id,
+                            threadId: sideChat ? sideLinkThread.id : thread.id,
                             parts: [
-                                { kind: 'text', text: 'Sample reply with a link.' },
-                                { kind: 'text', text: `[Sample inline link](${origin}/sample-inline)` },
-                                { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` },
+                                { kind: 'text', text: 'Sample reply with a source.' },
+                                {
+                                    kind: 'source',
+                                    text: sideChat ? 'Sample side source' : 'Sample external source',
+                                    url: `${origin}/sample-external`,
+                                },
                                 { kind: 'source', text: 'Sample unsafe source', url: 'javascript:alert(1)' },
-                                { kind: 'text', text: '[Sample unsafe inline](javascript:alert(1))' },
                             ],
                         }]
                         : current === 'conversation-unusable-tool-request'
@@ -566,8 +719,10 @@ try {
                     return;
                 }
                 else if (address.endsWith('/files/rules')) { body = { maxFileBytes: 26214400 }; }
+                else if (address.endsWith('/tool-events')) { body = current === 'conversation-unusable-tool-request' ? handoffToolEvents : []; }
+                else if (address.endsWith(`/bots/${botId}/tools`) && current === 'bot-editor-tools') { body = editorTools; }
                 else if (address.endsWith(`/bots/${botId}/tools`)
-                    || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
+                    || ['/rules', '/schedules'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
                 else if (address.endsWith('/usage')) {
                     body = { period: current === 'usage' ? '30d' : '7d', since: thread.lastActivityAt, currency: 'usd', crew: current === 'usage' ? [usage] : [] };
@@ -608,12 +763,9 @@ try {
                 else if (address === `/api/spaces/${spaceId}/projects/${projectId}/files` && method === 'GET') {
                     body = [projectFile];
                 }
-                else if (address.endsWith('/extensions')) { body = []; }
-                else if (address.endsWith(`/extensions/from-bot/${botId}`)) {
-                    if (current === 'extension-editor-loading') { heldRoute = route; return; }
-                    await route.fulfill({ status: 503, json: { title: 'Sample server is unavailable.', status: 503 } });
-                    return;
-                }
+                else if (address.endsWith('/extensions')) { body = current === 'extensions' ? [sampleExtension] : []; }
+                // The themes a space's extensions offer, read when a person signs in and when the appearance choices open.
+                else if (address.endsWith('/themes')) { body = []; }
                 else { await route.fulfill({ status: 404, body: '' }); return; }
                 await route.fulfill({ json: body });
             });
@@ -623,7 +775,7 @@ try {
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 if (name === 'conversation-load-failed') { conversationLoadRequests = 0; }
-                const editorLoaded = name === 'bot-editor'
+                const editorLoaded = name === 'bot-editor' || name === 'bot-editor-limits'
                     ? page.waitForResponse(response => response.ok()
                         && response.request().method() === 'GET'
                         && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/sandbox`)
@@ -646,6 +798,23 @@ try {
                 if (name === 'bot-editor') {
                     await editorLoaded;
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
+                }
+                if (name === 'bot-editor-limits') {
+                    await editorLoaded;
+                    await page.getByLabel('Accept requests from other bots', { exact: true }).waitFor({ state: 'visible' });
+                }
+                if (name === 'bot-editor-tools') {
+                    await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
+                    await page.getByRole('group', { name: 'Every tool in Built in for Sample bot', exact: true }).waitFor({ state: 'attached' });
+                    await page.getByRole('button', { name: 'Sample tools, 1 of 2 on', exact: true }).dispatchEvent('click');
+                    const serverTools = page.getByRole('group', { name: 'Every tool in Sample tools for Sample bot', exact: true });
+                    await serverTools.waitFor({ state: 'attached' });
+                    await page.getByText('No tools in this group are marked read-only.', { exact: true }).waitFor({ state: 'attached' });
+                    await serverTools.locator('input[aria-label="Read only"][aria-disabled="true"]')
+                        .waitFor({ state: 'attached', timeout: 5000 });
+                    assert(await serverTools.getByRole('radio', { name: 'Ask', exact: true }).isEnabled());
+                    assert(await serverTools.getByRole('radio', { name: 'Allow', exact: true }).isEnabled());
+                    await serverTools.scrollIntoViewIfNeeded();
                 }
                 if (name === 'sandbox-terminal') {
                     await page.getByRole('textbox', { name: 'Shell command', exact: true }).waitFor({ state: 'attached' });
@@ -713,9 +882,10 @@ try {
                     await page.getByRole('button', { name: 'Add a tool server', exact: true }).dispatchEvent('click');
                     await page.getByRole('heading', { name: 'Add a tool server', exact: true }).waitFor({ state: 'attached' });
                 }
-                if (name === 'extension-editor-failed') {
-                    await page.getByRole('heading', { name: 'Drover could not open this bot as an extension', exact: true })
+                if (name === 'extensions') {
+                    await page.getByRole('heading', { name: 'Tool server: Sample helpdesk', exact: true })
                         .waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Remove Sample studio', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                 }
                 if (name === 'projects-empty') {
                     await page.getByRole('heading', { name: 'No project yet', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
@@ -763,6 +933,16 @@ try {
                     });
                     await waitingField.waitFor({ state: 'attached', timeout: 5000 });
                 }
+                if (name === 'voice-nothing') {
+                    await waitForShown(page, 'Voice needs a speech model.');
+                    await page.getByRole('link', { name: 'Connect one', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'voice') {
+                    for (const row of ['Listens with', 'Speaks with', 'Live calls with']) {
+                        await page.getByRole('combobox', { name: row, exact: true }).waitFor({ state: 'attached', timeout: 10000 });
+                    }
+                    await page.getByRole('button', { name: 'Play a sample', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
                 if (name === 'conversation-load-failed') {
@@ -787,21 +967,6 @@ try {
                         description: /^Available when the conversation has loaded\.$/,
                     });
                     assert.equal(await waitingField.count(), 0, 'the field says nothing about waiting once the conversation is read');
-                }
-                if (name === 'extension-editor') {
-                    // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
-                    await page.mouse.move(width / 2, 500);
-                    await page.mouse.wheel(0, 3000);
-                    await page.waitForTimeout(200);
-                    const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-                    const [saved] = await Promise.all([
-                        page.waitForEvent('download', item => item.suggestedFilename() === 'extension.json'),
-                        exportControl.dispatchEvent('click'),
-                    ]);
-                    assert.equal(saved.suggestedFilename(), 'extension.json');
-                    const savedPath = await withDeadline(saved.path(), 10000, 'the extension.json download to complete');
-                    const file = JSON.parse(await fs.readFile(savedPath, 'utf8'));
-                    assert.equal(file.version, 1);
                 }
                 if (name === 'projects' && width === 360) {
                     await checkPhoneNavLayout(page, width);
@@ -929,6 +1094,9 @@ try {
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
                 }
+                if (name === 'bot-editor-limits') {
+                    await checkBotRequests(page, width, theme);
+                }
                 if (name === 'bot-new') {
                     await checkLeavingNewBot(page, titleBefore, () => botCreates);
                 }
@@ -948,7 +1116,6 @@ try {
                     heldRoute = null;
                 }
             }
-            assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
             current = 'conversation-unusable-tool-request';
@@ -960,69 +1127,83 @@ try {
             });
             await unusableHeading.waitFor({ state: 'attached', timeout: 60000 });
             assert.equal(await unusableHeading.count(), 1, 'Only the protocol-only reply should show the unusable tool-request state, not the quoted DSML code sample.');
-            const originalDisclosure = page.getByRole('button', { name: 'Original response', exact: true });
+            const handoffCard = page.getByRole('button', { name: 'Sample bot asked Sample helper: List the workspace files.', exact: true });
+            await handoffCard.waitFor({ state: 'attached', timeout: 10000 });
+            await handoffCard.dispatchEvent('click');
+            const handoffHeading = page.getByRole('heading', {
+                name: "Sample helper's model returned a tool request that could not be used.",
+                exact: true,
+            });
+            await handoffHeading.waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(await handoffHeading.count(), 1, 'A handoff answer cut off inside a tool request shows the plain words, not the raw text.');
+            const disclosures = page.getByRole('button', { name: 'Original response', exact: true });
+            assert.equal(await disclosures.count(), 2, 'The reply and the handoff answer each keep their original behind a disclosure.');
+            const originalDisclosure = disclosures.first();
+            const handoffDisclosure = disclosures.last();
             await originalDisclosure.waitFor({ state: 'attached', timeout: 10000 });
             await page.screenshot({ path: path.join(pictures, `conversation-unusable-tool-request-${width}-${theme}.png`) });
+            assert.equal(await page.getByText('ls -la /handoff-sample', { exact: false }).count(), 0, 'The handoff original stays closed until asked.');
+            await handoffDisclosure.press('Enter');
+            const handoffOriginal = page.getByText('ls -la /handoff-sample', { exact: false });
+            await handoffOriginal.waitFor({ state: 'attached', timeout: 10000 });
+            assert.equal(await handoffOriginal.count(), 1, 'The handoff disclosure opens by keyboard.');
             await originalDisclosure.dispatchEvent('click');
             await page.getByRole('button', { name: 'Try again', exact: true }).dispatchEvent('click');
             await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ state: 'attached', timeout: 10000 });
             assert.equal(unusableRegenerateRequests, 1, 'Try again on an unusable tool-request reply must invoke the existing regenerate flow.');
             progress(`conversation-unusable-tool-request ${width} ${theme}`);
             current = 'conversation-links';
-            for (const [destination, title] of [
-                ['sample-external', 'Sample external destination'],
-                ['sample-inline', 'Sample inline destination'],
-            ]) {
-                await page.route(`${origin}/${destination}`, route => route.fulfill({
-                    contentType: 'text/html', body: `<!DOCTYPE html><title>${title}</title>`,
-                }));
-            }
+            const destination = `${origin}/sample-external`;
+            let sourceNavigations = 0;
+            await page.route(destination, route => {
+                sourceNavigations++;
+                return route.fulfill({
+                    contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',
+                });
+            });
 
-            // Each link opens by a real pointer click, at the anchor's own box, and by the keyboard's Enter. A synthetic
-            // click would take only the keyboard path and could not find this bug: the runtime makes semantic anchors
-            // pointer-transparent, so a pointer click must reach Uno's invoke handler through the anchor itself.
-            const loadLinks = async () => {
-                await page.goto(`${origin}/talk/${botId}`);
+            const loadLinks = async (suffix = '') => {
+                await page.goto(`${origin}/talk/${botId}${suffix}`);
                 await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
             };
-            const openByPointer = async (link, destination, title) => {
-                const box = await link.boundingBox({ timeout: 10000 });
-                assert.ok(box, `${title} has an accessible box to click.`);
-                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-                await page.waitForURL(`${origin}/${destination}`, { timeout: 10000 });
-                assert.equal(await page.title(), title);
+            const assertSourceOpened = async (previousNavigations) => {
+                await page.waitForURL(destination, { timeout: 10000 });
+                assert.equal(await page.title(), 'Sample external destination');
+                assert.equal(sourceNavigations, previousNavigations + 1, 'One gesture causes one navigation.');
             };
+            const openByPointer = async (link, scene) => {
+                await link.waitFor({ state: 'visible', timeout: 60000 });
+                const box = await link.boundingBox();
+                await page.screenshot({ path: path.join(pictures, `${scene}-${width}-${theme}.png`) });
+                assert.ok(box, 'The source link has a visible box to click.');
+                const previousNavigations = sourceNavigations;
+                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                await assertSourceOpened(previousNavigations);
+            };
+
             const externalSource = page.getByRole('link', { name: /Sample external source,/ });
-            const inlineLink = page.getByRole('link', { name: 'Sample inline link', exact: true });
             await loadLinks();
-            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
-            // A popup blocker can return a fake successful window instead of null. Links must not depend on that result.
+            await externalSource.waitFor({ state: 'visible', timeout: 60000 });
+            assert.equal(await page.getByRole('link', { name: /Sample unsafe source/ }).count(), 0,
+                'A source with an unsafe scheme is not a link.');
+            assert.equal(page.url(), `${origin}/talk/${botId}`, 'Unsafe schemes do not navigate.');
+
+            // A popup blocker can return a fake successful window instead of null.
             await page.evaluate(() => { window.open = () => ({ closed: false }); });
-            await openByPointer(externalSource, 'sample-external', 'Sample external destination');
+            await openByPointer(externalSource, 'main-conversation-source');
             progress(`source link by pointer ${width} ${theme}`);
 
             await loadLinks();
-            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
-            await externalSource.focus();
-            await page.keyboard.press('Enter');
-            await page.waitForURL(`${origin}/sample-external`, { timeout: 10000 });
-            assert.equal(await page.title(), 'Sample external destination');
+            await externalSource.waitFor({ state: 'visible', timeout: 60000 });
+            const beforeKeyboard = sourceNavigations;
+            await externalSource.press('Enter');
+            await assertSourceOpened(beforeKeyboard);
             progress(`source link by keyboard ${width} ${theme}`);
 
-            await loadLinks();
-            await page.getByText('Sample reply with a link.', { exact: true }).waitFor({ state: 'attached', timeout: 60000 });
-            await inlineLink.waitFor({ state: 'attached', timeout: 60000 });
-            await openByPointer(inlineLink, 'sample-inline', 'Sample inline destination');
-            progress(`inline markdown link by pointer ${width} ${theme}`);
-
-            await loadLinks();
-            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
-            assert.equal(await page.getByRole('link', { name: /Sample unsafe source/ }).count(), 0,
-                'A source with an unsafe scheme is not a link.');
-            assert.equal(await page.getByRole('link', { name: /Sample unsafe inline/ }).count(), 0,
-                'An inline address with an unsafe scheme is not a link.');
-            assert.equal(page.url(), `${origin}/talk/${botId}`, 'Unsafe schemes do not navigate.');
-            progress(`unsafe schemes refused ${width} ${theme}`);
+            await loadLinks(`/side/${sideLinkThread.id}`);
+            const sideSource = page.getByRole('link', { name: /Sample side source,/ });
+            await openByPointer(sideSource, 'side-chat-source');
+            progress(`side chat source link by pointer ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
@@ -1479,6 +1660,33 @@ async function checkStopBounds(page, width) {
     } finally {
         await close();
     }
+}
+
+async function checkBotRequests(page, width, theme) {
+    const accepts = page.getByLabel('Accept requests from other bots', { exact: true });
+    await accepts.press('Space');
+    const save = page.getByRole('button', { name: 'Save changes', exact: true });
+    await page.waitForFunction(() => {
+        const button = document.querySelector('[aria-label="Save changes"]');
+        return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+    });
+    const [reply] = await Promise.all([
+        page.waitForResponse(response => response.request().method() === 'PUT'
+            && new URL(response.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`),
+        save.dispatchEvent('click'),
+    ]);
+    assert(reply.ok());
+    assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
+        'Incoming bot requests default on and the editor can opt out');
+    await save.waitFor({ state: 'hidden' });
+    await page.reload();
+    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+    await accepts.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+        const box = document.querySelector('[aria-label="Accept requests from other bots"]')?.getBoundingClientRect();
+        return box && box.top > 0 && box.bottom < window.innerHeight - 60;
+    });
+    await page.screenshot({ path: path.join(pictures, `bot-editor-limits-off-${width}-${theme}.png`) });
 }
 
 async function checkLeavingWithEdits(page, address) {

@@ -8,7 +8,7 @@ public sealed record RunStatusChanged(string Status, string? Reason, RunProblem?
 /// id the step's assistant message will be stored under, and the id its deltas carry. A discarded step's partial
 /// output is dropped: the step was cut off and its message was never stored.
 /// </summary>
-public sealed record StepChanged(int Step, Guid MessageId);
+public sealed record StepChanged(int Step, Guid MessageId, long? EstimatedInputTokens = null, bool Shortened = false);
 
 /// <summary>Data of <c>message.delta</c>: one coalesced chunk of a part. <see cref="Kind"/> is text or reasoning.</summary>
 public sealed record MessageDelta(Guid MessageId, int PartIndex, string Kind, string Text);
@@ -68,6 +68,13 @@ public sealed record ToolCompleted(Guid ToolCallId, string Outcome, bool IsError
 /// which conditions held, in words, and never holds the text that matched.
 /// </summary>
 public sealed record RuleFired(Guid RuleId, string RuleName, string Checkpoint, string Effect, string Why, Guid? ToolCallId);
+
+/// <summary>
+/// One check of a rule written as a sentence. The outcome is "applies", "passes", "unsure", or "failed"; the
+/// probability is the one the decision model gave that the rule applies, when it gave one. It never holds the
+/// sentence, the checked text, or anything else that was sent.
+/// </summary>
+public sealed record RuleChecked(Guid RuleId, string Checkpoint, string Outcome, double? Probability, long ElapsedMs, Guid? ToolCallId);
 
 /// <summary>Data of <c>usage.recorded</c>: what one model call used. <see cref="Cost"/> is null when its price is not known.</summary>
 public sealed record UsageRecorded(int Step, long Input, long Output, long Cached, decimal? Cost, string Currency);

@@ -104,24 +104,37 @@ public static class ImageTools
         var prepared = await call.Tenant.Transact(
             services => Prepare(services, call.Tenant.SpaceId, call.BotId, request.Model, cancellationToken),
             cancellationToken);
+        if (!rules.OffersModelProvider(prepared.Connection.Kind))
+        {
+            throw new BuiltinToolException(ModelProviderCatalog.SwitchedOff(prepared.Connection.Kind));
+        }
+
         var generator = generators.FirstOrDefault(candidate => candidate.Kind == prepared.Connection.Kind)
             ?? throw new BuiltinToolException("This server has no image adapter for the bot's model connection.");
         var address = generator.FixedAddress
             ?? (Uri.TryCreate(prepared.Connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null)
             ?? throw new BuiltinToolException("The bot's model connection has no usable address.");
 
+        // The transaction is closed: a sign-in that runs out soon is renewed here, before the call.
+        var credential = await prepared.Credentials.Ready(prepared.Credential, cancellationToken);
+
+        if (credential.Problem is not null)
+        {
+            throw new BuiltinToolException($"The image could not be created. {credential.Message}");
+        }
+
         await call.BeginModelCall();
 
         try
         {
             using var outbound = OutboundAttempt.Begin(prepared.Policy);
-            var endpoint = new ModelEndpoint(prepared.Connection.Kind, address)
+            var endpoint = credential.For(new ModelEndpoint(prepared.Connection.Kind, address)
             {
                 Limits = new DiscoveryLimits(rules.MaxModelListBytes, rules.MaxModelsPerConnection),
-            };
+            });
             var generated = await generator.Generate(
                 endpoint,
-                prepared.Key,
+                credential.Value,
                 request,
                 cancellationToken);
             var pricing = generated.Usage.Cost is not null
@@ -166,12 +179,12 @@ public static class ImageTools
         var entry = catalog.SingleOrDefault(candidate =>
             candidate.Model == model
             && candidate.State == AvailabilityState.Available
-            && candidate.Capabilities.ImageGeneration);
+            && candidate.EffectiveCapabilities.ImageGeneration);
 
         if (entry is null)
         {
             var allowed = catalog
-                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.Capabilities.ImageGeneration)
+                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.EffectiveCapabilities.ImageGeneration)
                 .Select(candidate => candidate.Model)
                 .ToArray();
             throw new BuiltinToolException(
@@ -180,11 +193,10 @@ public static class ImageTools
                     : $"That image model is not enabled in this connection's catalog. Allowed image models: {string.Join(", ", allowed)}.");
         }
 
-        var key = connection.SecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
+        var credentials = services.GetRequiredService<ModelCredentials>();
+        var credential = await credentials.Read(services, connection, cancellationToken);
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
-        return new Prepared(connection, key, entry.Pricing, policy);
+        return new Prepared(connection, credential, entry.EffectivePricing, policy, credentials);
     }
 
     #endregion
@@ -240,9 +252,10 @@ public static class ImageTools
 
     private sealed record Prepared(
         ModelConnection Connection,
-        string? Key,
+        ModelCredential Credential,
         ModelPricing Pricing,
-        EffectivePolicy Policy);
+        EffectivePolicy Policy,
+        ModelCredentials Credentials);
 
     #endregion
 }

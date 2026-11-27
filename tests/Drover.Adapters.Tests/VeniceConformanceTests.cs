@@ -5,7 +5,7 @@ public sealed class VeniceConformanceTests : ModelProviderConformance
 {
     #region Public Methods
 
-    protected override ConformanceClaims Claims => new(StructuredOutput: true, ReasoningText: true);
+    protected override ConformanceClaims Claims => new(StructuredOutput: true, ReasoningText: true, ProtectedReasoning: false, CachedUsage: false);
 
     protected override ProviderUnderTest Start(string scenario) => VeniceRig.Start(scenario).Subject;
 

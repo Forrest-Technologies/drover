@@ -84,7 +84,11 @@ public sealed class ToolCallLedger(RunContext run)
             },
             cancellationToken);
 
-    public Task RecordPendingApproval(FunctionCallContent call, ToolDefinition tool, CancellationToken cancellationToken) =>
+    /// <summary>
+    /// Records a call the framework holds for approval, with the request's id and the model's call id, so the answer
+    /// can be handed over again after a restart. Whether a person is asked is decided after this, by the governor.
+    /// </summary>
+    public Task RecordPendingApproval(string requestId, FunctionCallContent call, ToolDefinition tool, CancellationToken cancellationToken) =>
         run.Database.Transact(
             async services =>
             {
@@ -95,8 +99,35 @@ public sealed class ToolCallLedger(RunContext run)
                 {
                     var row = run.NewToolCallRow(id, tool.ToolId, call.Name, MessageParts.ToJson(call.Arguments));
                     row.Status = ToolCallStatus.PendingApproval;
+                    row.ApprovalRequestId = requestId;
+                    row.ModelCallId = call.CallId;
                     calls.AddToolCall(row);
                 }
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Records that a rule check let a held call go on with no person, and when. It holds for this call id and the
+    /// arguments the row was written with, and nothing else: a call some person decided, one that started, or the
+    /// same id with other arguments is refused. It never counts as a person's approval (see
+    /// <see cref="WasApprovedByAPerson"/>), so it cannot turn a grant of ask, or a tool that always asks, into a run.
+    /// </summary>
+    public Task<bool> Clear(string callId, JsonElement arguments, CancellationToken cancellationToken) =>
+        run.Database.Transact(
+            async services =>
+            {
+                var row = await services.GetRequiredService<ToolCallRepository>()
+                    .GetToolCall(ToolCallIds.For(run.Execution.RunId, callId), cancellationToken);
+
+                if (row is not { DecidedByUserId: null, DecidedByWindowId: null, StartedAt: null, Status: ToolCallStatus.PendingApproval or ToolCallStatus.Approved }
+                    || !JsonElement.DeepEquals(row.Arguments, run.Governor.Redact(arguments)))
+                {
+                    return false;
+                }
+
+                row.Status = ToolCallStatus.Approved;
+                row.ClearedAt ??= DateTimeOffset.UtcNow;
+                return true;
             },
             cancellationToken);
 
@@ -178,11 +209,11 @@ public sealed class ToolCallLedger(RunContext run)
         if (row.Status is ToolCallStatus.PendingApproval or ToolCallStatus.Approved)
         {
             Complete(row, ToolCallStatus.Denied, new ToolOutcome(MessageParts.ToJson(result.Result), true));
-            return result;
+            return MessageParts.ToolResult(result.CallId, MessageParts.ToJson(result.Result), true);
         }
 
         var outcome = SettledOutcome(row)!;
-        return new FunctionResultContent(result.CallId, outcome.Result);
+        return MessageParts.ToolResult(result.CallId, outcome.Result, outcome.IsError);
     }
 
     // A call that started and never finished runs again only when its tool may: it only reads, or it is a delegation,

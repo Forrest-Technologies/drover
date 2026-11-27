@@ -23,13 +23,30 @@ internal static class PlatformServices
             .AddSingleton<AppRequests>()
             .AddSingleton<IServerChoice, DeviceServerChoice>()
             .AddSingleton(PlatformShell.Incoming)
+            .AddSingleton(provider => new CallConnection(provider.GetRequiredService<AppRequests>().OpenSocket))
             .AddDevice()
+            .AddModelSignInListener()
             .AddSingleton(provider => new DroverApi(
                 new HttpClient(provider.GetRequiredService<AppRequests>(), disposeHandler: false)
                 {
                     BaseAddress = AppRequests.Placeholder,
                 },
                 provider.GetService<StreamPresence>()));
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>A device whose <c>AddDevice</c> added no listener for a model sign-in's return cannot finish one by itself.</summary>
+    private static IServiceCollection AddModelSignInListener(this IServiceCollection services)
+    {
+        if (!services.Any(service => service.ServiceType == typeof(IModelSignInListener)))
+        {
+            services.AddSingleton<IModelSignInListener, NoModelSignInListener>();
+        }
+
+        return services;
+    }
 
     #endregion
 }

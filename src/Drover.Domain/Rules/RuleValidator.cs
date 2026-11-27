@@ -24,7 +24,10 @@ public static class RuleValidator
 
     #region Public Methods
 
-    /// <summary>What is wrong with the rule, as a sentence a person can act on, or null when it holds.</summary>
+    /// <summary>
+    /// What is wrong with the rule, as a sentence a person can act on, or null when it holds. Whether this server
+    /// judges rules written as a sentence (deployment rule AllowJudgedRules) is asked by the caller, as for patterns.
+    /// </summary>
     public static string? FindProblem(string? name, RuleCheckpoint checkpoint, RuleEffect effect, IReadOnlyList<RuleCondition>? conditions)
     {
         if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > MaxNameLength)
@@ -35,6 +38,11 @@ public static class RuleValidator
         if (conditions is null || conditions.Count > MaxConditions)
         {
             return $"A rule has at most {MaxConditions} conditions.";
+        }
+
+        if (FindJudgedProblem(checkpoint, effect, conditions) is { } judged)
+        {
+            return judged;
         }
 
         return conditions.Select(condition => FindProblem(condition, checkpoint)).FirstOrDefault(problem => problem is not null)
@@ -65,6 +73,44 @@ public static class RuleValidator
 
         return effect is RuleEffect.Redact && !conditions.Any(FindsText)
             ? "To redact, a rule needs a condition that finds the text to remove: contains, matches a pattern, or holds a built-in kind."
+            : null;
+    }
+
+    // A sentence is judged by a decision model, so where it may stand is narrower than for other conditions: one a
+    // rule, only before a tool or a reply, and never to remove text, because a judgment cannot say what to remove.
+    private static string? FindJudgedProblem(RuleCheckpoint checkpoint, RuleEffect effect, IReadOnlyList<RuleCondition> conditions)
+    {
+        var judged = conditions.Count(condition => condition.IsJudged);
+
+        if (judged == 0)
+        {
+            return null;
+        }
+
+        if (judged > 1)
+        {
+            return "A rule holds one sentence to check. Write a second rule for the second sentence.";
+        }
+
+        if (checkpoint is not (RuleCheckpoint.BeforeTool or RuleCheckpoint.BeforeReply))
+        {
+            return "A sentence is checked before a tool is used or before the bot replies. Choose one of those moments.";
+        }
+
+        return effect is RuleEffect.Redact
+            ? "A rule written as a sentence cannot redact: a judgment cannot say what to remove. Choose ask, block, or stop."
+            : null;
+    }
+
+    private static string? FindStatementProblem(RuleCondition condition)
+    {
+        if (string.IsNullOrWhiteSpace(condition.Statement) || condition.Statement.Trim().Length > MaxValueLength)
+        {
+            return $"Write the rule as one sentence of up to {MaxValueLength} characters.";
+        }
+
+        return condition.MinConfidence is { } confidence && !(confidence >= JudgedRules.MinConfidence && confidence <= JudgedRules.MaxConfidence)
+            ? $"How sure the check must be is a number from 0.50 to 0.99."
             : null;
     }
 
@@ -109,6 +155,7 @@ public static class RuleValidator
             RuleConditionKind.RunExceeds => condition.Counter is { } counter && Enum.IsDefined(counter) && condition.Limit is >= 0 and <= MaxLimit
                 ? null
                 : $"Choose tool calls or tokens, and a number from 0 to {MaxLimit}.",
+            RuleConditionKind.Judged => FindStatementProblem(condition),
             _ => "That is not a kind of condition a rule can have.",
         };
     }

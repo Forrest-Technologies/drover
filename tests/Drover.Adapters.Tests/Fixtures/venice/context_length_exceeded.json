@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: an oversized chat request refused by the compatible protocol.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 400,
+      "body": { "error": { "code": "context_length_exceeded", "message": "Too long." } }
+    }
+  ]
+}

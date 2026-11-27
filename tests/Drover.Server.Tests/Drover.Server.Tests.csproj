@@ -28,6 +28,9 @@
     <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
     <Compile Include="..\Shared\TestWebServer.cs" Link="Shared\TestWebServer.cs" />
     <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
+    <Compile Include="..\Shared\ScriptedDecisionModel.cs" Link="Shared\ScriptedDecisionModel.cs" />
+    <Compile Include="..\Shared\FakeModelSignIn.cs" Link="Shared\FakeModelSignIn.cs" />
+    <Compile Include="..\Shared\SampleThemes.cs" Link="Shared\SampleThemes.cs" />
     <Compile Include="..\Shared\SdkToolServer.cs" Link="Shared\SdkToolServer.cs" />
     <Compile Include="..\Shared\SignInDesk.cs" Link="Shared\SignInDesk.cs" />
     <Compile Include="..\Shared\PointerEvents.cs" Link="Shared\PointerEvents.cs" />

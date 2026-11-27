@@ -36,6 +36,14 @@ public sealed class PolicyMatrixCoverageTests
 /// </summary>
 public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) : ServerTestBase(postgres)
 {
+    #region Private Fields
+
+    private readonly FakeModelSignIn plan = new(FakeModelSignIn.PlanKind);
+
+    private readonly FakeModelSignIn open = new(FakeModelSignIn.OpenKind, isPersonalPlan: false);
+
+    #endregion
+
     #region Properties
 
     protected override IReadOnlyDictionary<string, string?> Settings
@@ -66,7 +74,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
 
         status!.Preset.Should().Be(preset);
         status.Rules.Select(rule => (rule.Rule, rule.Setting))
-            .Should().BeEquivalentTo(PolicyMatrix.Rows.Select(row => (row.Rule, row.For(preset))));
+            .Should().BeEquivalentTo(PolicyMatrix.Rows.Select(row => (row.Rule, ListedSetting(row))));
         status.Rules.Should().OnlyContain(rule => rule.EnforcedBy != string.Empty);
     }
 
@@ -102,6 +110,18 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
             await attempt.Should().ThrowAsync<OutboundBlockedException>().WithMessage("*does not allow requests to private addresses*");
             target.Requests.Should().Be(0);
         }
+    }
+
+    [Fact]
+    public async Task AllowPrivateAddresses_decides_whether_the_named_providers_on_this_network_are_offered()
+    {
+        var client = await SignedInClient();
+
+        var kinds = await (await client.Get("/api/model-provider-kinds")).Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token);
+        var listed = kinds!.Single(kind => kind.Kind == ModelConnectionKinds.Compatible).NamedProviders;
+
+        listed.Any(row => row.Local).Should().Be(Setting(nameof(DeploymentPolicy.AllowPrivateAddresses)) == "true");
+        listed.Should().NotBeEmpty();
     }
 
     [Fact]
@@ -185,6 +205,54 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task The_judged_rule_rules_decide_whether_a_sentence_may_be_saved_and_bound_every_check()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        var (client, schedules) = await SignedInClientWithBot();
+        var bot = schedules[..schedules.LastIndexOf('/')];
+
+        var saved = await client.Post($"{bot}/rules", new BotRuleBody("Ask before mail", true, "before_tool", "ask", [new("judged") { Statement = "Always ask me before sending an email." }]));
+
+        rules.MaxJudgedRuleSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxJudgedRuleSeconds)));
+        rules.MaxJudgedChecksPerRun.Should().Be(Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)));
+
+        if (Setting(nameof(DeploymentPolicy.AllowJudgedRules)) == "true")
+        {
+            saved.StatusCode.Should().Be(HttpStatusCode.Created, await saved.Content.ReadAsStringAsync(Token));
+        }
+        else
+        {
+            saved.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await saved.Content.ReadAsStringAsync(Token)).Should().Contain(nameof(DeploymentPolicy.AllowJudgedRules), "the message names the rule an operator would change");
+        }
+    }
+
+    [Fact]
+    public async Task DecisionModelKinds_decides_which_decision_models_a_space_may_connect()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("decisions");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var state = (await (await client.Get($"/api/spaces/{spaceId}/decision-model")).Content.ReadFromJsonAsync<DecisionModelState>(Token))!;
+        var set = await client.Put(
+            $"/api/spaces/{spaceId}/decision-model",
+            new SetDecisionModelRequest("systemone_compatible", "https://judge.example.test/api/systemone", null, "judge-1", null));
+
+        if (Setting(nameof(DeploymentPolicy.DecisionModelKinds)) == "All")
+        {
+            state.Kinds.Select(kind => kind.Kind).Should().Contain("systemone_compatible");
+            set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Token));
+        }
+        else
+        {
+            state.Kinds.Should().BeEmpty("the operator has listed no kind");
+            set.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await set.Content.ReadAsStringAsync(Token)).Should().Contain(nameof(DeploymentPolicy.DecisionModelKinds), "the message names the rule an operator would change");
+        }
+    }
+
+    [Fact]
     public async Task The_sandbox_rules_decide_what_the_bot_editor_offers_and_what_a_bot_may_save()
     {
         var (email, password, _, spaceId) = await SeedPerson("sandboxrules");
@@ -233,6 +301,16 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void The_voice_rules_bound_one_recording_one_read_aloud_and_one_call()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.MaxVoiceRecordingBytes.Should().Be(Limit(nameof(DeploymentPolicy.MaxVoiceRecordingBytes)));
+        rules.MaxReadAloudCharacters.Should().Be(Limit(nameof(DeploymentPolicy.MaxReadAloudCharacters)));
+        rules.MaxCallMinutes.Should().Be(Limit(nameof(DeploymentPolicy.MaxCallMinutes)));
+    }
+
+    [Fact]
     public async Task MaxBotsPerSpace_is_the_cap_on_a_spaces_bots_where_the_space_sets_none_and_a_space_may_only_lower_it()
     {
         await using var scope = Services.CreateAsyncScope();
@@ -276,7 +354,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
         var ceilings = new DelegationLimits(
             int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationDepth)), CultureInfo.InvariantCulture),
-            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture),
+            Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationTreeCostCents)), CultureInfo.InvariantCulture));
 
         policies.Delegation(new SpaceSettings()).Should().Be(ceilings);
@@ -296,17 +374,26 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         await using var scope = Services.CreateAsyncScope();
         var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
         var ceilings = new RunCeilings(
-            Setting(nameof(DeploymentPolicy.MaxStepsPerRun)) is "No limit" ? int.MaxValue :
-                int.Parse(Setting(nameof(DeploymentPolicy.MaxStepsPerRun)), CultureInfo.InvariantCulture),
+            Limit(nameof(DeploymentPolicy.MaxStepsPerRun)),
             int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
-            new DelegationLimits(1, int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture), 1).MaxHandoffs);
+            new DelegationLimits(1, Limit(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), 1).MaxHandoffs,
+            Limit(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)))
+        {
+            MaxJudgedChecks = Limit(nameof(DeploymentPolicy.MaxJudgedChecksPerRun)),
+        };
 
-        policies.Runs(new SpaceSettings()).Should().Be(ceilings);
-        policies.Runs(new SpaceSettings { MaxStepsPerRun = int.MaxValue, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
-        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
-        space.Should().Be(new RunCeilings(10, 1000, 3));
-        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");
-        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0 }).Should().Be(new RunCeilings(2, 500, 0));
+        policies.Runs(new SpaceSettings()).Should().Be(ceilings with { CanRemoveUsageLimit = preset == DeploymentPolicy.SelfHostedName });
+        policies.Runs(new SpaceSettings
+        {
+            MaxStepsPerRun = int.MaxValue,
+            MaxTokensPerRun = ceilings.MaxTokens + 1,
+            MaxUnmeteredModelCallsPerRun = ceilings.MaxUnmeteredModelCalls + 1,
+            MaxJudgedChecksPerRun = int.MaxValue,
+        }).Should().Be(ceilings);
+        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4, MaxUnmeteredModelCallsPerRun = 7, MaxJudgedChecksPerRun = 20 });
+        space.Should().Be(new RunCeilings(10, 1000, 3, 7) { MaxJudgedChecks = 20 });
+        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4, MaxJudgedChecks = 21 }).Should().Be(space, "a bot cannot raise what its space allows");
+        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0, MaxJudgedChecks = 5 }).Should().Be(new RunCeilings(2, 500, 0, 7) { MaxJudgedChecks = 5 });
     }
 
     [Fact]
@@ -331,12 +418,84 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         crew.Should().OnlyContain(grant => grant == (Setting(nameof(DeploymentPolicy.AllowBotsBuildingBots)) == "true" ? "ask" : "off"));
     }
 
+    [Fact]
+    public async Task SubscriptionSignIn_decides_whether_a_personal_plan_may_be_signed_in_to_and_a_sign_in_open_to_any_app_stays_on()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("planner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+        var path = $"/api/spaces/{spaceId}/model-connections/sign-in";
+
+        var personal = await client.Post(path, new StartModelSignInRequest(plan.Kind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+        var anyApp = await client.Post(path, new StartModelSignInRequest(open.Kind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+
+        anyApp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        if (Setting(nameof(DeploymentPolicy.SubscriptionSignIn)) == nameof(SubscriptionSignInMode.Available))
+        {
+            personal.StatusCode.Should().Be(HttpStatusCode.OK);
+            plan.Begins.Should().Be(1);
+        }
+        else
+        {
+            personal.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await personal.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString().Should().Be(ModelCredentials.NotAvailable);
+            plan.Begins.Should().Be(0, "nothing is sent for a refused kind");
+        }
+    }
+
+    [Fact]
+    public async Task SubscriptionSignIn_leaves_the_registered_OpenRouter_sign_in_on_under_every_preset_because_its_flow_is_open_to_any_app()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("router");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var started = await client.Post(
+            $"/api/spaces/{spaceId}/model-connections/sign-in",
+            new StartModelSignInRequest(OpenRouterSignIn.ConnectionKind, FakeModelSignIn.RedirectUri.AbsoluteUri));
+
+        started.StatusCode.Should().Be(HttpStatusCode.OK, await started.Content.ReadAsStringAsync(Token));
+        new Uri((await started.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!.Address).Host.Should().Be("openrouter.ai");
+    }
+
+    [Fact]
+    public async Task SubscriptionSignIn_decides_whether_the_claude_plan_may_be_signed_in_to_from_a_device_that_pastes()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("claude-planner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var started = await client.Post($"/api/spaces/{spaceId}/model-connections/sign-in", new StartModelSignInRequest(AnthropicPlanSignIn.ConnectionKind, null));
+
+        if (Setting(nameof(DeploymentPolicy.SubscriptionSignIn)) == nameof(SubscriptionSignInMode.Available))
+        {
+            started.StatusCode.Should().Be(HttpStatusCode.OK);
+            var step = (await started.Content.ReadFromJsonAsync<ModelSignInStarted>(Token))!;
+            step.Wait.Should().Be(ModelSignInWaits.Paste, "a device with no listener pastes the code the provider's page shows");
+            step.Address.Should().StartWith("https://claude.ai/oauth/authorize?");
+        }
+        else
+        {
+            started.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await started.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString().Should().Be(ModelCredentials.NotAvailable);
+        }
+    }
+
     #endregion
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services) =>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
         services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+
+        // A sign-in kind is a provider kind too, registered beside its sign-in.
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel(), FakeModelSignIn.PlanKind));
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel(), FakeModelSignIn.OpenKind));
+        services.AddSingleton<IModelSignIn>(plan);
+        services.AddSingleton<IModelSignIn>(open);
+    }
 
     #endregion
 
@@ -346,6 +505,19 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     private static int Above(int most) => most is int.MaxValue ? most : most + 1;
 
     private string Setting(string rule) => PolicyMatrix.Setting(rule, preset);
+
+    /// <summary>
+    /// What the status listing shows for a rule. A hosted server lists no provider kind, so the test server's operator
+    /// names the kinds the tests use (<see cref="DroverFactory"/>); every other rule shows the preset's value.
+    /// </summary>
+    private string ListedSetting(PolicyMatrixRow row) =>
+        row.Rule == nameof(DeploymentPolicy.AllowedModelProviderKinds) && preset == DeploymentPolicy.HostedName
+            ? string.Join(", ", DroverFactory.HostedTestKinds)
+            : row.For(preset);
+
+    /// <summary>A limit's number, where the listing's "No limit" is the largest number there is.</summary>
+    private int Limit(string rule) =>
+        Setting(rule) is PolicyRule.NoLimit ? int.MaxValue : int.Parse(Setting(rule), CultureInfo.InvariantCulture);
 
     /// <summary>A signed-in owner of a new space with one bot, and where that bot's schedules are saved.</summary>
     private async Task<(ApiClient Client, string Schedules)> SignedInClientWithBot()

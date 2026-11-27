@@ -457,6 +457,9 @@ public static class RunReasons
     /// <summary>The run used as many tokens as one run may. It is checked before each model call, so the last call may take it past.</summary>
     public const string TokenLimit = "token_limit";
 
+    /// <summary>The run made as many model calls that reported no token use as one run may.</summary>
+    public const string UnmeteredCallLimit = "unmetered_call_limit";
+
     public const string CancelledByUser = "cancelled_by_user";
 
     public const string LeaseLost = "lease_lost";
@@ -466,6 +469,12 @@ public static class RunReasons
     public const string LoopDetected = "loop_detected";
 
     public const string BudgetExceeded = "budget_exceeded";
+
+    /// <summary>The bot's model connection is one each person signs in to, and the run's person has not. No model was called.</summary>
+    public const string SignInRequired = "sign_in_required";
+
+    /// <summary>The provider ended the run's person's sign-in. They sign in again. No model was called.</summary>
+    public const string SignInEnded = "sign_in_ended";
 
     #endregion
 }

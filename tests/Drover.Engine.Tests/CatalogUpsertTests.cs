@@ -47,18 +47,58 @@ public sealed class CatalogUpsertTests
     }
 
     [Fact]
-    public void A_mark_an_operator_set_survives_a_refresh_that_reports_no_capabilities()
+    public void What_an_operator_set_survives_a_refresh_that_reports_no_capabilities_or_prices()
     {
         var marked = new ModelCatalogEntry
         {
             Model = "alpha",
             DisplayName = "Alpha",
-            Capabilities = new ModelCapabilities { Vision = true, VisionSetByOperator = true },
+            OperatorCapabilities = new ModelCapabilityOverrides { Vision = true, ContextTokens = 32_000 },
+            OperatorPricing = new ModelPricing { InputPerMillion = 1.5m, Currency = "EUR" },
         };
 
         CatalogUpsert.Apply(connection, [marked], [new ModelInfo("alpha", "Alpha", new ModelCapabilities(), [])], now);
 
-        (marked.Capabilities.Vision, marked.Capabilities.VisionSetByOperator).Should().Be((true, true));
+        marked.EffectiveCapabilities.Vision.Should().BeTrue();
+        marked.EffectiveCapabilities.ContextTokens.Should().Be(32_000);
+        marked.EffectivePricing.Should().Be(new ModelPricing { InputPerMillion = 1.5m, Currency = "EUR" });
+    }
+
+    [Fact]
+    public void A_refresh_never_writes_the_operator_columns_and_the_provider_fills_what_the_operator_left_out()
+    {
+        var marked = new ModelCatalogEntry
+        {
+            Model = "alpha",
+            DisplayName = "Alpha",
+            OperatorCapabilities = new ModelCapabilityOverrides { ContextTokens = 32_000 },
+            OperatorPricing = new ModelPricing { InputPerMillion = 1.5m },
+        };
+        var listed = new ModelInfo("alpha", "Alpha", new ModelCapabilities { ContextTokens = 8192, Vision = true, MaxOutputTokens = 4096 }, [])
+        {
+            Pricing = new ModelPricing { InputPerMillion = 9m, OutputPerMillion = 3m },
+        };
+
+        CatalogUpsert.Apply(connection, [marked], [listed], now);
+
+        marked.OperatorCapabilities.Should().Be(new ModelCapabilityOverrides { ContextTokens = 32_000 });
+        marked.EffectiveCapabilities.Should().Match<ModelCapabilities>(can => can.ContextTokens == 32_000 && can.Vision && can.MaxOutputTokens == 4096);
+        marked.EffectivePricing.Should().Match<ModelPricing>(price => price.InputPerMillion == 1.5m && price.OutputPerMillion == 3m);
+    }
+
+    [Fact]
+    public void A_model_the_provider_did_not_get_to_keeps_the_facts_already_stored()
+    {
+        var stored = new ModelCatalogEntry
+        {
+            Model = "alpha",
+            DisplayName = "Alpha",
+            Capabilities = new ModelCapabilities { ContextTokens = 8192 },
+        };
+
+        CatalogUpsert.Apply(connection, [stored], [new ModelInfo("alpha", "Alpha", new ModelCapabilities(), []) { FactsRead = false }], now);
+
+        stored.Capabilities.ContextTokens.Should().Be(8192);
     }
 
     [Fact]
@@ -68,7 +108,7 @@ public sealed class CatalogUpsertTests
 
         CatalogUpsert.Apply(connection, [plain], [new ModelInfo("alpha", "Alpha", new ModelCapabilities { Vision = true }, [])], now);
 
-        (plain.Capabilities.Vision, plain.Capabilities.VisionSetByOperator).Should().Be((true, false));
+        plain.Capabilities.Vision.Should().BeTrue();
     }
 
     [Fact]

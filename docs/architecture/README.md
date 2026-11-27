@@ -22,7 +22,7 @@ This document answers the architecture handoff. It is split into one file per ha
 | 14 | [14-agent-framework.md](14-agent-framework.md) | What Drover uses from the agent framework, and how it stays current |
 | 15 | [15-model-providers.md](15-model-providers.md) | Model connections: Venice first-party, compatible endpoints, subscription sign-in |
 | 16 | [16-deployment-policies.md](16-deployment-policies.md) | Deployment policy: self-hosted by default, a hosted preset that locks the server into compliance |
-| 17 | [17-extensions.md](17-extensions.md) | Extensions: one file that adds a bot to a space, read by a person before anything is added |
+| 17 | [17-extensions.md](17-extensions.md) | Extensions: one file of data that adds a tool server, themes, rules, and its own settings for a space to pick up, read by a person before anything is added. Bot files: a bot shared as a file of its own |
 | 18 | [18-native-client.md](18-native-client.md) | The native client: one app for web, Android, and desktop, its tokens and controls, and how a screen moves to it |
 | 19 | [19-chat-channels.md](19-chat-channels.md) | Chat channels: one bot per channel, link codes, what crosses into the app, and operator control |
 
@@ -88,7 +88,7 @@ Subscription sign-in by provider, as verified:
 | OpenAI | Permitted for open source and locally hosted apps, including a user's own remote machine; a paid or remotely hosted app needs separate admission | Sign-in for self-hosted servers; key-only on the hosted service until admitted |
 | OpenRouter | Permitted, OAuth issues a user-owned key | Sign-in supported |
 | Hugging Face | Permitted, OAuth with an inference scope | Sign-in supported |
-| GitHub Copilot | Permitted through its SDK with a GitHub OAuth app, including hosted apps | Sign-in supported |
+| GitHub Copilot | Personal plans sign in through a GitHub OAuth app or GitHub App the operator registers ([ADR 0029](../adr/0029-copilot-registered-oauth-model-client.md)); chat is a Drover model client, not the Copilot SDK agent | Sign-in on self-hosted servers after the operator sets the app; hosted preset refuses personal plans |
 | Venice | Key only; no sign-in exists | First-party key connection |
 | Anthropic, Google | Prohibited for third-party apps | Key-only |
 | Others | No public mechanism or unclear | Key-only |

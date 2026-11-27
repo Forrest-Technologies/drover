@@ -80,15 +80,15 @@ public sealed class RunGovernor(
 
     public async Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken)
     {
-        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
-
-        if (children is null || tool is not { IsDelegation: true } || request is not { ParentCallId: { } callId, BotId: not null })
+        if (children is null
+            || request is not { ParentCallId: { } callId, BotId: not null, ToolId: { } toolId }
+            || session.FindTool(toolId) is not { IsDelegation: true } tool)
         {
             return new ChildRun(Guid.Empty, request.AgentName) { Refusal = Error("This bot may not hand work to other bots.") };
         }
 
         await session.StartTool(callId);
-        var child = await children.Begin(request, tool.Tool.Id, cancellationToken);
+        var child = await children.Begin(request, tool, cancellationToken);
 
         if (child.Refusal is not null)
         {
@@ -115,11 +115,17 @@ public sealed class RunGovernor(
             throw new InvalidOperationException("This run cannot run child runs.");
         }
 
-        var callId = children.CallOf(child);
+        var (callId, tool) = children.CallOf(child);
 
         await StopWithChild(child, report, callId);
-        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
-        var request = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = DelegateTool.Name, ToolId = tool?.Tool.Id, Arguments = default };
+        var request = new ToolCallRequest
+        {
+            RunId = session.RunId,
+            CallId = callId,
+            ToolName = tool.Tool.Name,
+            ToolId = tool.Tool.Id,
+            Arguments = default,
+        };
         var outcome = await RuleOnResult(request, ToResult(child, report), cancellationToken);
         var toolCallId = ToolCallIds.For(session.RunId, callId);
         await session.Writer.Append(
@@ -179,7 +185,7 @@ public sealed class RunGovernor(
         var subject = tool is null
             ? new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = toolName, Json = arguments }
             : CallSubject(tool, arguments);
-        var outcome = await rules.Find(subject, cancellationToken);
+        var outcome = await rules.Find(subject, ToolCallIds.For(session.RunId, callId), Judgeable(tool), cancellationToken);
         var left = outcome?.RedactedJson ?? arguments;
         session.RuledCalls[callId] = new RuledCall(arguments.Clone(), left.Clone(), outcome);
         return left;
@@ -206,6 +212,35 @@ public sealed class RunGovernor(
     public async Task<bool> RulesRefuse(string callId, string modelName, JsonElement arguments, CancellationToken cancellationToken) =>
         session.FindToolByModelName(modelName) is { } tool
         && await RuleFor(callId, tool, arguments, cancellationToken) is { Effect: RuleEffect.Block or RuleEffect.Stop };
+
+    /// <summary>
+    /// True when a held call may go on with no person. Only a call held because a rule written as a sentence could
+    /// apply to it is ever cleared, and only when the bot is active, the grant as it stands now allows the call (not
+    /// ask, and not a tool that always asks), no rule decided by code could ask about the tool, and the rules, with the
+    /// verdict made where the call was first read, ask nothing about it. Nothing here grants anything: the gate
+    /// decides about the call again when it is made, and refuses what a rule blocks.
+    /// </summary>
+    public async Task<bool> ClearsWithoutAPerson(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken)
+    {
+        if (session.FindToolByModelName(toolName) is not { } tool || session.RuleAsks(tool) || !session.JudgedRuleReaches(tool))
+        {
+            return false;
+        }
+
+        var (status, effect) = await session.Tenant.Transact(
+            async services => (
+                (await services.GetRequiredService<BotRepository>().FindBot(bot.Id, cancellationToken))?.Status,
+                await services.GetRequiredService<ToolRepository>().FindEffectiveGrant(bot.Id, tool.Tool.Id, cancellationToken)),
+            cancellationToken);
+
+        if (status is not BotStatus.Active || effect is not { } granted || session.EffectNow(tool, granted) is not GrantEffect.Allow)
+        {
+            return false;
+        }
+
+        // A rule that blocks or stops the call needs no person either: the gate refuses the call, and says why.
+        return await RuleFor(callId, tool, arguments, cancellationToken) is not { Effect: RuleEffect.Ask };
+    }
 
     /// <summary>
     /// What the person asked about a call is shown beside its arguments, when the tool is a built-in one that says,
@@ -313,6 +348,10 @@ public sealed class RunGovernor(
             case RuleEffect.Stop:
                 session.EndByRule(RunRules.StoppedByRule, $"Stopped by the rule \"{outcome.Rule.Name}\": {outcome.Why}.");
                 return ToolGateDecision.Refuse($"The rule \"{outcome.Rule.Name}\" stopped the run: {outcome.Why}.");
+            case RuleEffect.Block when outcome.Rule.Judged is { Statement: { } statement }:
+                // The bot is told the rule's sentence, so it can do what the rule requires first and try again.
+                return ToolGateDecision.Refuse(
+                    $"The rule \"{outcome.Rule.Name}\" does not allow this yet: {outcome.Why}. The rule says: \"{statement}\" Do what it requires first, then try again.");
             case RuleEffect.Block:
                 return ToolGateDecision.Refuse($"The rule \"{outcome.Rule.Name}\" does not allow this: {outcome.Why}.");
             case RuleEffect.Ask:
@@ -329,13 +368,31 @@ public sealed class RunGovernor(
     private async Task<RuleOutcome?> RuleFor(string callId, RunTool tool, JsonElement arguments, CancellationToken cancellationToken) =>
         session.RuledCalls.TryGetValue(callId, out var ruled) && JsonElement.DeepEquals(ruled.Left, arguments)
             ? ruled.Outcome
-            : await rules.Find(CallSubject(tool, arguments), cancellationToken);
+            : await rules.Find(CallSubject(tool, arguments), ToolCallIds.For(session.RunId, callId), Judgeable(tool), cancellationToken);
+
+    // A call is sent to the decision model only when nothing before the rules refuses it: the tool is one the bot has,
+    // the bot is active, and its grant as it stands now lets the call run or ask. What is refused is never checked.
+    private Func<CancellationToken, Task<bool>> Judgeable(RunTool? tool) =>
+        async cancellationToken =>
+        {
+            if (tool is null)
+            {
+                return false;
+            }
+
+            var (status, effect) = await session.Tenant.Transact(
+                async services => (
+                    (await services.GetRequiredService<BotRepository>().FindBot(bot.Id, cancellationToken))?.Status,
+                    await services.GetRequiredService<ToolRepository>().FindEffectiveGrant(bot.Id, tool.Tool.Id, cancellationToken)),
+                cancellationToken);
+            return status is BotStatus.Active && effect is { } granted && session.EffectNow(tool, granted) is GrantEffect.Allow or GrantEffect.Ask;
+        };
 
     private static RuleSubject CallSubject(RunTool tool, JsonElement arguments) => new()
     {
         Checkpoint = RuleCheckpoint.BeforeTool,
         ToolName = tool.Tool.Name,
-        ToolKind = tool.Tool.Sensitivity,
+        ToolKind = tool.Sensitivity,
         Json = arguments,
     };
 
@@ -350,7 +407,7 @@ public sealed class RunGovernor(
         {
             Checkpoint = RuleCheckpoint.AfterTool,
             ToolName = tool.Tool.Name,
-            ToolKind = tool.Tool.Sensitivity,
+            ToolKind = tool.Sensitivity,
             Json = result.Result,
         };
 
@@ -565,44 +622,41 @@ public sealed class RunGovernor(
     private static ToolOutcome Error(string message) => new(JsonSerializer.SerializeToElement(new { error = message }), true);
 
     /// <summary>
-    /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen.
-    /// The record names the model that answered, so a call by another model is told apart from the bot's own.
+    /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen. A
+    /// call that reports no token use counts against the run's unmetered calls. A rule check is recorded by the run's
+    /// rules and has its own limit, so it is not counted here.
     /// </summary>
-    private async Task Record(ToolModelUsage usage)
+    private Task Record(ToolModelUsage reported)
     {
-        var cost = Cost(usage);
-        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost ?? 0);
-        var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);
-        await session.Writer.Write(
-            async services =>
-            {
-                var runs = services.GetRequiredService<RunRepository>();
-                runs.Add(new UsageRecord
-                {
-                    RunId = session.RunId,
-                    RootRunId = session.RootRunId,
-                    BotId = bot.Id,
-                    ModelConnectionId = usage.ModelConnectionId,
-                    Model = usage.Model,
-                    InputTokens = usage.InputTokens,
-                    OutputTokens = usage.OutputTokens,
-                    Cost = cost,
-                    Currency = usage.Pricing.Currency,
-                });
+        var usage = NonNegative(reported);
 
-                if (await runs.GetRunForUpdate(session.RunId, CancellationToken.None) is { } run)
-                {
-                    run.Usage = session.Usage;
-                }
-            },
-            [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
+        if (!usage.HasTokenUsage || (usage.InputTokens is 0 && usage.OutputTokens is 0))
+        {
+            session.RecordUnmeteredModelCall();
+        }
+
+        return session.RecordModelUsage(reported);
     }
 
     /// <summary>
-    /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
-    /// the price of tokens the call used: an unknown price is never counted as free.
+    /// The usage with nothing below zero. A provider that reports a negative count or cost would otherwise lower the
+    /// run's totals, and with them how close the run is to its limits.
     /// </summary>
-    internal static decimal? Cost(ToolModelUsage usage) => usage switch
+    internal static ToolModelUsage NonNegative(ToolModelUsage usage) => usage with
+    {
+        InputTokens = Math.Max(0, usage.InputTokens),
+        OutputTokens = Math.Max(0, usage.OutputTokens),
+        DirectCost = usage.DirectCost is { } direct ? Math.Max(0, direct) : null,
+    };
+
+    /// <summary>
+    /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
+    /// the price of tokens the call used: an unknown price is never counted as free. Never below zero: a catalog that
+    /// lists a negative price, or a call that reports a negative count or cost, prices at zero.
+    /// </summary>
+    internal static decimal? Cost(ToolModelUsage usage) => Priced(usage) is { } cost ? Math.Max(0, cost) : null;
+
+    private static decimal? Priced(ToolModelUsage usage) => usage switch
     {
         { DirectCost: { } direct } => direct,
         { HasTokenUsage: false } => null,

@@ -110,7 +110,7 @@ public static class BotSummaries
         (string Own, int? Space, string One, string Many)[] limits =
         [
             (draft.MaxSteps, space?.MaxSteps, "model call", "model calls"),
-            (draft.MaxTokens, space?.MaxTokens, "token", "tokens"),
+            (draft.UnlimitedTokens ? string.Empty : draft.MaxTokens, draft.UnlimitedTokens ? null : space?.MaxTokens, "token", "tokens"),
             (draft.MaxDelegations, space?.MaxDelegations, "handoff", "handoffs"),
         ];
         var said = limits
@@ -118,6 +118,11 @@ public static class BotSummaries
             .Where(limit => limit.Most is not (null or BotRunLimitOptions.NoLimit))
             .Select(limit => $"{Count(limit.Most)} {(limit.Most is 1 ? limit.One : limit.Many)}")
             .ToList();
+        if (draft.UnlimitedTokens)
+        {
+            said.Add("Unlimited tokens");
+        }
+
         var hasStepLimit = int.TryParse(draft.MaxSteps.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out _) ||
             space?.MaxSteps is { } stepLimit && stepLimit != BotRunLimitOptions.NoLimit;
         if (space is not null && !hasStepLimit)
