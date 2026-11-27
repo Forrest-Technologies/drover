@@ -27,13 +27,13 @@ DISPLAYS = (
 )
 
 
-def frame(*dot_rows):
+def frame(*dot_rows, dot=DARK_DOT, background=bytes(4)):
     """Build a recorded 720x1600 RGBA capture with yard dots on the given rows."""
-    pixels = bytearray(HEADER + bytes(WIDTH * HEIGHT * 4))
+    pixels = bytearray(HEADER + background * (WIDTH * HEIGHT))
     for y in dot_rows:
         for x in DOT_X:
             offset = PIXEL_OFFSET + y * WIDTH * 4 + x * 4
-            pixels[offset:offset + 4] = DARK_DOT
+            pixels[offset:offset + 4] = dot
     return bytes(pixels)
 
 
@@ -52,6 +52,36 @@ class SettledSafeAreaTests(unittest.TestCase):
 
         self.assertIn("1480", report.getvalue())
         self.assertEqual(list(captures), [])
+
+    def the_check_accepts_the_other_dark_palette_from_ci(self):
+        capture = frame(63, 64, 1472, dot=bytes((56, 63, 74, 255)), background=bytes((35, 37, 40, 255)))
+
+        with (
+            patch.object(check, "capture", return_value=capture),
+            patch.object(check, "shell", return_value=DISPLAYS),
+            redirect_stdout(io.StringIO()) as report,
+        ):
+            check.check_yard_edges("dark")
+
+        self.assertIn("1472", report.getvalue())
+
+    def the_check_rejects_dots_inside_the_system_bars(self):
+        capture = frame(32, 64, 1472, 1504)
+
+        with (
+            patch.object(check, "capture", return_value=capture),
+            patch.object(check, "shell", return_value=DISPLAYS),
+        ):
+            with self.assertRaisesRegex(AssertionError, r"dot rows \[32, 64\].*\[1472, 1504\]"):
+                check.check_yard_edges("dark")
+
+    def the_check_rejects_a_frame_without_dots(self):
+        with (
+            patch.object(check, "capture", return_value=frame()),
+            patch.object(check, "shell", return_value=DISPLAYS),
+        ):
+            with self.assertRaisesRegex(AssertionError, r"dot rows \[\].*\[\]"):
+                check.check_yard_edges("dark")
 
     def the_check_reports_when_frames_never_settle(self):
         captures = iter(frame(63, 64, y) for y in range(1472, 1482))
