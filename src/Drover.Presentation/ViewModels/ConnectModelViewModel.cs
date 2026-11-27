@@ -108,7 +108,7 @@ public sealed partial class ConnectModelViewModel(
     {
         switch (SignIn.Action)
         {
-            case ModelSignInAction.Continue or ModelSignInAction.TryAgain:
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain or ModelSignInAction.GetNewCode:
                 await SignIn.Start(SpaceId, open);
                 Connection = SignIn.Connection ?? Connection;
                 break;

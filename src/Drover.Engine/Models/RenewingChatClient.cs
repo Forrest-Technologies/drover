@@ -29,7 +29,8 @@ public sealed class RenewingChatClient(
 
     public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
-        using var client = provider.CreateChatClient(endpoint, await Key(cancellation), model, settings);
+        var ready = await Ready(cancellation);
+        using var client = provider.CreateChatClient(ready.For(endpoint), ready.Value, model, settings);
 
         try
         {
@@ -45,7 +46,8 @@ public sealed class RenewingChatClient(
         ModelChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellation = default)
     {
-        using var client = provider.CreateChatClient(endpoint, await Key(cancellation), model, settings);
+        var ready = await Ready(cancellation);
+        using var client = provider.CreateChatClient(ready.For(endpoint), ready.Value, model, settings);
 
         await using var updates = client.GetStreamingResponse(request, cancellation).GetAsyncEnumerator(cancellation);
 
@@ -90,7 +92,7 @@ public sealed class RenewingChatClient(
     }
 
     /// <summary>The credential for this call, renewed first when it runs out soon. One caller at a time, so parallel calls share one renewal.</summary>
-    private async Task<string?> Key(CancellationToken cancellation)
+    private async Task<ModelCredential> Ready(CancellationToken cancellation)
     {
         await gate.WaitAsync(cancellation);
 
@@ -109,7 +111,7 @@ public sealed class RenewingChatClient(
         }
 
         revealed(current.Value);
-        return current.Value;
+        return current;
     }
 
     #endregion

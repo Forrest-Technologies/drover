@@ -350,7 +350,7 @@ public sealed class ModelCredentials(
         expiresAt is { } end && end - time.GetUtcNow() < RefreshLead;
 
     private static ModelCredential SignedIn(ModelTokens tokens, ModelSignInHandle handle) =>
-        ModelCredential.Of(tokens.AccessToken) with { SignIn = handle, ExpiresAt = tokens.ExpiresAt };
+        ModelCredential.Of(tokens.AccessToken) with { SignIn = handle, ExpiresAt = tokens.ExpiresAt, Details = tokens.Details };
 
     private static bool IsTransient(Exception failure, CancellationToken cancellationToken) =>
         failure is ModelProviderException or HttpRequestException or IOException

@@ -64,7 +64,7 @@ public sealed class OpenAIPlanSignInTests
         var signIn = ObservedPlanSignIn.Over(new OpenAIPlanAuthServer());
 
         signIn.AcceptsRedirect(new Uri(address)).Should().Be(accepted);
-        signIn.AcceptsRedirect(null).Should().BeFalse("the browser flow needs a device that listens");
+        signIn.AcceptsRedirect(null).Should().BeTrue("a device that cannot listen signs in by code");
     }
 
     #endregion

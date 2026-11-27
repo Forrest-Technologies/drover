@@ -60,7 +60,8 @@ public static class ModelResponses
             signIn,
             signIn ? descriptor.SignInName ?? descriptor.DisplayName : null,
             signIn ? descriptor.UsagePage?.AbsoluteUri : null,
-            signIn && personalPlan);
+            signIn && personalPlan,
+            signIn ? descriptor.SignInReturn?.AbsoluteUri : null);
 
     public static ModelCatalogResponse ToResponse(this ModelCatalogEntry entry)
     {

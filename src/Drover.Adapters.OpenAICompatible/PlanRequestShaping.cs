@@ -17,8 +17,12 @@ namespace Drover.Adapters.OpenAICompatible;
 /// provider's function calling guide (https://developers.openai.com/api/docs/guides/function-calling, "Defining
 /// namespaces") and its SDK's <c>function_call.namespace</c> field; it is unconfirmed against a live plan.</item>
 /// </list>
+/// A sign-in by code (<see cref="ByCode"/>) is used at the address the provider's own command line tool calls, which
+/// takes the tool's request shape: the same rules, the function tools as they are, no namespace, an
+/// <c>instructions</c> field always present, and <c>include: ["reasoning.encrypted_content"]</c> so reasoning travels
+/// back with <c>store: false</c> (read from the tool's published source on 2026-11-27).
 /// </remarks>
-internal sealed class PlanRequestShaping : PipelinePolicy
+internal sealed class PlanRequestShaping(bool byCode) : PipelinePolicy
 {
     #region Private Fields
 
@@ -52,7 +56,10 @@ internal sealed class PlanRequestShaping : PipelinePolicy
 
     #region Properties
 
-    public static PlanRequestShaping Instance { get; } = new();
+    public static PlanRequestShaping Instance { get; } = new(byCode: false);
+
+    /// <summary>The shaping for a plan signed in by code.</summary>
+    public static PlanRequestShaping ByCode { get; } = new(byCode: true);
 
     #endregion
 
@@ -72,7 +79,10 @@ internal sealed class PlanRequestShaping : PipelinePolicy
         };
 
     /// <summary>The request body as the plan takes it. A body that is not a JSON object is left alone.</summary>
-    public static string Shape(string body)
+    public static string Shape(string body) => Instance.ShapeBody(body);
+
+    /// <summary>The request body as the plan takes it on this policy's flow. A body that is not a JSON object is left alone.</summary>
+    public string ShapeBody(string body)
     {
         if (JsonNode.Parse(body) is not JsonObject root)
         {
@@ -87,6 +97,14 @@ internal sealed class PlanRequestShaping : PipelinePolicy
         root["store"] = false;
         root["stream"] = true;
         MoveSystemItemsToInstructions(root);
+
+        if (byCode)
+        {
+            root["instructions"] ??= string.Empty;
+            root["include"] = new JsonArray("reasoning.encrypted_content");
+            return root.ToJsonString();
+        }
+
         var namespaced = GroupTools(root);
         NameTheNamespaceOnCalls(root, namespaced);
         return root.ToJsonString();
@@ -112,7 +130,7 @@ internal sealed class PlanRequestShaping : PipelinePolicy
 
     #region Shaping
 
-    private static void Rewrite(PipelineMessage message)
+    private void Rewrite(PipelineMessage message)
     {
         if (message.Request.Method != "POST" || message.Request.Content is not { } content
             || message.Request.Uri?.AbsolutePath.EndsWith("/responses", StringComparison.Ordinal) != true)
@@ -122,7 +140,7 @@ internal sealed class PlanRequestShaping : PipelinePolicy
 
         using var buffer = new MemoryStream();
         content.WriteTo(buffer, message.CancellationToken);
-        message.Request.Content = BinaryContent.Create(BinaryData.FromString(Shape(Encoding.UTF8.GetString(buffer.ToArray()))));
+        message.Request.Content = BinaryContent.Create(BinaryData.FromString(ShapeBody(Encoding.UTF8.GetString(buffer.ToArray()))));
     }
 
     private static void MoveSystemItemsToInstructions(JsonObject root)
