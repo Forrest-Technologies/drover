@@ -78,6 +78,8 @@ A call that does not start shows the reason where the word would be: the server'
 
 Talking over the bot: when the server says the person started speaking, the bot's voice stops in the same turn and the server is told how many milliseconds of the answer had been played. On a device that cancels no echo (a desktop), the microphone is ignored for 600 ms after the bot's voice starts. On Android the call is played as a conversation, not as media: the system then takes the bot's voice out of what the microphone hears, so the bot does not hear and answer itself. The voice goes to a headset where one is connected and to the loudspeaker otherwise, and the volume keys set the call volume while the call lasts.
 
+With a live model that hands its work over, the call surface is the same and the bot's work shows where it always does: the person's request and the bot's reply appear in the conversation behind the call as a run, with its tool cards and any approval. The voice says when the bot is waiting for an approval. There is no talking over such a model from the client: it stops by itself, and what was already sent plays out.
+
 ## The Voice page
 
 Account menu, after Notifications. Address `/voice`. One card per row:

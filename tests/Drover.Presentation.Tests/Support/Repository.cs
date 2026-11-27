@@ -20,6 +20,12 @@ public static class Repository
 
     public static string NativeTokens => Path.Combine(NativeFolder, "Theme", "Tokens.xaml");
 
+    /// <summary>
+    /// The names of the kinds of model provider the server builds: each adapter's <c>ConnectionKind</c> constant and
+    /// the constants of <c>ModelConnectionKinds</c>, read from the source so a new adapter is counted without an edit here.
+    /// </summary>
+    public static IReadOnlyList<string> ProviderKinds { get; } = ReadProviderKinds();
+
     #endregion
 
     #region Public Methods
@@ -42,6 +48,20 @@ public static class Repository
             .Where(file => !file.Relative.StartsWith("bin/", StringComparison.Ordinal) && !file.Relative.StartsWith("obj/", StringComparison.Ordinal))
             .Where(file => extensions.Contains(System.IO.Path.GetExtension(file.Full)))
             .Select(file => (file.Relative, File.ReadAllText(file.Full)));
+
+    private static List<string> ReadProviderKinds()
+    {
+        var adapters = Directory.EnumerateDirectories(Path.Combine(Root, "src"), "Drover.Adapters.*")
+            .SelectMany(folder => Directory.EnumerateFiles(folder, "*.cs", SearchOption.TopDirectoryOnly))
+            .SelectMany(file => System.Text.RegularExpressions.Regex
+                .Matches(File.ReadAllText(file), "ConnectionKind\\s*=\\s*\"([^\"]+)\"")
+                .Select(match => match.Groups[1].Value));
+        var shared = System.Text.RegularExpressions.Regex
+            .Matches(File.ReadAllText(Path.Combine(Root, "src", "Drover.Domain", "Models", "ModelConnectionKinds.cs")), "const string \\w+ = \"([^\"]+)\"")
+            .Select(match => match.Groups[1].Value);
+
+        return [.. adapters.Concat(shared).Distinct()];
+    }
 
     private static string FindRoot()
     {

@@ -15,6 +15,15 @@ internal static class KnownVoices
     private static readonly string[] hostedRealtime =
         ["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"];
 
+    // The built-in voices of the live protocol's models, the default first.
+    private static readonly string[] hostedLive =
+    [
+        "marin", "cedar", "alloy", "ash", "ballad", "beacon", "bossa", "brise", "calandria", "cinder", "compas", "coral",
+        "delta", "destello", "echo", "flitz", "gleam", "halo", "harema", "hornero", "juni", "luciernaga", "meridian",
+        "nira", "noeul", "nuri", "pearl", "quartz", "ripple", "sage", "shida", "shimmer", "sillage", "stone", "tempo",
+        "verse", "vesper", "willow",
+    ];
+
     private static readonly string[] kokoro =
     [
         "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore", "af_sarah", "af_nova", "af_sky", "af_alloy",
@@ -43,6 +52,8 @@ internal static class KnownVoices
                 ? kokoro
                 : name.Contains("orpheus", StringComparison.Ordinal)
                 ? orpheus
+                    : IsLive(name)
+                    ? hostedLive
                     : name.Contains("realtime", StringComparison.Ordinal)
                     ? hostedRealtime
                     : IsHostedSpeechName(name) ? hostedSpeech : [];
@@ -53,7 +64,7 @@ internal static class KnownVoices
     public static ModelCapabilities Mark(ModelCapabilities capabilities, string model)
     {
         var name = model.ToLowerInvariant();
-        var realtime = name.Contains("realtime", StringComparison.Ordinal) || name.StartsWith("grok-voice", StringComparison.Ordinal)
+        var realtime = name.Contains("realtime", StringComparison.Ordinal) || IsLive(name) || name.StartsWith("grok-voice", StringComparison.Ordinal)
             && !name.Contains("transcribe", StringComparison.Ordinal);
         var transcribes = !realtime && (name.Contains("whisper", StringComparison.Ordinal)
             || name.Contains("transcribe", StringComparison.Ordinal)
@@ -78,6 +89,13 @@ internal static class KnownVoices
             }
             : capabilities;
     }
+
+    /// <summary>
+    /// True for a model of the live protocol, which holds the conversation and hands its work over. The model of
+    /// that family that only writes speech down is not one.
+    /// </summary>
+    public static bool IsLive(string model) =>
+        model.StartsWith("gpt-live", StringComparison.OrdinalIgnoreCase) && !model.Contains("transcribe", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsGrok(Uri address) => address.IdnHost.EndsWith("x.ai", StringComparison.OrdinalIgnoreCase);
 

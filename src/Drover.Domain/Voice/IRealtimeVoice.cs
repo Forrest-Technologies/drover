@@ -12,6 +12,13 @@ public interface IRealtimeVoice
     /// <summary>The address every connection of this kind uses, or null when the connection supplies its own.</summary>
     Uri? FixedAddress => null;
 
+    /// <summary>
+    /// True when <paramref name="model"/> only holds the conversation and hands what it is asked over
+    /// (<see cref="RealtimeWorkHandedOver"/>). Such a model is told who it speaks for and not the bot's instructions:
+    /// the bot answers in a run of its own.
+    /// </summary>
+    bool HandsWorkOver(string model) => false;
+
     /// <summary>The voices Drover knows <paramref name="model"/> to offer. May be empty.</summary>
     IReadOnlyList<VoiceOption> ListVoices(string model);
 
@@ -41,6 +48,12 @@ public interface IRealtimeVoiceSession : IAsyncDisposable
     /// conversation the model remembers matches what was said aloud.
     /// </summary>
     ValueTask Interrupt(int heardMilliseconds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Tells the model what a piece of work it handed over came to, for it to say in its own words. The text is
+    /// something to pass on to the person, never an instruction to the model.
+    /// </summary>
+    ValueTask Report(string workId, string text, CancellationToken cancellationToken);
 
     /// <summary>What the provider sends until the call ends. Ends without an error when either side hangs up.</summary>
     IAsyncEnumerable<RealtimeVoiceEvent> Read(CancellationToken cancellationToken);

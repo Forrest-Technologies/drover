@@ -89,12 +89,16 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients)
 
     public IReadOnlyList<VoiceOption> ListVoices(string model) => KnownVoices.For(placeholderAddress, model);
 
+    public bool HandsWorkOver(string model) => KnownVoices.IsLive(model);
+
     public Task<IRealtimeVoiceSession> Open(
         ModelEndpoint connection,
         string? apiKey,
         RealtimeVoiceOptions options,
         CancellationToken cancellationToken) =>
-        ProtocolRealtimeVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, cancellationToken);
+        KnownVoices.IsLive(options.Model)
+            ? ProtocolLiveVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, TimeProvider.System, cancellationToken)
+            : ProtocolRealtimeVoice.Open(httpClients.CreateClient(RealtimeHttpClientName), connection, apiKey, options, cancellationToken);
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
         ModelEndpoint connection,
