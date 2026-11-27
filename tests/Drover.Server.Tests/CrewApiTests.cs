@@ -34,14 +34,14 @@ public sealed class CrewApiTests(PostgresServer postgres) : ServerTestBase(postg
         var childTools = await Tools(client, alice.SpaceId, child.Id);
 
         leadTools.Where(entry => entry.Grant != "off").Select(entry => (entry.Name, entry.Grant)).Should().BeEquivalentTo(
-            [("time.now", "allow"), ("crew.list", "ask"), ("crew.add", "ask"), ("crew.change", "ask"), ("crew.remove", "ask")]);
+            [("time.now", "allow"), ("message_bot", "allow"), ("crew.list", "ask"), ("crew.add", "ask"), ("crew.change", "ask"), ("crew.remove", "ask")]);
         leadTools.Where(entry => crewTools.Contains(entry.Name)).Should().OnlyContain(entry => entry.Sensitivity == (entry.Name == "crew.list" ? "read" : "write"));
         leadTools.Where(entry => entry.AlwaysAsks).Select(entry => entry.Name).Should().Equal("crew.add");
         allowed.Where(entry => entry.AlwaysAsks).Select(entry => (entry.Name, entry.Grant)).Should().Equal(
             [("crew.add", "allow")],
             "making a bot asks a person whatever its grant, and the list says so even where it is set to allow");
         childTools.Where(entry => entry.Grant != "off").Select(entry => (entry.Name, entry.Grant)).Should().BeEquivalentTo(
-            [("time.now", "allow")],
+            [("time.now", "allow"), ("message_bot", "allow")],
             "a bot beneath a parent is not given the crew tools, even where its parent allows them");
     }
 

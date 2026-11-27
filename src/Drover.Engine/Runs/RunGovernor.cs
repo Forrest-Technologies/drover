@@ -80,15 +80,15 @@ public sealed class RunGovernor(
 
     public async Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken)
     {
-        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
-
-        if (children is null || tool is not { IsDelegation: true } || request is not { ParentCallId: { } callId, BotId: not null })
+        if (children is null
+            || request is not { ParentCallId: { } callId, BotId: not null, ToolId: { } toolId }
+            || session.FindTool(toolId) is not { IsDelegation: true } tool)
         {
             return new ChildRun(Guid.Empty, request.AgentName) { Refusal = Error("This bot may not hand work to other bots.") };
         }
 
         await session.StartTool(callId);
-        var child = await children.Begin(request, tool.Tool.Id, cancellationToken);
+        var child = await children.Begin(request, tool, cancellationToken);
 
         if (child.Refusal is not null)
         {
@@ -115,11 +115,17 @@ public sealed class RunGovernor(
             throw new InvalidOperationException("This run cannot run child runs.");
         }
 
-        var callId = children.CallOf(child);
+        var (callId, tool) = children.CallOf(child);
 
         await StopWithChild(child, report, callId);
-        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
-        var request = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = DelegateTool.Name, ToolId = tool?.Tool.Id, Arguments = default };
+        var request = new ToolCallRequest
+        {
+            RunId = session.RunId,
+            CallId = callId,
+            ToolName = tool.Tool.Name,
+            ToolId = tool.Tool.Id,
+            Arguments = default,
+        };
         var outcome = await RuleOnResult(request, ToResult(child, report), cancellationToken);
         var toolCallId = ToolCallIds.For(session.RunId, callId);
         await session.Writer.Append(

@@ -251,6 +251,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot'],
+    ['bot-editor-limits', `/bots/${botId}`, 'Sample bot'],
     ['bot-editor-tools', `/bots/${botId}`, 'Sample bot'],
     ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
@@ -469,7 +470,11 @@ try {
                 }
                 else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : current === 'conversation-unusable-tool-request' ? [bot, helperBot] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
-                else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
+                else if (address.endsWith(`/bots/${botId}/definition`)) {
+                    body = method === 'PUT'
+                        ? { ...botDetail, acceptsBotRequests: route.request().postDataJSON().acceptsBotRequests }
+                        : botDetail;
+                }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
                 else if (address.endsWith(`/bots/${helperBotId}`)) { body = helperBot; }
                 else if (address.endsWith(`/bots/${helperBotId}/definition`)) { body = { ...botDetail, id: helperBotId, name: 'Sample helper', handle: 'sample-helper' }; }
@@ -736,6 +741,10 @@ try {
                 if (name === 'bot-editor') {
                     await editorLoaded;
                     await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached' });
+                }
+                if (name === 'bot-editor-limits') {
+                    await page.getByRole('button', { name: /^Limits(?:,|$)/ }).dispatchEvent('click');
+                    await page.getByLabel('Accept requests from other bots', { exact: true }).scrollIntoViewIfNeeded();
                 }
                 if (name === 'bot-editor-tools') {
                     await page.getByRole('button', { name: 'Tools, 1 allowed · 1 ask first', exact: true }).dispatchEvent('click');
@@ -1023,6 +1032,9 @@ try {
                 }
                 if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
+                }
+                if (name === 'bot-editor-limits') {
+                    await checkBotRequests(page, width, theme);
                 }
                 if (name === 'bot-new') {
                     await checkLeavingNewBot(page, titleBefore, () => botCreates);
@@ -1546,6 +1558,21 @@ async function checkStopBounds(page, width) {
     } finally {
         await close();
     }
+}
+
+async function checkBotRequests(page, width, theme) {
+    const accepts = page.getByLabel('Accept requests from other bots', { exact: true });
+    await accepts.click();
+    const save = page.getByRole('button', { name: 'Save changes', exact: true });
+    const saved = page.waitForResponse(reply => reply.request().method() === 'PUT'
+        && new URL(reply.url()).pathname === `/api/spaces/${spaceId}/bots/${botId}/definition`);
+    await save.click();
+    const reply = await saved;
+    assert(reply.ok());
+    assert.equal(reply.request().postDataJSON().acceptsBotRequests, false,
+        'Incoming bot requests default on and the editor can opt out');
+    await accepts.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(pictures, `bot-editor-limits-off-${width}-${theme}.png`) });
 }
 
 async function checkLeavingWithEdits(page, address) {

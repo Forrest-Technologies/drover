@@ -49,7 +49,8 @@ public static class BotViews
             new RunLimitsBody(bot.RunLimits.MaxSteps, bot.RunLimits.MaxTokens, bot.RunLimits.MaxDelegations, bot.RunLimits.UncappedUsageAcknowledged),
             bot.CreatedByUserId,
             bot.CreatedByBotId,
-            bot.HandleChosen);
+            bot.HandleChosen,
+            bot.AcceptsBotRequests);
     }
 
     /// <summary>
@@ -76,6 +77,7 @@ public static class BotViews
             request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations, UncappedUsageAcknowledged = runs.UncappedUsageAcknowledged } : bot.RunLimits)
         {
             HandleFollowsName = request.HandleFollowsName,
+            AcceptsBotRequests = request.AcceptsBotRequests,
         };
     }
 

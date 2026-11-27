@@ -24,7 +24,8 @@ public sealed record BotDetail(
     RunLimitsBody RunLimits,
     Guid? CreatedByUserId,
     Guid? CreatedByBotId,
-    bool HandleChosen = false);
+    bool HandleChosen = false,
+    bool AcceptsBotRequests = true);
 
 /// <summary>A bot's picture: an uploaded file, or a short symbol. With neither, the bot's drawn character is shown.</summary>
 public sealed record BotAvatarBody(string? Emoji, Guid? FileId);

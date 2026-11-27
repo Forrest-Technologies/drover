@@ -84,11 +84,13 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
             [other.Id],
             new BuildLimitsBody(3, 2),
-            new RunLimitsBody(12, 400_000, 0));
+            new RunLimitsBody(12, 400_000, 0),
+            AcceptsBotRequests: false);
 
         var saved = await PutFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition", edit);
         var read = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
 
+        untouched.AcceptsBotRequests.Should().BeTrue();
         read.Should().BeEquivalentTo(saved);
         read.Should().BeEquivalentTo(
             new
@@ -107,6 +109,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                 edit.SandboxSharedWith,
                 edit.BuildLimits,
                 edit.RunLimits,
+                AcceptsBotRequests = false,
                 Status = "active",
                 Depth = 0,
                 CreatedByUserId = (Guid?)alice.UserId,
@@ -128,11 +131,14 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var client = await SignIn(alice);
         var bot = await CreateBot(client, alice.SpaceId);
 
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        await PutFor<BotDetail>(client, route, Nothing() with { AcceptsBotRequests = false });
         var saved = await PutFor<BotDetail>(
             client,
-            $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition",
+            route,
             new UpdateBotRequest("Renamed", null, null, null, null, null, null, null, null, null, null, null, null));
 
+        saved.AcceptsBotRequests.Should().BeFalse();
         saved.Should().Match<BotDetail>(found => found.Name == "Renamed" && found.Handle == bot.Handle && found.Instructions == bot.Instructions && found.Model == bot.Model);
     }
 

@@ -13,6 +13,8 @@ public sealed class LimitsSectionView : EditorPart
 
     private readonly Switch unlimited;
 
+    private readonly Switch acceptsBotRequests;
+
     private readonly CheckItem acknowledge = new("I understand that removing the token limit can cause API overspending if my API key has no spending limit.");
 
     #endregion
@@ -39,8 +41,11 @@ public sealed class LimitsSectionView : EditorPart
         tokenSettings.Children.Add(acknowledge);
         pair.Children.Add(tokenSettings);
         pair.Children.Add(delegations);
+        acceptsBotRequests = new Switch { Label = "Accept requests from other bots" }
+            .OnChanged(Quiet, on => Editor.Edit(draft => draft.AcceptsBotRequests = on));
         Parts.Add(Styles.Text(LimitsSectionFields.Caption, "DvTextCaption"));
         Parts.Add(pair);
+        Parts.Add(acceptsBotRequests);
         Parts.Add(Styles.Text(LimitsSectionFields.FallbackCaption, "DvTextCaption"));
     }
 
@@ -62,6 +67,7 @@ public sealed class LimitsSectionView : EditorPart
         tokens.Shown(!Draft.UnlimitedTokens);
         tokens.Show(Draft.UnlimitedTokens ? string.Empty : Draft.MaxTokens);
         delegations.Show(Draft.MaxDelegations);
+        acceptsBotRequests.Show(Draft.AcceptsBotRequests);
     }
 
     #endregion

@@ -28,6 +28,7 @@ public static class Delegation
         var request = new DelegationRequest(run.Execution.RunId, botId.ToString("N"))
         {
             ParentCallId = call.CallId,
+            ToolId = call.ToolId,
             BotId = botId,
             Task = task,
         };

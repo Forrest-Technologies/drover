@@ -327,7 +327,7 @@ Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQ
 | --- | --- | --- |
 | Space owner, admin | Any bot, any run | The API. Can also set caps: tree depth, children per bot, total bots. |
 | A bot | Its strict descendants only | Built-in management tools, each needing its own grant |
-| A bot | Its siblings, ancestors, or unrelated bots | Nothing. The check is one lookup in `bot_ancestors`. |
+| A bot | Other bots in the same space that accept requests | The `message_bot` tool runs the target for a reply. Bot management and action tools remain unavailable to the request. |
 
 Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. Two defaults, set when a person creates a bot through the API. Every new bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`, a child no higher than its parent's effective grant. A bot a person creates at the top of the tree is also granted the four crew tools (`BuiltinTools.AskedOfNewTopBots`) as `ask`, so the first bot of a space can lead its crew and a person approves each thing it does to it; a bot created beneath a parent, by a person or by a bot, is not, and a person grants them where they are wanted. Where the deployment rule `AllowBotsBuildingBots` is off, no bot is granted them. These are grant rows like any other, visible and removable. The lists are by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should. The four memory tools and the two web tools (`web.search`, `web.fetch`) are on neither list.
 
@@ -353,11 +353,15 @@ A person creating a bot beneath another through the API (`CreateBotRequest.Paren
 
 ### Delegation targets
 
-A bot may delegate **down the tree only**, to its direct children. A child's effective grants are never broader than its parent's, so handing work down cannot gain a permission. This also makes a delegation cycle structurally impossible; the loop check in [03-run-lifecycle.md](03-run-lifecycle.md) remains as a guard.
+The `delegate` tool runs only direct children. A child’s effective grants are never broader than its parent’s. Both `delegate` and `message_bot` check the run chain for cycles ([03-run-lifecycle.md](03-run-lifecycle.md)).
 
 The `delegate` tool's description, as the model sees it, lists the caller's children with each one's `description_for_bots`. That field exists for exactly this. The governor checks the target again when the call is made, from the run's own bot and never from the model's word: a bot that is not directly beneath the caller is refused, and so is a paused or removed one, with a result that says which. The child works with its own effective grants, which the minimum along the path to the root keeps at or below its parent's.
 
-Delegating across the tree (to a sibling's team, say) is useful and risky: the target may hold tools the caller lacks, so a low-privilege bot could steer a high-privilege one. It is deferred to Phase 2 as human-created delegation links with one added rule: **borrowed authority asks.** During a run that arrived over a link, any `allow` grant the calling bot does not itself hold is treated as `ask`.
+A bot can ask another bot in its space for a reply using `message_bot`. The request runs with the recipient’s instructions and model in its own thread. The recipient can reply or call `message_bot` if its grant permits. Its connected tools, sandbox, notes, project context, and provider web search are unavailable in that run. The reply returns as a tool result in the calling conversation.
+
+Owners and admins can turn off **Accept requests from other bots** in the receiving bot’s Limits. Existing and new bots start with it on. Both tools omit recipients that opt out and check the setting again before opening a run. A person can still start a direct conversation with the bot. An operator can disable the `message_bot` tool through `AllowBotMessaging`.
+
+Action-bearing delegation across the tree still requires a separate authority design. See [ADR 0026](../adr/0026-bot-messages-return-replies.md).
 
 ### Rules
 
