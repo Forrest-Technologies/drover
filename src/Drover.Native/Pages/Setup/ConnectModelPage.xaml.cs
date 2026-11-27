@@ -64,15 +64,52 @@ public sealed partial class ConnectModelPage : Screen
         KeyLink.Address = providers.KeyLinkAddress;
         KeyLink.Visibility = providers.KeyLinkText is null || !providers.ShowsKey ? Visibility.Collapsed : Visibility.Visible;
         Outcome.Kind = Model.Passed ? NoteKind.Ok : NoteKind.Danger;
-        Outcome.Visibility = Model.Busy ? Visibility.Collapsed : Visibility.Visible;
+        Outcome.Visibility = Model.Busy || Model.ShowsSignIn ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;
         Continue.Visibility = Model.Passed ? Visibility.Visible : Visibility.Collapsed;
+        RefreshSignIn();
         Actions.ColumnDefinitions[1].Width = Model.Passed ? new(1, GridUnitType.Star) : GridLength.Auto;
         Actions.ColumnSpacing = Model.Passed ? Tokens.Number("DvSpace2") : 0;
         Continue.IsEnabled = Test.IsEnabled = !Model.Busy;
         Test.Kind = Model.Passed ? ButtonKind.Quiet : ButtonKind.Primary;
         Test.Content = Model.Busy ? "Testing" : Model.Passed ? "Test again" : "Test connection";
     }
+
+    /// <summary>
+    /// A sign-in kind is one line, one sentence for where it stands, and one button: no key, no address, no test. The
+    /// sentence is a polite live region, so a screen reader hears each change.
+    /// </summary>
+    private void RefreshSignIn()
+    {
+        var shown = Model.ShowsSignIn;
+        var flow = Model.SignIn;
+        SignInPanel.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        Test.Visibility = shown ? Visibility.Collapsed : Visibility.Visible;
+
+        if (!shown)
+        {
+            return;
+        }
+
+        Key.Visibility = Address.Visibility = KeyLink.Visibility = ChangeAddress.Visibility = Visibility.Collapsed;
+        PlanLine.Text = flow.PlanLine;
+        PlanLine.Visibility = flow.Stage is ModelSignInStage.Ready ? Visibility.Visible : Visibility.Collapsed;
+        SignInNote.Text = flow.Sentence ?? string.Empty;
+        SignInNote.Kind = flow.Stage switch
+        {
+            ModelSignInStage.Done => NoteKind.Ok,
+            ModelSignInStage.Waiting => NoteKind.Info,
+            _ => NoteKind.Danger,
+        };
+        SignInNote.Visibility = flow.Sentence is null ? Visibility.Collapsed : Visibility.Visible;
+        SignInAction.Content = flow.ActionWords;
+        AutomationProperties.SetName(SignInAction, flow.ActionWords ?? string.Empty);
+        SignInAction.Visibility = flow.ActionWords is null ? Visibility.Collapsed : Visibility.Visible;
+        SignInAction.Kind = flow.Action is ModelSignInAction.Continue or ModelSignInAction.TryAgain ? ButtonKind.Primary : ButtonKind.Quiet;
+    }
+
+    // The flow says in its own sentence when the page could not be opened.
+    private void ActOnSignIn(object sender, RoutedEventArgs args) => _ = Model.ActOnSignIn(PlatformShell.OpenOutside);
 
     private void Submit(object? sender, EventArgs args)
     {

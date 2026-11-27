@@ -8,6 +8,7 @@ public sealed partial class ModelConnectionsViewModel(
     DroverApi api,
     SessionState session,
     SpaceVoice voice,
+    IModelSignInListener listener,
     ILogger<ModelConnectionsViewModel> logger) : ObservableObject
 {
     #region Private Fields
@@ -17,6 +18,12 @@ public sealed partial class ModelConnectionsViewModel(
     private readonly Dictionary<Guid, string> problems = [];
 
     private NamedProviders? named;
+
+    private ModelSignInFlow? signIn;
+
+    /// <summary>The connection whose card shows the sign-in in progress, when it was started from the card.</summary>
+    [ObservableProperty]
+    private Guid? signingInTo;
 
     [ObservableProperty]
     private List<ModelConnectionSummary>? connections;
@@ -78,6 +85,12 @@ public sealed partial class ModelConnectionsViewModel(
 
     public string Kind => Named.Kind;
 
+    /// <summary>The sign-in shown in place of the key form, or on a connection's card when its person signs in again.</summary>
+    public ModelSignInFlow SignIn => signIn ??= MakeSignIn();
+
+    /// <summary>True when the provider chosen in "Add a connection" is a kind each person signs in to.</summary>
+    public bool ShowsSignIn => Named.SignIn is not null;
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     public bool ChangePending => Busy is not null || AddingBusy;
@@ -116,6 +129,81 @@ public sealed partial class ModelConnectionsViewModel(
         return $"{kindWords} · {key} · {checkedWords}";
     }
 
+    /// <summary>The sign-in kind of a connection, as the server describes it, or null for a key connection.</summary>
+    public ModelProviderKindResponse? SignInKindOf(ModelConnectionSummary connection) =>
+        connection.SignIn is null ? null : Named.SignInKindOf(connection.Kind);
+
+    /// <summary>
+    /// What a sign-in connection's card says of the caller's own sign-in: in use with the account it is, ended, or not
+    /// made. Never anyone else's.
+    /// </summary>
+    public string? SignInFacts(ModelConnectionSummary connection)
+    {
+        var provider = SignInKindOf(connection)?.SignInName ?? connection.Name;
+
+        return connection.SignIn?.Status switch
+        {
+            ModelSignInStatuses.Active => connection.SignIn.AccountLabel is { Length: > 0 } label ? $"Using {provider} plan · {label}" : $"Using {provider} plan",
+            ModelSignInStatuses.NeedsSignIn => $"Your {provider} sign-in has ended.",
+            ModelSignInStatuses.None => $"Sign in with your own {provider} plan to use it.",
+            _ => null,
+        };
+    }
+
+    /// <summary>The words of a sign-in connection's own action on its card, or null when its sign-in is in use.</summary>
+    public string? SignInActionWords(ModelConnectionSummary connection) =>
+        connection.SignIn?.Status switch
+        {
+            ModelSignInStatuses.NeedsSignIn => "Sign in again",
+            ModelSignInStatuses.None => $"Continue with {SignInKindOf(connection)?.SignInName ?? connection.Name}",
+            _ => null,
+        };
+
+    /// <summary>The sign-in state's one action in "Add a connection": start, cancel, or move to a provider that takes a key.</summary>
+    public async Task ActOnSignIn(Func<string, Task> open)
+    {
+        switch (SignIn.Action)
+        {
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain:
+                await SignIn.Start(SpaceId, open);
+                await SettleSignIn();
+                break;
+            case ModelSignInAction.Cancel:
+                SignIn.Cancel();
+                break;
+            case ModelSignInAction.AddKey:
+                SigningInTo = null;
+                ChooseProvider(Named.KeyChoice);
+                break;
+        }
+    }
+
+    /// <summary>Starts the caller's own sign-in from a connection's card, at once: "Sign in again" or "Continue with".</summary>
+    public async Task SignInAgain(ModelConnectionSummary connection, Func<string, Task> open)
+    {
+        if (SignInKindOf(connection) is not { } kind)
+        {
+            return;
+        }
+
+        SigningInTo = connection.Id;
+        SignIn.Show(kind);
+
+        if (SignIn.Action is ModelSignInAction.Continue)
+        {
+            await ActOnSignIn(open);
+        }
+    }
+
+    /// <summary>Signs the caller out of their own sign-in, with no confirmation, and reads the list again.</summary>
+    public Task SignOut(ModelConnectionSummary connection) =>
+        Change(connection, async () =>
+        {
+            await api.SignOutOfModelConnection(SpaceId, connection.Id);
+            Connections = [.. await api.ListModelConnections(SpaceId)];
+            Say(false, $"Signed out of {connection.Name}.");
+        });
+
     public async Task Load()
     {
         LoadProblem = null;
@@ -136,6 +224,12 @@ public sealed partial class ModelConnectionsViewModel(
         if (Named.Choose(chosen) is { } address)
         {
             BaseUrl = address;
+        }
+
+        if (Named.SignIn is { } kind)
+        {
+            SigningInTo = null;
+            SignIn.Show(kind);
         }
 
         AddProblem = null;
@@ -315,6 +409,27 @@ public sealed partial class ModelConnectionsViewModel(
     {
         NoticeIsProblem = isProblem;
         Notice = words;
+    }
+
+    /// <summary>A sign-in that is done closes the form and shows the connection with the person's own sign-in.</summary>
+    private async Task SettleSignIn()
+    {
+        if (SignIn.Stage is not ModelSignInStage.Done)
+        {
+            return;
+        }
+
+        Adding = false;
+        SigningInTo = null;
+        await Load();
+        Say(false, SignIn.Sentence ?? string.Empty);
+    }
+
+    private ModelSignInFlow MakeSignIn()
+    {
+        var made = new ModelSignInFlow(api, listener, logger);
+        made.PropertyChanged += (_, _) => OnPropertyChanged(string.Empty);
+        return made;
     }
 
     private NamedProviders MakeNamed()

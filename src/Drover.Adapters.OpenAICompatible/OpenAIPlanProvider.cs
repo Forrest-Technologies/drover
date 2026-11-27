@@ -21,6 +21,12 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
 
     public const string HttpClientName = "drover-openai-plan";
 
+    /// <summary>
+    /// Where a person reviews and limits what apps use of their plan. The provider asks apps to link it from their
+    /// usage pages and from a usage-limit message ("Tracking usage", "UI/UX guidelines").
+    /// </summary>
+    public static readonly Uri UsagePage = new("https://chatgpt.com/settings/usage");
+
     private static readonly IReadOnlyDictionary<string, string> noHeaders = new Dictionary<string, string>();
 
     /// <summary>
@@ -58,7 +64,9 @@ public sealed class OpenAIPlanProvider(IHttpClientFactory httpClients, IOptionsM
         ModelAddressRule.Fixed,
         AddressHint: null,
         KeyHint: null,
-        ReportsCapabilities: false);
+        ReportsCapabilities: false,
+        SignInName: "ChatGPT",
+        UsagePage: UsagePage);
 
     #endregion
 

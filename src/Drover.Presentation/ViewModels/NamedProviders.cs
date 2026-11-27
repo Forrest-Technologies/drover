@@ -36,6 +36,8 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     private IReadOnlyList<ModelProviderKindResponse> ownWire = [];
 
+    private IReadOnlyList<ModelProviderKindResponse> signIns = [];
+
     #endregion
 
     #region Properties
@@ -57,10 +59,19 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     public IReadOnlyList<ModelProviderPresetResponse> Presets => presets;
 
     /// <summary>The kind the server stores for the choice. A named provider is a compatible server with an address.</summary>
-    public string Kind => Choice == VeniceKind ? VeniceKind : OwnWire?.Kind ?? CompatibleKind;
+    public string Kind => Choice == VeniceKind ? VeniceKind : OwnWire?.Kind ?? SignIn?.Kind ?? CompatibleKind;
 
     /// <summary>The chosen kind when it is one the server offers with its own wire, as the server describes it.</summary>
     public ModelProviderKindResponse? OwnWire => ownWire.FirstOrDefault(kind => kind.Kind == Choice);
+
+    /// <summary>The chosen kind when each person connects it by signing in with their own account. It has no form.</summary>
+    public ModelProviderKindResponse? SignIn => signIns.FirstOrDefault(kind => kind.Kind == Choice);
+
+    /// <summary>The sign-in kind the server offers with this name, or null.</summary>
+    public ModelProviderKindResponse? SignInKindOf(string kind) => signIns.FirstOrDefault(offered => offered.Kind == kind);
+
+    /// <summary>Where "Add a key" goes from a sign-in: the first kind the server offers with its own wire and a key, else a compatible server.</summary>
+    public string KeyChoice => ownWire.FirstOrDefault(kind => kind.KeyRule != ModelKeyRules.None)?.Kind ?? CompatibleKind;
 
     public ModelProviderPresetResponse? Selected => presets.FirstOrDefault(preset => preset.Id == Choice);
 
@@ -68,6 +79,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     [
         new(VeniceKind, "Venice"),
         .. ownWire.Select(kind => new SegmentOption<string>(kind.Kind, kind.DisplayName)),
+        .. signIns.Select(kind => new SegmentOption<string>(kind.Kind, kind.DisplayName)),
         .. presets.Select(preset => new SegmentOption<string>(preset.Id, preset.DisplayName)),
         new(CompatibleKind, "Another compatible server"),
     ];
@@ -76,7 +88,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
 
     public bool OffersAddressChange => Selected is not null && !AddressRevealed;
 
-    public bool ShowsKey => Selected?.KeyRule != ModelProviderKeyRules.None && OwnWire?.KeyRule != ModelKeyRules.None;
+    public bool ShowsKey => SignIn is null && Selected?.KeyRule != ModelProviderKeyRules.None && OwnWire?.KeyRule != ModelKeyRules.None;
 
     public string KeyLabel =>
         Selected?.KeyRule == ModelProviderKeyRules.Optional || OwnWire?.KeyRule == ModelKeyRules.Optional ? "Key (optional)" : "Key";
@@ -117,6 +129,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
         {
             var kinds = await api.ListModelProviderKinds();
             ownWire = [.. kinds.Where(kind => kind.Kind is not (VeniceKind or CompatibleKind) && !kind.SignIn)];
+            signIns = [.. kinds.Where(kind => kind.SignIn)];
             presets = kinds.FirstOrDefault(kind => kind.Kind == CompatibleKind)?.NamedProviders ?? [];
             State = NamedProvidersState.Loaded;
         }
@@ -125,11 +138,12 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
             logger.LogWarning(exception, "The list of named providers could not be read");
             presets = [];
             ownWire = [];
+            signIns = [];
             State = NamedProvidersState.Failed;
         }
 
         // A choice the new list no longer holds falls back to the one that always works.
-        if (Choice != VeniceKind && Choice != CompatibleKind && Selected is null && OwnWire is null)
+        if (Choice != VeniceKind && Choice != CompatibleKind && Selected is null && OwnWire is null && SignIn is null)
         {
             Choice = CompatibleKind;
         }

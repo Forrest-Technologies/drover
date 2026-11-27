@@ -26,7 +26,9 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
             null,
             false,
             [],
-            SignIn: true));
+            SignIn: true,
+            SignInName: "ChatGPT",
+            UsagePage: "https://chatgpt.com/settings/usage"));
         kinds.Where(kind => kind.Kind != OpenAIPlan).Should().OnlyContain(kind => !kind.SignIn, "only a sign-in kind is connected by signing in");
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,

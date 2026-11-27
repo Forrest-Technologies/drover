@@ -5,6 +5,7 @@ public sealed partial class ConnectModelViewModel(
     DroverApi api,
     SessionState session,
     Navigator navigator,
+    IModelSignInListener listener,
     ILogger<ConnectModelViewModel> logger) : ObservableObject
 {
     #region Private Fields
@@ -12,6 +13,8 @@ public sealed partial class ConnectModelViewModel(
     public const string CompatibleKind = NamedProviders.CompatibleKind;
 
     private NamedProviders? named;
+
+    private ModelSignInFlow? signIn;
 
     [ObservableProperty]
     private string baseUrl = string.Empty;
@@ -45,7 +48,13 @@ public sealed partial class ConnectModelViewModel(
 
     public string Kind => Named.Kind;
 
-    public bool Passed => Problem is null && Result is { Succeeded: true };
+    /// <summary>The sign-in shown in place of the key form when the choice is a kind each person signs in to.</summary>
+    public ModelSignInFlow SignIn => signIn ??= MakeSignIn();
+
+    /// <summary>True when the choice is a sign-in kind: the form is one button, not a key.</summary>
+    public bool ShowsSignIn => Named.SignIn is not null;
+
+    public bool Passed => ShowsSignIn ? SignIn.Stage is ModelSignInStage.Done : Problem is null && Result is { Succeeded: true };
 
     public string? Outcome => Problem ?? Result?.Message;
 
@@ -70,6 +79,29 @@ public sealed partial class ConnectModelViewModel(
 
         Result = null;
         Problem = null;
+
+        if (Named.SignIn is { } kind)
+        {
+            SignIn.Show(kind);
+        }
+    }
+
+    /// <summary>The sign-in state's one action: start or start again, cancel, or move to a provider that takes a key.</summary>
+    public async Task ActOnSignIn(Func<string, Task> open)
+    {
+        switch (SignIn.Action)
+        {
+            case ModelSignInAction.Continue or ModelSignInAction.TryAgain:
+                await SignIn.Start(SpaceId, open);
+                Connection = SignIn.Connection ?? Connection;
+                break;
+            case ModelSignInAction.Cancel:
+                SignIn.Cancel();
+                break;
+            case ModelSignInAction.AddKey:
+                ChooseProvider(Named.KeyChoice);
+                break;
+        }
     }
 
     [RelayCommand]
@@ -141,6 +173,13 @@ public sealed partial class ConnectModelViewModel(
     {
         var made = new NamedProviders(api, logger);
         made.Changed += () => OnPropertyChanged(string.Empty);
+        return made;
+    }
+
+    private ModelSignInFlow MakeSignIn()
+    {
+        var made = new ModelSignInFlow(api, listener, logger);
+        made.PropertyChanged += (_, _) => OnPropertyChanged(string.Empty);
         return made;
     }
 
