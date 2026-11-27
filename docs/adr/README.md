@@ -38,4 +38,5 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0022](0022-live-line-goes-around-the-frame-in-the-accent.md) | The line of live work goes around its frame, in the person's accent | Proposed in its pull request |
 | [0023](0023-extensions-add-what-a-space-can-pick-up.md) | An extension adds what a space can pick up; a bot is shared as its own file | Proposed in its pull request |
 | [0024](0024-providers-are-compiled-in-adapters.md) | Providers are compiled-in adapters, never loaded at run time | Proposed in its pull request |
-| [0025](0025-copilot-device-code-until-sdk.md) | Copilot personal plans sign in with GitHub's device-code flow until the official SDK path lands | Proposed in its pull request |
+| [0025](0025-copilot-device-code-until-sdk.md) | Copilot personal plans sign in with GitHub's device-code flow until the official SDK path lands | Superseded by 0026 |
+| [0026](0026-copilot-registered-oauth-model-client.md) | Copilot sign-in uses a registered GitHub OAuth app; chat stays a Drover model client | Proposed in its pull request |

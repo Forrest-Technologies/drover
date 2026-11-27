@@ -1,6 +1,6 @@
 # 0025. Copilot personal plans sign in with GitHub's device-code flow until the official SDK path lands
 
-- Status: Accepted
+- Status: Superseded by [0026](0026-copilot-registered-oauth-model-client.md)
 - Date: 2026-11-26
 - Source: [#526](https://github.com/Forrest-Technologies/drover/issues/526)
 

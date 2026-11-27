@@ -344,17 +344,15 @@ On a phone-only setup this sign-in is not possible; the UI says so and offers th
 
 ### GitHub Copilot plan, for self-hosted servers
 
-Architecture docs named the official Copilot SDK inside the agent framework as the path. That SDK does not cover personal-plan sign-in for Drover today, so this adapter uses GitHub's device-code flow and Copilot's OpenAI-compatible chat API instead ([ADR 0025](../adr/0025-copilot-device-code-until-sdk.md)). The same `IModelClientProvider` / `IModelSignIn` seams stay, so the SDK can replace the HTTP calls later without a new kind.
+GitHub documents third-party use: the operator registers an OAuth app or GitHub App, each person authorizes it, and Copilot usage bills that person's subscription ([GitHub OAuth setup](https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup/github-oauth)). That path is the sign-in. Chat stays Drover's model client ([ADR 0026](../adr/0026-copilot-registered-oauth-model-client.md)). The Copilot SDK (`CopilotClient`) is a coding-agent runtime with its own tools and permission handler; Drover does not reference it. Microsoft Agent Framework remains the agent, and every tool call still passes the tool gate.
 
-Endpoints: `POST https://github.com/login/device/code`, poll `POST https://github.com/login/oauth/access_token`, exchange `GET https://api.github.com/copilot_internal/v2/token`, chat `POST {api}/chat/completions`, models `GET {api}/models`. The GitHub token is the refresh token; repeating the exchange is the refresh. A 401 or 403 on exchange ends the sign-in (`needs_sign_in`). The API host is read from `proxy-ep` on the session token (`proxy.` → `api.`), falling back to `https://api.individual.githubcopilot.com/`.
+The operator sets `Drover:Models:Copilot:ClientId` and, for a browser return, the app secret. There is no compiled-in client id. Desktop uses the `Return` wait (authorization code with PKCE, loopback listener as for other plan kinds). A head with no listener uses GitHub's device flow of that same app (`Poll`). The GitHub user token (`gho_` / `ghu_`) is stored in the vault, private to that person, and is the bearer a model call sends. Refresh is GitHub's own refresh token. A 401 or 403 ends the sign-in (`needs_sign_in`).
 
-Chat and model-list requests send the editor headers Copilot requires (`User-Agent`, `Editor-Version`, `Editor-Plugin-Version`, `Copilot-Integration-Id`), plus `X-Initiator`, `Openai-Intent`, and `Copilot-Vision-Request` on chat, and `X-GitHub-Api-Version` on the model list. Tool JSON schemas get `additionalProperties: false` where Copilot's backends reject open objects. If `/models` cannot be read, the failure is reported in plain words, the same as every other kind.
-
-The public Copilot client id is the default (`Drover:Models:Copilot:ClientId`). It is not a secret. GitHub.com only. Usage bills the signed-in person's Copilot AI credits. The hosted preset refuses this kind as a personal plan.
+Chat and the model list go to Copilot's OpenAI-compatible API with that token. Editor-impersonation headers and `copilot_internal` token exchange are not used. Tool JSON schemas get `additionalProperties: false` where Copilot's backends reject open objects. If `/models` cannot be read, the failure is reported in plain words, the same as every other kind. GitHub.com only. The hosted preset refuses this kind as a personal plan. Whether a token from a registered app can list models and complete chat is a Live check; if it cannot, ADR 0026 is reopened rather than impersonating another client.
 
 ### Others
 
-OpenRouter and Hugging Face offer standard OAuth for third-party apps, including hosted ones. They follow the same pattern as MCP OAuth: per-user credential, tokens in the vault, a reconnect prompt when refresh fails. Phase 2. GitHub Copilot's SDK path remains the long-term replacement for the device-code adapter above.
+OpenRouter and Hugging Face offer standard OAuth for third-party apps, including hosted ones. They follow the same pattern as MCP OAuth: per-user credential, tokens in the vault, a reconnect prompt when refresh fails. Phase 2.
 
 Anthropic and Google prohibit third-party use of consumer plans. Those connections are key-only, and the setup screen says why.
 

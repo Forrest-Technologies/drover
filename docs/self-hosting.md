@@ -128,7 +128,7 @@ The status page (`/status`, for admins) has a row for it. It warns when the addr
 
 ## Signing in to a model provider
 
-Signing in with a person's own account in place of a key is offered for GitHub Copilot ([#526](https://github.com/Forrest-Technologies/drover/issues/526)). On a self-hosted server it is on with nothing to set: choose that provider, continue, enter the code GitHub shows, and approve. Usage bills the signed-in person's Copilot AI credits, not the server. Each person signs in for themself, and a bot uses that account only for work it does for that person ([model providers](architecture/15-model-providers.md#signing-in-with-a-subscription)). To switch a kind off without a new release, list it on the `drover` service: `Drover__Models__SignInOff__0=copilot_signin`. GitHub.com only; GitHub Enterprise is not offered.
+Signing in with a person's own account in place of a key is offered for GitHub Copilot ([#526](https://github.com/Forrest-Technologies/drover/issues/526)). The operator registers a GitHub OAuth app or GitHub App and sets its client id (and secret, for a browser return) on the `drover` service. Each person then signs in with their own GitHub account; usage bills that person's Copilot subscription, not the server. A bot uses that account only for work it does for that person ([model providers](architecture/15-model-providers.md#signing-in-with-a-subscription)). To switch the kind off without a new release: `Drover__Models__SignInOff__0=copilot_signin`. GitHub.com only; GitHub Enterprise is not offered.
 
 ## Backup
 
