@@ -4,7 +4,11 @@ namespace Drover.Domain.Policy;
 /// What one run may use before it is stopped: the deployment's ceilings, lowered by the space's own settings, and
 /// lowered again by the bot's. Each level only narrows the one above it.
 /// </summary>
-public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations)
+public sealed record RunCeilings(
+    int MaxSteps,
+    int MaxTokens,
+    int MaxDelegations,
+    int MaxUnmeteredModelCalls = DeploymentPolicy.SelfHostedMaxUnmeteredModelCallsPerRun)
 {
     public bool CanRemoveUsageLimit { get; init; }
 
@@ -14,7 +18,7 @@ public sealed record RunCeilings(int MaxSteps, int MaxTokens, int MaxDelegations
 
     /// <summary>These limits as one bot's runs have them: each the bot's own value where that is lower.</summary>
     public RunCeilings NarrowedBy(RunLimits bot) =>
-        new(Lower(bot.MaxSteps, MaxSteps), Lower(bot.MaxTokens, MaxTokens), Lower(bot.MaxDelegations, MaxDelegations))
+        new(Lower(bot.MaxSteps, MaxSteps), Lower(bot.MaxTokens, MaxTokens), Lower(bot.MaxDelegations, MaxDelegations), MaxUnmeteredModelCalls)
         {
             TokensUnlimited = CanRemoveUsageLimit && bot.UncappedUsageAcknowledged && bot.MaxTokens is null,
         };

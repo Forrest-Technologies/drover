@@ -76,7 +76,7 @@ A call that does not start shows the reason where the word would be: the server'
 | The provider ended it | `The speech provider ended the call. Call again to go on.` |
 | The connection was lost | `The call was disconnected. Call again to go on.` |
 
-Talking over the bot: when the server says the person started speaking, the bot's voice stops in the same turn and the server is told how many milliseconds of the answer had been played. On a device that cancels no echo (a desktop), the microphone is ignored for 600 ms after the bot's voice starts.
+Talking over the bot: when the server says the person started speaking, the bot's voice stops in the same turn and the server is told how many milliseconds of the answer had been played. On a device that cancels no echo (a desktop), the microphone is ignored for 600 ms after the bot's voice starts. On Android the call is played as a conversation, not as media: the system then takes the bot's voice out of what the microphone hears, so the bot does not hear and answer itself. The voice goes to a headset where one is connected and to the loudspeaker otherwise, and the volume keys set the call volume while the call lasts.
 
 ## The Voice page
 

@@ -9,11 +9,25 @@ internal sealed class RealtimeVoiceSession(ClientWebSocket socket, RealtimeDiale
 
     private const int MaxSpokenCharacters = 200_000;
 
+    // Sent with the events of an interruption, so an error that answers one of them is known for what it is.
+    private const string InterruptEvent = "drover_interrupt";
+
     private readonly SemaphoreSlim sending = new(1, 1);
 
     private readonly StringBuilder spoken = new();
 
+    private readonly Lock answer = new();
+
+    // The item whose audio is arriving, and how many bytes of it have arrived.
     private string? speakingItem;
+
+    private long speakingBytes;
+
+    // The item last cut. Audio of it that was already on its way is not an answer being spoken.
+    private string? cutItem;
+
+    // True from the provider starting an answer until it says the answer is done, finished or cut off.
+    private volatile bool responding;
 
     #endregion
 
@@ -24,14 +38,23 @@ internal sealed class RealtimeVoiceSession(ClientWebSocket socket, RealtimeDiale
             ? ValueTask.CompletedTask
             : Send(new { type = "input_audio_buffer.append", audio = Convert.ToBase64String(samples.Span) }, cancellationToken);
 
+    /// <summary>
+    /// The provider cuts its own answer off when it hears the person, so the answer is cancelled here only while it
+    /// is still being made. What it remembers is then cut to what was heard, never past the audio it sent: a cut
+    /// beyond that is refused.
+    /// </summary>
     public async ValueTask Interrupt(int heardMilliseconds, CancellationToken cancellationToken)
     {
-        await Send(new { type = "response.cancel" }, cancellationToken);
-
-        if (Volatile.Read(ref speakingItem) is { } item)
+        if (responding)
         {
+            await Send(new { type = "response.cancel", event_id = InterruptEvent }, cancellationToken);
+        }
+
+        if (TakeSpeaking() is (var item, var sentMilliseconds))
+        {
+            var heard = Math.Clamp(heardMilliseconds, 0, sentMilliseconds);
             await Send(
-                new { type = "conversation.item.truncate", item_id = item, content_index = 0, audio_end_ms = Math.Max(0, heardMilliseconds) },
+                new { type = "conversation.item.truncate", event_id = InterruptEvent, item_id = item, content_index = 0, audio_end_ms = heard },
                 cancellationToken);
         }
     }
@@ -67,8 +90,19 @@ internal sealed class RealtimeVoiceSession(ClientWebSocket socket, RealtimeDiale
     public async Task Configure(RealtimeVoiceOptions options, CancellationToken cancellationToken)
     {
         var format = new { type = RealtimeAudio.MediaType, rate = RealtimeAudio.SampleRate };
-        var turns = new { type = "server_vad", create_response = true, interrupt_response = true };
+        Dictionary<string, object?> turns = new()
+        {
+            ["type"] = dialect.ListensForMeaning ? "semantic_vad" : "server_vad",
+            ["create_response"] = true,
+            ["interrupt_response"] = true,
+        };
         Dictionary<string, object?> input = new() { ["format"] = format };
+
+        if (dialect.ListensForMeaning)
+        {
+            // A call is held on a loudspeaker unless a headset is worn, so the microphone is treated as a distant one.
+            input["noise_reduction"] = new { type = "far_field" };
+        }
 
         if (options.TranscriptionModel is { Length: > 0 } transcriber)
         {
@@ -126,14 +160,14 @@ internal sealed class RealtimeVoiceSession(ClientWebSocket socket, RealtimeDiale
     {
         switch (ReadString(root, "type"))
         {
-            case "response.output_audio.delta" or "response.audio.delta":
-                if (ReadString(root, "item_id") is { } item)
-                {
-                    Volatile.Write(ref speakingItem, item);
-                }
+            case "response.created":
+                responding = true;
+                break;
 
+            case "response.output_audio.delta" or "response.audio.delta":
                 if (ReadString(root, "delta") is { Length: > 0 } audio && TryDecode(audio, out var samples))
                 {
+                    Speaking(ReadString(root, "item_id"), samples.Length);
                     yield return new RealtimeAudioOut(samples);
                 }
 
@@ -157,20 +191,21 @@ internal sealed class RealtimeVoiceSession(ClientWebSocket socket, RealtimeDiale
                 break;
 
             case "conversation.item.input_audio_transcription.completed":
-                if (ReadString(root, "transcript")?.Trim() is { Length: > 0 } said)
+                if (ReadString(root, "transcript")?.Trim() is { Length: > 0 } heard)
                 {
-                    yield return new RealtimePersonSaid(said);
+                    yield return new RealtimePersonSaid(heard);
                 }
 
                 break;
 
             case "response.done":
-                var answer = spoken.ToString().Trim();
+                responding = false;
+                var said = spoken.ToString().Trim();
                 spoken.Clear();
 
-                if (answer.Length > 0)
+                if (said.Length > 0)
                 {
-                    yield return new RealtimeBotSaid(answer);
+                    yield return new RealtimeBotSaid(said);
                 }
 
                 if (ReadUsage(root) is { } usage)
@@ -180,11 +215,53 @@ internal sealed class RealtimeVoiceSession(ClientWebSocket socket, RealtimeDiale
 
                 break;
 
-            case "error":
+            case "error" when !AnswersAnInterruption(root):
                 yield return DescribeError(root);
                 break;
         }
     }
+
+    private void Speaking(string? item, int bytes)
+    {
+        lock (answer)
+        {
+            if (item is null || item == cutItem)
+            {
+                return;
+            }
+
+            if (item != speakingItem)
+            {
+                (speakingItem, speakingBytes) = (item, 0);
+            }
+
+            speakingBytes += bytes;
+        }
+    }
+
+    /// <summary>The item being spoken and how many milliseconds of it were sent, once: an item is cut a single time.</summary>
+    private (string Item, int SentMilliseconds)? TakeSpeaking()
+    {
+        lock (answer)
+        {
+            if (speakingItem is not { } item)
+            {
+                return null;
+            }
+
+            var sent = (int)(speakingBytes / RealtimeAudio.BytesPerSample * 1000 / RealtimeAudio.SampleRate);
+            (speakingItem, speakingBytes, cutItem) = (null, 0, item);
+            return (item, sent);
+        }
+    }
+
+    /// <summary>
+    /// An interruption races the provider's own: the answer may already be over when the cancel arrives. The
+    /// provider says so in an error and the call goes on unharmed, so that error is not a failure to show.
+    /// </summary>
+    private static bool AnswersAnInterruption(JsonElement root) =>
+        root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object
+        && (ReadString(error, "event_id") == InterruptEvent || ReadString(error, "code") == "response_cancel_not_active");
 
     private static RealtimeTurnUsage? ReadUsage(JsonElement root) =>
         root.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object

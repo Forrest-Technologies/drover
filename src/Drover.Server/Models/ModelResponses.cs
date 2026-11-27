@@ -75,7 +75,8 @@ public static class ModelResponses
                 entry.Capabilities.SpeechToText,
                 entry.Capabilities.TextToSpeech,
                 entry.Capabilities.RealtimeVoice,
-                entry.Capabilities.VoiceSetByOperator),
+                entry.Capabilities.VoiceSetByOperator,
+                entry.Capabilities.PdfInput),
             new ModelPriceResponse(
                 entry.Pricing.InputPerMillion,
                 entry.Pricing.OutputPerMillion,
