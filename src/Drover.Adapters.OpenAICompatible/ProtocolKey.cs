@@ -57,10 +57,6 @@ internal static class ProtocolKey
         }
     }
 
-    #endregion
-
-    #region Private Methods
-
     public static bool IsAzure(Uri address) =>
         azureHostSuffixes.Any(suffix => address.IdnHost.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
 
