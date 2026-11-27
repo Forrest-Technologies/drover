@@ -294,6 +294,9 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowBotsBuildingBots { get; init; } = true;
 
+    /// <summary>Allow bots to send requests and receive replies within their space.</summary>
+    public bool AllowBotMessaging { get; init; } = true;
+
     /// <summary>
     /// The most bots a space may hold that have not been removed, however they are made: by a person at the top or
     /// beneath a parent, by duplicating, or by a bot. A space's own <c>max_bots</c> may only lower it. Each is a row on
@@ -639,6 +642,11 @@ public sealed record DeploymentPolicy
             nameof(AllowBotsBuildingBots),
             policy => policy.AllowBotsBuildingBots,
             Enforcement.Now("RunExecutor, which offers no crew tool; CrewService, on every crew tool call; BotService, which grants no crew tool to a new bot"),
+            allowedWhenHosted: true),
+        PolicyRule.Permission(
+            nameof(AllowBotMessaging),
+            policy => policy.AllowBotMessaging,
+            Enforcement.Now("RunExecutor, when listing tools or starting a bot request"),
             allowedWhenHosted: true),
         PolicyRule.Limit(
             nameof(MaxBotsPerSpace),

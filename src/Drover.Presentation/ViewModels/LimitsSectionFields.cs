@@ -30,7 +30,7 @@ public static class LimitsSectionFields
     public static string TokensHint(BotRunLimitOptions? options) => Allowed("What the bot reads and writes, added together.", options?.MaxTokens);
 
     public static string DelegationsHint(BotRunLimitOptions? options) =>
-        Allowed("Times the bot hands work to a bot beneath it. 0 keeps all work with this bot.", options?.MaxDelegations);
+        Allowed("Times the bot hands work to another bot. 0 keeps all work with this bot.", options?.MaxDelegations);
 
     /// <summary>The space's limit, which a bot's own may only lower, as the field's placeholder. Empty until the server has said.</summary>
     public static string Placeholder(int? most) => most is BotRunLimitOptions.NoLimit ? NoLimit : BotSummaries.Count(most);

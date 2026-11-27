@@ -238,6 +238,7 @@ public sealed class BotService(
         bot.Handle = edit.Handle;
         bot.Avatar = edit.Avatar;
         bot.DescriptionForBots = edit.DescriptionForBots;
+        bot.AcceptsBotRequests = edit.AcceptsBotRequests ?? bot.AcceptsBotRequests;
         bot.Instructions = edit.Instructions;
         bot.ModelConnectionId = edit.ModelConnectionId;
         bot.Model = edit.Model.Trim();
@@ -296,6 +297,7 @@ public sealed class BotService(
             SandboxSettings = source.SandboxSettings,
             BuildLimits = source.BuildLimits,
             RunLimits = source.RunLimits with { UncappedUsageAcknowledged = false },
+            AcceptsBotRequests = source.AcceptsBotRequests,
             CreatedByUserId = actorUserId,
         };
         var sharedWith = await bots.ListSandboxShares(id, cancellationToken);
@@ -401,6 +403,7 @@ public sealed class BotService(
             SandboxSharedWith = sharedWith,
             bot.BuildLimits,
             bot.RunLimits,
+            bot.AcceptsBotRequests,
             bot.Status,
         });
 

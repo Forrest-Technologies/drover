@@ -39,6 +39,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowOpenSandboxNetwork), "true", "false"),
         new(nameof(DeploymentPolicy.AllowDesktopSandboxes), "true", "false"),
         new(nameof(DeploymentPolicy.AllowBotsBuildingBots), "true", "true"),
+        new(nameof(DeploymentPolicy.AllowBotMessaging), "true", "true"),
         new(nameof(DeploymentPolicy.MaxBotsPerSpace), "1000", "100"),
         new(nameof(DeploymentPolicy.MinScheduleIntervalMinutes), "1", "15"),
         new(nameof(DeploymentPolicy.MaxSchedulesPerSpace), "1000", "100"),

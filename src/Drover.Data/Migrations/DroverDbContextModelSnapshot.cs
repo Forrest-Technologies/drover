@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261127022041_UsageOfRuleChecks";
+    public override string LastMigrationId => "20261127060421_BotMessaging";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -357,6 +357,12 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid>("Id")
                     .HasColumnType("uuid")
                     .HasColumnName("id");
+
+                b.Property<bool>("AcceptsBotRequests")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true)
+                    .HasColumnName("accepts_bot_requests");
 
                 b.Property<string>("Avatar")
                     .IsRequired()
@@ -1622,6 +1628,12 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTimeOffset?>("FinishedAt")
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("finished_at");
+
+                b.Property<bool>("IsBotRequest")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("is_bot_request");
 
                 b.Property<long>("LastEventSeq")
                     .HasColumnType("bigint")
