@@ -72,6 +72,7 @@ public sealed class ModelConnectionsPage : Screen
         providerSegments.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => ChooseProvider(providerSegments.Value));
         providersFailed.Action += async (_, _) => { await model.RetryProviders(); UpdateAddForm(); };
         changeAddress = PageParts.Action(NamedProviders.ChangeAddressWords, () => { model.ChangeAddress(); UpdateAddForm(); return Task.CompletedTask; }, UpdateAddForm);
+        nameField.SizeChanged += (_, _) => UpdateAddForm();
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
         keyField.Submitted += (_, _) => Run(model.Add);
@@ -286,8 +287,7 @@ public sealed class ModelConnectionsPage : Screen
         }
 
         provider.Disabled = providerSegments.Disabled = busy;
-        var phone = XamlRoot is { Size.Width: > 0 } root && root.Size.Width < (double)Styles.Dictionary["DvBreakPhone"];
-        var list = providers.UsesListWhen(phone);
+        var list = providers.UsesList || (providers.ShowsChoice && nameField.ActualWidth > 0 && providerSegments.MinimumWidth > nameField.ActualWidth);
         provider.Visibility = providers.ShowsChoice && list ? Visibility.Visible : Visibility.Collapsed;
         providerSegments.Visibility = providers.ShowsChoice && !list ? Visibility.Visible : Visibility.Collapsed;
         onlyKind.Text = providers.OnlyKindWords ?? string.Empty;

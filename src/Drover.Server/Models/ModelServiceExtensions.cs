@@ -7,19 +7,19 @@ public static class ModelServiceExtensions
     /// <summary>
     /// Registers the model providers this build ships, one <see cref="AddModelProvider{TProvider}"/> call each. The
     /// order of the calls is the order of the kinds in <c>GET /api/model-provider-kinds</c>, and so the order of the
-    /// provider choice in every form: Venice, the first hosted provider, then the compatible kind with the named
-    /// providers it carries, then the kinds with their own wire, so the choice starts on a provider that needs only a
-    /// key. A new provider kind is one more call here.
+    /// provider choice in every form: Venice and OpenAI, the hosted providers that need only a key, then the compatible kind
+    /// with the named providers it carries, so the choice starts on a provider that needs only a key and "Another
+    /// compatible server" comes last. A new provider kind is one more call here.
     /// </summary>
     public static IServiceCollection AddDroverModels(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddModelProvider<VeniceProvider>(adapter => adapter.AddVeniceProvider(), VeniceProvider.HttpClientName);
+        services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddModelProvider<OpenAICompatibleProvider>(
             adapter => adapter.AddOpenAICompatibleProvider(),
             OpenAICompatibleProvider.HttpClientName,
             OpenAICompatibleProvider.RealtimeHttpClientName);
-        services.AddModelProvider<OpenAIProvider>(adapter => adapter.AddOpenAIProvider(), OpenAIProvider.HttpClientName);
         services.AddHostedService<ModelProviderStartupCheck>();
         services.AddScoped<ModelConnectionService>();
         return services;

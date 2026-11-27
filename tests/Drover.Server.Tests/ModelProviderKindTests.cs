@@ -16,7 +16,7 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(Venice, ModelConnectionKinds.Compatible, OpenAI);
+        kinds.Select(kind => kind.Kind).Should().Equal(Venice, OpenAI, ModelConnectionKinds.Compatible);
         kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
             OpenAI,
             "OpenAI",
@@ -230,7 +230,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal("venice", ModelConnectionKinds.Compatible, "openai");
+        kinds.Select(kind => kind.Kind).Should().Equal("venice", "openai", ModelConnectionKinds.Compatible);
     }
 
     #endregion

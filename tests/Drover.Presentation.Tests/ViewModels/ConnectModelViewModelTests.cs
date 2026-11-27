@@ -194,8 +194,6 @@ public sealed class ConnectModelViewModelTests : IDisposable
         model.Named.Options.Select(option => option.Label).Should().Equal("Venice", "Another compatible server", "Sample third");
         model.Named.Options.Select(option => option.Value).Should().Equal("venice", "openai_compatible", "sample-third");
         model.Named.UsesList.Should().BeFalse("up to four choices are segments");
-        model.Named.UsesListWhen(narrow: true).Should().BeFalse("three fit a phone");
-        SampleProviders.KindsWithThird().Length.Should().Be(3);
         model.Named.Choice.Should().Be("venice", "the first kind in the server's order is chosen at first");
 
         model.ChooseProvider("sample-third");
@@ -227,7 +225,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Four_choices_are_segments_on_a_wide_screen_and_a_list_on_a_phone()
+    public async Task Four_choices_are_segments_and_five_are_a_list()
     {
         server.Answer("GET", PresetsPath, SampleProviders.Kinds(SampleProviders.All[0], SampleProviders.All[1]));
         var model = Step();
@@ -235,8 +233,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         await model.Open();
 
         model.Named.Options.Should().HaveCount(4);
-        model.Named.UsesListWhen(narrow: false).Should().BeFalse();
-        model.Named.UsesListWhen(narrow: true).Should().BeTrue();
+        model.Named.UsesList.Should().BeFalse();
     }
 
     [Fact]
@@ -436,7 +433,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_kind_with_its_own_wire_is_offered_after_the_compatible_kind_and_takes_a_key_and_no_address()
+    public async Task A_kind_with_its_own_wire_is_offered_after_venice_and_takes_a_key_and_no_address()
     {
         var path = $"{space}/model-connections";
         var created = new ModelConnectionSummary(
@@ -449,7 +446,7 @@ public sealed class ConnectModelViewModelTests : IDisposable
         await model.Open();
 
         model.Named.Options.Select(option => option.Label).Should().Equal(
-            "Venice", "Sample hosted", "Sample keyless", "Sample optional", "Another compatible server", "Sample own wire");
+            "Venice", "Sample own wire", "Sample hosted", "Sample keyless", "Sample optional", "Another compatible server");
         model.ChooseProvider("sample_own_wire");
         model.BaseUrl = "https://ignored.example.test/v1";
         model.ApiKey = "sample-key";
@@ -495,8 +492,8 @@ public static class SampleProviders
     public static ModelProviderKindResponse[] WithOwnWire(params ModelProviderPresetResponse[] named) =>
     [
         new("venice", "Venice", "required", "fixed", null, "Sample hint.", true, []),
-        new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
         new("sample_own_wire", "Sample own wire", "required", "fixed", null, "Sample own wire hint.", false, []),
+        new("openai_compatible", "Compatible endpoint", "optional", "required", "Sample hint.", "Sample hint.", false, named),
     ];
 
     public static ModelProviderPresetResponse[] All { get; } =

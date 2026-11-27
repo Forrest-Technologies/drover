@@ -46,9 +46,6 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     /// <summary>The largest number of choices shown as a segmented control. Five or more are a list.</summary>
     public const int MostSegments = 4;
 
-    /// <summary>The largest number of choices shown as segments on a phone-width screen.</summary>
-    public const int MostSegmentsNarrow = 3;
-
     private const string AnotherCompatibleWords = "Another compatible server";
 
     private IReadOnlyList<ModelProviderKindResponse> kinds = [];
@@ -91,13 +88,7 @@ public sealed class NamedProviders(DroverApi api, ILogger logger)
     public bool ShowsChoice => Options.Count > 1;
 
     /// <summary>Whether the choice is drawn as a list rather than as segments. The order is the server's either way.</summary>
-    public bool UsesList => UsesListWhen(narrow: false);
-
-    /// <summary>
-    /// Whether the choice is a list at this width. Four segments with their labels do not fit a phone, so a narrow
-    /// screen draws a list from the fourth choice on.
-    /// </summary>
-    public bool UsesListWhen(bool narrow) => Options.Count > (narrow ? MostSegmentsNarrow : MostSegments);
+    public bool UsesList => Options.Count > MostSegments;
 
     /// <summary>The line that says which kind a server with one kind uses, or null.</summary>
     public string? OnlyKindWords => State == NamedProvidersState.Loaded && !ShowsChoice && Descriptor is { } only

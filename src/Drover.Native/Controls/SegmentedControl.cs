@@ -143,6 +143,13 @@ public sealed class SegmentedControl : Grid
         }
     }
 
+    /// <summary>
+    /// The width the choices need side by side with no word broken: each column as wide as its widest word, plus its
+    /// padding and divider. A screen that has less room than this draws the choice some other way.
+    /// </summary>
+    public double MinimumWidth => Options.Sum(option => Math.Ceiling(WidestWord(option.Label, Tokens.FontUi, Tokens.Number("DvText14")))
+        + (Tokens.Number("DvSpace3") * 2) + Tokens.Number("DvBorder"));
+
     // Equal columns can be narrower than a long word, which would then break inside the word. A column is never
     // narrower than its widest word, at the heavier weight a chosen segment uses, so a label wraps between words only.
     private void KeepWordsWhole(int index, SegmentOption<string> option, PlainButton segment)
@@ -152,25 +159,27 @@ public sealed class SegmentedControl : Grid
             return;
         }
 
-        var widest = option.Label
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(word =>
-            {
-                var probe = new TextBlock
-                {
-                    Text = word,
-                    FontFamily = segment.FontFamily,
-                    FontSize = segment.FontSize,
-                    FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"],
-                };
-                probe.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
-                return probe.DesiredSize.Width;
-            })
-            .DefaultIfEmpty(0)
-            .Max();
+        var widest = WidestWord(option.Label, segment.FontFamily, segment.FontSize);
 
         row.ColumnDefinitions[index].MinWidth = Math.Ceiling(widest) + segment.Padding.Left + segment.Padding.Right + Tokens.Number("DvBorder");
     }
+
+    private static double WidestWord(string label, FontFamily family, double size) => label
+        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Select(word =>
+        {
+            var probe = new TextBlock
+            {
+                Text = word,
+                FontFamily = family,
+                FontSize = size,
+                FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"],
+            };
+            probe.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+            return probe.DesiredSize.Width;
+        })
+        .DefaultIfEmpty(0)
+        .Max();
 
     // A choice that cannot be taken is struck through, so it is not told by color alone.
     private static TextBlock Words(SegmentOption<string> option, bool chosen)

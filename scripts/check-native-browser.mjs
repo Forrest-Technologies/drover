@@ -97,6 +97,17 @@ const fewProviderKinds = [
     { ...providerKinds[1], namedProviders: [] },
     { kind: 'sample-third', displayName: 'Sample third', keyRule: 'optional', addressRule: 'required', addressHint: 'Sample address hint.', keyHint: 'Sample key hint.', reportsCapabilities: false, namedProviders: [] },
 ];
+// Four choices (Venice, two named providers, another compatible server) are segments; this adds a fifth, so it is a list.
+const manyProviderKinds = [
+    providerKinds[0],
+    {
+        ...providerKinds[1],
+        namedProviders: [
+            ...providerKinds[1].namedProviders,
+            { id: 'sample-optional', displayName: 'Sample optional key', address: 'http://localhost:10/v1', keyRule: 'optional', keyPage: null, local: true },
+        ],
+    },
+];
 const bot = { id: botId, name: 'Sample bot', handle: 'sample-bot', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
 const botDetail = {
     ...bot, avatar: {}, descriptionForBots: 'Sample purpose', modelSettings: { webSearch: 'off' },
@@ -256,6 +267,7 @@ const screens = [
     ['account', '/setup', 'Set up Drover', 'Create your account'],
     ['connect-model', '/setup/model', 'Connect a model'],
     ['connect-model-few-kinds', '/setup/model', 'Connect a model'],
+    ['connect-model-many-kinds', '/setup/model', 'Connect a model'],
     ['connect-model-kinds-failed', '/setup/model', 'Connect a model'],
     ['meet-bot-empty', '/setup/bot', 'Create your first bot'],
     ['bots', '/bots', 'Bots'],
@@ -477,7 +489,7 @@ try {
                     await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
                     return;
                 }
-                else if (address === '/api/model-provider-kinds') { body = current === 'connect-model-few-kinds' ? fewProviderKinds : providerKinds; }
+                else if (address === '/api/model-provider-kinds') { body = current === 'connect-model-few-kinds' ? fewProviderKinds : current === 'connect-model-many-kinds' ? manyProviderKinds : providerKinds; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
                 else if (address.endsWith('/bots') && route.request().method() === 'POST') {

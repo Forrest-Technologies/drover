@@ -29,6 +29,7 @@ public sealed partial class ConnectModelPage : Screen
         });
         Model.PropertyChanged += (_, _) => Refresh();
         SizeChanged += (_, _) => Refresh();
+        Form.SizeChanged += (_, _) => Refresh();
         Refresh();
     }
 
@@ -70,7 +71,7 @@ public sealed partial class ConnectModelPage : Screen
             ProviderSegments.Value = providers.Choice;
         }
 
-        var list = providers.UsesListWhen(IsPhone());
+        var list = providers.UsesList || (providers.ShowsChoice && Form.ActualWidth > 0 && ProviderSegments.MinimumWidth > Form.ActualWidth);
         Provider.Visibility = providers.ShowsChoice && list ? Visibility.Visible : Visibility.Collapsed;
         ProviderSegments.Visibility = providers.ShowsChoice && !list ? Visibility.Visible : Visibility.Collapsed;
         OnlyKind.Text = providers.OnlyKindWords ?? string.Empty;

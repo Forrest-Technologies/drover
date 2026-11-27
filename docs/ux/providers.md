@@ -203,6 +203,7 @@ In a conversation, the status line above the message field reads `{model} on {ru
 
 ## Layout at each width
 
+- The provider choice is a `SegmentedControl` for up to four choices and a `Select` for five or more. A segmented control never breaks a word, so each column is as wide as its widest word; when the choices need more width than the form's own column has (the setup form and the sheet are 400 px wide with padding, so four choices with long names often do not fit), the same choices are drawn as the `Select`. The rule measures the control's own available width, not the window.
 - Below 560 the two buttons of the connect form stack, `Continue` first. Price fields stack two per row.
 - The sheet in section 3 opens from the bottom below 640 px and from the trailing edge at 640 px and wider.
 

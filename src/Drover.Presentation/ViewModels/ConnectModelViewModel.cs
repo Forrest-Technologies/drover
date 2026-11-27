@@ -98,7 +98,6 @@ public sealed partial class ConnectModelViewModel(
         Busy = true;
         try
         {
-
             Connection = await SaveConnection();
             Result = await api.TestModelConnection(SpaceId, Connection.Id);
         }
