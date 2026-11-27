@@ -58,6 +58,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.SubscriptionSignIn), "Available", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
         new(nameof(DeploymentPolicy.AllowedModelProviderKinds), "None", "None"),
+        new(nameof(DeploymentPolicy.DecisionModelKinds), "All", "OperatorList"),
+        new(nameof(DeploymentPolicy.AllowedDecisionModelKinds), "None", "None"),
         new(nameof(DeploymentPolicy.OpenRegistration), "false", "false"),
         new(nameof(DeploymentPolicy.RequireEmailVerification), "false", "true"),
         new(nameof(DeploymentPolicy.RequireTermsAcceptance), "false", "true"),

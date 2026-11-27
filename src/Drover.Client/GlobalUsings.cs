@@ -21,6 +21,7 @@ global using Drover.Client.Streaming;
 global using Drover.Contracts.Appearance;
 global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
+global using Drover.Contracts.Decisions;
 global using Drover.Contracts.Extensions;
 global using Drover.Contracts.Files;
 global using Drover.Contracts.Models;

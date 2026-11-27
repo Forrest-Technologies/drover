@@ -110,6 +110,11 @@ public sealed class ModelConnectionService(
             return ConnectionChange.Invalid(SignInKindProblem);
         }
 
+        if (kind == ModelConnectionKinds.Compatible)
+        {
+            (baseUrl, defaultModel) = AzureAddress.Normalize(baseUrl, defaultModel);
+        }
+
         var provider = catalog.IsOffered(kind) ? catalog.Find(kind) : null;
         var problem = provider is null ? catalog.NotOffered(kind) : FindProblem(provider, name, baseUrl, apiKey, defaultModel);
 
