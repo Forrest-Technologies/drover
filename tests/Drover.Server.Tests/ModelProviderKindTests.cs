@@ -16,21 +16,35 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
         var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, ModelConnectionKinds.CopilotSignIn);
-        kinds.Single(kind => kind.Kind == Venice).Should().Be(new ModelProviderKindResponse(
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, Venice, OpenAI, ModelConnectionKinds.CopilotSignIn);
+        kinds.Single(kind => kind.Kind == OpenAI).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            OpenAI,
+            "OpenAI",
+            ModelKeyRules.Required,
+            ModelAddressRules.Fixed,
+            null,
+            "Paste an API key from your OpenAI account.",
+            false,
+            []));
+        kinds.Single(kind => kind.Kind == Venice).Should().BeEquivalentTo(new ModelProviderKindResponse(
             Venice,
             "Venice",
             ModelKeyRules.Required,
             ModelAddressRules.Fixed,
             null,
             "Made in your Venice account, under API keys.",
+            true,
+            []), options => options.ComparingByMembers<ModelProviderKindResponse>());
+        kinds.Single(kind => kind.Kind == ModelConnectionKinds.CopilotSignIn).Should().BeEquivalentTo(new ModelProviderKindResponse(
+            ModelConnectionKinds.CopilotSignIn,
+            "GitHub Copilot",
+            ModelKeyRules.None,
+            ModelAddressRules.Fixed,
+            null,
+            null,
+            true,
+            [],
             true));
-        var copilot = kinds.Single(kind => kind.Kind == ModelConnectionKinds.CopilotSignIn);
-        copilot.DisplayName.Should().Be("GitHub Copilot");
-        copilot.KeyRule.Should().Be(ModelKeyRules.None);
-        copilot.AddressRule.Should().Be(ModelAddressRules.Fixed);
-        copilot.SignIn.Should().BeTrue();
-        copilot.ReportsCapabilities.Should().BeTrue();
         var compatible = kinds.Single(kind => kind.Kind == ModelConnectionKinds.Compatible);
         compatible.KeyRule.Should().Be(ModelKeyRules.Optional);
         compatible.AddressRule.Should().Be(ModelAddressRules.Required);
@@ -39,13 +53,18 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     }
 
     [Fact]
-    public async Task The_list_carries_no_address_of_a_provider()
+    public async Task The_list_carries_no_address_of_a_kind_that_has_its_own_address()
     {
         var client = await SignedInClient();
 
-        var body = await (await client.Get(Route)).Content.ReadAsStringAsync(Token);
+        var response = await client.Get(Route);
+        var kinds = (await response.Content.ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        body.Should().NotContain("venice.ai").And.NotContain("api/v1").And.NotContain("github.com").And.NotContain("githubcopilot");
+        kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible).Should().OnlyContain(kind => kind.NamedProviders.Count == 0);
+        var withoutNamedProviders = JsonSerializer.Serialize(kinds.Select(kind => kind with { NamedProviders = [] }), JsonSerializerOptions.Web);
+        withoutNamedProviders.Should().NotContain("api/v1").And.NotContain("venice.ai").And.NotContain("api.openai.com");
+        JsonSerializer.Serialize(kinds.Where(kind => kind.Kind != ModelConnectionKinds.Compatible), JsonSerializerOptions.Web)
+            .Should().NotContain("://", "only the compatible kind's hint names a scheme, and no kind names an address");
     }
 
     [Fact]
@@ -80,6 +99,8 @@ public sealed class ModelProviderKindTests(PostgresServer postgres) : ServerTest
     private const string Route = "/api/model-provider-kinds";
 
     private const string Venice = "venice";
+
+    private const string OpenAI = "openai";
 
     #endregion
 
@@ -219,7 +240,7 @@ public sealed class AllModelProviderKindsTests(PostgresServer postgres) : Server
         var kinds = (await (await client.Get("/api/model-provider-kinds")).Content
             .ReadFromJsonAsync<List<ModelProviderKindResponse>>(Token))!;
 
-        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", ModelConnectionKinds.CopilotSignIn);
+        kinds.Select(kind => kind.Kind).Should().Equal(ModelConnectionKinds.Compatible, "venice", "openai", ModelConnectionKinds.CopilotSignIn);
     }
 
     #endregion

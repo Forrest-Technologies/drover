@@ -8,10 +8,20 @@ public sealed partial class ConnectModelPage : Screen
     public ConnectModelPage()
     {
         InitializeComponent();
-        Provider.Options = Model.Providers;
-        Provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => Model.ChooseProvider(Provider.Value ?? Model.Kind));
+        ProvidersLoading.Text = NamedProviders.LoadingWords;
+        ProvidersFailedNote.Text = NamedProviders.FailedWords;
+        ProvidersRetry.Content = NamedProviders.RetryWords;
+        ChangeAddress.Content = NamedProviders.ChangeAddressWords;
         CopyUserCode.Text = () => Model.UserCode ?? string.Empty;
+        Provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
+        {
+            if (Provider.Value.Length > 0 && Provider.Value != Model.Named.Choice)
+            {
+                Model.ChooseProvider(Provider.Value);
+            }
+        });
         Model.PropertyChanged += (_, _) => Refresh();
+        Unloaded += (_, _) => Model.Dispose();
         Refresh();
     }
 
@@ -27,25 +37,36 @@ public sealed partial class ConnectModelPage : Screen
 
     #region Private Methods
 
-    protected override async Task Opened(RouteMatch<Type> route)
-    {
-        await Model.Open();
-        Provider.Options = Model.Providers;
-        Refresh();
-    }
+    protected override Task Opened(RouteMatch<Type> route) => Model.Open();
 
     private void Refresh()
     {
-        if (Provider.Options != Model.Providers)
+        var providers = Model.Named;
+        IReadOnlyList<SelectOption> options = [.. providers.Options.Select(option => new SelectOption(option.Value, option.Label))];
+        if (!Provider.Options.SequenceEqual(options))
         {
-            Provider.Options = Model.Providers;
+            Provider.Options = options;
         }
 
-        Address.Visibility = Model.IsSignIn
+        if (Provider.Value != providers.Choice)
+        {
+            Provider.Value = providers.Choice;
+        }
+
+        ProvidersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
+        ProvidersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        Reach.Text = providers.ReachNote ?? string.Empty;
+        Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
+        Address.Visibility = Model.IsSignIn ? Visibility.Collapsed : providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
+        ChangeAddress.Visibility = Model.IsSignIn ? Visibility.Collapsed : providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
+        Key.Label = providers.KeyLabel;
+        Key.Hint = providers.KeyHint;
+        Key.Visibility = Model.IsSignIn ? Visibility.Collapsed : providers.ShowsKey ? Visibility.Visible : Visibility.Collapsed;
+        KeyLink.Text = providers.KeyLinkText ?? string.Empty;
+        KeyLink.Address = providers.KeyLinkAddress;
+        KeyLink.Visibility = Model.IsSignIn || providers.KeyLinkText is null || !providers.ShowsKey
             ? Visibility.Collapsed
-            : Model.Kind == ConnectModelViewModel.CompatibleKind ? Visibility.Visible : Visibility.Collapsed;
-        Key.Visibility = Model.IsSignIn ? Visibility.Collapsed : Visibility.Visible;
-        Key.Hint = Model.KeyHint;
+            : Visibility.Visible;
         SignIn.Visibility = Model.IsSignIn ? Visibility.Visible : Visibility.Collapsed;
         SignInLead.Text = Model.WaitingForApproval
             ? "Enter this code on the verification page, then come back here."

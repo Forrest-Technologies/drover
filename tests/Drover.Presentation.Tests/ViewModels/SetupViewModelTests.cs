@@ -150,8 +150,8 @@ public sealed class SetupViewModelTests : IDisposable
         };
         server.Answer("GET", "/api/model-provider-kinds", new[]
         {
-            new ModelProviderKindResponse("venice", "Venice", ModelKeyRules.Required, ModelAddressRules.Fixed, null, "Made in your Venice account, under API keys.", true),
-            new ModelProviderKindResponse("copilot_signin", "Personal plan", ModelKeyRules.None, ModelAddressRules.Fixed, null, null, true, true),
+            new ModelProviderKindResponse("venice", "Venice", ModelKeyRules.Required, ModelAddressRules.Fixed, null, "Made in your Venice account, under API keys.", true, []),
+            new ModelProviderKindResponse("copilot_signin", "Personal plan", ModelKeyRules.None, ModelAddressRules.Fixed, null, null, true, [], true),
         });
         server.Answer("POST", $"{path}/sign-in", new ModelSignInStarted(attemptId, "https://example.test/device", ModelSignInWaits.Poll, "ABCD-EFGH"));
         server.Answer("GET", $"{path}/sign-in/{attemptId}", new ModelSignInProgress(ModelSignInStatuses.Done, signedIn));

@@ -22,7 +22,9 @@ built into it, or as an assembly the server loads when it starts.
 - A self-hoster who wants another provider builds the server with the adapter. `docker compose up --build` already
   builds from source, so that is a project reference and one registration line.
 - The server describes each registered kind (`ModelProviderDescriptor`) and lists the kinds it offers at
-  `GET /api/model-provider-kinds`, so a client draws its form from the server and not from a list of its own.
+  `GET /api/model-provider-kinds`, so a client draws its form from the server and not from a list of its own. The
+  compatible kind's descriptor also carries its named providers (a reviewed table in the adapter), so the one
+  descriptor holds the only addresses a server names for a person's key; no other kind carries one.
 - Which registered kinds are offered is the operator's choice, by the `ModelProviders` and
   `AllowedModelProviderKinds` rules of the deployment policy ([ADR 0012](0012-deployment-policy-presets.md)). Two
   providers that claim one kind stop the server at start.

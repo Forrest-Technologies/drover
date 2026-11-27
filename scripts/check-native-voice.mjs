@@ -231,8 +231,8 @@ async function checkVoice(theme, width) {
         let body;
         if (address === '/api/model-provider-kinds') {
             body = [
-                { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, signIn: false },
-                { kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required', addressHint: 'Any server that speaks the chat completions API.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false, signIn: false },
+                { kind: 'venice', displayName: 'Venice', keyRule: 'required', addressRule: 'fixed', addressHint: null, keyHint: 'Made in your Venice account, under API keys.', reportsCapabilities: true, namedProviders: [], signIn: false },
+                { kind: 'openai_compatible', displayName: 'Compatible endpoint', keyRule: 'optional', addressRule: 'required', addressHint: 'Any server that speaks the chat completions API.', keyHint: 'Leave this empty if the server needs no key.', reportsCapabilities: false, namedProviders: [], signIn: false },
             ];
         }
         else if (address.endsWith('/model-connections')) { body = [connection]; }

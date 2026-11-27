@@ -12,31 +12,16 @@ public sealed partial class ModelConnectionsViewModel(
 {
     #region Private Fields
 
-    private const string VeniceKind = "venice";
-
-    private const string CompatibleKind = "openai_compatible";
-
-    private static readonly SegmentOption<string>[] defaultProviders =
-    [
-        new(VeniceKind, "Venice"),
-        new(CompatibleKind, "Compatible endpoint"),
-    ];
-
-    private IReadOnlyList<ModelProviderKindResponse> offered = [];
-
-    private CancellationTokenSource? poll;
+    private const string CompatibleKind = NamedProviders.CompatibleKind;
 
     private readonly Dictionary<Guid, string> problems = [];
 
+    private NamedProviders? named;
+
+    private CancellationTokenSource? poll;
+
     [ObservableProperty]
     private List<ModelConnectionSummary>? connections;
-
-    [ObservableProperty]
-    private IReadOnlyList<SegmentOption<string>> providers = defaultProviders;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSignIn), nameof(SignInName))]
-    private string kind = VeniceKind;
 
     [ObservableProperty]
     private string name = string.Empty;
@@ -99,16 +84,21 @@ public sealed partial class ModelConnectionsViewModel(
 
     public IReadOnlyDictionary<Guid, string> Problems => problems;
 
+    /// <summary>The provider choice: Venice, the server's named providers, another compatible server.</summary>
+    public NamedProviders Named => named ??= MakeNamed();
+
+    public string Kind => Named.Kind;
+
+    public bool IsSignIn => Named.IsSignIn;
+
+    public string SignInName => Named.SignInName;
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     public bool ChangePending => Busy is not null || AddingBusy;
 
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
     public bool CanEdit => session.Space?.Role is "owner" or "admin";
-
-    public bool IsSignIn => offered.FirstOrDefault(candidate => candidate.Kind == Kind)?.SignIn == true;
-
-    public string SignInName => offered.FirstOrDefault(candidate => candidate.Kind == Kind)?.DisplayName ?? Kind;
 
     #endregion
 
@@ -118,8 +108,7 @@ public sealed partial class ModelConnectionsViewModel(
     {
         if (await session.Load() is not null)
         {
-            await LoadKinds();
-            await Load();
+            await Task.WhenAll(Load(), Named.Load());
         }
     }
 
@@ -138,17 +127,13 @@ public sealed partial class ModelConnectionsViewModel(
 
     public string Facts(ModelConnectionSummary connection)
     {
-        var kindWords = DisplayNameOf(connection.Kind);
+        var kindWords = Named.DisplayNameOf(connection.Kind);
         var key = connection.SignIn is { } signIn
             ? SignInWords(signIn)
             : connection.HasKey ? "key stored" : "no key";
         var checkedWords = connection.LastCheckedAt is { } at ? $"checked {at.ToLocalTime():g}" : "never checked";
         return $"{kindWords} · {key} · {checkedWords}";
     }
-
-    public string DisplayNameOf(string kind) =>
-        offered.FirstOrDefault(candidate => candidate.Kind == kind)?.DisplayName
-        ?? (kind == CompatibleKind ? "compatible endpoint" : kind);
 
     public bool NeedsSignIn(ModelConnectionSummary connection) =>
         connection.SignIn is { Status: ModelSignInStatuses.None or ModelSignInStatuses.NeedsSignIn };
@@ -174,11 +159,19 @@ public sealed partial class ModelConnectionsViewModel(
     public void ChooseProvider(string chosen)
     {
         StopWaiting();
-        Kind = chosen;
+        if (Named.Choose(chosen) is { } address)
+        {
+            BaseUrl = address;
+        }
+
         AddProblem = null;
         UserCode = null;
         VerificationAddress = null;
     }
+
+    public void ChangeAddress() => Named.RevealAddress();
+
+    public Task RetryProviders() => Named.Load();
 
     public void StartAdding()
     {
@@ -186,7 +179,7 @@ public sealed partial class ModelConnectionsViewModel(
         AddProblem = null;
         Notice = null;
         ApiKey = string.Empty;
-        BaseUrl = string.Empty;
+        BaseUrl = Named.Selected?.Address ?? string.Empty;
         Name = string.Empty;
         UserCode = null;
         VerificationAddress = null;
@@ -199,7 +192,7 @@ public sealed partial class ModelConnectionsViewModel(
         Adding = false;
         AddProblem = null;
         ApiKey = string.Empty;
-        BaseUrl = string.Empty;
+        BaseUrl = Named.Selected?.Address ?? string.Empty;
         Name = string.Empty;
         UserCode = null;
         VerificationAddress = null;
@@ -229,7 +222,11 @@ public sealed partial class ModelConnectionsViewModel(
 
     public Task SignIn(ModelConnectionSummary connection)
     {
-        Kind = connection.Kind;
+        if (Named.Choose(connection.Kind) is { } address)
+        {
+            BaseUrl = address;
+        }
+
         return StartSignIn();
     }
 
@@ -347,21 +344,6 @@ public sealed partial class ModelConnectionsViewModel(
         Notice = words;
     }
 
-    private async Task LoadKinds()
-    {
-        try
-        {
-            offered = await api.ListModelProviderKinds();
-            Providers = [.. offered.Select(kind => new SegmentOption<string>(kind.Kind, kind.DisplayName))];
-            OnPropertyChanged(nameof(IsSignIn));
-            OnPropertyChanged(nameof(SignInName));
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "The server did not list model providers on the {Screen} screen", nameof(ModelConnectionsViewModel));
-        }
-    }
-
     private async Task AddKey()
     {
         AddingBusy = true;
@@ -370,8 +352,8 @@ public sealed partial class ModelConnectionsViewModel(
         try
         {
             var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
-            var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
-            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
+            var key = string.IsNullOrWhiteSpace(ApiKey) || !Named.ShowsKey ? null : ApiKey.Trim();
+            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? Named.NameFor(address) : Name.Trim(), address, key, null));
             Connections!.Add(added);
             voice.Forget();
             Adding = false;
@@ -495,8 +477,12 @@ public sealed partial class ModelConnectionsViewModel(
         _ => "not signed in",
     };
 
-    private static string NameFor(string? address) =>
-        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";
+    private NamedProviders MakeNamed()
+    {
+        var made = new NamedProviders(api, logger);
+        made.Changed += () => OnPropertyChanged(string.Empty);
+        return made;
+    }
 
     #endregion
 }

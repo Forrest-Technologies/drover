@@ -17,13 +17,15 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly Dialog replaceDialog = new();
 
-    private readonly SegmentedControl provider = new() { Label = "Provider" };
+    private readonly Select provider = new() { Label = "Provider" };
 
-    private readonly Field nameField;
+    private readonly TextBlock providersLoading = PageParts.Waiting(NamedProviders.LoadingWords);
 
-    private readonly Field baseUrlField;
+    private readonly StatusNote providersFailed = new() { Kind = NoteKind.Danger, Text = NamedProviders.FailedWords };
 
-    private readonly Field keyField;
+    private readonly TextBlock reach = Styles.Text(NamedProviders.ReachWords, "DvTextSecondary");
+
+    private readonly Link keyLink = new();
 
     private readonly TextBlock signInLead = Styles.Text(null, "DvTextSecondary");
 
@@ -35,6 +37,12 @@ public sealed class ModelConnectionsPage : Screen
 
     private readonly TextBlock waiting = Styles.Text("Waiting for you to approve in the browser.", "DvTextSecondary");
 
+    private readonly Field nameField;
+
+    private readonly Field baseUrlField;
+
+    private readonly Field keyField;
+
     private readonly Field newKeyField;
 
     private readonly StatusNote addProblem = new() { Kind = NoteKind.Danger };
@@ -44,6 +52,10 @@ public sealed class ModelConnectionsPage : Screen
     private readonly StatusNote replaceProblem = new() { Kind = NoteKind.Danger };
 
     private readonly StatusNote replaceBusy = new() { Kind = NoteKind.Info };
+
+    private readonly Button retryProviders;
+
+    private readonly Button changeAddress;
 
     private readonly Button cancelAdd;
 
@@ -62,19 +74,23 @@ public sealed class ModelConnectionsPage : Screen
         nameField = PageParts.Field("Connection name", string.Empty, value => model.Name = value);
         baseUrlField = PageParts.Field("Base address", string.Empty, value => model.BaseUrl = value, "url",
             "Any server that speaks the chat completions API.");
-        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", KeyHint());
+        keyField = PageParts.Field("Key", string.Empty, value => model.ApiKey = value, "password", model.Named.KeyHint);
         newKeyField = PageParts.Field("New key", string.Empty, value => model.NewKey = value, "password",
             "Stored encrypted. It is not shown again.");
-        provider.Options = model.Providers;
+        provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
+        {
+            if (provider.Value.Length > 0 && provider.Value != model.Named.Choice)
+            {
+                model.ChooseProvider(provider.Value);
+                UpdateAddForm();
+            }
+        });
+        retryProviders = PageParts.Action(NamedProviders.RetryWords, async () => { await model.RetryProviders(); UpdateAddForm(); }, UpdateAddForm);
+        changeAddress = PageParts.Action(NamedProviders.ChangeAddressWords, () => { model.ChangeAddress(); UpdateAddForm(); return Task.CompletedTask; }, UpdateAddForm);
         copyUserCode.Text = () => model.UserCode ?? string.Empty;
         AutomationProperties.SetName(userCode, "Sign-in code");
         AutomationProperties.SetLiveSetting(waiting, AutomationLiveSetting.Polite);
         userCode.IsTextSelectionEnabled = true;
-        provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
-        {
-            model.ChooseProvider(provider.Value ?? model.Kind);
-            UpdateAddForm();
-        });
         nameField.Submitted += (_, _) => Run(model.Add);
         baseUrlField.Submitted += (_, _) => Run(model.Add);
         keyField.Submitted += (_, _) => Run(model.Add);
@@ -84,9 +100,15 @@ public sealed class ModelConnectionsPage : Screen
         addButton = PageParts.Action("Add and test", model.Add, Refresh, kind: ButtonKind.Primary);
         addSheet.Body = PageParts.SheetBody(
             provider,
+            providersLoading,
+            providersFailed,
+            retryProviders,
             nameField,
+            reach,
             baseUrlField,
+            changeAddress,
             keyField,
+            keyLink,
             signInLead,
             PageParts.Row(userCode, copyUserCode),
             verification,
@@ -145,7 +167,6 @@ public sealed class ModelConnectionsPage : Screen
     protected override async Task Opened(RouteMatch<Type> route)
     {
         await model.Open();
-        provider.Options = model.Providers;
         Refresh();
     }
 
@@ -268,6 +289,7 @@ public sealed class ModelConnectionsPage : Screen
 
     private void CloseAll()
     {
+        model.Dispose();
         model.CancelAdding();
         model.CancelReplacing();
         UpdateAddForm();
@@ -277,17 +299,32 @@ public sealed class ModelConnectionsPage : Screen
     private void UpdateAddForm()
     {
         var busy = model.AddingBusy;
-        if (provider.Value != model.Kind)
+        var providers = model.Named;
+        IReadOnlyList<SelectOption> options = [.. providers.Options.Select(option => new SelectOption(option.Value, option.Label))];
+        if (!provider.Options.SequenceEqual(options))
         {
-            provider.Value = model.Kind;
+            provider.Options = options;
         }
 
-        if (provider.Options != model.Providers)
+        if (provider.Value != providers.Choice)
         {
-            provider.Options = model.Providers;
+            provider.Value = providers.Choice;
         }
 
         provider.Disabled = busy || model.WaitingForApproval;
+        providersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
+        providersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        retryProviders.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        reach.Text = providers.ReachNote ?? string.Empty;
+        reach.Visibility = model.IsSignIn || providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
+        changeAddress.Visibility = model.IsSignIn ? Visibility.Collapsed : providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
+        keyField.Label = providers.KeyLabel;
+        keyField.Visibility = model.IsSignIn ? Visibility.Collapsed : providers.ShowsKey ? Visibility.Visible : Visibility.Collapsed;
+        keyLink.Text = providers.KeyLinkText ?? string.Empty;
+        keyLink.Address = providers.KeyLinkAddress;
+        keyLink.Visibility = model.IsSignIn || providers.KeyLinkText is null || !providers.ShowsKey
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         nameField.Value = model.Name;
         nameField.Disabled = busy || model.WaitingForApproval;
         nameField.Visibility = model.IsSignIn ? Visibility.Collapsed : Visibility.Visible;
@@ -295,11 +332,8 @@ public sealed class ModelConnectionsPage : Screen
         baseUrlField.Disabled = busy;
         keyField.Value = model.ApiKey;
         keyField.Disabled = busy;
-        keyField.Hint = KeyHint();
-        keyField.Visibility = model.IsSignIn ? Visibility.Collapsed : Visibility.Visible;
-        baseUrlField.Visibility = model.IsSignIn
-            ? Visibility.Collapsed
-            : model.Kind is "openai_compatible" ? Visibility.Visible : Visibility.Collapsed;
+        keyField.Hint = providers.KeyHint;
+        baseUrlField.Visibility = model.IsSignIn ? Visibility.Collapsed : providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
         signInLead.Text = model.WaitingForApproval
             ? "Enter this code on the verification page, then come back here."
             : $"Continue with {model.SignInName} to sign in with your own plan. Usage bills that plan.";
@@ -334,10 +368,6 @@ public sealed class ModelConnectionsPage : Screen
         cancelReplace.IsEnabled = !busy;
         saveKey.IsEnabled = !busy && model.Replacing is not null;
     }
-
-    private string KeyHint() => model.Kind is "openai_compatible"
-        ? "Leave this empty if the server needs no key."
-        : "Made in your Venice account, under API keys.";
 
     private Drover.Contracts.Models.ModelConnectionSummary? Replacing() =>
         model.Replacing is { } id ? model.Connections?.FirstOrDefault(connection => connection.Id == id) : null;

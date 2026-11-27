@@ -1,0 +1,23 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the provider's Responses API reference and guides (https://developers.openai.com/api/reference/resources/responses/methods/create, https://developers.openai.com/api/docs/guides/streaming-responses, read 2026-11-26). The model id is made up. No real server produced this.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 429,
+      "headers": {
+        "retry-after": "7",
+        "x-ratelimit-remaining-requests": "0"
+      },
+      "body": {
+        "error": {
+          "message": "Rate limit reached for requests. Please try again in 7s.",
+          "type": "requests",
+          "param": null,
+          "code": "rate_limit_exceeded"
+        }
+      }
+    }
+  ]
+}

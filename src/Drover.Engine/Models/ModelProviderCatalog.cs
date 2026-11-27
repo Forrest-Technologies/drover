@@ -40,9 +40,14 @@ public sealed class ModelProviderCatalog
 
     #region Properties
 
-    /// <summary>The descriptors of the kinds this server offers, in registration order.</summary>
+    /// <summary>
+    /// The descriptors of the kinds this server offers, in registration order. Where the deployment forbids private
+    /// addresses, the named providers on the person's own machine or network are left out of each. A named provider
+    /// whose id is a kind this server offers is left out too: that kind is the provider's own way in, and listing both
+    /// would offer one provider twice. When the policy switches that kind off, the named provider is listed again.
+    /// </summary>
     public IReadOnlyList<ModelProviderDescriptor> Offered =>
-        [.. providers.Where(provider => IsOffered(provider.Kind)).Select(provider => provider.Descriptor)];
+        [.. providers.Where(provider => IsOffered(provider.Kind)).Select(provider => WithoutForbiddenProviders(provider.Descriptor))];
 
     #endregion
 
@@ -76,6 +81,17 @@ public sealed class ModelProviderCatalog
     #endregion
 
     #region Private Methods
+
+    private ModelProviderDescriptor WithoutForbiddenProviders(ModelProviderDescriptor descriptor) =>
+        descriptor with
+        {
+            NamedProviders =
+            [
+                .. (descriptor.NamedProviders ?? [])
+                    .Where(named => !named.Local || options.Value.Rules.AllowPrivateAddresses)
+                    .Where(named => !IsOffered(named.Id)),
+            ],
+        };
 
     private string? FindDuplicateKind() =>
         providers.GroupBy(provider => provider.Kind).FirstOrDefault(group => group.Count() > 1)?.Key;

@@ -63,7 +63,7 @@ public sealed class ProviderBoundaryTests
     {
         var handler = new ScriptedHandler((_, _, _) => Task.FromResult(Reply(null)));
         using var httpClient = new FixtureHttpClientFactory(handler).CreateClient("timeout-proof");
-        var options = ProtocolChatClient.CreateOptions(httpClient, new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address));
+        var options = ProtocolChatClient.CreateOptions(httpClient, CompatibleRig.Address);
         var capture = new TimeoutCapture();
         options.AddPolicy(capture, PipelinePosition.PerCall);
         var client = new OpenAI.OpenAIClient(new ApiKeyCredential(TestKeys.Generate()), options).GetChatClient("m").AsIChatClient();
