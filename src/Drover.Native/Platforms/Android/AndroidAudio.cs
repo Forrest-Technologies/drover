@@ -59,17 +59,17 @@ internal sealed class AndroidAudio(ILogger<AndroidAudio> logger) : IAudioCapture
     }
 
     public Task<IAudioOutput> Open(int sampleRate, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Open(sampleRate, route: null));
+        Task.FromResult<IAudioOutput>(Open(sampleRate, route: null));
 
     public Task<IAudioOutput> OpenCall(int sampleRate, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Open(sampleRate, new CallRoute(logger)));
+        Task.FromResult<IAudioOutput>(Open(sampleRate, new CallRoute(logger)));
 
     #endregion
 
     #region Private Methods
 
     // A route that was taken is given back when the output it was for could not be opened.
-    private IAudioOutput Open(int sampleRate, CallRoute? route)
+    private Output Open(int sampleRate, CallRoute? route)
     {
         try
         {
