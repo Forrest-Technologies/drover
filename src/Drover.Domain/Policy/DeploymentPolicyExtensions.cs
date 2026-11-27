@@ -36,7 +36,16 @@ public static class DeploymentPolicyExtensions
             .WithBoundedMemory()
             .WithoutWebTools()
             .WithoutImageGeneration()
-            .WithBoundedPushTests();
+            .WithBoundedPushTests()
+            .WithBoundedVoice();
+
+    public static DeploymentPolicy WithBoundedVoice(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxVoiceRecordingBytes = DeploymentPolicy.HostedMaxVoiceRecordingBytes,
+            MaxReadAloudCharacters = DeploymentPolicy.HostedMaxReadAloudCharacters,
+            MaxCallMinutes = DeploymentPolicy.HostedMaxCallMinutes,
+        };
 
     public static DeploymentPolicy WithBoundedPushTests(this DeploymentPolicy policy) =>
         policy with { MaxPushTestsPerMinute = DeploymentPolicy.HostedMaxPushTestsPerMinute };
@@ -81,7 +90,12 @@ public static class DeploymentPolicyExtensions
         };
 
     public static DeploymentPolicy WithBoundedRuns(this DeploymentPolicy policy) =>
-        policy with { MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun, MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun };
+        policy with
+        {
+            MaxStepsPerRun = DeploymentPolicy.HostedMaxStepsPerRun,
+            MaxUnmeteredModelCallsPerRun = DeploymentPolicy.HostedMaxUnmeteredModelCallsPerRun,
+            MaxTokensPerRun = DeploymentPolicy.HostedMaxTokensPerRun,
+        };
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };

@@ -86,7 +86,7 @@ public sealed class RoutineRowViewModel
         (false, _, _) => "Off. It does not run until it is turned on.",
         (_, true, _) => $"Does not run while {BotName} is paused.",
         (_, _, { } next) => $"Runs {RoutineWords.Moment(next, Routine.TimeZone)}",
-        _ => "Drover has not worked out the next time yet.",
+        _ => "The next run time is not known yet.",
     };
 
     public string Last =>

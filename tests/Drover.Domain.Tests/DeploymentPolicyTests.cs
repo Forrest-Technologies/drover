@@ -139,6 +139,28 @@ public sealed class DeploymentPolicyTests
     }
 
     [Fact]
+    public void The_unmetered_call_bound_is_a_default_on_self_hosted_and_a_ceiling_on_hosted()
+    {
+        DeploymentPolicy.SelfHosted.MaxUnmeteredModelCallsPerRun.Should().Be(200);
+        DeploymentPolicy.Hosted.MaxUnmeteredModelCallsPerRun.Should().Be(50);
+
+        var raised = DeploymentPolicy.SelfHosted with { MaxUnmeteredModelCallsPerRun = 1000 };
+        var unlimited = DeploymentPolicy.SelfHosted with { MaxUnmeteredModelCallsPerRun = int.MaxValue };
+
+        raised.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("the operator may raise the safety bound on their own server");
+        unlimited.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("the largest value stands for no limit");
+        DeploymentPolicy.Rules.Single(rule => rule.Name == nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun)).ReadText(unlimited)
+            .Should().Be(PolicyRule.NoLimit);
+        raised.FindLoosenedRules(DeploymentPolicy.Hosted)
+            .Should().Contain(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun), "it is looser than the hosted preset");
+        (DeploymentPolicy.Hosted with { MaxUnmeteredModelCallsPerRun = 51 })
+            .FindProblems(DeploymentPolicy.HostedName, DeploymentPolicy.Hosted, null, new(false, false))
+            .Should().Contain(problem => problem.StartsWith(nameof(DeploymentPolicy.MaxUnmeteredModelCallsPerRun), StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_self_hosted_server_sets_no_limit_on_model_calls_or_on_the_runs_of_a_tree()
     {
         DeploymentPolicy.SelfHosted.MaxStepsPerRun.Should().Be(int.MaxValue);
@@ -147,6 +169,35 @@ public sealed class DeploymentPolicyTests
         new DelegationLimits(5, 50, 100).MaxHandoffs.Should().Be(49);
         DeploymentPolicy.Hosted.MaxStepsPerRun.Should().Be(50);
         DeploymentPolicy.Hosted.MaxRunsPerDelegationTree.Should().Be(50);
+    }
+
+    [Fact]
+    public void Voice_is_unbounded_on_a_self_hosted_server_except_for_the_recording_it_holds_in_memory()
+    {
+        DeploymentPolicy.SelfHosted.MaxVoiceRecordingBytes.Should().Be(25 * 1024 * 1024);
+        DeploymentPolicy.SelfHosted.MaxReadAloudCharacters.Should().Be(int.MaxValue);
+        DeploymentPolicy.SelfHosted.MaxCallMinutes.Should().Be(int.MaxValue);
+        DeploymentPolicy.Hosted.MaxVoiceRecordingBytes.Should().Be(10 * 1024 * 1024);
+        DeploymentPolicy.Hosted.MaxReadAloudCharacters.Should().Be(8000);
+        DeploymentPolicy.Hosted.MaxCallMinutes.Should().Be(30);
+        (DeploymentPolicy.SelfHosted with { MaxVoiceRecordingBytes = 100 * 1024 * 1024 })
+            .FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, null, new(false, false))
+            .Should().BeEmpty("the recording limit is a default a self-hosted operator may raise");
+        (DeploymentPolicy.Hosted with { MaxCallMinutes = 31 }).FindLoosenedRules(DeploymentPolicy.Hosted)
+            .Should().Equal(nameof(DeploymentPolicy.MaxCallMinutes));
+    }
+
+    [Fact]
+    public void A_limit_at_the_largest_number_reads_as_no_limit_and_any_other_as_its_number()
+    {
+        string Text(string name, DeploymentPolicy policy) => DeploymentPolicy.Rules.Single(rule => rule.Name == name).ReadText(policy);
+
+        Text(nameof(DeploymentPolicy.MaxCallMinutes), DeploymentPolicy.SelfHosted).Should().Be(PolicyRule.NoLimit);
+        Text(nameof(DeploymentPolicy.MaxReadAloudCharacters), DeploymentPolicy.SelfHosted).Should().Be("No limit");
+        Text(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), DeploymentPolicy.SelfHosted).Should().Be("No limit");
+        Text(nameof(DeploymentPolicy.MaxStepsPerRun), DeploymentPolicy.SelfHosted).Should().Be("No limit");
+        Text(nameof(DeploymentPolicy.MaxCallMinutes), DeploymentPolicy.Hosted).Should().Be("30");
+        Text(nameof(DeploymentPolicy.MaxVoiceRecordingBytes), DeploymentPolicy.SelfHosted).Should().Be("26214400");
     }
 
     [Fact]

@@ -2,7 +2,8 @@ import json
 import re
 import sys
 
-INSTALL = ("Install the APK and sign in with the HTTPS address of your Drover server. See the "
+INSTALL = ("Install the APK and sign in with the HTTPS address of your Drover server. If the older Drover "
+           "Preview app is still installed, uninstall it: it no longer updates. See the "
            "[Android guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) "
            "for server requirements and notification setup.")
 PULL = re.compile(r"^\* .+ in (https://github\.com/[^/\s]+/[^/\s]+/pull/\d+)\s*$")

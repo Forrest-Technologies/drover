@@ -36,6 +36,10 @@ public static class SpaceEndpoints
         root.MapRunStreamEndpoints();
         root.MapUsageEndpoints();
 
+        // Speech waits on a provider, and a live call lasts for minutes: neither holds a scope.
+        root.MapVoiceEndpoints();
+        root.MapVoiceCallEndpoint();
+
         // A bot's sandbox waits on the provider, so its controls open their own short scopes.
         root.MapSandboxEndpoints();
         root.MapSandboxSecretEndpoints();

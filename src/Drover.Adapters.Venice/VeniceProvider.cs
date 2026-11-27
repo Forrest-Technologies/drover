@@ -26,6 +26,15 @@ public sealed class VeniceProvider(
 
     public Uri? FixedAddress => BaseAddress;
 
+    public ModelProviderDescriptor Descriptor { get; } = new(
+        ConnectionKind,
+        "Venice",
+        ModelKeyRule.Required,
+        ModelAddressRule.Fixed,
+        AddressHint: null,
+        KeyHint: "Made in your Venice account, under API keys.",
+        ReportsCapabilities: true);
+
     #endregion
 
     #region Interface Implementations

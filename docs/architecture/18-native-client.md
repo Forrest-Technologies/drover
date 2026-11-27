@@ -17,7 +17,7 @@ The Blazor web client (`Drover.Ui`, `Drover.Web`) and the MAUI Android shell (`D
 | `src/Drover.Presentation` | `net11.0` library, in `Drover.slnx` | The moved framework-free code (`Drover.Ui.*`), view models (`Drover.Presentation.ViewModels`), the router (`Drover.Presentation.Routing`), the readers for drawings kept as data (`Drover.Presentation.Drawing`), `IDeviceSettings` |
 | `src/Drover.Native` | Uno single project, in `Drover.Native.slnx` | The app: tokens, controls, layouts, shell, pages, platform code |
 | `src/Shared/Transport` | Source files, linked | `AntiforgeryHandler` (compiled into the browser build); `AppRequests`, `NativeSession`, `NativeSessionTokens`, `ServerAddress` (compiled into the device builds) |
-| `src/Shared/Web` | Browser files, linked | `boot.js`, `cookies.js`, `push.js`, `push-worker.js`, `service-worker.published.js`, the icons: copied into the browser build, which the server serves at the root |
+| `src/Shared/Web` | Browser files, linked | `boot.js`, `cookies.js`, `push.js`, `push-worker.js`, `voice.js`, `voice-worklet.js`, `service-worker.published.js`, the icons: copied into the browser build, which the server serves at the root |
 | `src/Shared/Android` | Source files, linked | UnifiedPush registration, transport, receivers and delivery service, notifications, shares in (`AndroidShares`), files out (`AndroidFileDelivery`, `DocumentDestination`), and `IncomingIntents`, written for the retired Android shell; compiled into the Android build |
 | `tests/Drover.Presentation.Tests` | xunit, in `Drover.slnx` | Router, view models, wording, token parity and contrast, the interface rules for native source, and the shared web files (service worker, the retiring `/native/` worker, the HTML preview) in a real Chromium |
 
@@ -34,9 +34,9 @@ src/Drover.Native/
   Shell/                   AppServices, Screens, ShellView, Screen, PendingScreen, Splash
   Pages/                   one class per screen, in the folders the web client uses
   Device/                  compiled for desktop and phones only: server choice, settings, the phone credential store
-  Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table
-  Platforms/Desktop/       Program.cs, files out, the desktop credential store
-  Platforms/Android/       application, activity, manifest
+  Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table, sound (BrowserAudio)
+  Platforms/Desktop/       Program.cs, files out, the desktop credential store, sound (DesktopAudio)
+  Platforms/Android/       application, activity, manifest, sound (AndroidAudio)
   Platforms/iOS/           entry point, manifest, keychain entitlement, safe areas
   Assets/Fonts/            Inter and JetBrains Mono, with their licenses
 ```
@@ -94,7 +94,7 @@ Taking a screenshot of the browser build: serve the published `wwwroot` at the r
 
 Taking a screenshot of the desktop build on a machine with no display: `xvfb-run -a --server-args="-screen 0 1280x800x24"` around a script that starts `bin/Debug/net11.0-desktop/Drover.Native.dll`, waits, and runs `import -window root out.png`. A Debug build started with `DROVER_DEV_GALLERY` set shows the gallery's conversation samples with no server (`Pages/Dev/DevGallery.cs`): some words of a section's title show the sections that hold them, and `pane` shows one sample conversation over its composer and status line, as wide as `DROVER_DEV_WIDTH` says, light or black with `DROVER_DEV_MODE=light` or `black`, thinking or with a turn of two messages with `DROVER_DEV_STATE=thinking` or `turn`. `DROVER_DEV_THEME` names the theme (`front-office`, `night-yard`). None of it is in a Release build.
 
-The appearance choices (theme, mode, accent) are a dialog the shell owns, not the account menu: a choice of theme, accent or the black mode makes the open screen again, and the dialog stays open over it. Whether it is open is `ThemeModel.AppearanceOpen`, which the account menu's "Appearance" item sets; the options are `AppearanceViewModel`. After such a choice `ShellView` makes the dialog again from the new values, opens it over the old one with no fade before the old one goes, and hands the option that had the focus to the new body (`AppearanceChoices.FocusHeld`); when it closes, the focus goes to the account menu's button on the screen now showing, or to the screen, with the ring only when the keyboard closed it (`Dialog.ClosedWith`). A development build started with `DROVER_DEV_APPEARANCE` set opens the dialog over the first screen and presses the buttons named in it, separated by commas, two seconds apart, in a window as wide as `DROVER_DEV_WIDTH` says (`Shell/AppearanceRehearsal.cs`, not in a product build), for a picture with no pointer. `DROVER_DEV_GALLERY=splash` shows the splash alone.
+The appearance choices (theme, mode, accent) are a dialog the shell owns, not the account menu: a choice of theme, accent or the black mode makes the open screen again, and the dialog stays open over it. Whether it is open is `ThemeModel.AppearanceOpen`, which the account menu's "Appearance" item sets; the options are `AppearanceViewModel`. After such a choice `ShellView` makes the dialog again from the new values, opens it over the old one with no fade before the old one goes, and hands the option that had the focus to the new body (`AppearanceChoices.FocusHeld`); when it closes, the focus goes to the account menu's button on the screen now showing, or to the screen, with the ring only when the keyboard closed it (`Dialog.ClosedWith`). A signed-in person's choice is also saved through `/api/account/appearance`. Signing in loads it silently. A missing record leaves the device choice in place. An offline or failed save keeps the local choice, queues the latest value for reconnect and shows one quiet retry sentence in the dialog. Signed-out choices use only `drover.theme`. A development build started with `DROVER_DEV_APPEARANCE` set opens the dialog over the first screen and presses the buttons named in it, separated by commas, two seconds apart, in a window as wide as `DROVER_DEV_WIDTH` says (`Shell/AppearanceRehearsal.cs`, not in a product build), for a picture with no pointer. `DROVER_DEV_GALLERY=splash` shows the splash alone.
 
 The pictures taken for this work are in `docs/screenshots/native-foundation/`, native beside web, at 1280 and 360 pixels, dark and light.
 
@@ -257,7 +257,7 @@ A control that sets colors in code repaints when the theme changes: call `this.W
 
 ## Theme
 
-`ThemeModel` (in `Drover.Presentation`) holds the choice: a `ThemeChoice`, which is a theme id, a mode (`system`, `dark`, `light` or `black`) and an accent ([ADR 0021](../adr/0021-front-office-black-and-accents.md)). The app is Front Office, dark, in the theme's own color, until a person picks otherwise or asks it to follow the device. The choice is kept through `IDeviceSettings` under the name `drover.theme` as one small JSON object, `{"themeId":"front-office","mode":"dark","accent":"theme","version":2}`. In a browser that is the local storage entry the retired web client wrote, so a person's mode carried over; elsewhere it is the platform's settings store. A value written before a person could choose a theme, the one word `dark`, `light` or `system` or the object without a version, keeps its mode and takes the default theme: the theme it named was the only one there was. A value that is none of these reads as a device that has not chosen. A theme id the app does not have draws as the default and is kept as it was written, and an accent the theme does not offer draws as the theme's own color. `ShellView` applies the mode by setting `RequestedTheme` on the root; a window has no black mode, so black is the dark mode with the theme's black colors written into the dark dictionaries (`ThemeTokens.Apply(theme, black)`).
+`ThemeModel` (in `Drover.Presentation`) holds the choice: a `ThemeChoice`, which is a theme id, a mode (`system`, `dark`, `light` or `black`) and an accent ([ADR 0021](../adr/0021-front-office-black-and-accents.md)). The app is Front Office, dark, in the theme's own color, until a person picks otherwise or asks it to follow the device. The choice is kept through `IDeviceSettings` under the name `drover.theme` as one small JSON object, `{"themeId":"front-office","mode":"dark","accent":"theme","version":2}`. In a browser that is the local storage entry the retired web client wrote, so a person's mode carried over; elsewhere it is the platform's settings store. A value written before a person could choose a theme, the one word `dark`, `light` or `system` or the object without a version, keeps its mode and takes the default theme: the theme it named was the only one there was. A value that is none of these reads as a device that has not chosen. A local theme id the app does not have draws as the default and remains in the device cache. A server choice whose theme or accent this app does not have is cached with the default theme or theme accent. `ShellView` applies the mode by setting `RequestedTheme` on the root; a window has no black mode, so black is the dark mode with the theme's black colors written into the dark dictionaries (`ThemeTokens.Apply(theme, black)`).
 
 The black mode and the accents are worked out, never stored in a theme file. `ThemeFile.In(ColorMode.Black)` is the dark mode with a black first surface and each surface above it taking the color of the one below. `Accents.For(theme)` lists the accents a theme offers, its own color first, and `theme.WithAccent(id)` is the theme with `ember` turned to that hue at the theme's own chroma, as close to its lightness as still reads on every surface, with `on-accent` kept where it still reads. An accent is offered only when the theme then passes every gate, so one whose hue lies within 45 degrees of the theme's `ion` or `violet` is not on the list, and neither is one within 20 degrees of the theme's own color. The same theme and accent always give the same object, which is how `ShellView` tells that the look in use changed.
 
@@ -308,7 +308,7 @@ Native only, because the web does these in CSS:
 | --- | --- |
 | `Facet` | The frame, and the only place corners are drawn: `Role` (a control or a larger frame), `Fill`, `Edge`, `Ring`, and `Cut` where a faceted frame needs a size of its own. The theme's corner language decides what it draws: cut corners, rounded corners, or ticks. A panel; what is put in it sits on the surface |
 | `Yard` | The texture behind the working area: dots, lines, a grid, or nothing, as the theme says |
-| `Link` | An anchor: `Text`, `Address`. An in-app address goes through the navigator. External links and markdown links share `OpenOutside`: when the browser refuses a new tab, the current tab follows the address instead |
+| `Link` | An anchor: `Text`, `Address`. An in-app address goes through the navigator. External links and markdown links share `OpenOutside`: the browser navigates the current tab directly, since popup blockers can report a successful new window without opening one. Native devices use the platform launcher |
 | `PlainButton` | The base of every pressable control on a plain surface. Colors are token names |
 | `FlowPanel` | A row that wraps: `Gap`, and `FlowPanel.FullRow` on a child |
 | `TravelLine` | Live state: a tool is running |
@@ -331,7 +331,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | Control | Takes | Raises |
 | --- | --- | --- |
 | `ToolCallCard` | `Card`, `BotName`, `Decide`, `Forget`, `Forgotten`, `MemoryHref` | |
-| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element) | |
+| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element); an unusable answer uses the same card and words as an unusable reply, with its original behind a closed disclosure | |
 | `TakeoverCard` | `BotName`, `Reason`, `Phase`, `Sending`, `Problem`, `Access`, `SetupHref`, `AnswerBesideScreen`, `TakeFocus` | `OpenScreen`, `Done`, `CouldNot` |
 | `TakeoverCall` | `Takeover`, `BotName`, `Takeovers` | |
 | `FileCard` | `File`, `ReadWhole` | |
@@ -339,6 +339,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
 | `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
 | `MessageVersions` (native only, inside `ChatEntry`) | `ShowVersion`, `OnAct`; `Show(message)` draws the message's `Versions` switch ("2 of 3" between previous and next) and Edit or Write another reply when the message offers it | |
+| `UnusableToolRequestCard` (native only, inside `ChatEntry` and an unusable handoff answer) | `MessageKey`, `BotName`, `OriginalResponse`, `CanRetry`; shown when a completed bot reply holds a raw DSML tool-call protocol request, whole or cut off before its closing tags (`UnusableToolRequests.IsUnusableRequest`), with a plain-word explanation, the existing retry action where the message list offers it, and a collapsed disclosure of the original response | `Retry` |
 | `ExchangedFiles` | `Bot`, `Version` | |
 | `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
 | `MemoryRail` | `Bot`, `Version` | |
@@ -470,6 +471,7 @@ Every screen of the retired web client has moved; the steps below were how, and 
 - **The development build logs a failed connection to a development server** on every start. It is the hot reload client looking for an editor, and it is not in a release build.
 - **Under a virtual display the message list kept its old picture when a message in it only got shorter.** Seen on the desktop build under `xvfb` only: an older reply's actions were collapsed, the layout was right (the message and the column reported their new heights), and the picture stayed the one from before until something else was drawn. Growing drew at once. It was not shown on a real display or another target, so the client holds no workaround for it; a picture taken under `xvfb` right after something collapses can be one frame behind.
 - **The browser's accessible boxes go stale when an ancestor moves.** Uno 7.0.65 updates the box of a control only when that control's own visual changes its offset or size (`RouteVisualOffsetOrSizeChanged` re-emits descendants only below a scroll source). The composer grows upward from the bottom of the page, so opening or closing its options row, or the field growing a line, moves the composer and leaves the boxes of Attach, More options and Send where they were, off by the distance moved (27, 34, and 40 px were measured). A control's box is also kept relative to its nearest accessible ancestor, so a container that moves must itself be an accessible one, which updates when it moves while the boxes inside it stay right. `Composer` and its input frame therefore carry names (`Message composer`, `Write a message`). Any new part of the interface that grows or collapses above controls the person can reach needs the same: name the container, and add the move to `checkComposerBounds` in `scripts/check-native-browser.mjs`, which focuses each button and compares every edge of the ring it draws, seen in a picture much larger than the box, with the same edge of the accessible box, at 1280 and 360 px and with a run held in progress so that Stop is checked as well (`checkStopBounds`; the mock holds a run by sending its start and never its end). The desktop screen checks compare each peer's rectangle with the control's at both widths, with the options open, the field three lines tall, and a run held in progress (`ScreenChecks.ComposerBounds` and `StopWhileWorking`; the check server's model holds its second run until Stop ends it); a peer reads the live layout, so it was right in every state measured.
+- **A part that moves inside its parent keeps its old accessible box in a browser.** The call surface is one grid whose parts are placed again when it shrinks to a bar; the buttons inside its row of actions did not move within that row, so their boxes stayed where the row had been. `CallSurface` puts its layout back in the tree (`SemanticTree.PutBack`) after it places its parts. The same fault is why a recording's failure is a toast and not a line under the message field: a line there grows the composer, which moves the conversation, and the boxes of a reply's buttons stay behind (57 px was measured). The voice check presses every button where its box stands, so a stale box fails it.
 - **Starting is slow in a development browser build**: about fifteen seconds in headless Chromium, three for a published build.
 
 ## Known differences from the retired web client
@@ -502,7 +504,7 @@ Verified in Chromium against the build of this work. Each was to be decided befo
 | Find in page, reader mode, translation, selection across the page | None works. Measured: `window.find("Use the account you made")` is false on `/native/sign-in` and true on `/sign-in`; the words exist only as labels of the semantic tree, which is not drawn. Selection works inside one text block that enables it |
 | Browser zoom and text size | Page zoom scales the canvas. At 200 percent (a 640 px wide CSS viewport at twice the pixel ratio) sign-in draws sharp, at the same layout as the web client, with no sideways scroll. The browser's text-size setting has no effect (not re-measured) |
 | Clipboard | Copying is asked of the browser without waiting for its answer, so a refusal cannot be told to the person |
-| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client, on a machine loaded by other builds; the time is spent between requests, in the interpreted runtime. Remeasured on 2026-11-19 on an unloaded machine against a Release server, twelve messages, median of five page loads: 2.75 s native and 0.59 s web before the fix below, 2.51 s native and 0.55 s web after it; most of the native time is the runtime's start before the first request. The conversation is made once per opening; what showed "Nothing said yet" on the way was the message list, revealed before it had drawn the loaded messages (see "The conversation workspace") Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
+| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client, on a machine loaded by other builds; the time is spent between requests, in the interpreted runtime. Remeasured on 2026-11-19 on an unloaded machine against a Release server, twelve messages, median of five page loads: 2.75 s native and 0.59 s web before the fix below, 2.51 s native and 0.55 s web after it; most of the native time is the runtime's start before the first request. The conversation is made once per opening; what showed "No messages yet" on the way was the message list, revealed before it had drawn the loaded messages (see "The conversation workspace") Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
 | Service worker, install, push in a browser | The web client's worker, start script and notification script, shared. Verified in Chromium against Drover's server: the worker installs, stores all 169 shell files with matching hashes, and takes control. A real push delivered to the worker, and the notification tap, are covered by `ServiceWorkerTests`; a subscription against a real push service was not made from this machine |
 | Script evaluation | The runtime evaluates script strings. Five are known and answered without `eval`; another may appear with an SDK upgrade or a platform feature |
 | Credential store on desktop | The platform has none, so the desktop app uses the operating system's own through `SystemSecrets` (see "Transport and security"). On a computer without one (Linux with no Secret Service) the sign-in lasts until the app closes, as before |
@@ -557,6 +559,7 @@ technology (`Tokens in: 100 on its own`), and the drawn column names and phone l
 | `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, edit the last message, ask for another reply, show another version, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
 | `ComposerViewModel`, `MessageListViewModel` | The field and its actions; the messages, what is read out, the moment to land on |
 | `ReplyUsageViewModel`, `BotNotifyMenuViewModel` | What a reply used; the menu about a bot |
+| `VoiceComposerViewModel`, `ReadAloudViewModel`, `CallViewModel`, `SpaceVoice` | A spoken message; reading aloud, one thing at a time for the whole app; a live call; what the space can listen, speak and call with (see [Voice](#voice)) |
 | `ChatRows` | What a row says and how it is shaped, apart from drawing: a bot's row in the crew, a message, a tool call's card, the tray of files |
 
 Opening reads what does not depend on something else at the same time: the model connections and the bots, then
@@ -584,7 +587,7 @@ framework:
 
 The conversation's "More" menu ends with "Save conversation as Markdown" and "Save conversation as JSON". The server
 writes the file (`ConversationSaver` asks for it through `DroverApi.ExportConversation`), and the platform saves it
-the way the extension editor's download does (`PlatformFiles.SaveText`): the system's save dialog on desktop and
+the way a bot's file is saved (`PlatformFiles.SaveText`): the system's save dialog on desktop and
 Android, a download in a browser. A toast says it was saved or why not; a cancelled dialog says nothing.
 
 When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
@@ -607,7 +610,7 @@ scrolled to. Leaving for another screen ends it: the streams stop and unsent fil
 
 The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPane`, `MessageList`, `ChatEntry`,
 `Composer`, `AttachmentTray`, `CrewList`, `SideChatList`, `FailureLine`, `AttentionNote`, `ReplyUsage`,
-`BotNotifyMenu`, `ConversationSearch`.
+`BotNotifyMenu`, `ConversationSearch`, `CallSurface`.
 
 `ConversationSearch` sits above the crew, with a "Mine only" switch under the box (`Switch`, with its hint) that leaves out what other people shared and searches again from the newest messages. Enter searches the person's conversations on the server
 (`ConversationSearchViewModel`), and while a search is shown it stands in place of the crew: the messages found, or a
@@ -624,14 +627,8 @@ is kept and told what changed, never made again. A new child is put in at its pl
 moved is taken out, so a child that holds the focus keeps it. The activity timeline keeps its nodes and their open
 details by event the same way, so a node or a control in its details keeps the focus while a live run's events arrive.
 
-**The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
-message that changed is looked at again. That gives what the web client's reversed column gives: the reader at the
-foot stays at the foot while text streams, the reader who scrolled up stays put, a link to a moment can land on any
-message, an open card stays open, and assistive technology has the whole conversation. Measured on the desktop
-build with sample replies (bold, inline code, a list), on a machine whose four cores were loaded two to three times
-over by other builds: 300 messages took 2.2 s to first show and 22 ms for each update of a streaming reply (median
-of 40); 600 messages took 2.8 s and 26 ms. Before unchanged messages were skipped the update took 36 ms at 300. If
-conversations of thousands of messages become common, load the older part on demand; do not recycle elements.
+**The message list shows a page of the conversation, not all of it.** The newest messages are on the page and the
+rest are shown as the reader comes to them; nothing is cut from the conversation. See [Long lists](#long-lists).
 
 A streaming reply is parsed and laid out again for each stretch of text that arrives, as the web client does. The
 list draws at most once in a quarter of the shortest duration, and after what the person is doing, so a reply
@@ -654,6 +651,76 @@ Known differences of this screen from the web client:
 | The line along the composer | Under the virtual display it was drawn with gaps. It is the shared `TravelLine` |
 | Failure heading | Wraps greedily, as every heading here does |
 
+#### Long lists
+
+**A list that can grow without end shows a page of itself, and keeps all of itself.** Every child of a list is an
+element that is made, measured and drawn, about 60 of them for one message, so what a screen costs follows how
+many are on the page. `ListWindow` (`Drover.Presentation/Components`) is the one way to keep that number small. It
+holds no elements and cuts nothing from the list: it says which run of neighbouring items is on the page, by the
+keys of its two ends, and the view model hands that run to the control (`MessageListViewModel.Shown`, beside
+`Messages`, which stays whole). It is unit tested without a screen (`ListWindowTests`).
+
+| What happens | What the window does |
+| --- | --- |
+| The list is opened | The newest `Page` items (30) are on the page |
+| Items arrive at the end | They are shown while the page ends with the newest; a page that left the end stays where it is |
+| The reader comes within one view of an end | `Step` more items (10) are shown on that side, before the reader gets there |
+| A link lands on an item | Near the page, the page grows to it. Far from it, the page moves to stand around it, so a landing costs the same anywhere in the list |
+| The page passes `Most` items (200) | The end furthest from the reader lets go. Those items are still in the list and come back as the reader does |
+| The person sends | The page ends with the newest again |
+| A group shown as one (a turn) | Is never cut at either end of the page |
+
+The rules for a control that draws such a page, all of them in `MessageList`:
+
+- Draw the page, never the list (test: `The_message_list_draws_its_page_and_never_the_whole_conversation`).
+- When items come or go above the reader, hold the item they are reading where it is on the screen, in the same
+  turn of the interface, so no frame shows it moved.
+- Put an action at each end that has more: "Show earlier messages" above, "Go to newest messages" below. Scrolling
+  does the same without them; they are how a keyboard and a screen reader get there, and while the keyboard is on
+  one the page does not grow by itself there, so the action stays under it.
+- What follows the newest item (the bot thinking, how the run ended) is shown only while the page ends with it.
+- Do not recycle elements. A child is kept by its key for as long as it is on the page (`Keyed.Sync`), so an open
+  card, the focus and a selection outlive every change around them. A child that left the page is made again when
+  the reader comes back, closed.
+
+Every other list kept by `Keyed.Sync` is named in `NativeInterfaceRuleTests.keyedLists` with what keeps it short: a
+message's cards, a turn's steps, a run's moments. A new keyed list fails that test until it is listed with its
+bound or shown through a `ListWindow`. A list of things a person made by hand (bots, projects, connections) is short
+by what it holds; a list a conversation, a run or a log adds to is not.
+
+Measured with `LongConversationCheck` on the Linux desktop build, drawn in software on a virtual display, four
+cores, with sample replies (bold, inline code, a list). "Every message" is the same build with a page large enough
+to hold the whole conversation, which is what the list did before:
+
+| Messages | First show, every message | First show, a page | A scrolling frame, every message | A scrolling frame, a page |
+| --- | --- | --- | --- | --- |
+| 100 | 1.7 s | 0.9 s | 16.5 ms | 16.3 ms |
+| 600 | 5.5 s | 1.1 s | 17.2 ms | 16.3 ms |
+| 2,000 | 16.2 s | 1.1 s | 28.7 ms | 16.5 ms |
+
+First show is the time from starting the app to the newest message laid out at the foot. It rose by about 8 ms
+for each message, and is now the same at any length. A scrolling frame is the median time between two frames
+while the reader moves back a tenth of a view on each; 16.6 ms is the display's own pace. One update of a streaming
+reply was never the cost: 4 to 6 ms (median of 40) at every length, before and now, because a message that did not
+change is not looked at again.
+
+The browser is where the same cost was felt most. The published WebAssembly build in headless Chromium, drawn in
+software, took 25.1 s to first show 600 messages with every message made; with a page it shows 2,000 in 2.8 s. An
+update of a streaming reply took 27 ms then and 24 ms now, and a scrolling frame 71 ms then and 59 ms now: there
+the software drawing of one view sets the frame, not the length of the conversation. Not measured: a browser with
+a graphics card, a phone, and a conversation with pictures or long tool output.
+
+The check runs in CI on the Linux desktop (`native.yml`) with 2,000 messages. It fails when more than a page is
+made to open the conversation, to land on a message in its middle, or to come back to the newest; when a streaming
+reply moves the reader off the foot; when going back hundreds of messages keeps more than the page may; when the
+message being read moves as earlier ones arrive above it; or when the action above the page cannot be pressed
+without a pointer. Its last lines say the three times, so a change that makes the list slower shows in the log.
+
+Known limits. The whole conversation is still read from the server and worked out for each change
+(`ConversationViewModel.Build`); at 2,000 messages that is inside the update time above. Assistive technology
+has the page and the two actions, not every message at once. Search runs on the server, and a link to a moment reaches every
+message, because it is looked up in `Messages`.
+
 #### Needs a manual check: pasting and dropping files
 
 None of these was run where the native client was verified; each needs a person at the device.
@@ -672,6 +739,109 @@ None of these was run where the native client was verified; each needs a person 
 - Screenshots of the pasted picture's chip and the drop line on a desktop, dark, light and 360 px wide. The browser
   check saves the same two states of the browser build as `pasted-picture-<width>-<theme>.png` and
   `drop-cue-<width>-<theme>.png`.
+
+### Voice
+
+A person says a message instead of typing it, has a reply read aloud, and holds a live call with a bot. The design
+is [docs/ux/voice.md](../ux/voice.md); the server's side is in [15-model-providers.md](15-model-providers.md#voice)
+and [03-run-lifecycle.md](03-run-lifecycle.md#live-calls). The server does the work: it writes down a recording,
+makes the speech, and holds the call with the speech model. The client carries sound between the device and the
+server and shows where things stand.
+
+**Two platform services**, in `src/Drover.Presentation/Platform`, one implementation per head:
+
+- `IAudioCapture` is the microphone. `Record` starts a message and hands back an `IAudioRecording`, whose `Finish`
+  gives the clip (bytes in memory and their media type) and whose disposal throws it away. `Listen` hands over what
+  is heard as it is heard, for a call: 16-bit little-endian samples, one channel, 24,000 a second, on the device's
+  own thread. Both throw `AudioCaptureException` with one of three reasons the interface says in three different
+  sentences: the permission was refused, there is no microphone, or it failed. `CancelsEcho` says whether the
+  device takes its own loudspeaker out of what the microphone hears; `Head` chooses the words that say where the
+  permission is allowed.
+- `IAudioPlayback` is the loudspeaker. `Open(sampleRate)` gives an `IAudioOutput`: pieces of 16-bit samples of one
+  channel are queued and played with no gap, `Flush` stops at once and drops what waits, `PlayedMilliseconds` counts
+  what was actually played, and `Drained` says everything queued has been played. `OpenCall(sampleRate)` opens the
+  output of a live call, and is `Open` on every head but Android. Android takes its loudspeaker out of the
+  microphone only for sound played as a conversation, so there a call's output puts the system in its communication
+  mode for as long as it is open, plays with the voice-communication usage, and sends the voice to a connected
+  headset or else the loudspeaker, never the earpiece (`AndroidAudio.CallRoute`, which needs
+  `MODIFY_AUDIO_SETTINGS`). Closing the output gives the system back as it was. Played as media the voice returns
+  through the microphone, the provider hears it as the person, and the bot interrupts and answers itself.
+
+Everything else is written once, on top of those two, and tested without a device:
+
+- **A clip is played by `ClipPlayback.PlayClip`**, the same way on every head. The client asks the speech route for
+  `wav`: the file's header says how fast to play it, and what follows is plain samples, so no head needs a decoder.
+  The header is read, an output is opened at the file's rate, and the samples are queued as they arrive, so a long
+  reply starts when its first sound does. Two channels are averaged into one. The sizes a streamed file states for
+  itself are not trusted; the sound runs to the end of the stream. A clip that is not 16-bit samples is refused in a
+  sentence.
+- **A message is recorded by `PcmRecording`** on a head with no encoder of its own (desktop, Android): it listens as
+  a call does, keeps the samples in memory (at most 64 MiB), and hands them back as a WAV file, which the
+  transcription route takes. The browser uses its own recorder and sends `audio/webm` (or `audio/mp4`, `audio/ogg`).
+- **The socket of a call** is opened through `CallConnection`. A browser passes none: the page's own socket carries
+  its session cookie. A device passes `AppRequests.OpenSocket`, which opens the socket to the HTTPS origin the
+  person chose and nowhere else, with the native session's access token as every request has it.
+
+| Head | Microphone | Loudspeaker | Echo |
+| --- | --- | --- | --- |
+| Browser | `BrowserAudio` over the shared `voice.js`: `getUserMedia` with echo cancellation, noise suppression and gain control on; `MediaRecorder` for a message; for a call an `AudioWorklet` (`voice-worklet.js`, loaded from the app's own origin; a `ScriptProcessorNode` where a browser has no worklet) hands the page the microphone's samples, which the page averages down to 24,000 a second | An `AudioContext` at the rate asked for, with one scheduled buffer for each piece | The browser's own. `CancelsEcho` is true |
+| Android | `AndroidAudio`: `AudioRecord` on the `VOICE_COMMUNICATION` source at 24,000 a second (at 48,000 and halved where a device does not record at that rate), read on a thread of its own; the system's `AcousticEchoCanceler` is switched on where the device has one. `RECORD_AUDIO` is in the manifest and asked the first time something records (`Permissions.RequestMicrophone`) | `AudioTrack` in stream mode, as speech on the media stream, written on a thread of its own; what was played is the track's own head position | The system's, where the device has one (`AcousticEchoCanceler.IsAvailable`) |
+| Desktop: Windows, macOS, Linux | `DesktopAudio` over SoundFlow (miniaudio): the system's default capture device, opened at 24,000 a second in one channel, the system converting from its own format | The system's default playback device at the rate asked for, fed by a component of the sound graph that hands over what is queued and counts the frames it gave | None. `CancelsEcho` is false, so a call ignores the microphone for 600 ms after the bot's voice starts (`CallViewModel.EchoGuard`). With loudspeakers the bot can still hear itself after that and take it for the person talking over it; headphones avoid it |
+| iOS | None yet | None yet | |
+
+iOS registers `NoAudio`, which says neither service is available: no control of voice is shown there, and the Voice
+page says so in one sentence above the space's settings. It was left out because the iOS head cannot be built or
+run where this was written, and sound written blind against `AVAudioSession` is the kind of code that fails only on
+a device. The two services are all it needs.
+
+Sound is never written to storage or to a log on any head. A recording is dropped when its words have arrived or
+it was discarded; what the microphone hears on a call is copied once, into a bounded queue of about four seconds
+that drops its oldest when the socket falls behind, and sent.
+
+**Under the content security policy.** The browser head needed no change to the policy `SecurityHeaders` sends.
+`voice.js` is an ordinary module beside the page (imported as `cookies.js` and `push.js` are), the worklet is
+loaded with `audioWorklet.addModule` from the same origin, which `script-src 'self'` allows, nothing is evaluated
+and no `blob:` or `data:` address is used: a clip is plain samples in scheduled buffers, never a media element. The
+call's socket goes to the page's own origin, which `connect-src 'self'` allows. A context for sound starts
+suspended until the person has pressed something on the page; they have, to get to any of this, and the script
+does not wait for the browser's answer, so a browser that still says no leaves silence and never a control that
+hangs.
+
+**The view models** (`Drover.Presentation/ViewModels`, tests beside them with a stand-in microphone and
+loudspeaker, a clock the test moves, and for the call a scripted socket through the real `VoiceCall`):
+
+- `SpaceVoice` (one for the app) reads `GET /voice/options` once for the space and is told to forget it when the
+  Models screen changes a connection. Every control of voice asks it whether it has anything to offer.
+- `VoiceComposerViewModel` is made by `Composer`: idle, recording with the time, writing it down. The words are
+  handed to `ComposerViewModel.Dictate`, which puts them after what is written and sends nothing. A failure is
+  handed to the composer's own toast.
+- `ReadAloudViewModel` (one for the app, so one thing plays at a time) is asked by every `ReplyFooter` and by the
+  Voice page's sample.
+- `CallViewModel` is made by `TalkWorkspace` and lasts as long as the workspace: leaving the conversations for
+  another screen hangs up. It asks the server first (`DroverApi.OpenCall` asks plainly before it opens a socket, so
+  a refusal arrives as a sentence), then opens the loudspeaker, then asks for the microphone. On `person_started`
+  it flushes the loudspeaker and sends `interrupt` with the milliseconds played since that answer began, and plays
+  nothing more of that answer.
+- `VoiceSettingsViewModel` is the Voice page (`Pages/Voice`).
+
+**Checks.** `scripts/check-native-voice.mjs` runs the published browser build under the server's policy in
+Chromium with its fake microphone (`--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`): it records
+a message and requires the words in the field and nothing sent, discards one, shows a provider's failure and a
+refused microphone, reads a reply aloud to its end and stops one, holds a scripted call (the microphone's samples
+must reach the socket as whole 16-bit samples with the fake device's beep in them, an interruption must say how
+much was heard, a muted microphone must send nothing), and visits the Voice page in each state. It saves a picture
+of every state; the ones in `docs/images/voice/` were taken by it. A press there is a real pointer press where the
+button's accessible box stands, because sound needs the browser to count the press as the person's own. The
+main browser check (`check-native-browser.mjs`) shows the Voice page with nothing connected and with its three
+rows, and the shared screen checks (`ScreenChecks.VoicePage`) open it on every target against the check server,
+which has no speech model: the page must say what voice needs, its link must go to Models, and the conversation
+must show no microphone and no Call. The desktop's sound is run against a real sound service by `DesktopAudioTests` in `tests/Drover.Native.Desktop.Tests`,
+explicit and marked Live because a build machine has no sound device; on Linux a sound server with a null output
+stands in for one.
+
+Not verified here: the Android head on a device or an emulator; a call against a real speech model on any head; a
+real microphone and loudspeakers on Windows and macOS; browsers other than Chromium; a screen reader on the call
+surface.
 
 ### The sandbox screen
 
@@ -773,7 +943,7 @@ Complete state coverage, 200 percent zoom, keyboard navigation, and screen-reade
   This is recorded as an intermittent full-run failure, not a clean full-run sign-off. A preceding full run before
   the final tool-screen additions passed 3,929 tests with 25 live-provider cases excluded.
 - The browser smoke check exercises the trimmed publish under the exact server CSP, actual accessible headings,
-  tool add/review states, extension loading/failure, both themes and widths, and downloaded JSON bytes. Reference
+  tool add/review states, the extensions list with a sample extension, both themes and widths. Reference
   captures use the same fixtures in the existing client. Screenshots are regression evidence, not parity approval.
 - Native package metadata and exact-version license corrections pass the license checker, and NuGet's current
   advisory feed reports no vulnerable packages in the resolved native graph. Actionlint, Zizmor and the staged
@@ -792,7 +962,7 @@ Tool and delegation cards appeared as empty frames for seconds before they were 
 Approve and Deny: each card queued its first draw behind the conversation's other work. They are now drawn before
 they are first measured (see "The conversation's pieces").
 
-Opening a conversation took about 10 s in the browser build and showed "Nothing said yet" on the way. The
+Opening a conversation took about 10 s in the browser build and showed "No messages yet" on the way. The
 conversation was made once, as `TalkViewModelTests` now holds; the empty words came from the message list, which
 was shown before it had drawn the loaded messages, and which said a conversation still being read had nothing in it.
 The list now says nothing about an empty conversation until it has been read, and is drawn before it is shown. The

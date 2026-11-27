@@ -36,3 +36,5 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0020](0020-a-family-of-themes.md) | The look is a family of themes, with Night Yard as the default | Proposed in its pull request; superseded in part by 0021 |
 | [0021](0021-front-office-black-and-accents.md) | Front Office is the default, every theme has a black mode, and a person chooses their accent | Proposed in its pull request; superseded in part by 0022 |
 | [0022](0022-live-line-goes-around-the-frame-in-the-accent.md) | The line of live work goes around its frame, in the person's accent | Proposed in its pull request |
+| [0023](0023-extensions-add-what-a-space-can-pick-up.md) | An extension adds what a space can pick up; a bot is shared as its own file | Proposed in its pull request |
+| [0024](0024-providers-are-compiled-in-adapters.md) | Providers are compiled-in adapters, never loaded at run time | Proposed in its pull request |

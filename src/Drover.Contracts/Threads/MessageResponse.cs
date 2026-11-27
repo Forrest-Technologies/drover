@@ -29,10 +29,11 @@ public sealed record MessageResponse(
     IReadOnlyList<Guid>? Versions = null);
 
 /// <summary>
-/// One part of a message. <see cref="Kind"/> names it (text, reasoning, source, tool_call, tool_result, image, file)
-/// and says which of the other members are set. A source part is a source the reply cites: <see cref="Url"/> is its web
-/// address and <see cref="Text"/> its title, when it has one. Both came from outside Drover and are untrusted text. <see cref="Arguments"/> and <see cref="Result"/> are JSON text, already
-/// redacted: a tool defines their shape, so the contract carries them as written.
+/// One part of a message. <see cref="Kind"/> names it (text, reasoning, source, tool_call, tool_result, image, file,
+/// answer) and says which of the other members are set. A source part is a source the reply cites:
+/// <see cref="Url"/> is its web address and <see cref="Text"/> its title, when it has one. Both came from outside
+/// Drover and are untrusted text. <see cref="Arguments"/> and <see cref="Result"/> are JSON text, already redacted:
+/// a tool defines their shape, so the contract carries them as written.
 /// </summary>
 public sealed record MessagePartResponse(string Kind)
 {
@@ -59,6 +60,11 @@ public sealed record MessagePartResponse(string Kind)
 
     /// <summary>A source part's address: always http or https.</summary>
     public string? Url { get; init; }
+
+    /// <summary>
+    /// An answer part's answer: indexes and typed words, whose words the server writes from the stored card.
+    /// </summary>
+    public CardAnswer? Answer { get; init; }
 
     #endregion
 }

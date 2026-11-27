@@ -59,7 +59,7 @@ jobs:
           dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
           dll=src/Drover.Native/bin/Release/net11.0-android/Drover.Native.dll
           test -f "$dll"
-          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|TimelineFocusCheck|MultilineInputFocusCheck|DROVER_MULTILINE_FOCUS_CHECK|UnreachableOpenCheck|drover\.field_input|DROVER_FIELD_INPUT_CHECK|FieldInputCheck|NativeStop' "$dll"; then
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|TimelineFocusCheck|MultilineInputFocusCheck|LongConversationCheck|DROVER_MULTILINE_FOCUS_CHECK|UnreachableOpenCheck|drover\.field_input|DROVER_FIELD_INPUT_CHECK|FieldInputCheck|NativeStop' "$dll"; then
             echo "Screen-check, focus check, unreachable-open check and field check hooks must not be compiled into the shipping Android binary"
             exit 1
           fi
@@ -166,7 +166,7 @@ jobs:
             -warnaserror
           dll="$(find src/Drover.Native/bin/Release/net11.0-ios -type f -name 'Drover.Native.dll' -print -quit)"
           test -n "$dll"
-          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|MultilineInputFocusCheck|DROVER_MULTILINE_FOCUS_CHECK' "$dll"; then
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|MultilineInputFocusCheck|LongConversationCheck|DROVER_MULTILINE_FOCUS_CHECK' "$dll"; then
             echo "Screen-check hooks must not be compiled into the shipping iOS binary"
             exit 1
           fi
@@ -253,7 +253,7 @@ jobs:
           dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release -warnaserror
           dll=src/Drover.Native/bin/Release/net11.0-desktop/Drover.Native.dll
           test -f "$dll"
-          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|TimelineFocusCheck|MultilineInputFocusCheck|DROVER_MULTILINE_FOCUS_CHECK|UnreachableOpenCheck|drover\.field_input|DROVER_FIELD_INPUT_CHECK|FieldInputCheck|NativeStop' "$dll"; then
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|TimelineFocusCheck|MultilineInputFocusCheck|LongConversationCheck|DROVER_MULTILINE_FOCUS_CHECK|UnreachableOpenCheck|drover\.field_input|DROVER_FIELD_INPUT_CHECK|FieldInputCheck|NativeStop' "$dll"; then
             echo "Screen-check, focus check, unreachable-open check and field check hooks must not be compiled into the shipping desktop binary"
             exit 1
           fi
@@ -315,6 +315,27 @@ jobs:
           else
             dotnet "$app"
           fi
+      - name: A long conversation costs what its page holds and stays in reach
+        # The list is the same code on every desktop, so one of them runs it.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -p:DroverLongConversationCheck=true -c Release -warnaserror -o "$RUNNER_TEMP/long-conversation-desktop"
+          export DROVER_LONG_CONVERSATION_CHECK=1
+          set +e
+          xvfb-run -a dotnet "$RUNNER_TEMP/long-conversation-desktop/Drover.Native.dll" >"$RUNNER_TEMP/long-conversation.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/long-conversation.log"
+          # The check can pass and the process can still die while the virtual display tears the window down.
+          if grep -F 'Long conversation check passed.' "$RUNNER_TEMP/long-conversation.log"; then
+            exit 0
+          fi
+          if [[ "$code" == 0 ]]; then
+            echo "The long conversation check ended without saying it passed."
+            exit 1
+          fi
+          exit "$code"
       - name: Check desktop dependency licenses
         env:
           DroverNativeTargetFrameworks: net11.0-desktop
@@ -392,11 +413,19 @@ jobs:
           pwsh tests/Drover.Presentation.Tests/bin/Release/net11.0/playwright.ps1 install --with-deps chromium
       - name: Exercise the trimmed publish under the server CSP
         run: node scripts/check-native-browser.mjs artifacts/native/wwwroot
+      - name: Record a message, read a reply aloud and hold a scripted call with Chromium's fake microphone
+        run: node scripts/check-native-voice.mjs artifacts/native/wwwroot artifacts/native-voice
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-screens
           path: artifacts/native-smoke
           if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: browser-voice-screens
+          path: artifacts/native-voice
+          if-no-files-found: warn
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-browser

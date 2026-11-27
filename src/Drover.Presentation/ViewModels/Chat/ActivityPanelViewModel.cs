@@ -112,7 +112,7 @@ public sealed class ActivityPanelViewModel(
 
     public string? LostNote => Tree is { LostEarlierEvents: true } ? LostWords : null;
 
-    public string TimelineLabel => $"What happened in this run of {Bot.Name}";
+    public string TimelineLabel => $"Activity in this run of {Bot.Name}";
 
     // Laid out once for each new tree, not on every read: a live run redraws often and a long one has many nodes.
     public TimelineModel Model
@@ -360,7 +360,7 @@ public sealed class ActivityPanelViewModel(
 
     public const string LostWords = "The start of this run is no longer kept, so its earliest events are not shown.";
 
-    public const string EmptyTimeline = "This run's events are no longer kept. The conversation still has what was said.";
+    public const string EmptyTimeline = "This run's events are no longer kept. The messages are still in the conversation.";
 
     #endregion
 

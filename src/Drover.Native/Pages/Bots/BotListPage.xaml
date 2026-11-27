@@ -7,13 +7,18 @@
               xmlns:shell="using:Drover.Native.Shell"
               xmlns:vm="using:Drover.Presentation.ViewModels">
 
-  <layouts:WorkLayout>
+  <layouts:WorkLayout x:Name="Layout">
     <dv:ScreenHeader Title="{x:Bind vm:BotListViewModel.Heading}">
       <dv:IconButton x:Name="NewBot"
                      Icon="Plus"
                      Label="{x:Bind vm:BotListViewModel.NewBotLabel}"
                      AutomationProperties.AutomationId="NewBot"
                      Click="MakeBot" />
+      <dv:IconButton x:Name="ImportBot"
+                     Icon="Download"
+                     Label="{x:Bind vm:BotListViewModel.ImportBotLabel}"
+                     AutomationProperties.AutomationId="ImportBot"
+                     Click="StartImport" />
     </dv:ScreenHeader>
 
     <!-- The empty, failed, and missing-model states are made when the list is in them: each needs its words to exist. -->

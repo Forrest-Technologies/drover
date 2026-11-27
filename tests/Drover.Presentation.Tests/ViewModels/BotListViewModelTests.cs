@@ -111,6 +111,7 @@ public sealed class BotListViewModelTests : ViewModelTest
 
         list.State.Should().Be(BotListState.NoModel);
         BotListViewModel.NoModelTitle.Should().Be("No model is connected");
+        BotListViewModel.NoModelCause.Should().Be("A bot needs a model, and this space has none yet.");
         BotListViewModel.NoModelAddress.Should().Be(Addresses.SetupModel);
     }
 

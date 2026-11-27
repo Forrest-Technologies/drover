@@ -8,9 +8,10 @@ namespace Drover.Engine.Sandboxes;
 /// instruction. The call counts against the run's model calls and its usage is recorded against the run.
 /// </summary>
 public sealed class ScreenDescriber(
-    IEnumerable<IModelClientProvider> providers,
+    ModelProviderCatalog catalog,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
+    ModelCredentials credentials,
     ILogger<ScreenDescriber> logger)
 {
     #region Private Fields
@@ -54,7 +55,22 @@ public sealed class ScreenDescriber(
     public async Task<Reader?> FindReader(BuiltinToolCall call, CancellationToken cancellationToken)
     {
         var found = await call.Tenant.Transact(services => Load(services, call, cancellationToken), cancellationToken);
-        return found.Problem is { } problem ? throw new BuiltinToolException($"{problem} {ElsewhereNote}") : found.Reader;
+
+        if (found.Problem is { } problem)
+        {
+            throw new BuiltinToolException($"{problem} {ElsewhereNote}");
+        }
+
+        if (found.Reader is not { } reader)
+        {
+            return null;
+        }
+
+        // The transaction is closed: a sign-in that runs out soon is renewed here, before the call.
+        reader.Credential = await credentials.Ready(reader.Credential, cancellationToken);
+        return reader.Credential.Problem is null
+            ? reader
+            : throw new BuiltinToolException($"The model that reads this bot's screen cannot be used. {reader.Credential.Message} {ElsewhereNote}");
     }
 
     /// <summary>
@@ -142,39 +158,24 @@ public sealed class ScreenDescriber(
             return new Found(null, $"{chosen.Model}, the model set to read this bot's screen, is no longer listed as reading images.");
         }
 
-        if (providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind) is not { } provider
+        var resolution = catalog.Resolve(connection.Kind);
+
+        if (resolution.Provider is not { } provider
             || (provider.FixedAddress is null && !Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out _)))
         {
-            return new Found(null, "This server has no adapter for the connection of the model that reads this bot's screen.");
+            return new Found(null, resolution.Refusal ?? "This server has no adapter for the connection of the model that reads this bot's screen.");
         }
 
-        if (await RevealKey(services, connection, cancellationToken) is not { Readable: true } key)
+        var credential = await credentials.Read(services, connection, cancellationToken);
+
+        if (credential.Problem is ModelCredentialProblem.Unreadable && connection.SecretId is not null)
         {
             return new Found(null, "The key of the connection of the model that reads this bot's screen could not be read. Save the key on the connection again.");
         }
 
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(call.Tenant.SpaceId, cancellationToken);
         var address = provider.FixedAddress ?? new Uri(connection.BaseUrl!);
-        return new Found(new Reader(provider, address, connection.Id, entry.Model, entry.DisplayName, key.Value, entry.Pricing, policy), null);
-    }
-
-    /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring is a refusal, not a crash.</summary>
-    private async Task<(string? Value, bool Readable)> RevealKey(IServiceProvider services, ModelConnection connection, CancellationToken cancellationToken)
-    {
-        if (connection.SecretId is not { } secretId)
-        {
-            return (null, true);
-        }
-
-        try
-        {
-            return (await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken), true);
-        }
-        catch (Exception unreadable) when (unreadable is CryptographicException or KeyNotFoundException)
-        {
-            logger.LogError(unreadable, "The key of model connection {ConnectionId} could not be read", connection.Id);
-            return (null, false);
-        }
+        return new Found(new Reader(provider, address, connection.Id, entry.Model, entry.DisplayName, credential, entry.Pricing, policy), null);
     }
 
     /// <summary>One request, bounded in time, under the space's rule on private addresses. Cancelling the run cancels it.</summary>
@@ -245,7 +246,7 @@ public sealed class ScreenDescriber(
         Guid connectionId,
         string model,
         string displayName,
-        string? key,
+        ModelCredential credential,
         ModelPricing pricing,
         EffectivePolicy policy)
     {
@@ -261,7 +262,10 @@ public sealed class ScreenDescriber(
 
         public string DisplayName => displayName;
 
-        public string? Key => key;
+        /// <summary>What the call sends: the connection's key, or the run's person's own sign-in, renewed before the call.</summary>
+        public ModelCredential Credential { get; set; } = credential;
+
+        public string? Key => Credential.Value;
 
         public ModelPricing Pricing => pricing;
 

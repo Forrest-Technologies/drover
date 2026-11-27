@@ -15,17 +15,43 @@ public sealed class MessageListViewModel : ObservableObject
 
     private Guid? announcedFailure;
 
+    private string? announcedUnusable;
+
     private Guid? shownMoment;
 
     private IReadOnlyList<ChatMessage>? newestOf;
 
     private IReadOnlySet<string>? newest;
 
+    // A turn is shown as one, so the page never starts or ends inside one.
+    private readonly ListWindow<ChatMessage> window = new(message => message.Key, message => !message.ContinuesTurn);
+
+    private IReadOnlyList<ChatMessage>? windowOf;
+
     #endregion
 
     #region Properties
 
+    /// <summary>Everything said in the conversation. What is read out, searched, and linked to is all of it.</summary>
     public IReadOnlyList<ChatMessage> Messages { get; set; } = [];
+
+    /// <summary>
+    /// The messages on the page: the newest ones, and from there wherever the reader went. A long conversation costs
+    /// what its page holds; the rest of <see cref="Messages"/> is shown as the reader comes to it.
+    /// </summary>
+    public IReadOnlyList<ChatMessage> Shown => Window().Shown;
+
+    /// <summary>How many messages come before the ones on the page.</summary>
+    public int Earlier => Window().Earlier;
+
+    /// <summary>How many messages come after the ones on the page. None while the page ends with the newest.</summary>
+    public int Later => Window().Later;
+
+    /// <summary>The action that stands above the page while messages come before it.</summary>
+    public static string EarlierLabel => "Show earlier messages";
+
+    /// <summary>The action that stands below the page while it does not end with the newest message.</summary>
+    public static string NewestLabel => "Go to newest messages";
 
     public string BotName { get; set; } = string.Empty;
 
@@ -41,7 +67,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// The bot is thinking and no reply of its says so: a reply whose reasoning is arriving shows the bot thinking
     /// itself, so the list does not show it twice.
     /// </summary>
-    public bool ShowsThinking => Thinking && !Messages.Any(message => message.Thinking);
+    public bool ShowsThinking => Thinking && Later == 0 && !Messages.Any(message => message.Thinking);
 
     /// <summary>Why the last reply failed and what to do, when it did.</summary>
     public string? Problem { get; set; }
@@ -130,7 +156,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// </summary>
     public bool IsEmpty => !Loading && Messages.Count == 0 && !Thinking;
 
-    public string StartHint => $"Nothing said yet. Write to {BotName} below.";
+    public string StartHint => $"No messages yet. Write to {BotName} below.";
 
     /// <summary>What is read out, politely: the newest reply sentence by sentence, each tool call's change, a failure.</summary>
     public string? Spoken { get; private set; }
@@ -157,7 +183,33 @@ public sealed class MessageListViewModel : ObservableObject
 
     #region Public Methods
 
-    public void ShowNewest() => NewestRequested?.Invoke();
+    public void ShowNewest()
+    {
+        if (Window().ShowNewest())
+        {
+            OnPropertyChanged(string.Empty);
+        }
+
+        NewestRequested?.Invoke();
+    }
+
+    /// <summary>Puts a step more of what was said before on the page, for a reader going back.</summary>
+    public void ShowEarlier()
+    {
+        if (Window().ShowEarlier())
+        {
+            OnPropertyChanged(string.Empty);
+        }
+    }
+
+    /// <summary>Puts a step more of what was said after on the page, for a reader coming forward.</summary>
+    public void ShowLater()
+    {
+        if (Window().ShowLater())
+        {
+            OnPropertyChanged(string.Empty);
+        }
+    }
 
     /// <summary>Tries the failed run again. While that is being asked for, a second press does nothing.</summary>
     public Task Retry() => Retrying ? Task.CompletedTask : OnRetry?.Invoke() ?? Task.CompletedTask;
@@ -201,7 +253,9 @@ public sealed class MessageListViewModel : ObservableObject
     /// </summary>
     public void Update()
     {
-        var sentences = Messages is [.., { FromPerson: false } newest] ? announcer.Next(newest.Key, newest.Text, newest.Streaming) : null;
+        var sentences = Messages is [.., { FromPerson: false, UnusableToolRequest: false } newest]
+            ? announcer.Next(newest.Key, newest.Text, newest.Streaming)
+            : null;
         var changes = tools.Next(Messages.AllTools(BotName));
         Spoken = (sentences, changes) switch
         {
@@ -209,6 +263,12 @@ public sealed class MessageListViewModel : ObservableObject
             ({ } said, { } done) => $"{said} {done}",
             _ => sentences ?? changes,
         };
+
+        if (Messages is [.., { FromPerson: false, UnusableToolRequest: true } unusable] && unusable.Key != announcedUnusable)
+        {
+            announcedUnusable = unusable.Key;
+            Spoken = UnusableToolRequests.Announcement(BotName, ChatRows.OffersUnusableRetry(unusable, OnRegenerate is not null));
+        }
 
         if (Failure is { } failure && failure.RunId != announcedFailure)
         {
@@ -237,7 +297,25 @@ public sealed class MessageListViewModel : ObservableObject
         }
 
         shownMoment = moment;
+        Window().Reach(moment.ToString());
         return moment;
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // The page over the messages as they are now. A conversation is worked out anew each time it changes, so the
+    // page is taken again whenever the list is another one.
+    private ListWindow<ChatMessage> Window()
+    {
+        if (!ReferenceEquals(windowOf, Messages))
+        {
+            windowOf = Messages;
+            window.Show(Messages);
+        }
+
+        return window;
     }
 
     #endregion

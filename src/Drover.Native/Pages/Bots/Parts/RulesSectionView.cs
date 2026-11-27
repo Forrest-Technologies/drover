@@ -21,6 +21,8 @@ public sealed class RulesSectionView : EditorPart
 
     private readonly FlowPanel starters = new() { Gap = Tokens.Number("DvSpace2") };
 
+    private IReadOnlyList<RuleStarter>? shownStarters;
+
     private readonly Button add;
 
     private readonly StatusNote startProblem = new() { Kind = NoteKind.Danger };
@@ -161,8 +163,10 @@ public sealed class RulesSectionView : EditorPart
 
     private void ShowStarters(RulesSectionViewModel part)
     {
-        if (starters.Children.Count == 0)
+        if (!ReferenceEquals(shownStarters, part.Starters))
         {
+            shownStarters = part.Starters;
+            starters.Children.Clear();
             foreach (var starter in part.Starters)
             {
                 starters.Children.Add(BotParts.Action(starter.Label, () => _ = part.AddStarter(starter)));

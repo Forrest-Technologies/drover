@@ -78,6 +78,14 @@
     <Compile Remove="Controls/MultilineInputFocusCheck.cs" />
   </ItemGroup>
 
+  <PropertyGroup Condition="'$(DroverLongConversationCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_LONG_CONVERSATION_CHECK</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DroverLongConversationCheck)' != 'true'">
+    <Compile Remove="Chat/LongConversationCheck.cs" />
+  </ItemGroup>
+
   <!-- The field input check runs only in a build made for CI, never in a shipping app. -->
   <PropertyGroup Condition="'$(DroverFieldCheck)' == 'true'">
     <DefineConstants>$(DefineConstants);DROVER_FIELD_CHECK</DefineConstants>
@@ -253,6 +261,7 @@
     <Using Include="Android.Content" />
     <Using Include="Android.Content.PM" />
     <Using Include="Android.Runtime" />
+    <Using Include="System.Buffers.Binary" />
     <Using Include="System.Buffers.Text" />
     <Using Include="System.Runtime.Versioning" />
     <Using Include="System.Security.Cryptography" />
@@ -301,6 +310,20 @@
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
+  </ItemGroup>
+
+  <!-- The microphone and the loudspeaker of a desktop, through the system's own sound service on Windows, macOS and
+       Linux. Used only by Platforms/Desktop/DesktopAudio.cs, behind the two audio interfaces of Drover.Presentation. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <PackageReference Include="SoundFlow" />
+    <Using Include="System.Buffers.Binary" />
+    <Using Include="SoundFlow.Abstracts" />
+    <Using Include="SoundFlow.Abstracts.Devices" />
+    <Using Include="SoundFlow.Backends.MiniAudio" />
+    <Using Include="SoundFlow.Backends.MiniAudio.Enums" />
+    <Using Include="SoundFlow.Enums" />
+    <Using Include="SoundFlow.Exceptions" />
+    <Using Include="SoundFlow.Structs" />
   </ItemGroup>
 
   <!-- The SDK adds two packages to every app that are not open source: its packaging helper, under an end-user

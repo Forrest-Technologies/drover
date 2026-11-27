@@ -40,3 +40,41 @@ public static class CompatibleRig
 
     #endregion
 }
+
+public static class OpenAIResponsesRig
+{
+    #region Public Methods
+
+    public const string ModelId = "gpt-test-reasoner";
+
+    public static Rig Start(string fixtureName)
+    {
+        var handler = new RecordedHandler(RecordedFixture.Load("openai-responses", fixtureName));
+        var provider = new OpenAIProvider(new FixtureHttpClientFactory(handler));
+        var connection = new ModelEndpoint(OpenAIProvider.ConnectionKind, OpenAIProvider.BaseAddress);
+        var subject = new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire) { Wire = ResponsesWire.Instance };
+
+        return new Rig(subject, handler);
+    }
+
+    #endregion
+}
+
+public static class AnthropicRig
+{
+    #region Public Methods
+
+    public const string ModelId = "claude-test-model";
+
+    public static Rig Start(string fixtureName)
+    {
+        var handler = new RecordedHandler(RecordedFixture.Load("anthropic", fixtureName));
+        var provider = new AnthropicProvider(new FixtureHttpClientFactory(handler));
+        var connection = new ModelEndpoint(AnthropicProvider.ConnectionKind, AnthropicProvider.BaseAddress);
+        var subject = new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire) { Wire = AnthropicWire.Instance };
+
+        return new Rig(subject, handler);
+    }
+
+    #endregion
+}

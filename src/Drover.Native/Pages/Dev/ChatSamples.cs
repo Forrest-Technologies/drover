@@ -68,6 +68,10 @@ internal static class ChatSamples
         [
             Tall(new MessageList { Model = Conversation(writing: true) }),
         ]),
+        new("A long conversation", "The newest messages are on the page, and the rest are shown as the reader scrolls back to them. With the keyboard, \"Show earlier messages\" above the page does the same.", () =>
+        [
+            Tall(new MessageList { Model = Conversation(writing: false, exchanges: 60) }),
+        ]),
         new("Older replies and the newest", "The newest reply keeps its actions in view. An older reply shows its own after a press on its words or its name, or while the keyboard's focus is in it.", () =>
         [
             Tall(new MessageList { Model = Finished() }),

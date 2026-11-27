@@ -1,23 +1,45 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The bots of the space. Its job: pick a bot to change, or make a new one.
+/// The bots of the space. Its job: pick a bot to change, make a new one, or bring one in from a file.
 /// </summary>
 public sealed partial class BotListViewModel(
     DroverApi api,
     SessionState session,
     Navigator navigator,
-    ILogger<BotListViewModel> logger) : ObservableObject
+    ToastService toasts,
+    ILogger<BotListViewModel> logger) : ObservableObject, IImportFlow
 {
     #region Private Fields
+
+    private static readonly ImportWords words = new("Import a bot", "Bot file", "This file is larger than a bot file can be (256 KB).");
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(State), nameof(Crew), nameof(ShowsNewBot), nameof(ShowsAddUnder))]
     private IReadOnlyList<BotSummary>? bots;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(State), nameof(ShowsNewBot), nameof(ShowsAddUnder))]
+    [NotifyPropertyChangedFor(nameof(State), nameof(ShowsNewBot), nameof(ShowsAddUnder), nameof(ShowsImport))]
     private IReadOnlyList<ModelConnectionSummary>? connections;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ImportTitle), nameof(CanImport), nameof(Reviewed))]
+    private BotImportPreview? preview;
+
+    [ObservableProperty]
+    private bool importing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ReadLabel), nameof(ImportLabel))]
+    private bool importBusy;
+
+    [ObservableProperty]
+    private string? importProblem;
+
+    [ObservableProperty]
+    private ImportFileViewModel form = new(logger, words);
+
+    private string? fileText;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(State))]
@@ -39,7 +61,7 @@ public sealed partial class BotListViewModel(
 
     public static string NoModelTitle => "No model is connected";
 
-    public static string NoModelCause => "A bot needs a model to think with, and this space has none yet.";
+    public static string NoModelCause => "A bot needs a model, and this space has none yet.";
 
     public static string NoModelAction => "Connect a model";
 
@@ -78,6 +100,22 @@ public sealed partial class BotListViewModel(
     public bool ShowsAddUnder => CanEdit && Connections is { Count: > 0 };
 
     public static string NewBotLabel => "New bot";
+
+    public static string ImportBotLabel => "Import a bot";
+
+    /// <summary>The header's import button: a bot from a file needs a model to think with, as any new bot does.</summary>
+    public bool ShowsImport => CanEdit && Connections is { Count: > 0 };
+
+    public object? Reviewed => Preview;
+
+    public string ImportTitle => Preview is null ? Form.Title : $"Review {Preview.Name}";
+
+    public string ReadLabel => ImportBusy ? "Reading the file" : "Read the file";
+
+    public string ImportLabel => ImportBusy ? "Importing" : "Import, paused";
+
+    /// <summary>A bot whose file was read, and which has a model to think with, can be imported.</summary>
+    public bool CanImport => Preview is { Model: not null };
 
     public static string MakeBotLabel => "Make a bot";
 
@@ -123,6 +161,38 @@ public sealed partial class BotListViewModel(
     [RelayCommand]
     public void Create(Guid? parentBotId) => navigator.NavigateTo(Addresses.NewBot(parentBotId));
 
+    [RelayCommand]
+    public void StartImporting()
+    {
+        Form = new(logger, words);
+        (Preview, fileText, ImportProblem) = (null, null, null);
+        Importing = true;
+    }
+
+    [RelayCommand]
+    public void StopImporting() => Importing = false;
+
+    /// <summary>Asks the server what bot the file holds. Nothing is added by reading it.</summary>
+    [RelayCommand]
+    public Task ReadForm() =>
+        WhileImporting(async () =>
+        {
+            Preview = null;
+            fileText = Form.Text;
+            Preview = await api.PreviewBotImport(SpaceId, fileText);
+        });
+
+    /// <summary>Adds the bot, paused, and opens its settings: that is where it is set up and turned on.</summary>
+    [RelayCommand]
+    public Task Import() =>
+        WhileImporting(async () =>
+        {
+            var added = await api.ImportBot(SpaceId, fileText!);
+            Importing = false;
+            toasts.Show(BotFileWords.Imported(added), ToastKind.Success);
+            navigator.NavigateTo(Addresses.Bot(added.Id));
+        });
+
     /// <summary>The line under a bot's name: its handle, its model, and the bot that made it, when that bot is still here.</summary>
     public string Facts(BotSummary bot) => $"@{bot.Handle} · {bot.Model}{MadeBy(bot)}";
 
@@ -135,6 +205,26 @@ public sealed partial class BotListViewModel(
     #endregion
 
     #region Private Methods
+
+    private async Task WhileImporting(Func<Task> work)
+    {
+        ImportBusy = true;
+        ImportProblem = null;
+
+        try
+        {
+            await work();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotListViewModel));
+            ImportProblem = Failures.Sentence(exception, "Check that the server is running.");
+        }
+        finally
+        {
+            ImportBusy = false;
+        }
+    }
 
     // A bot that another bot made says which one, when that bot is still here.
     private string MadeBy(BotSummary bot) =>

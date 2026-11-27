@@ -35,7 +35,7 @@ Loading                         Failed                              Loaded
 | Any work screen opened with the server unreachable | the screen's own loading line | `The server did not answer` with `Try again` (the session gate, unchanged) | #569 |
 | Sign in, Create account, opened with the server unreachable | | the screen's own `StatusNote` (`Danger`) with the failure sentence, and `Try again` beside it | #569 |
 
-A conversation that failed to load never shows the empty-conversation sentence (`Nothing said yet` on `main` today, `No messages yet` after #865). Its message field is visible and disabled, with the accessible description `Available when the conversation has loaded.`
+A conversation that failed to load never shows the empty-conversation sentence (`No messages yet`). Its message field is visible and disabled, with the accessible description `Available when the conversation has loaded.`
 
 ## 2. A reply that was lost mid-stream (#556)
 
@@ -77,7 +77,7 @@ What had arrived stays on screen, drawn at rest. Under it, in place of the old d
 | Case | What the person sees |
 | --- | --- |
 | The server stops accepting the session | Sign in opens, with a `StatusNote` (`Info`, not danger) above the form: `Your session ended. Sign in to carry on.` Shown once |
-| Unsaved work in the bot editor or the extension editor when it happens | The leave dialog from section 5 asks first, as for any navigation |
+| Unsaved work in the bot editor when it happens | The leave dialog from section 5 asks first, as for any navigation |
 | Sign out on a device, and the server could not be told | Sign in opens with a toast (`Warning`): `You are signed out on this device. The server could not be told, so that session stays valid until it expires.` |
 | Sign out in a browser, and the server could not be told | The person stays where they are, with a toast (`Error`): `You are still signed in. {failure sentence}` |
 
@@ -96,7 +96,7 @@ The draft badge is the only new visible element. It is not colored as a live sta
 
 ## 5. Leaving with unsaved work (#572)
 
-One dialog for the bot editor and the extension editor, for a navigation, a window close and a sign-out.
+One dialog for the bot editor, for a navigation, a window close and a sign-out. The extension editor it once also covered is gone ([ADR 0023](../adr/0023-extensions-add-what-a-space-can-pick-up.md)).
 
 ```text
 +------------------------------------------+
@@ -112,7 +112,6 @@ One dialog for the bot editor and the extension editor, for a navigation, a wind
 | Screen | Title | Body | Buttons |
 | --- | --- | --- | --- |
 | Bot editor | `Leave without saving` | `The changes to {bot} are not saved yet. Leaving drops them.` | `Stay here` (focused, `Quiet`), `Leave` (`Danger`) |
-| Extension editor | `Leave without saving` | `The extension you are writing is not saved yet. Leaving drops it.` | the same |
 
 Other words from #572, now final:
 

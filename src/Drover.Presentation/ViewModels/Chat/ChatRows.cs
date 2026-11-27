@@ -23,6 +23,7 @@ public enum ChatEntryShape
 public enum FooterPart
 {
     Copy,
+    ReadAloud,
     Usage,
     Regenerate,
     Versions,
@@ -93,12 +94,13 @@ public static class ChatRows
         _ => ChatEntryShape.Bot,
     };
 
-    /// <summary>What a message is, read out before its words: who said it, or that it is what a bot did.</summary>
+    /// <summary>What a message is, read out before its words: who said it, or a bot's activity or reasoning.</summary>
     public static string EntryName(ChatMessage message, string botName, string? asker) => message switch
     {
         { FromPerson: true } => asker is null ? message.SentBy ?? "You said" : $"{asker} asked",
-        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"What {botName} did",
-        { Text.Length: 0 } => $"What {botName} thought",
+        { UnusableToolRequest: true } => UnusableToolRequests.EntryName(botName),
+        { Text.Length: 0, Ledger: not null } or { Text.Length: 0, Reasoning: null } => $"{botName}'s activity",
+        { Text.Length: 0 } => $"{botName}'s reasoning",
         _ => $"{botName} said",
     };
 
@@ -114,8 +116,18 @@ public static class ChatRows
         && (message.FinishesReply || message.EndsReply || message.MayRegenerate || message.Versions is not null);
 
     /// <summary>
-    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, the usage of the reply
-    /// beside it, another reply, then the switch between versions.
+    /// A reply can be read aloud where it can be copied, once the server has stored it: the server reads a message by
+    /// its id. Whether anything can speak is the footer's to ask.
+    /// </summary>
+    public static bool OffersReadAloud(ChatMessage message) =>
+        OffersCopy(message) && !message.UnusableToolRequest && StoredId(message) is not null;
+
+    /// <summary>The id the server keeps a message under, or null for one it has not stored yet.</summary>
+    public static Guid? StoredId(ChatMessage message) => Guid.TryParse(message.Key, out var id) ? id : null;
+
+    /// <summary>
+    /// The parts of a reply's footer that it holds, in the order they stand on its line: copy, read aloud, the usage
+    /// of the reply, another reply, then the switch between versions.
     /// </summary>
     public static IReadOnlyList<FooterPart> FooterParts(ChatMessage message, bool canRegenerate, bool canSwitch, bool canReadUsage)
     {
@@ -126,12 +138,17 @@ public static class ChatRows
             parts.Add(FooterPart.Copy);
         }
 
+        if (OffersReadAloud(message))
+        {
+            parts.Add(FooterPart.ReadAloud);
+        }
+
         if (OffersUsage(message, canReadUsage))
         {
             parts.Add(FooterPart.Usage);
         }
 
-        if (OffersRegenerate(message, canRegenerate))
+        if (!message.UnusableToolRequest && OffersRegenerate(message, canRegenerate))
         {
             parts.Add(FooterPart.Regenerate);
         }
@@ -150,6 +167,12 @@ public static class ChatRows
     /// </summary>
     public static bool OffersRegenerate(ChatMessage message, bool canAsk) =>
         canAsk && message is { FromPerson: false, Streaming: false, MayRegenerate: true };
+
+    /// <summary>
+    /// True when an unusable tool-request reply may be tried again through the existing regenerate flow.
+    /// </summary>
+    public static bool OffersUnusableRetry(ChatMessage message, bool canAsk) =>
+        message.UnusableToolRequest && OffersRegenerate(message, canAsk);
 
     /// <summary>
     /// The messages of the newest reply, by their keys: the bot's last message and the bot's messages straight before

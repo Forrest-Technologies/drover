@@ -91,14 +91,21 @@ public enum PermissionStatus
     Granted,
 }
 
-/// <summary>Asks Android for the one permission the app asks for at run time: to show notifications.</summary>
+/// <summary>
+/// Asks Android for the permissions the app asks for at run time: to show notifications, and to use the microphone
+/// the first time something records.
+/// </summary>
 public static class Permissions
 {
     #region Private Fields
 
     private const int NotificationsRequest = 16902;
 
+    private const int MicrophoneRequest = 16903;
+
     private static TaskCompletionSource<PermissionStatus>? waiting;
+
+    private static TaskCompletionSource<PermissionStatus>? waitingForMicrophone;
 
     #endregion
 
@@ -125,9 +132,37 @@ public static class Permissions
         return waiting.Task;
     }
 
+    /// <summary>
+    /// Asks to use the microphone. Allowed already, it answers at once and shows nothing; Android itself stops asking
+    /// once the person has refused twice, and answers Denied from then on.
+    /// </summary>
+    public static Task<PermissionStatus> RequestMicrophone()
+    {
+        if (AndroidX.Core.Content.ContextCompat.CheckSelfPermission(AndroidApplication.Context, Android.Manifest.Permission.RecordAudio) == Permission.Granted)
+        {
+            return Task.FromResult(PermissionStatus.Granted);
+        }
+
+        if (Platform.CurrentActivity is not { } activity)
+        {
+            return Task.FromResult(PermissionStatus.Unknown);
+        }
+
+        waitingForMicrophone?.TrySetResult(PermissionStatus.Unknown);
+        waitingForMicrophone = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        AndroidX.Core.App.ActivityCompat.RequestPermissions(activity, [Android.Manifest.Permission.RecordAudio], MicrophoneRequest);
+        return waitingForMicrophone.Task;
+    }
+
     /// <summary>The activity passes on Android's answer to every permission request.</summary>
     public static void Complete(int request, Permission[] results)
     {
+        if (request == MicrophoneRequest)
+        {
+            waitingForMicrophone?.TrySetResult(results is [Permission.Granted] ? PermissionStatus.Granted : PermissionStatus.Denied);
+            waitingForMicrophone = null;
+        }
+
         if (request == NotificationsRequest)
         {
             waiting?.TrySetResult(results is [Permission.Granted] ? PermissionStatus.Granted : PermissionStatus.Denied);

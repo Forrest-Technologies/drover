@@ -30,6 +30,7 @@ public static class EngineServiceExtensions
         services.AddScoped<PasswordService>();
         services.AddScoped<SpaceService>();
         services.AddScoped<StatusService>();
+        services.AddSingleton<ModelProviderCatalog>();
         return services;
     }
 
@@ -58,10 +59,15 @@ public static class EngineServiceExtensions
         services.AddScoped<ToolConnectionService>();
         services.AddSingleton<ToolSignIns>();
         services.AddSingleton<ToolSignInRenewal>();
+        services.AddOptions<ModelSignInOptions>();
+        services.AddSingleton<ModelCredentials>();
+        services.AddSingleton<ModelSignIns>();
+        services.AddSingleton<ModelSignInRenewal>();
         services.AddScoped<AuditLog>();
         services.AddScoped<AllowAllService>();
         services.AddScoped<BotService>();
         services.AddScoped<ModelFallbackService>();
+        services.AddScoped<BotFileService>();
         services.AddScoped<ExtensionService>();
         services.AddScoped<ExtensionConnector>();
         services.AddScoped<GrantService>();
@@ -76,6 +82,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ConversationSearchService>();
         services.AddScoped<ConversationExporter>();
         services.AddScoped<PushService>();
+        services.AddScoped<AppearanceService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();
         services.AddScoped<UsageService>();

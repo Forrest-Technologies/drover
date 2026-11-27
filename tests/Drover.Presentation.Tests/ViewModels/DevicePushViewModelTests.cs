@@ -47,7 +47,7 @@ public sealed class DevicePushViewModelTests : IDisposable
     {
         PushWords.Action(state).Should().Be(action);
         PushWords.Sentence(state).Should().NotBeNullOrEmpty();
-        PushWords.Contents.Should().Be("A notification names the bot and what happened. It never shows what was said.");
+        PushWords.Contents.Should().Be("A notification names the bot and the event. It never shows message text.");
     }
 
     [Fact]

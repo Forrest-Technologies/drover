@@ -16,7 +16,8 @@ public sealed class ReplyFooterTests
         var usage = new ReplyUsageViewModel(detail.RunId, _ => Task.FromResult(Count(detail)), NullLogger.Instance, "vendor/sample-stronger");
 
         ReplyUsageViewModel.Label.Should().Be("Usage for this reply");
-        usage.WrittenBy.Should().Be("Written by vendor/sample-stronger");
+        ReplyUsageViewModel.Adding.Should().Be("Loading usage.");
+        usage.WrittenBy.Should().Be("Model: vendor/sample-stronger");
         asked.Should().Be(0, "nothing is read until a person asks");
 
         await usage.Toggle();
@@ -25,7 +26,7 @@ public sealed class ReplyFooterTests
         asked.Should().Be(1);
 
         usage.Model = "vendor/another";
-        usage.WrittenBy.Should().Be("Written by vendor/another", "the model can become known after the view model was made");
+        usage.WrittenBy.Should().Be("Model: vendor/another", "the model can become known after the view model was made");
         usage.Detail.Should().BeSameAs(detail, "what was read stays");
 
         RunUsageDetail Count(RunUsageDetail read)
@@ -81,9 +82,9 @@ public sealed class ReplyFooterTests
     #region Order
 
     [Fact]
-    public void The_footer_stands_copy_then_the_usage_then_another_reply_then_the_versions()
+    public void The_footer_stands_copy_then_read_aloud_then_the_usage_then_another_reply_then_the_versions()
     {
-        var reply = new ChatMessage("a", false, "Here is the plan.")
+        var reply = new ChatMessage(Guid.CreateVersion7().ToString(), false, "Here is the plan.")
         {
             RunId = Guid.CreateVersion7(),
             FinishesReply = true,
@@ -93,10 +94,23 @@ public sealed class ReplyFooterTests
         };
 
         ChatRows.FooterParts(reply, canRegenerate: true, canSwitch: true, canReadUsage: true)
-            .Should().Equal(FooterPart.Copy, FooterPart.Usage, FooterPart.Regenerate, FooterPart.Versions);
+            .Should().Equal(FooterPart.Copy, FooterPart.ReadAloud, FooterPart.Usage, FooterPart.Regenerate, FooterPart.Versions);
         Enum.GetValues<FooterPart>().Should().Equal(
-            [FooterPart.Copy, FooterPart.Usage, FooterPart.Regenerate, FooterPart.Versions],
+            [FooterPart.Copy, FooterPart.ReadAloud, FooterPart.Usage, FooterPart.Regenerate, FooterPart.Versions],
             "the line places its parts in this order");
+    }
+
+    [Fact]
+    public void Read_aloud_is_offered_where_copy_is_once_the_server_has_stored_the_reply()
+    {
+        var stored = new ChatMessage(Guid.CreateVersion7().ToString(), false, "Here is the plan.") { FinishesReply = true };
+
+        ChatRows.OffersReadAloud(stored).Should().BeTrue();
+        ChatRows.StoredId(stored).Should().Be(Guid.Parse(stored.Key));
+        ChatRows.OffersReadAloud(stored with { Key = "a" }).Should().BeFalse("the server reads a message by its id");
+        ChatRows.OffersReadAloud(stored with { Streaming = true }).Should().BeFalse("nothing stands under words still arriving");
+        ChatRows.OffersReadAloud(stored with { UnusableToolRequest = true }).Should().BeFalse("there are no words of a reply to read");
+        ChatRows.OffersReadAloud(new ChatMessage(stored.Key, true, "Hello")).Should().BeFalse();
     }
 
     [Fact]
@@ -205,7 +219,8 @@ public sealed class ReplyFooterTests
         reply.FinishesReply.Should().BeTrue();
         reply.EndsReply.Should().BeFalse("what another member's reply used is theirs to read");
         ChatRows.OffersCopy(reply).Should().BeTrue("copy stands under every finished reply");
-        ChatRows.FooterParts(reply, canRegenerate: false, canSwitch: false, canReadUsage: true).Should().Equal(FooterPart.Copy);
+        ChatRows.FooterParts(reply, canRegenerate: false, canSwitch: false, canReadUsage: true)
+            .Should().Equal(FooterPart.Copy, FooterPart.ReadAloud);
     }
 
     [Fact]

@@ -71,7 +71,7 @@ public sealed class ShareToViewModelTests : ViewModelTest
         screen.Excerpt.Should().Be("Sample words from another app");
         screen.Files.Select(file => $"{file.Name} {file.Size}").Should().Equal("notes.txt 3 bytes");
         screen.ShowBots.Should().BeTrue();
-        ShareToViewModel.Ask.Should().Be("Which bot gets this?");
+        ShareToViewModel.Ask.Should().Be("Choose a bot");
         ShareToViewModel.Note.Should().Contain("Nothing is sent until you send it.");
         screen.Choices.Select(choice => choice.Name).Should().Equal("Marshal");
         screen.Choices[0].Hue.Should().Be(BotIdentity.Hue(botId));

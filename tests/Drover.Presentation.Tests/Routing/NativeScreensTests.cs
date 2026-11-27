@@ -14,7 +14,7 @@ public sealed partial class NativeScreensTests
     private static readonly string[] retiredWebClientPages =
     [
         "/", "/bots", "/bots/{BotId:guid}", "/bots/{BotId:guid}/sandbox", "/dev/gallery", "/extensions",
-        "/extensions/edit", "/models", "/setup", "/setup/bot", "/setup/model", "/share", "/sign-in", "/status",
+        "/models", "/setup", "/setup/bot", "/setup/model", "/share", "/sign-in", "/status",
         "/talk/{BotId:guid}", "/talk/{BotId:guid}/activity/{ActivityRunId:guid}", "/talk/{BotId:guid}/side/{SideChat}",
         "/talk/{BotId:guid}/work/{WorkBotId:guid}/{WorkThreadId:guid}", "/talk/{BotId:guid}/{Rail}",
         "/threads/{FormerThreadId:guid}", "/tools", "/usage",
@@ -44,8 +44,8 @@ public sealed partial class NativeScreensTests
         string[] written =
         [
             Addresses.Home, Addresses.SignIn, Addresses.Setup, Addresses.Share, Addresses.SetupModel, Addresses.SetupBot,
-            Addresses.Bots, Addresses.Projects, Addresses.Project(bot), Addresses.Models, Addresses.Tools, Addresses.Extensions, Addresses.ExtensionEditor,
-            Addresses.ExtensionFromBot(bot), Addresses.Status, Addresses.Usage, Addresses.Conversation(other),
+            Addresses.Bots, Addresses.Projects, Addresses.Project(bot), Addresses.Models, Addresses.Tools, Addresses.Extensions,
+            Addresses.Status, Addresses.Usage, Addresses.Conversation(other),
             Addresses.Talk(bot), Addresses.Summary(bot), Addresses.Memory(bot), Addresses.Screen(bot), Addresses.Activity(bot),
             Addresses.Activity(bot, other), Addresses.Files(bot), Addresses.Moment(bot, other, Guid.NewGuid(), false),
             Addresses.SideChats(bot), Addresses.NewSideChat(bot), Addresses.SideChat(bot, other), Addresses.Work(bot, other, other),

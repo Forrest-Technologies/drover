@@ -20,7 +20,7 @@ A run is one bot working on one request. It is a database row that a worker exec
 | `waiting` | The run ended with a request that has no answer yet: an approval, or a workflow's question. No worker holds it. |
 | `completed`, `failed`, `cancelled` | Terminal |
 
-`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_takeover` (a call asked a person to take over the bot's screen; see [07-sandbox.md](07-sandbox.md#a-person-takes-over)), `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `token_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
+`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_takeover` (a call asked a person to take over the bot's screen; see [07-sandbox.md](07-sandbox.md#a-person-takes-over)), `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `token_limit`, `unmetered_call_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
 
 ## From message to run
 
@@ -124,15 +124,16 @@ The model and tool loop is the agent framework's. Drover supplies storage and go
 
 A **step** is one model call. The engine hands the runtime a model client of its own (`RunExecution.Model`) that wraps the provider's: every call through it is counted against the run's limits (below), announced as `step.started`, and refused outright if a tenant transaction is open in the calling flow. The step's message id is chosen before the call. The deltas carry it, and the runtime stores the reply under it, so `message.completed` names the row the deltas were building.
 
-**Run limits.** Three limits stop a run that runs away before it spends a person's model credit. Each is a deployment ceiling ([16-deployment-policies.md](16-deployment-policies.md)) that the space may lower in its settings and the bot may lower again in its own `run_limits` (the editor's Limits section); no level raises the one above (`PolicyService.Runs`, then `RunCeilings.NarrowedBy`). They are read when a run is loaded and held by its `RunSession`.
+**Run limits.** Four limits bound a run that runs away before it spends a person's model credit. Each is a deployment ceiling ([16-deployment-policies.md](16-deployment-policies.md)) that the space may lower in its settings; no level raises the one above (`PolicyService.Runs`, then `RunCeilings.NarrowedBy`). Model calls and tokens can be lowered again by the bot's own `run_limits` (the editor's Limits section); the unmetered-call bound has no bot setting, because a bot already has its own model-call limit. Handoffs are counted from the run's child calls. They are read when a run is loaded and held by its `RunSession`.
 
 | Limit | Deployment rule | Space | Bot | When it is reached |
 | --- | --- | --- | --- | --- |
-| Model calls | `MaxStepsPerRun` (50) | `max_steps_per_run` | `max_steps` | Checked before every model call, a tool's own included (the screen reader). The run fails with `step_limit`. |
+| Model calls | `MaxStepsPerRun` (self-hosted: no limit; hosted: 50) | `max_steps_per_run` | `max_steps` | Checked before every model call, including a tool's own model call. Self-hosted has no ceiling unless an operator, space, or bot sets one; hosted starts at 50. When reached, the run fails with `step_limit`. |
 | Tokens | `MaxTokensPerRun` (5,000,000; hosted 2,000,000) | `max_tokens_per_run` | `max_tokens` | Input and output tokens of every model call the run has recorded, earlier executions included, checked before every model call. The run fails with `token_limit`. The call that takes the run past the limit finishes and is recorded, so a run can end above it by one call. |
+| Calls with no usage | `MaxUnmeteredModelCallsPerRun` (200; hosted 50) | `max_unmetered_model_calls_per_run` | none | Counted when a model call is recorded with missing or zero token usage, a tool's own calls included, wherever they fall in the run, earlier executions included. At the cap the next model call fails the run with `unmetered_call_limit`. An operator may raise this default, to `2147483647` for no limit; a space may only lower it. |
 | Handoffs | `MaxRunsPerDelegationTree` less the root | (through the tree's limit) | `max_delegations` | Counted from the run's child runs when it calls `delegate`. The call is refused with `budget_exceeded`, detail `handoffs`, with `used` and `cap`; the run goes on with what it has. `0` keeps a bot from handing work over at all. |
 
-A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit` or `token_limit` shows in its thread as `budget_reached`, carrying the limit kind (`model_calls` or `tokens`), the amount used, and the cap on `RunFailure.Limit`. The failure card names the limit with used against cap in its first line and offers an "Open limits" link straight to that bot's Limits section for editors; older runs without limit data fall back to the general sentence. A `delegate` call refused for `handoffs` names the handoff limit with its numbers and offers the same link to editors.
+A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit`, `token_limit` or `unmetered_call_limit` shows in its thread as `budget_reached`, carrying the limit kind (`model_calls`, `tokens` or `unmetered_model_calls`), the amount used, and the cap on `RunFailure.Limit`. The failure card names the limit with used against cap in its first line and offers an "Open limits" link straight to that bot's Limits section for editors; older runs without limit data fall back to the general sentence. A call whose usage is missing or zero names the calls that reported no token use. A `delegate` call refused for `handoffs` names the handoff limit with its numbers and offers the same link to editors. Self-hosted has no model-call ceiling unless an operator, space, or bot sets one; hosted starts at 50. A self-hosted run with no model-call ceiling still stops after 200 calls that reported no token use, unless the operator raises or removes that bound. The check runs before every model call, including calls made by tools. Self-hosted bots default to 5,000,000 tokens per run. A bot editor can select Unlimited and acknowledge the risk of API overspending. Hosted, explicit operator, and space ceilings always apply, including to previously opted-out bots. Duplicating a bot requires a fresh opt-in.
 
 Read-only tools requested together run in parallel. Everything else runs in order: a call that is not read-only waits for the calls that are not read-only listed before it in the same model response.
 
@@ -251,7 +252,7 @@ A second, lightweight stream, `GET /api/spaces/{spaceId}/stream`, carries non-du
 
 ### What a thread has for a person
 
-Each `ThreadSummary` carries `Attention`, computed for the caller from their own runs and their own read marker (`thread_reads`), never from another member's: `WaitingForYou` (their newest root run in the thread waits, and a call anywhere in its delegation tree still has no answer), `Failed` (their newest root run failed and they have not opened the thread since it ended), `HasNew` (a reply from a run of theirs past the last message they saw), and `LastFailure` (that newest root run while it is failed, seen or not: its id, a cause, the error as the run's log holds it, and `Limit` with kind `model_calls` or `tokens`, used, and cap when a Drover limit stopped it). Only root runs count for these: a child run's approval makes its root's thread read as waiting, the person's one place to answer, and a child that failed is its parent's to recover from, so it makes no thread read as failed and cannot be tried again by the person. The cause is one of `model_unreachable`, `model_refused`, `model_busy` (the provider is limiting requests), `model_out_of_credit` (the provider account is out of credit), `budget_reached` (a Drover limit), `stopped_by_rule`, `server_restarted`, or `unknown`, from the run's error code. The crew screen reads every thread on first paint, then reads one thread again for each signal that names it. Opening a conversation marks it seen (`PUT .../threads/{threadId}/seen`), which sends `thread.seen`, so the person's other screens clear it within a second.
+Each `ThreadSummary` carries `Attention`, computed for the caller from their own runs and their own read marker (`thread_reads`), never from another member's: `WaitingForYou` (their newest root run in the thread waits, and a call anywhere in its delegation tree still has no answer), `Failed` (their newest root run failed and they have not opened the thread since it ended), `HasNew` (a reply from a run of theirs past the last message they saw), and `LastFailure` (that newest root run while it is failed, seen or not: its id, a cause, the error as the run's log holds it, and `Limit` with kind `model_calls`, `tokens` or `unmetered_model_calls`, used, and cap when a Drover limit stopped it). Only root runs count for these: a child run's approval makes its root's thread read as waiting, the person's one place to answer, and a child that failed is its parent's to recover from, so it makes no thread read as failed and cannot be tried again by the person. The cause is one of `model_unreachable`, `model_refused`, `model_busy` (the provider is limiting requests), `model_out_of_credit` (the provider account is out of credit), `budget_reached` (a Drover limit), `stopped_by_rule`, `server_restarted`, or `unknown`, from the run's error code. The crew screen reads every thread on first paint, then reads one thread again for each signal that names it. Opening a conversation marks it seen (`PUT .../threads/{threadId}/seen`), which sends `thread.seen`, so the person's other screens clear it within a second.
 
 `POST .../runs/{runId}/retry` starts a new run from the message a failed run answered. Only the run's own person may, while it is their newest run in the thread and nothing works on the thread; otherwise 409, and 404 to anyone who cannot read the thread.
 
@@ -328,7 +329,15 @@ The code that would run a written pattern is still there for the day the rule ca
 
 **What a rule cannot rewrite.** A rule that redacts rewrites text: a reply, a message, a string in a tool's input or result. The name of an input, a number, and a flag are examined and never rewritten, because the result would not be the call the tool knows; neither is an object in which two inputs share a name, because writing it out again would keep only one. A redacting rule that matches in one of those, or that could not check its subject for work or for size, blocks, and nothing of the subject is kept in what is stored. A rule that blocks on what stands in the name of an input keeps nothing of the call either.
 
+## Fitting the next model request
+
+Before an agent calls its model, Drover estimates input tokens for the complete request and reserves output space. For a known catalog context size, it can replace old tool results with a labeled omission, drop older reasoning, and remove older exchanges together. System instructions, current work, the summary, and recent messages stay in the outgoing copy. The transcript and cumulative usage stay intact. Step events include the estimated input and whether shortening occurred. The next estimate uses the previous call’s measured input, with a multiplier between 0.5 and 2.
+
+When the model’s context size is unknown the first request goes through unchanged. A compatible provider’s context-length refusal allows one shorter retry before any output has been delivered. An oversized request that cannot fit reports `context_too_long`.
+
 ## Conversation summaries
+
+A summary can also become due by estimated size, including lengthy tool results. The bot’s configured threshold takes precedence over half of its model’s available input. Large summaries use successive bounded requests under one deadline. Each successful pass records its usage and conditionally advances the stored summary before the next call.
 
 A person's main thread with a bot grows without end, so the server keeps a running summary of it on the thread's own row (`summary`, `summary_through_position`, `summary_updated_at`; [02-data-model.md](02-data-model.md)). `ConversationSummarizer` in `Drover.Engine` writes it.
 
@@ -343,6 +352,58 @@ A person's main thread with a bot grows without end, so the server keeps a runni
 **Failure is quiet.** A model that fails, times out, or answers nothing, an unreadable key, or a database error is logged as a warning; the old summary stays, the run keeps the outcome it already had, and the next run that completes on the thread tries again. A server that stops cancels the call and writes nothing.
 
 **Using it.** When the bot's `memory_settings.compaction` is `summarization` and its main thread has a summary, `PostgresChatHistoryProvider` gives the model, before every model call, a first user message labeled as the summary of the first N messages and saying it is not an instruction, then only the messages placed after `summary_through_position`, in call order; a tool result whose call the summary covered is left out with it. The summary is read from the thread's row in the same transaction as the history, never from the framework's session, so a run picks up a summary written while it works. Every other compaction value, and every side chat, gets the whole conversation as before.
+
+## Live calls
+
+A live call is a spoken conversation with a thread's bot through a speech-to-speech model: the model hears the person and answers in its own voice. It is not a run. It has no event log, no worker and no lease; it is one WebSocket the server holds between the person and the provider, and what is said becomes ordinary messages of the thread.
+
+`GET /api/spaces/{space}/threads/{thread}/call`, as a WebSocket. It is authorized like sending a message in that thread: the same session (browser cookie or native bearer), the same membership check, and a thread row-level security shows the caller. A handshake is a GET and carries no antiforgery token, so a request with an `Origin` header must come from the server's own origin (the request's scheme and host, or `DROVER_PUBLIC_URL`); any other origin is refused with 403. A native client sends no `Origin`.
+
+Everything that can refuse does so before the upgrade, as a problem with a sentence: the thread is not found (404); it is a bot's handed-over work, the bot is paused or removed, a run is active on the thread ("The bot is still working in this conversation. Call when it has finished."), or the space has no model marked for live calls (409); the provider refuses the connection (502). The same request without the upgrade headers runs the same checks, opens nothing, and answers 426 when the call would be let in; the typed client asks that way first, because a refused handshake cannot carry a sentence back.
+
+On accept, one short transaction as the caller reads the bot's name and instructions, the last 20 shown messages' text parts as history, the space's live choice ([15-model-providers.md](15-model-providers.md#voice)), the connection's key and the space's outbound rule, and closes. The provider session is opened with the bot's instructions followed by one fixed sentence: "The person is hearing this reply, not reading it. Answer in short plain sentences. No lists, tables, code or links unless asked." No transaction is open while the socket is.
+
+### Wire protocol
+
+Binary frames in both directions are audio: 16-bit little-endian samples, one channel, 24,000 a second (`RealtimeAudio`). Text frames are JSON with a `type`.
+
+| Direction | Frame | Meaning |
+| --- | --- | --- |
+| Client to server | binary | What the microphone heard. The provider decides when the person has finished speaking |
+| Client to server | `{"type":"interrupt","heardMs":N}` | The person talked over the bot; `heardMs` is how much of the answer they heard, so the model's memory of the conversation matches what was said aloud |
+| Client to server | `{"type":"hangup"}` | End the call |
+| Server to client | `{"type":"ready","model":"..","voice":"..","maxMinutes":N}` | The call is connected. `maxMinutes` is left out when the server sets no limit |
+| Server to client | binary | The bot's voice |
+| Server to client | `{"type":"person_started"}` | The person started speaking. Audio still playing should stop |
+| Server to client | `{"type":"person_said","text":".."}` | The words of what the person just said |
+| Server to client | `{"type":"bot_saying","text":".."}` | The next words of the answer being spoken |
+| Server to client | `{"type":"bot_said","text":".."}` | The whole answer, once spoken or cut off |
+| Server to client | `{"type":"failed","message":".."}` | Something failed; the message is a sentence to show. The call may go on |
+| Server to client | `{"type":"ended","reason":".."}` | The last frame: `hung_up`, `time_limit`, `provider` or `server` |
+
+### Turns and talking over
+
+The provider decides whose turn it is, and cuts its own answer off when it hears the person (`interrupt_response`). The service the protocol comes from (`api.openai.com`) is asked to end a turn by what was said (`semantic_vad`) and to clean the microphone's sound as a distant one before it listens (`noise_reduction` of `far_field`); every other server is asked for turns by silence (`server_vad`), which they all take (`RealtimeDialect`).
+
+On `interrupt` the adapter cuts what the model remembers of its answer to what was heard (`conversation.item.truncate`), never past the audio the provider sent for that item, because a cut beyond it is refused, and once for each item. It cancels the answer (`response.cancel`) only while the provider is still making it. Both carry an event id, and an error from the provider that answers one of them is dropped: the interruption raced the provider's own, the call is unharmed, and nothing is shown.
+
+A frame from the client larger than 256 KB (about five seconds of audio) ends the call, and a text frame larger than 1 KB or of an unknown type is ignored. Frames for the client wait in a queue of at most 512; a client that falls further behind has its call dropped (`failed`, then `ended` with `server`) and nothing is buffered without bound.
+
+### What a call leaves in the thread
+
+After each exchange the server appends to the thread in one short transaction (`VoiceService.RecordExchange`, through `MessageRepository.AppendMessages`): the person's words as a `user` message from the caller, and the bot's as an `assistant` message with the bot as author, the live model as `model`, and no `run_id`. A reply with no run reads like any other everywhere messages are read (the thread's messages, export, search, versions). The thread's `last_activity_at` moves, an untitled side chat takes its title from the first words, and the caller and the thread's owner get a `thread.changed` signal so their other screens fetch again. Some providers write down what the person said only after the bot has answered; a reply waits for those words until the person speaks again, so the two are stored in the order they were spoken. Words still waiting when the call ends are stored then, a person's last words included.
+
+A thread still has one writer at a time. A call is refused while a run is active, and if a run becomes active during a call (a message sent from another screen, a schedule), the next write stores nothing and the call ends with a `failed` frame that says so. Audio is never stored anywhere; neither audio nor words are logged.
+
+A call ends when the person hangs up or disconnects, when the provider ends it, at `MaxCallMinutes` (the clock is read each second), when the session is signed out, and when the server stops.
+
+### Stated limits of this version
+
+- **No tools and no approvals.** The speech-to-speech model is given the bot's instructions and nothing else: no tool is offered, so nothing a call says can act. A bot's grants are not consulted because there is nothing to grant.
+- **Bot rules are not applied** to what is said on a call, in either direction, and neither are memory notes, project context or the conversation summary given to the model. Only the bot's instructions and the last 20 messages are.
+- **No usage is recorded**; a call's token counts are logged ([15-model-providers.md](15-model-providers.md#voice)).
+- **What the person said is stored only when the provider writes it down.** The session asks for no separate transcription model, so a provider that transcribes the person only on request sends no `person_said`, and the thread then holds the bot's replies alone.
+- The model that speaks is the space's live model, not the bot's own model.
 
 ## Delegation
 

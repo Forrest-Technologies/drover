@@ -48,6 +48,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<ModelConnection> ModelConnections => Set<ModelConnection>();
 
+    public DbSet<ModelConnectionCredential> ModelConnectionCredentials => Set<ModelConnectionCredential>();
+
     public DbSet<ModelCatalogEntry> ModelCatalog => Set<ModelCatalogEntry>();
 
     public DbSet<ToolConnection> ToolConnections => Set<ToolConnection>();
@@ -65,6 +67,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
     public DbSet<ThreadRead> ThreadReads => Set<ThreadRead>();
 
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+
+    public DbSet<UserAppearance> UserAppearances => Set<UserAppearance>();
 
     public DbSet<BotPushMute> BotPushMutes => Set<BotPushMute>();
 

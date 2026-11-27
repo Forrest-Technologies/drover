@@ -1,15 +1,18 @@
 namespace Drover.Presentation.ViewModels;
 
-/// <summary>The tool server of an installed extension: connect it, then choose which of its suggested tools the bot gets.</summary>
+/// <summary>
+/// The tool server of an installed extension: fill in the extension's settings and connect it. Giving its tools to a
+/// bot is done in the bot's own settings, like any connection's.
+/// </summary>
 public sealed partial class ExtensionServerStepsViewModel(
     DroverApi api, SessionState session, ILogger<ExtensionServerStepsViewModel> logger) : ObservableObject
 {
     #region Private Fields
 
-    private readonly HashSet<string> ticked = [];
+    private readonly Dictionary<string, string> typed = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Connection), nameof(Shows), nameof(Heading), nameof(ConnectLabel), nameof(GiveLabel))]
+    [NotifyPropertyChangedFor(nameof(Connection), nameof(Shows), nameof(Heading), nameof(ConnectLabel))]
     private ExtensionSummary? extension;
 
     [ObservableProperty]
@@ -22,7 +25,7 @@ public sealed partial class ExtensionServerStepsViewModel(
     private bool acceptLocal;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ConnectLabel), nameof(GiveLabel), nameof(CanGive))]
+    [NotifyPropertyChangedFor(nameof(ConnectLabel))]
     private bool busy;
 
     #endregion
@@ -32,7 +35,15 @@ public sealed partial class ExtensionServerStepsViewModel(
     /// <summary>The extension as it is after a step, for the list to show.</summary>
     public event Action<ExtensionSummary>? Changed;
 
+    public static string ToolsLegend => "Tools it suggests giving a bot";
+
+    public static string GrantHint => "You give a tool to a bot in the bot's settings, under Tools.";
+
+    public static string HeaderValueHint => "Stored encrypted. It is not shown again.";
+
     public ExtensionConnectionSummary Connection => Extension!.Connection!;
+
+    public IReadOnlyList<ExtensionSetting> Settings => Extension!.Parts.Settings;
 
     /// <summary>The server decides this for every request. Here it only keeps controls a person cannot use off the screen.</summary>
     public bool CanEdit => session.Space?.Role is "owner" or "admin";
@@ -41,15 +52,22 @@ public sealed partial class ExtensionServerStepsViewModel(
 
     public string ConnectLabel => Busy ? "Connecting" : $"Connect {Connection.Name}";
 
-    public string GiveLabel => Busy ? "Giving the tools" : $"Give {Extension!.BotName} the ticked tools, asking first";
-
     public string HeaderValueLabel => $"Value of {Connection.HeaderName}";
 
-    public string LocalLabel => $"Yes, connect to {Connection.Host}. It is on this server's own network, or is not https.";
+    /// <summary>The person types the header's whole value when the file leaves it to them.</summary>
+    public bool AsksForHeaderValue => Connection.AsksForHeader;
 
-    public string ToolsLegend => $"Tools suggested for {Extension!.BotName}";
+    /// <summary>
+    /// The yes to a local address is asked for when the address is local, and also when the address depends on a
+    /// setting: then only the server knows, once the settings are filled in, whether it is.
+    /// </summary>
+    public bool AsksAboutLocal => Connection.IsLocal || Connection.DependsOnSettings;
 
-    public string ConnectLead => ExtensionWords.Auth(Connection.Auth, Connection.HeaderName);
+    public string LocalLabel => Connection.DependsOnSettings
+        ? "Yes, connect even if the address is on this server's own network, or is not https."
+        : $"Yes, connect to {Connection.Host}. It is on this server's own network, or is not https.";
+
+    public string ConnectLead => ExtensionWords.Auth(Connection.Auth, Connection.HeaderName, Connection.AsksForHeader);
 
     public string LinkText => Connection.Auth is "oauth" ? "Sign in on the Tools screen" : "Open on the Tools screen";
 
@@ -57,13 +75,7 @@ public sealed partial class ExtensionServerStepsViewModel(
 
     public bool StatusIsReady => Connection.Status is "ready";
 
-    /// <summary>The tools of a connected server are shown when there is a bot to give them to.</summary>
-    public bool ShowsTools => Extension!.BotId is not null && Connection.Tools.Count > 0;
-
-    /// <summary>The button that gives tools is for people who can edit, while a tool is left that could be given.</summary>
-    public bool ShowsGive => CanEdit && Connection.Tools.Any(tool => tool is { ToolId: not null, Grant: "off" });
-
-    public bool CanGive => !Busy && ticked.Count > 0;
+    public bool ShowsTools => Connection.Tools.Count > 0;
 
     /// <summary>Which step the row is at.</summary>
     public ServerStep Shows =>
@@ -79,51 +91,29 @@ public sealed partial class ExtensionServerStepsViewModel(
     /// <summary>Shows the extension as it now is: after a step, or when the list was replaced.</summary>
     public void Show(ExtensionSummary shown) => Extension = shown;
 
-    public bool IsTicked(string tool) => ticked.Contains(tool);
+    /// <summary>
+    /// What a setting's field holds: what the person typed, then what it was connected with last, then what the
+    /// file starts it with. A secret is never given back, so its field starts empty.
+    /// </summary>
+    public string Value(ExtensionSetting setting) =>
+        typed.TryGetValue(setting.Key, out var value) ? value
+        : Extension!.FilledSettings.TryGetValue(setting.Key, out var kept) ? kept
+        : setting.Default ?? (setting.Type is ExtensionSetting.Toggle ? "false" : string.Empty);
 
-    /// <summary>Whether a tool's box is ticked: one the bot already has is, and one the person ticked is.</summary>
-    public bool IsOn(SuggestedToolState tool) => tool.Grant is not "off" || ticked.Contains(tool.Name);
-
-    /// <summary>A tool can be ticked when the server lists it and the bot does not have it yet.</summary>
-    public static bool CanTick(SuggestedToolState tool) => tool.ToolId is not null && tool.Grant is "off";
-
-    public void Tick(string tool, bool on)
-    {
-        if (on)
-        {
-            ticked.Add(tool);
-        }
-        else
-        {
-            ticked.Remove(tool);
-        }
-
-        OnPropertyChanged(nameof(CanGive));
-    }
+    public void SetValue(ExtensionSetting setting, string value) => typed[setting.Key] = value;
 
     [RelayCommand]
     public Task Connect() =>
         Step(async () =>
         {
-            var connected = await api.ConnectExtension(
-                session.Space!.Id, Extension!.Id, new ConnectExtensionRequest(AcceptLocal, Connection.Auth is "header" ? HeaderValue : null));
-            HeaderValue = string.Empty;
-            Changed?.Invoke(connected);
-        });
-
-    /// <summary>Gives the bot each ticked tool on ask, one request a tool: the server checks each against the bots above it.</summary>
-    [RelayCommand]
-    public Task Grant() =>
-        Step(async () =>
-        {
-            var spaceId = session.Space!.Id;
-            foreach (var tool in Connection.Tools.Where(tool => tool is { ToolId: not null, Grant: "off" } && ticked.Contains(tool.Name)))
+            var request = new ConnectExtensionRequest(AcceptLocal, AsksForHeaderValue ? HeaderValue : null)
             {
-                await api.SetBotToolGrant(spaceId, Extension!.BotId!.Value, tool.ToolId!.Value, "ask");
-            }
-
-            ticked.Clear();
-            Changed?.Invoke((await api.ListExtensions(spaceId)).Find(listed => listed.Id == Extension!.Id) ?? Extension!);
+                Settings = Settings.ToDictionary(setting => setting.Key, Value),
+            };
+            var connected = await api.ConnectExtension(session.Space!.Id, Extension!.Id, request);
+            HeaderValue = string.Empty;
+            typed.Clear();
+            Changed?.Invoke(connected);
         });
 
     #endregion

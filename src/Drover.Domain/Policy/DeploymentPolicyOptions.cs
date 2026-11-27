@@ -6,9 +6,15 @@ namespace Drover.Domain.Policy;
 /// </summary>
 public sealed class DeploymentPolicyOptions
 {
+    #region Properties
+
     public string Preset { get; set; } = DeploymentPolicy.SelfHostedName;
+
+    public bool HasConfiguredTokenLimit { get; set; }
 
     public string? TermsVersion { get; set; }
 
     public DeploymentPolicy Rules { get; set; } = DeploymentPolicy.SelfHosted;
+
+    #endregion
 }

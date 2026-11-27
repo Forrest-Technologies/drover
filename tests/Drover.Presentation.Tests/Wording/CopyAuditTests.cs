@@ -2,8 +2,8 @@ namespace Drover.Presentation.Tests.Wording;
 
 /// <summary>
 /// The words #891 retired from the work screens, held so they do not come back into the native client's source.
-/// The Tools strings are also changed by #864 and #890, which rewrite ToolConnectionsPage. Only those strings
-/// are exempt in that one file; every other retired string must be gone from the native and presentation projects.
+/// The Tools sign-in wording was retired by #864 and is no longer exempt. The remaining Tools strings are left
+/// to #890, which rewrites ToolConnectionsPage; only those are exempt in that one file.
 /// </summary>
 public sealed class CopyAuditTests
 {
@@ -21,8 +21,6 @@ public sealed class CopyAuditTests
         ("Open its settings", "Open bot settings"),
         ("This space has no bots yet. An owner or admin of the space can make one.",
             "This space has no bots yet. An owner or admin of the space can create one."),
-        ("What the extension is for", "Description"),
-        ("Changes here become the form when you go back to it.", "Changes here also change the form."),
         ("How Drover proves who is calling", "How Drover signs in to this server"),
         ("The words are the same. What the tool accepts as input changed.",
             "The description is the same. The tool's input changed."),
@@ -30,15 +28,13 @@ public sealed class CopyAuditTests
             "Only your own runs are shown. An owner or admin sees the whole space."),
     ];
 
-    // The table's sign-in row holds three separate option labels, each matched as a whole literal or attribute.
+    // The table's sign-in row holds three separate option labels, each matched as a whole literal or attribute. The
+    // words that replaced them stood only in the extension editor, which is gone, so only their absence is checked.
     private static readonly string[] retiredOptions = ["Nothing", "A header", "A sign-in"];
-
-    private static readonly string[] newOptions = ["None", "Header", "Sign-in"];
 
     // Only these words in ToolConnectionsPage are left to the issues that rewrite that file.
     private static readonly string[] otherIssues =
     [
-        "How Drover proves who is calling",
         "Nothing",
         "A header",
         "A sign-in",
@@ -79,11 +75,6 @@ public sealed class CopyAuditTests
         foreach (var (_, replacement) in copy)
         {
             source.Should().Contain(replacement, "the new words are in the client");
-        }
-
-        foreach (var option in newOptions)
-        {
-            source.Should().Contain($"\"{option}\"", "the new sign-in options are in the client");
         }
     }
 

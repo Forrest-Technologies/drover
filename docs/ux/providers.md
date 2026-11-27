@@ -8,12 +8,12 @@ Wording follows the [copy guide](copy-guide.md).
 
 ## 1. Connect a model (setup step 2, and "Add a connection" on Models)
 
-**The screen's job:** give this space a model to think with.
+**The screen's job:** connect the model this space's bots use.
 
 ```text
 +------------------------------------------+
 |  o-----(2)-----o     Connect a model     |
-|  Bots think with a model you bring. The  |
+|  Connect the model your bots use. The    |
 |  key is stored encrypted on this server  |
 |  and is never shown again.               |
 |                                          |
@@ -50,6 +50,28 @@ Components: `SetupSteps` (setup only), heading, one line of `text-2`, the provid
 The first kind in the server's order is chosen at first. Changing the kind keeps a typed address and clears a typed key.
 
 An address a person pastes is sent as typed. The server may correct it (#530), and the saved connection then shows the corrected address.
+
+### Named providers
+
+Until the kinds come from the server (#850), the provider choice is Venice, then each other kind the server offers with its own wire (such as `openai`, the provider's Responses API, and `anthropic`, the provider's Messages API), then the named providers the compatible kind carries in `GET /api/model-provider-kinds`, in the server's order, then `Another compatible server`. The server does not list a named provider whose own kind it offers (the same id), so no provider is offered twice. It is a `Select` labeled `Provider` (five or more choices), in setup and in the Models page's add form. A named provider is a starting point: the connection is a compatible one with that address.
+
+| Choice | Drawn as |
+| --- | --- |
+| A named provider | The address field is hidden and the form holds the provider's address. A text button `Change address` shows the field filled in. The provider's name is the connection's name |
+| Key rule: none | No key field |
+| Key rule: optional | The field labeled `Key (optional)` |
+| A key page | One `Link` under the key field: `Get a key from {name}`, opened in the browser. The text and address are drawn as plain values from the server, never as markup |
+| A local provider | One line: `Drover's server must be able to reach this address.` |
+| A kind with its own wire | No address field. The key field and its hint as the server describes the kind. The kind's name is the connection's name |
+| Another compatible server | The address field, as before |
+
+| State | Words |
+| --- | --- |
+| Loading the list | `Loading the provider list.` Venice and `Another compatible server` can be chosen meanwhile |
+| The list could not be read | `Could not read the provider list.` with `Try again`. `Another compatible server` still works |
+| A server with no named providers | The two choices of before |
+
+No provider name or id is written in the client; all of it comes from the server.
 
 ### States and words
 

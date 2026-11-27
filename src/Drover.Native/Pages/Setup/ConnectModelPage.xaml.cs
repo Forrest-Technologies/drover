@@ -8,8 +8,17 @@ public sealed partial class ConnectModelPage : Screen
     public ConnectModelPage()
     {
         InitializeComponent();
-        Provider.Options = ConnectModelViewModel.Providers;
-        Provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => Model.ChooseProvider(Provider.Value ?? Model.Kind));
+        ProvidersLoading.Text = NamedProviders.LoadingWords;
+        ProvidersFailedNote.Text = NamedProviders.FailedWords;
+        ProvidersRetry.Content = NamedProviders.RetryWords;
+        ChangeAddress.Content = NamedProviders.ChangeAddressWords;
+        Provider.RegisterPropertyChangedCallback(Select.ValueProperty, (_, _) =>
+        {
+            if (Provider.Value.Length > 0 && Provider.Value != Model.Named.Choice)
+            {
+                Model.ChooseProvider(Provider.Value);
+            }
+        });
         Model.PropertyChanged += (_, _) => Refresh();
         Refresh();
     }
@@ -30,10 +39,30 @@ public sealed partial class ConnectModelPage : Screen
 
     private void Refresh()
     {
-        Address.Visibility = Model.Kind == ConnectModelViewModel.CompatibleKind ? Visibility.Visible : Visibility.Collapsed;
-        Key.Hint = Model.Kind == ConnectModelViewModel.CompatibleKind
-            ? "Leave this empty if the server needs no key."
-            : "Made in your Venice account, under API keys.";
+        var providers = Model.Named;
+        IReadOnlyList<SelectOption> options = [.. providers.Options.Select(option => new SelectOption(option.Value, option.Label))];
+        if (!Provider.Options.SequenceEqual(options))
+        {
+            Provider.Options = options;
+        }
+
+        if (Provider.Value != providers.Choice)
+        {
+            Provider.Value = providers.Choice;
+        }
+
+        ProvidersLoading.Visibility = providers.ShowsLoading ? Visibility.Visible : Visibility.Collapsed;
+        ProvidersFailed.Visibility = providers.ShowsFailure ? Visibility.Visible : Visibility.Collapsed;
+        Reach.Text = providers.ReachNote ?? string.Empty;
+        Reach.Visibility = providers.ReachNote is null ? Visibility.Collapsed : Visibility.Visible;
+        Address.Visibility = providers.ShowsAddress ? Visibility.Visible : Visibility.Collapsed;
+        ChangeAddress.Visibility = providers.OffersAddressChange ? Visibility.Visible : Visibility.Collapsed;
+        Key.Label = providers.KeyLabel;
+        Key.Hint = providers.KeyHint;
+        Key.Visibility = providers.ShowsKey ? Visibility.Visible : Visibility.Collapsed;
+        KeyLink.Text = providers.KeyLinkText ?? string.Empty;
+        KeyLink.Address = providers.KeyLinkAddress;
+        KeyLink.Visibility = providers.KeyLinkText is null || !providers.ShowsKey ? Visibility.Collapsed : Visibility.Visible;
         Outcome.Kind = Model.Passed ? NoteKind.Ok : NoteKind.Danger;
         Outcome.Visibility = Model.Busy ? Visibility.Collapsed : Visibility.Visible;
         Testing.Visibility = Model.Busy ? Visibility.Visible : Visibility.Collapsed;

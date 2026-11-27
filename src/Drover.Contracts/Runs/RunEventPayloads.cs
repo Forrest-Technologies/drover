@@ -8,7 +8,7 @@ public sealed record RunStatusChanged(string Status, string? Reason, RunProblem?
 /// id the step's assistant message will be stored under, and the id its deltas carry. A discarded step's partial
 /// output is dropped: the step was cut off and its message was never stored.
 /// </summary>
-public sealed record StepChanged(int Step, Guid MessageId);
+public sealed record StepChanged(int Step, Guid MessageId, long? EstimatedInputTokens = null, bool Shortened = false);
 
 /// <summary>Data of <c>message.delta</c>: one coalesced chunk of a part. <see cref="Kind"/> is text or reasoning.</summary>
 public sealed record MessageDelta(Guid MessageId, int PartIndex, string Kind, string Text);

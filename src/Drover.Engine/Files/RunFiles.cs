@@ -20,7 +20,8 @@ public sealed class RunFiles(
     int maxDocumentPages,
     IFileStore store,
     SandboxBroker? sandboxes,
-    ILogger logger)
+    ILogger logger,
+    PdfReading? pdf = null)
 {
     #region Private Fields
 
@@ -79,7 +80,7 @@ public sealed class RunFiles(
 
         foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), cancellationToken);
+            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered, pdf is not null), cancellationToken);
         }
 
         return opened;
@@ -504,13 +505,14 @@ public sealed class RunFiles(
         }
 
         var kind = FileInspector.KindOf(file.ContentType);
-        var use = FileUses.For(kind, can);
+        var use = FileUses.For(file.ContentType, can);
 
         var result = use switch
         {
             FileUse.Image => await Picture(file, AttachmentCaption, cancellationToken),
             FileUse.Text => await Text(file, AttachmentCaption, cancellationToken),
             FileUse.Document => await Document(file, can, cancellationToken),
+            FileUse.NativeDocument => await NativeDocument(file, can, pdf!, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
             _ => Note(file, FileUses.RefusalFor(kind, can) switch
             {
@@ -567,6 +569,43 @@ public sealed class RunFiles(
             _ => new FileForModel(file.Id, DocumentWords.WithoutText(file.Name, file.ContentType, read), read.PageImages),
         };
 
+        return await AlsoIntoSandbox(file, given, can, cancellationToken);
+    }
+
+    /// <summary>
+    /// A PDF given as itself to a model that reads PDFs, when it is within both the server's and the provider's bounds
+    /// (<see cref="PdfReading"/>); past either, it is given as a <see cref="FileUse.Document"/> is. Its pages are counted
+    /// by reading it, which also leaves its text ready for the text path.
+    /// </summary>
+    private async Task<FileForModel> NativeDocument(StoredFile file, FileAbilities can, PdfReading reading, CancellationToken cancellationToken)
+    {
+        if (file.Size > reading.MaxBytes)
+        {
+            return await Document(file, can, cancellationToken);
+        }
+
+        if (await ReadAll(file, cancellationToken) is not { } bytes)
+        {
+            return Missing(file);
+        }
+
+        var (read, _) = ReadDocument(file, bytes, modelReadsImages: false);
+
+        if (read is null || read.Total > reading.MaxPages || bytes.Length > reading.MaxBytes)
+        {
+            return await Document(file, can, cancellationToken);
+        }
+
+        var given = new FileForModel(
+            file.Id,
+            $"[{AttachmentCaption} {file.Name}, a PDF of {read.Total} pages:]",
+            [new ToolImage(bytes, DocumentTypes.Pdf)]);
+        return await AlsoIntoSandbox(file, given, can, cancellationToken);
+    }
+
+    /// <summary>With a sandbox the bot may use, the file is put there as well, so its tools can work on the original.</summary>
+    private async Task<FileForModel> AlsoIntoSandbox(StoredFile file, FileForModel given, FileAbilities can, CancellationToken cancellationToken)
+    {
         if (can is not { HasSandbox: true, AudienceCoversSandbox: true })
         {
             return given;

@@ -25,6 +25,8 @@ public sealed class ToolsSectionView : EditorPart
 
     private readonly Dictionary<string, TextBlock> emptyHints = [];
 
+    private readonly Dictionary<string, QuickGrantRow> quickRows = [];
+
     #endregion
 
     #region Constructors
@@ -74,7 +76,8 @@ public sealed class ToolsSectionView : EditorPart
         }
     }
 
-    // Built-in tools first, then a group for each connection; each group keeps whether it is open while it stays.
+    // Built-in tools first, then a group for each connection; each group keeps whether it is open while it stays. A group
+    // of tools that can be set together starts with the row that sets them all.
     private void ShowGroups(ToolsSectionViewModel part)
     {
         List<UIElement> shown = [];
@@ -100,6 +103,18 @@ public sealed class ToolsSectionView : EditorPart
 
                 empty.Show(ToolsSectionViewModel.Empty(group));
                 body.Add(empty);
+            }
+
+            if (ToolsSectionViewModel.OffersQuick(group))
+            {
+                if (!quickRows.TryGetValue(group.Name, out var quick))
+                {
+                    quick = new QuickGrantRow(part, group);
+                    quickRows[group.Name] = quick;
+                }
+
+                quick.Show(part, group);
+                body.Add(quick);
             }
 
             foreach (var tool in group.Tools)
