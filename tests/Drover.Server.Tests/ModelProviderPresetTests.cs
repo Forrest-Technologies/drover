@@ -13,8 +13,8 @@ public abstract class ModelProviderPresetTests(PostgresServer postgres) : Server
 
     protected static readonly string[] RowFields = ["address", "displayName", "id", "keyPage", "keyRule", "local"];
 
-    /// <summary>The rows this server lists: every row but the one whose own kind (OpenAI's) the server offers.</summary>
-    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id != OpenAIProvider.ConnectionKind);
+    /// <summary>The rows this server lists: every row but those whose own kind (OpenAI, Gemini) the server offers.</summary>
+    protected static IEnumerable<ModelProviderPreset> Rows => KnownProviders.All.Where(row => row.Id is not (OpenAIProvider.ConnectionKind or GeminiProvider.ConnectionKind));
 
     #endregion
 
