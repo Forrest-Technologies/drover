@@ -169,7 +169,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         var script = new ScriptedModel([new TextOutput("Owner.")], [new TextOutput("Other.")], [new TextOutput("Member.")]);
         await using var world = await RunWorld.Create(postgres, script);
         await TurnMemoryOn(world, world.BotId);
-        await world.Grant("memory.list", GrantEffect.Allow);
+        await world.Grant("memory.save", GrantEffect.Deny);
         var otherBot = await world.Transact(async services =>
         {
             var change = await services.GetRequiredService<BotService>().Create(
@@ -180,7 +180,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
             return change.Bot!.Id;
         });
         await TurnMemoryOn(world, otherBot);
-        await world.GrantTo(otherBot, "memory.save", GrantEffect.Allow);
+        await world.GrantTo(otherBot, "memory.list", GrantEffect.Deny);
         world.StartHost();
         var project = await CreateProject(world, "Crew", "Shared brief for both bots.");
         var ownerThread = await ThreadIn(world, world.BotId, project.Id);

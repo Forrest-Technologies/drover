@@ -113,13 +113,7 @@ public sealed class RunWorld : IAsyncDisposable
         Transact(services => query(services.GetRequiredService<DroverDbContext>()));
 
     /// <summary>Gives the bot a grant for a tool, as a person would in the bot editor.</summary>
-    public Task Grant(string toolName, GrantEffect effect) =>
-        Read(async db =>
-        {
-            var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
-            db.ToolGrants.Add(new ToolGrant { BotId = BotId, ToolId = tool.Id, Effect = effect, GrantedByUserId = UserId });
-            return true;
-        });
+    public Task Grant(string toolName, GrantEffect effect) => GrantTo(BotId, toolName, effect);
 
     /// <summary>Gives any bot of the world a grant for a tool, as its own row, whatever the bots above it hold.</summary>
     public Task GrantTo(Guid botId, string toolName, GrantEffect effect) =>

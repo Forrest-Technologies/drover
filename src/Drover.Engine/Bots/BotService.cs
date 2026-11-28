@@ -539,6 +539,7 @@ public sealed class BotService(
                 Effect = source.Effect,
                 Conditions = [.. source.Conditions],
                 CreatedByUserId = source.CreatedByUserId,
+                ManagingBotId = source.ManagingBotId,
             };
             rules.Add(copy);
             RuleService.Place(own, copy, position++);
@@ -975,6 +976,11 @@ public sealed class BotService(
         if (BuiltinTools.GrantedToNewBots.Contains(toolName, StringComparer.Ordinal))
         {
             return GrantEffect.Allow;
+        }
+
+        if (AutomationTools.AskedByDefault.Contains(toolName, StringComparer.Ordinal))
+        {
+            return GrantEffect.Ask;
         }
 
         return atTheTop

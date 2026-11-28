@@ -695,8 +695,10 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         tool.Should().Match<BotToolEntry>(found => found.Name == "time.now" && found.Title == "Current time" && found.Source == "builtin" && found.Grant == "allow" && found.Ceiling == "allow" && found.Sensitivity == "read");
         off.Grant.Should().Be("off");
         listed.Grant.Should().Be("off");
-        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove"], "the granted tools are sent to the model");
-        model.ToolsOffered[1].Should().BeEquivalentTo(["crew_list", "crew_add", "crew_change", "crew_remove"], "a tool with no grant is never sent to the model");
+        var automationTools = AutomationTools.AllowedByDefault.Concat(AutomationTools.AskedByDefault)
+            .Select(BuiltinTool.ModelName);
+        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove", .. automationTools], "the granted tools are sent to the model");
+        model.ToolsOffered[1].Should().BeEquivalentTo(["crew_list", "crew_add", "crew_change", "crew_remove", .. automationTools], "a tool with no grant is never sent to the model");
         misspelled.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -923,17 +925,17 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var taken = (await Audit(alice, bot.Id)).Single(entry => entry.Action == "grant.changed");
 
         listed.Grant.Should().Be("off", "a deny shows as off");
+        var expected = BuiltinTools.GrantedToNewBots.Select(name => (name, "allow", "current"))
+            .Concat(AutomationTools.AskedByDefault.Concat(BuiltinTools.AskedOfNewTopBots)
+                .Select(name => (name, "ask", "current")))
+            .OrderBy(grant => grant.name, StringComparer.Ordinal)
+            .Select(grant => ((string?)grant.name, (string?)grant.Item2, (string?)grant.Item3));
         foreach (var entry in (AuditLogEntry[])[created, duplicated])
         {
             var grants = entry.Data.GetProperty("changes").GetProperty("grants").GetProperty("after");
-            grants.EnumerateArray().Select(grant => (grant.GetProperty("tool").GetString(), grant.GetProperty("effect").GetString(), grant.GetProperty("review_state").GetString()))
-                .Should().Equal(
-                    ("crew.add", "ask", "current"),
-                    ("crew.change", "ask", "current"),
-                    ("crew.list", "ask", "current"),
-                    ("crew.remove", "ask", "current"),
-                    ("message_bot", "allow", "current"),
-                    ("time.now", "allow", "current"));
+            grants.EnumerateArray().Select(grant => (grant.GetProperty("tool").GetString(),
+                grant.GetProperty("effect").GetString(), grant.GetProperty("review_state").GetString()))
+                .Should().Equal(expected);
         }
 
         Fact(taken, "effect").Should().Be(("deny", null), "taking a deny away is a change, though both show as off");

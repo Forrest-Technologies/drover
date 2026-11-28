@@ -3,14 +3,55 @@
 // the shell is loaded. The published-browser check requires real headings and invokes the export through its peer.
 (() => {
     // Uno 7.0.65 mirrors its links as anchors without href. Give those anchors an explicit role while keeping
-    // Uno's existing activation handlers and leaving ordinary HTML links alone.
+    // Uno's existing activation handlers and leaving ordinary HTML links alone. The runtime makes every semantic
+    // element pointer-transparent so the canvas receives the input, which leaves only the anchor's keydown handler
+    // able to invoke a link: a pointer click can never reach it. Give the anchors pointer input back, so a pointer
+    // click and a keypress take the same invoke path, and the app still decides which addresses may be opened.
     const link = 'a:not([href]):not([role])';
+    const semanticLink = '#uno-semantics-root a[role="link"]:not([href])';
+    // The text-selection checks load this script with a document that has no createElement. The style is only a
+    // browser concern, so a stub without it simply runs the rest of the adapter as before.
+    if (typeof document.createElement === 'function') {
+        const styles = document.createElement('style');
+        styles.textContent = `${semanticLink} { pointer-events: auto !important; }`;
+        document.head.appendChild(styles);
+    }
+
+    // Uno also sends pointer presses caught at the body to the canvas. Route primary presses on a semantic
+    // link through its DOM click handler so the canvas cannot activate the same link a second time.
+    const linkPointers = new Set();
+    document.addEventListener('pointerdown', event => {
+        if (event.button === 0 && event.target instanceof Element && event.target.closest(semanticLink)) {
+            linkPointers.add(event.pointerId);
+            event.stopPropagation();
+        }
+    }, true);
+    document.addEventListener('pointerup', event => {
+        if (linkPointers.delete(event.pointerId)) {
+            event.stopPropagation();
+        }
+    }, true);
+    document.addEventListener('pointercancel', event => linkPointers.delete(event.pointerId), true);
+
+    function stopActivationKey(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.stopPropagation();
+        }
+    }
+
+    function exposeLink(anchor) {
+        anchor.setAttribute('role', 'link');
+        // Uno handles activation on the anchor itself. Keep those keys out of its document-level keyboard handler.
+        anchor.addEventListener('keydown', stopActivationKey);
+        anchor.addEventListener('keyup', stopActivationKey);
+    }
+
     function exposeLinks(node) {
         if (node.matches(link)) {
-            node.setAttribute('role', 'link');
+            exposeLink(node);
         }
         for (const anchor of node.querySelectorAll(link)) {
-            anchor.setAttribute('role', 'link');
+            exposeLink(anchor);
         }
     }
 

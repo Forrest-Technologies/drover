@@ -214,6 +214,35 @@ public sealed class RunGovernor(
         && await RuleFor(callId, tool, arguments, cancellationToken) is { Effect: RuleEffect.Block or RuleEffect.Stop };
 
     /// <summary>
+    /// True when a held call may go on with no person. Only a call held because a rule written as a sentence could
+    /// apply to it is ever cleared, and only when the bot is active, the grant as it stands now allows the call (not
+    /// ask, and not a tool that always asks), no rule decided by code could ask about the tool, and the rules, with the
+    /// verdict made where the call was first read, ask nothing about it. Nothing here grants anything: the gate
+    /// decides about the call again when it is made, and refuses what a rule blocks.
+    /// </summary>
+    public async Task<bool> ClearsWithoutAPerson(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken)
+    {
+        if (session.FindToolByModelName(toolName) is not { } tool || session.RuleAsks(tool) || !session.JudgedRuleReaches(tool))
+        {
+            return false;
+        }
+
+        var (status, effect) = await session.Tenant.Transact(
+            async services => (
+                (await services.GetRequiredService<BotRepository>().FindBot(bot.Id, cancellationToken))?.Status,
+                await services.GetRequiredService<ToolRepository>().FindEffectiveGrant(bot.Id, tool.Tool.Id, cancellationToken)),
+            cancellationToken);
+
+        if (status is not BotStatus.Active || effect is not { } granted || session.EffectNow(tool, granted) is not GrantEffect.Allow)
+        {
+            return false;
+        }
+
+        // A rule that blocks or stops the call needs no person either: the gate refuses the call, and says why.
+        return await RuleFor(callId, tool, arguments, cancellationToken) is not { Effect: RuleEffect.Ask };
+    }
+
+    /// <summary>
     /// What the person asked about a call is shown beside its arguments, when the tool is a built-in one that says,
     /// redacted as the arguments are. Never throws for the tool: a call whose details cannot be read still waits, with
     /// none, and the reason is logged.
@@ -451,7 +480,9 @@ public sealed class RunGovernor(
             RecordModelUsage = Record,
             ThreadId = session.Thread.Id,
             IsDelegated = session.RootRunId != session.RunId,
+            Approved = toolCall.Approved,
             Redact = session.Redactor.Redact,
+            RedactJson = session.Redactor.Redact,
             IsTainted = () => session.Tainted,
             AnnounceMessage = session.AnnounceChangedMessage,
         };
