@@ -314,6 +314,8 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
         await SetGrant(client, alice.SpaceId, atlas.Id, time, "ask");
         await SetGrant(client, alice.SpaceId, atlas.Id, list, "off");
 
+        var before = await InSpace(alice.SpaceId, alice.UserId, services =>
+            services.GetRequiredService<ToolRepository>().ListEffectiveGrants(tracker.Id, Token));
         var kept = await client.Delete($"{Space(alice.SpaceId)}/bots/{atlas.Id}?beneath=keep");
         var scoutTools = await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{scout.Id}/tools");
         var effective = await InSpace(alice.SpaceId, alice.UserId, services =>
@@ -325,7 +327,9 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
         (await Closure(alice, tracker.Id)).Should().Equal((tracker.Id, 0), (scout.Id, 1));
         scoutTools.Single(entry => entry.ToolId == time).Grant.Should().Be("ask", "it was lowered to what Atlas could do");
         scoutTools.Single(entry => entry.ToolId == list).Grant.Should().Be("off", "Atlas could not use it, so it was taken away");
-        effective.Should().Equal(new Dictionary<Guid, GrantEffect> { [time] = GrantEffect.Ask, [message] = GrantEffect.Allow });
+        effective.Should().Equal(before, "moving a bot never gives the bots beneath it more tools");
+        effective.Should().Contain(time, GrantEffect.Ask).And.Contain(message, GrantEffect.Allow);
+        effective.Should().NotContainKey(list);
         (await Audit(alice, scout.Id)).Where(entry => entry.Action == "grant.changed" && entry.ActorId == alice.UserId).Should().HaveCount(3,
             "the person's own change and the two the move made are each recorded");
     }
