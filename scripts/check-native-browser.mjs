@@ -2264,7 +2264,7 @@ async function captureLive(origin, folder) {
     const only = process.env.DROVER_LIVE_ONLY?.split(',');
     const themes = process.env.DROVER_LIVE_THEMES?.split(',') ?? ['dark', 'light'];
     const widths = (process.env.DROVER_LIVE_WIDTHS?.split(',') ?? ['1280', '360']).map(Number);
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox'] });
     const record = JSON.parse(await fs.readFile(path.join(folder, 'captures.json'), 'utf8').catch(() => '{}'));
     let signedIn;
     try {
