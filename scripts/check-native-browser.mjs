@@ -116,6 +116,9 @@ const botDetail = {
     sandboxSettings: { network: 'off', allowedHosts: [] }, sandboxSharedWith: [], buildLimits: {}, runLimits: {},
 };
 const thread = { id: '0196f1a0-0000-7000-8000-000000000005', botId, lastActivityAt: '2026-11-18T00:00:00Z', isMain: true };
+const sideLinkThread = {
+    ...thread, id: '0196f1a0-0000-7000-8000-000000000098', isMain: false, title: 'Sample side chat',
+};
 const messages = [{
     id: '0196f1a0-0000-7000-8000-000000000006', threadId: thread.id, position: 1, role: 'assistant',
     parts: [{ kind: 'text', text: 'Sample reply from the conversation history.' }], createdAt: thread.lastActivityAt,
@@ -522,9 +525,13 @@ try {
                         ? { maxSteps: null, maxTokens: 5000000, maxDelegations: 2147483647, canRemoveUsageLimit: true }
                         : { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 };
                 }
-                else if (address.endsWith(`/bots/${botId}/threads`)) { body = [thread]; }
+                else if (address.endsWith(`/bots/${botId}/threads`)) {
+                    body = current === 'conversation-links' ? [thread, sideLinkThread] : [thread];
+                }
+                else if (address.endsWith(`/threads/${sideLinkThread.id}`)) { body = sideLinkThread; }
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
-                else if (address === `/api/spaces/${spaceId}/threads/${thread.id}/models` && route.request().method() === 'GET') {
+                else if ([thread.id, sideLinkThread.id].some(id => address === `/api/spaces/${spaceId}/threads/${id}/models`)
+                    && method === 'GET') {
                     body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
                 }
                 else if (address === `/api/spaces/${spaceId}/threads/search` && route.request().method() === 'POST') {
@@ -628,7 +635,7 @@ try {
                     activeConcurrentPictureRequests--;
                     body = { image: samplePng };
                 }
-                else if (address.endsWith(`/threads/${thread.id}/attachment-rules`)) {
+                else if ([thread.id, sideLinkThread.id].some(id => address.endsWith(`/threads/${id}/attachment-rules`))) {
                     body = { maxFileBytes: 26214400, maxFilesPerMessage: 10, modelReadsImages: true, hasSandbox: true };
                 }
                 else if (address.endsWith(`/threads/${thread.id}/files`) && route.request().method() === 'POST') {
@@ -683,8 +690,22 @@ try {
                         return;
                     }
 
+                    const sideChat = address.endsWith(`/threads/${sideLinkThread.id}/messages`);
                     body = current === 'conversation-links'
-                        ? [{ ...messages[0], parts: [{ kind: 'text', text: 'Sample reply with a source.' }, { kind: 'source', text: 'Sample external source', url: `${origin}/sample-external` }] }]
+                        ? [{
+                            ...messages[0],
+                            id: sideChat ? '0196f1a0-0000-7000-8000-000000000099' : messages[0].id,
+                            threadId: sideChat ? sideLinkThread.id : thread.id,
+                            parts: [
+                                { kind: 'text', text: 'Sample reply with a source.' },
+                                {
+                                    kind: 'source',
+                                    text: sideChat ? 'Sample side source' : 'Sample external source',
+                                    url: `${origin}/sample-external`,
+                                },
+                                { kind: 'source', text: 'Sample unsafe source', url: 'javascript:alert(1)' },
+                            ],
+                        }]
                         : current === 'conversation-unusable-tool-request'
                             ? (unusableRegenerateRequests > 0 ? unusableMessages.slice(0, 3) : unusableMessages)
                             : current === 'conversation-search' ? searchMessages : messages;
@@ -1151,18 +1172,55 @@ try {
             assert.equal(unusableRegenerateRequests, 1, 'Try again on an unusable tool-request reply must invoke the existing regenerate flow.');
             progress(`conversation-unusable-tool-request ${width} ${theme}`);
             current = 'conversation-links';
-            await page.route(`${origin}/sample-external`, route => route.fulfill({
-                contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',
-            }));
-            await page.goto(`${origin}/talk/${botId}`);
+            const destination = `${origin}/sample-external`;
+            let sourceNavigations = 0;
+            await page.route(destination, route => {
+                sourceNavigations++;
+                return route.fulfill({
+                    contentType: 'text/html', body: '<!DOCTYPE html><title>Sample external destination</title>',
+                });
+            });
+
+            const loadLinks = async (suffix = '') => {
+                await page.goto(`${origin}/talk/${botId}${suffix}`);
+                await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+            };
+            const assertSourceOpened = async (previousNavigations) => {
+                await page.waitForURL(destination, { timeout: 10000 });
+                assert.equal(await page.title(), 'Sample external destination');
+                assert.equal(sourceNavigations, previousNavigations + 1, 'One gesture causes one navigation.');
+            };
+            const openByPointer = async (link, scene) => {
+                await link.waitFor({ state: 'visible', timeout: 60000 });
+                await page.screenshot({ path: path.join(pictures, `${scene}-${width}-${theme}.png`) });
+                const previousNavigations = sourceNavigations;
+                await link.click({ timeout: 10000 });
+                await assertSourceOpened(previousNavigations);
+            };
+
             const externalSource = page.getByRole('link', { name: /Sample external source,/ });
-            await externalSource.waitFor({ state: 'attached', timeout: 60000 });
-            // A popup blocker can return a fake successful window instead of null. Links must not depend on that result.
+            await loadLinks();
+            await externalSource.waitFor({ state: 'visible', timeout: 60000 });
+            assert.equal(await page.getByRole('link', { name: /Sample unsafe source/ }).count(), 0,
+                'A source with an unsafe scheme is not a link.');
+            assert.equal(page.url(), `${origin}/talk/${botId}`, 'Unsafe schemes do not navigate.');
+
+            // A popup blocker can return a fake successful window instead of null.
             await page.evaluate(() => { window.open = () => ({ closed: false }); });
-            await externalSource.dispatchEvent('click');
-            await page.waitForURL(`${origin}/sample-external`, { timeout: 10000 });
-            assert.equal(await page.title(), 'Sample external destination');
-            progress(`direct external link ${width} ${theme}`);
+            await openByPointer(externalSource, 'main-conversation-source');
+            progress(`source link by pointer ${width} ${theme}`);
+
+            await loadLinks();
+            await externalSource.waitFor({ state: 'visible', timeout: 60000 });
+            const beforeKeyboard = sourceNavigations;
+            await externalSource.press('Enter');
+            await assertSourceOpened(beforeKeyboard);
+            progress(`source link by keyboard ${width} ${theme}`);
+
+            await loadLinks(`/side/${sideLinkThread.id}`);
+            const sideSource = page.getByRole('link', { name: /Sample side source,/ });
+            await openByPointer(sideSource, 'side-chat-source');
+            progress(`side chat source link by pointer ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
