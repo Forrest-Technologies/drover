@@ -28,6 +28,12 @@ public sealed class ConversationSummaryTests(PostgresServer postgres)
             model.Capabilities = new ModelCapabilities { ContextTokens = 2800, MaxOutputTokens = 1000 };
             return true;
         });
+        // This small test window is for measuring the summary passes. Keep the automation tool schemas out of it.
+        foreach (var tool in AutomationTools.AllowedByDefault.Concat(AutomationTools.AskedByDefault))
+        {
+            await world.Revoke(tool);
+        }
+
         world.StartHost(options =>
         {
             options.SummaryAfterMessages = 20;

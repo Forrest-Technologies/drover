@@ -51,26 +51,10 @@ public static class AutomationTools
             "effect": { "type": "string", "enum": ["redact", "ask", "block", "stop"] },
             "conditions": {
               "type": "array",
-              "description": "Every condition must match. An empty list means this rule always applies at the checkpoint.",
+              "description": "All conditions must match. Empty means always. Each object has kind and its inputs: tool_is (tools), tool_kind (tool_kinds), text_contains (entries, argument), text_matches (pattern, argument), text_holds (builtin, argument), not_in_list (entries, argument), time_is (from, to, weekdays, time_zone), run_exceeds (counter, limit), judged (statement, min_confidence).",
               "items": {
                 "type": "object",
-                "properties": {
-                  "kind": { "type": "string", "enum": ["tool_is", "tool_kind", "text_contains", "text_matches", "text_holds", "not_in_list", "time_is", "run_exceeds", "judged"] },
-                  "tools": { "type": "array", "items": { "type": "string" } },
-                  "tool_kinds": { "type": "array", "items": { "type": "string", "enum": ["read", "write", "critical"] } },
-                  "argument": { "type": "string" },
-                  "entries": { "type": "array", "items": { "type": "string" } },
-                  "pattern": { "type": "string" },
-                  "builtin": { "type": "string", "enum": ["email_address", "card_number", "key"] },
-                  "from": { "type": "string" },
-                  "to": { "type": "string" },
-                  "weekdays": { "type": "array", "items": { "type": "string" } },
-                  "time_zone": { "type": "string" },
-                  "counter": { "type": "string", "enum": ["tool_calls", "tokens"] },
-                  "limit": { "type": "integer" },
-                  "statement": { "type": "string" },
-                  "min_confidence": { "type": "number" }
-                },
+                "properties": { "kind": { "type": "string" } },
                 "required": ["kind"]
               }
             }
