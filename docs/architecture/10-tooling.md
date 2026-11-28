@@ -168,7 +168,7 @@ One tool per area. All are free for a public repository and either open source o
 | Area | Tool | License | Why this one |
 | --- | --- | --- | --- |
 | C# static analysis | .NET analyzers, `Drover.Analyzers`, banned symbols, in the build | MIT | Runs on every build, locally and in CI, with the same result |
-| C# security analysis | CodeQL, `security-extended` queries | Free on public repositories | Data-flow analysis the build analyzers do not do. Supports `.slnx`. Also scans the workflow files. |
+| Security analysis | CodeQL, `security-extended` queries | Free on public repositories | Data-flow analysis the build analyzers do not do. Covers C# (supports `.slnx`), the JavaScript and TypeScript in the browser client and the scripts, the Python in `scripts`, and the workflow files. |
 | Dependency vulnerabilities | NuGet audit in the build, mode `all`, with lock files | Built in | Fails the build on a vulnerable direct or transitive package |
 | New dependencies in a pull request | Dependency review action | MIT, GitHub | Blocks a pull request that adds a vulnerable or disallowed-license package |
 | Dependency updates | Dependabot | GitHub | NuGet, actions, and the Docker base image |
