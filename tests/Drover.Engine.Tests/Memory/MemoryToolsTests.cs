@@ -180,6 +180,11 @@ public sealed class MemoryToolsTests(PostgresServer postgres)
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hello.")]));
         await TurnMemoryOn(world);
+        foreach (var tool in MemoryTools.Names)
+        {
+            await world.Revoke(tool);
+        }
+
         world.StartHost();
         var thread = await world.NewThread();
         await AddNote(world, thread, "Prefers tea over coffee.");
@@ -358,16 +363,18 @@ public sealed class MemoryToolsTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task The_memory_tools_are_not_granted_to_a_new_bot()
+    public async Task The_memory_tools_are_granted_to_a_new_bot()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
 
         var granted = await world.Read(db => db.ToolGrants.AsNoTracking()
             .Where(grant => grant.BotId == world.BotId)
-            .Join(db.Tools, grant => grant.ToolId, tool => tool.Id, (grant, tool) => tool.Name)
+            .Join(db.Tools, grant => grant.ToolId, tool => tool.Id, (grant, tool) => new { tool.Name, grant.Effect })
             .ToListAsync(RunWorld.Token));
 
-        granted.Should().NotContain(name => MemoryTools.IsMemoryTool(name));
+        var memory = granted.Where(grant => MemoryTools.IsMemoryTool(grant.Name)).ToList();
+        memory.Select(grant => grant.Name).Should().BeEquivalentTo(MemoryTools.Names);
+        memory.Should().OnlyContain(grant => grant.Effect == GrantEffect.Allow);
         (await world.Read(db => db.Tools.CountAsync(tool => tool.Name.StartsWith("memory."), RunWorld.Token))).Should().Be(4, "each is a catalog row a person can grant");
     }
 

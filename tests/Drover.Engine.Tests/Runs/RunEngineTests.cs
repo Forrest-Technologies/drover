@@ -477,8 +477,10 @@ public sealed class RunEngineTests(PostgresServer postgres)
         var runId = await world.Post(await world.NewThread(), "Write it anyway");
         await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
+        var automationTools = AutomationTools.AllowedByDefault.Concat(AutomationTools.AskedByDefault)
+            .Select(BuiltinTool.ModelName);
         world.Model.ToolsOffered[0].Should().BeEquivalentTo(
-            ["test_lookup", "time_now", "crew_list", "crew_add", "crew_change", "crew_remove"],
+            ["test_lookup", "time_now", "crew_list", "crew_add", "crew_change", "crew_remove", .. automationTools],
             "only the granted tools are sent to the model: the read-only test tool, and the tools a new bot at the top starts with");
         tools.Count("test.write").Should().Be(0, "a tool the model was never given does not run when the model names it anyway");
     }

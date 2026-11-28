@@ -241,8 +241,10 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         var runId = await world.Post(await world.NewThread(), "Hi");
         await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
+        var automationTools = AutomationTools.AllowedByDefault.Concat(AutomationTools.AskedByDefault)
+            .Select(BuiltinTool.ModelName);
         world.Model.ToolsOffered[0].Should().BeEquivalentTo(
-            ["sandbox_list_files", "time_now", "crew_list", "crew_add", "crew_change", "crew_remove"],
+            ["sandbox_list_files", "time_now", "crew_list", "crew_add", "crew_change", "crew_remove", .. automationTools],
             "a new bot is granted no sandbox tool by default");
     }
 

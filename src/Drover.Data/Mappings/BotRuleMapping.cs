@@ -14,6 +14,7 @@ public sealed class BotRuleMapping : IEntityTypeConfiguration<BotRule>
         builder.HasEnumColumn(rule => rule.Checkpoint);
         builder.HasEnumColumn(rule => rule.Effect);
         builder.WithinSpace<BotRule, Bot>(nameof(BotRule.BotId));
+        builder.WithinSpace<BotRule, Bot>(nameof(BotRule.ManagingBotId));
         builder.ReferencesUser(nameof(BotRule.CreatedByUserId));
     }
 

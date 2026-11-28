@@ -83,7 +83,10 @@ public sealed class RuleService(
         return [.. found.Select(rule => rule.ToResponse() with { Notes = Notes(rule.Rule, known, AllowsWrittenPatterns, AllowsJudgedRules, decisionModel is not null) })];
     }
 
-    public async Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
+    public Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken) =>
+        Create(botId, body, AuditActor.Person(actorUserId), cancellationToken);
+
+    internal async Task<RuleChange> Create(Guid botId, BotRuleBody body, AuditActor actor, CancellationToken cancellationToken)
     {
         // Rule writes share the tree lock with a remove that copies rules up. Without it a rule saved while a bot
         // is removed can land on a bot that no longer binds anyone, or be lost from the copies the move makes.
@@ -114,17 +117,21 @@ public sealed class RuleService(
             Checkpoint = read.Checkpoint,
             Effect = read.Effect,
             Conditions = [.. read.Conditions],
-            CreatedByUserId = actorUserId,
+            CreatedByUserId = actor.UserId,
+            ManagingBotId = actor.BotId,
         };
         rules.Add(rule);
         Place(own, rule, body.Position ?? own.Count);
-        audit.Record(actorUserId, "rule.added", AuditTargets.Bot, botId, null, Snapshot(rule), About(rule));
+        audit.Record(actor, "rule.added", AuditTargets.Bot, botId, null, Snapshot(rule), About(rule));
 
         logger.LogInformation("Rule {RuleId} added to bot {BotId}", rule.Id, botId);
         return new RuleChange(new InheritedRule(rule, bot.Name, 0), null);
     }
 
-    public async Task<RuleChange> Update(Guid botId, Guid ruleId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
+    public Task<RuleChange> Update(Guid botId, Guid ruleId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken) =>
+        Update(botId, ruleId, body, AuditActor.Person(actorUserId), cancellationToken);
+
+    internal async Task<RuleChange> Update(Guid botId, Guid ruleId, BotRuleBody body, AuditActor actor, CancellationToken cancellationToken)
     {
         await bots.LockTree(cancellationToken);
 
@@ -136,7 +143,8 @@ public sealed class RuleService(
         var own = await rules.GetRules(botId, cancellationToken);
 
         // Only the bot's own rules are found here, so a rule inherited from a bot above cannot be changed through this bot.
-        if (own.Find(candidate => candidate.Id == ruleId) is not { } rule)
+        if (own.Find(candidate => candidate.Id == ruleId) is not { } rule
+            || !await MayChange(rule, actor, cancellationToken))
         {
             return RuleChange.NotFound;
         }
@@ -147,6 +155,7 @@ public sealed class RuleService(
         }
 
         var before = Snapshot(rule);
+        rule.ManagingBotId = actor.BotId;
         rule.Name = read.Name;
         rule.Enabled = body.Enabled;
         rule.Checkpoint = read.Checkpoint;
@@ -155,7 +164,7 @@ public sealed class RuleService(
         own.Remove(rule);
         Place(own, rule, body.Position ?? rule.Position);
 
-        if (audit.Record(actorUserId, "rule.changed", AuditTargets.Bot, botId, before, Snapshot(rule), About(rule)))
+        if (audit.Record(actor, "rule.changed", AuditTargets.Bot, botId, before, Snapshot(rule), About(rule)))
         {
             logger.LogInformation("Rule {RuleId} of bot {BotId} changed", rule.Id, botId);
         }
@@ -164,7 +173,10 @@ public sealed class RuleService(
     }
 
     /// <summary>Removes one of the bot's own rules. False when there is no such bot or rule.</summary>
-    public async Task<bool> Remove(Guid botId, Guid ruleId, Guid actorUserId, CancellationToken cancellationToken)
+    public Task<bool> Remove(Guid botId, Guid ruleId, Guid actorUserId, CancellationToken cancellationToken) =>
+        Remove(botId, ruleId, AuditActor.Person(actorUserId), cancellationToken);
+
+    internal async Task<bool> Remove(Guid botId, Guid ruleId, AuditActor actor, CancellationToken cancellationToken)
     {
         await bots.LockTree(cancellationToken);
 
@@ -175,7 +187,8 @@ public sealed class RuleService(
 
         var own = await rules.GetRules(botId, cancellationToken);
 
-        if (own.Find(candidate => candidate.Id == ruleId) is not { } rule)
+        if (own.Find(candidate => candidate.Id == ruleId) is not { } rule
+            || !await MayChange(rule, actor, cancellationToken))
         {
             return false;
         }
@@ -183,7 +196,7 @@ public sealed class RuleService(
         own.Remove(rule);
         rules.Remove(rule);
         Renumber(own);
-        audit.Record(actorUserId, "rule.removed", AuditTargets.Bot, botId, Snapshot(rule), null, About(rule));
+        audit.Record(actor, "rule.removed", AuditTargets.Bot, botId, Snapshot(rule), null, About(rule));
 
         logger.LogInformation("Rule {RuleId} removed from bot {BotId}", rule.Id, botId);
         return true;
@@ -240,6 +253,7 @@ public sealed class RuleService(
             rule.Checkpoint,
             rule.Effect,
             rule.Conditions,
+            rule.ManagingBotId,
         });
 
     /// <summary>
@@ -255,6 +269,12 @@ public sealed class RuleService(
     #endregion
 
     #region Private Methods
+
+    // A bot may change a rule its own branch controls. An edit by a person or an ancestor transfers control
+    // to that actor, so a bot farther down cannot undo their change in a later run.
+    internal async Task<bool> MayChange(BotRule rule, AuditActor actor, CancellationToken cancellationToken) =>
+        actor.BotId is not { } caller
+        || (rule.ManagingBotId is { } author && (author == caller || await bots.IsBeneath(author, caller, cancellationToken)));
 
     // The sample as the evaluator takes it, with the rules the bot follows and the draft, or why it cannot be tried.
     private async Task<(RuleSample? Sample, RuleTrial? Problem)> ReadSample(Guid botId, TryRulesRequest request, CancellationToken cancellationToken)
