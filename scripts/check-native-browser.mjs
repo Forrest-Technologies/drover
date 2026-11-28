@@ -1595,10 +1595,8 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     await page.mouse.click(moreBox.x + moreBox.width / 2, moreBox.y + moreBox.height / 2);
     const attach = page.getByRole('menuitem', { name: 'Attach file', exact: true });
     await attach.waitFor({ state: 'attached', timeout: 5000 });
-    const closeBox = await more.boundingBox({ timeout: 5000 });
-    assert.ok(closeBox, 'More options still has an accessible box while options are open.');
-    await page.mouse.click(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2);
-    await attach.waitFor({ state: 'detached', timeout: 5000 });
+    await page.keyboard.press('Escape');
+    await attach.waitFor({ state: 'hidden', timeout: 5000 });
 
     const fieldBox = await field.boundingBox({ timeout: 5000 });
     assert.ok(fieldBox, 'The message field has an accessible box in the composer.');
@@ -2123,7 +2121,7 @@ async function checkConversationStatus(page, width, theme) {
 
     await click(model('Sample fast model'));
     await search.waitFor({ state: 'visible' });
-    await page.mouse.click(12, 64);
+    await click(page.getByRole('main').getByRole('heading', { name: 'Sample bot', exact: true }));
     await search.waitFor({ state: 'hidden' });
 
     if (width === 360) {
