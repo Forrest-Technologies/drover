@@ -584,10 +584,10 @@ try {
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
                 else if (address.endsWith('/stream')) {
-                    if (current === 'conversation-load-failed' || current === 'conversation-unusable-tool-request') {
-                        // A stream that ends reports a reconnection, which reads the conversation again by itself.
-                        // Hold this one open so the retry scene checks the button rather than an automatic retry,
-                        // and the unusable-tool-request scene is not redrawn mid-keypress by a reconnect loop.
+                    if (current === 'conversation-load-failed' || current === 'conversation-unusable-tool-request'
+                        || current === 'conversation-status') {
+                        // A stream that ends triggers a reconnect and redraw. Keep these scenes on the same frame
+                        // as they exercise retry, regenerated replies, and the composer and model popups.
                         return;
                     }
 
@@ -2095,8 +2095,9 @@ async function checkConversationStatus(page, width, theme) {
     const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), click(attach)]);
     await attach.waitFor({ state: 'hidden' });
     await chooser.setFiles({ name: 'sample-chooser.txt', mimeType: 'text/plain', buffer: Buffer.from('Sample attachment.') });
+    await waitForShown(page, '1 file ready to send.');
     const remove = button('Remove sample-chooser.txt');
-    await click(remove);
+    await remove.press('Space');
     await remove.waitFor({ state: 'hidden' });
 
     await click(model('Sample default'));
