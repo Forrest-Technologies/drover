@@ -115,6 +115,11 @@ const botDetail = {
     memorySettings: { compaction: 'off' }, sandboxPolicy: 'own',
     sandboxSettings: { network: 'off', allowedHosts: [] }, sandboxSharedWith: [], buildLimits: {}, runLimits: {},
 };
+const conversationModels = [
+    { model: bot.model, name: 'Sample default' },
+    { model: 'sample-provider/fast', name: 'Sample fast model' },
+    { model: 'another-provider/large', name: 'Sample large model' },
+];
 const thread = { id: '0196f1a0-0000-7000-8000-000000000005', botId, lastActivityAt: '2026-11-18T00:00:00Z', isMain: true };
 const sideLinkThread = {
     ...thread, id: '0196f1a0-0000-7000-8000-000000000098', isMain: false, title: 'Sample side chat',
@@ -423,6 +428,7 @@ try {
             let heldRoute;
             let botCreates = 0;
             let acceptsBotRequests;
+            let chosenConversationModel = null;
             // The files the conversation uploaded, in order, by name and bytes: each pasted or dropped file adds one.
             const uploadedFiles = [];
             let projectMoved = false;
@@ -532,7 +538,16 @@ try {
                 else if (address.endsWith('/main-thread') || address.endsWith(`/threads/${thread.id}`)) { body = thread; }
                 else if ([thread.id, sideLinkThread.id].some(id => address === `/api/spaces/${spaceId}/threads/${id}/models`)
                     && method === 'GET') {
-                    body = { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
+                    body = current === 'conversation-status'
+                        ? { botModel: bot.model, botModelName: 'Sample default', chosen: chosenConversationModel, models: conversationModels }
+                        : { botModel: bot.model, botModelName: bot.model, chosen: null, models: [{ model: bot.model, name: bot.model }] };
+                }
+                else if (current === 'conversation-status' && address.endsWith(`/threads/${thread.id}/model`) && method === 'PUT') {
+                    chosenConversationModel = route.request().postDataJSON().model ?? null;
+                    body = { botModel: bot.model, botModelName: 'Sample default', chosen: chosenConversationModel, models: conversationModels };
+                }
+                else if (current === 'conversation-status' && address.endsWith(`/runs/${heldRun.id}/usage`)) {
+                    body = { runId: heldRun.id, currency: 'USD', own: { inputTokens: 148180, outputTokens: 33921, cost: 0.03 } };
                 }
                 else if (address === `/api/spaces/${spaceId}/threads/search` && route.request().method() === 'POST') {
                     const { query } = route.request().postDataJSON() ?? {};
@@ -691,7 +706,10 @@ try {
                     }
 
                     const sideChat = address.endsWith(`/threads/${sideLinkThread.id}/messages`);
-                    body = current === 'conversation-links'
+                    body = current === 'conversation-status'
+                        ? [{ ...messages[0], parts: [messages[0].parts[0]], runId: heldRun.id,
+                            runPrincipalUserId: person.userId, model: bot.model }]
+                        : current === 'conversation-links'
                         ? [{
                             ...messages[0],
                             id: sideChat ? '0196f1a0-0000-7000-8000-000000000099' : messages[0].id,
@@ -1221,6 +1239,10 @@ try {
             const sideSource = page.getByRole('link', { name: /Sample side source,/ });
             await openByPointer(sideSource, 'side-chat-source');
             progress(`side chat source link by pointer ${width} ${theme}`);
+            current = 'conversation-status';
+            await loadLinks();
+            await checkConversationStatus(page, width, theme);
+            progress(`conversation status and popups ${width} ${theme}`);
             progress(`closing the ${width} ${theme} context`);
             await context.close();
         }
@@ -2036,6 +2058,83 @@ async function typeSearch(page, box, words) {
 
 // Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
 // scrolls its message into the viewport rather than remaining stuck at the conversation foot.
+async function checkConversationStatus(page, width, theme) {
+    const button = name => page.getByRole('button', { name, exact: typeof name === 'string' });
+    const model = name => button(`Model for this conversation, ${name}`);
+    const click = async target => {
+        await target.waitFor({ state: 'visible', timeout: 10000 });
+        const bounds = await target.boundingBox();
+        assert(bounds, 'The control has pointer bounds.');
+        await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    };
+    const search = page.getByRole('textbox', { name: 'Search models', exact: true });
+    const capture = name => page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+    await model('Sample default').waitFor({ state: 'visible', timeout: 15000 });
+    await button(/Usage for this reply, In 148,180, Out 33,921, USD 0.03/).waitFor({ state: 'visible' });
+    await capture('conversation-status');
+
+    const more = button('More options');
+    const attach = page.getByRole('menuitem', { name: 'Attach file', exact: true });
+    const composer = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const baseline = await composer.boundingBox();
+    await click(more);
+    await attach.waitFor({ state: 'visible' });
+    const anchorBounds = await more.boundingBox();
+    const menuBounds = await attach.boundingBox();
+    assert(menuBounds.y + menuBounds.height <= anchorBounds.y, 'Attach opens above the plus button.');
+    assert.deepEqual(await composer.boundingBox(), baseline, 'Opening message actions leaves the composer in place.');
+    await capture('conversation-status-actions');
+    await page.mouse.click(anchorBounds.x + anchorBounds.width / 2, anchorBounds.y - menuBounds.height - 50);
+    await attach.waitFor({ state: 'hidden' });
+
+    await click(model('Sample default'));
+    await search.waitFor({ state: 'visible' });
+    await page.getByRole('heading', { name: 'sample-provider', exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('heading', { name: 'another-provider', exact: true }).waitFor({ state: 'visible' });
+    await button("Use the bot's default").waitFor({ state: 'visible' });
+    await search.fill('no-such-model');
+    await waitForShown(page, 'No matching models. Try a different search.');
+    await capture('conversation-status-models-empty');
+    await search.fill('fast');
+    await click(button('Sample fast model'));
+    await search.waitFor({ state: 'hidden' });
+    await model('Sample fast model').waitFor({ state: 'visible' });
+
+    await model('Sample fast model').press('Enter');
+    await search.waitFor({ state: 'visible' });
+    await page.getByRole('heading', { name: 'Recent models', exact: true }).waitFor({ state: 'visible' });
+    await capture('conversation-status-models');
+    await page.keyboard.press('Escape');
+    await search.waitFor({ state: 'hidden' });
+
+    await click(model('Sample fast model'));
+    await search.waitFor({ state: 'visible' });
+    await page.mouse.click(12, 64);
+    await search.waitFor({ state: 'hidden' });
+
+    if (width === 360) {
+        await click(page.getByRole('link', { name: 'Back to conversations', exact: true }));
+    }
+    const account = button(width === 360 ? 'Account for Sample person' : 'Sample person');
+    await click(account);
+    await click(page.getByRole('menuitem', { name: 'Appearance', exact: true }));
+    const setting = page.getByLabel('Show conversation status bar', { exact: true });
+    await setting.press('Space');
+    await page.waitForFunction(() => localStorage.getItem('drover.conversation.status-line') === 'off');
+    await capture('conversation-status-setting');
+    await click(page.getByRole('button', { name: 'Close', exact: true }));
+    if (width === 360) {
+        await click(page.getByRole('link', { name: 'Sample bot', exact: true }));
+    }
+    await model('Sample fast model').waitFor({ state: 'hidden' });
+    await click(more);
+    await click(page.getByRole('menuitem', { name: 'Model for this conversation', exact: true }));
+    await search.waitFor({ state: 'visible' });
+    await click(button("Use the bot's default"));
+    await search.waitFor({ state: 'hidden' });
+    await capture('conversation-status-hidden');
+}
+
 async function checkConversationSearch(page, width) {
     const target = width === 360 ? '/' : `/talk/${botId}`;
     await page.evaluate(url => { history.pushState(null, '', url); dispatchEvent(new PopStateEvent('popstate')); }, target);

@@ -84,11 +84,11 @@ internal static class ChatSamples
         [
             Fitting(new MessageList { Model = Turn() }),
         ]),
-        new("Status line", "One line of text under the composer: what the bot is doing now and the model while it works, and at rest the model that wrote the newest reply, its tokens and its cost. The model and the figures are samples.", () =>
+        new("Status line", "The current model, the working state, and the latest reply’s usage. The model and figures are samples.", () =>
         [
-            Wide(new Composer { Model = new() { BotName = "Sample lead bot", Running = true }, Under = StatusLine(working: true, finished: false) }),
-            Wide(new Composer { Model = new() { BotName = "Sample lead bot" }, Under = StatusLine(working: false, finished: true) }),
-            Wide(new Composer { Model = new() { BotName = "Sample lead bot" }, Under = StatusLine(working: false, finished: false) }),
+            Wide(ComposerAndStatus(new() { BotName = "Sample lead bot", Running = true }, Status(true, false))),
+            Wide(ComposerAndStatus(new() { BotName = "Sample lead bot", Running = false }, Status(false, true))),
+            Wide(ComposerAndStatus(new() { BotName = "Sample lead bot", Running = false }, Status(false, false))),
         ]),
         new("A reply's reasoning and sources", "Reasoning stays closed until opened; while it arrives the bot's head breathes and the section's edge is lit. Sources sit under the words and open outside the app.", () =>
         [
@@ -125,9 +125,9 @@ internal static class ChatSamples
                 },
             }),
         ]),
-        new("Choosing a conversation's model", "Behind the plus button, beside Attach, when the bot may answer with more than one model.", () =>
+        new("Choosing a conversation's model", "Select the model in the status bar to see the available sample models.", () =>
         [
-            Wide(new Composer { Model = ChoosingModel() }),
+            Wide(ComposerAndStatus(ChoosingModel(), Status(false, false))),
         ]),
     ];
 
@@ -229,8 +229,14 @@ internal static class ChatSamples
     private static Task<RunUsageDetail> SampleUsage(Guid runId) =>
         Task.FromResult(new RunUsageDetail(runId, "USD", new(0.02m, 1_040, 200), null));
 
-    private static ConversationStatus StatusLine(bool working, bool finished) =>
-        new() { Model = Status(working, finished) };
+    public static StackPanel ComposerAndStatus(ComposerViewModel composer, ConversationStatusViewModel status)
+    {
+        var picker = new ConversationModelPicker();
+        var footer = new StackPanel();
+        footer.Children.Add(new Composer { Model = composer, Picker = picker });
+        footer.Children.Add(new ConversationStatus { Model = status, Composer = composer, Picker = picker });
+        return footer;
+    }
 
     /// <summary>A sample conversation with a reply that reasoned and cited sources, and one whose reasoning is arriving.</summary>
     public static MessageListViewModel Reasoned()
@@ -314,10 +320,10 @@ internal static class ChatSamples
         return list;
     }
 
-    /// <summary>A sample composer with its options open, offering the bot's own model and one more.</summary>
+    /// <summary>A sample conversation offering the bot's default and one more model.</summary>
     public static ComposerViewModel ChoosingModel()
     {
-        var composer = new ComposerViewModel { BotName = "Sample lead bot", OptionsOpen = true };
+        var composer = new ComposerViewModel { BotName = "Sample lead bot" };
         composer.ShowModels(new ConversationModelChoice(
             "sample-model",
             "Sample model",

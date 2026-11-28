@@ -23,7 +23,7 @@ public sealed record ConversationStatusFacts(
 
 /// <summary>
 /// The one quiet line under a conversation's composer (docs/ux/conversation-display.md, section 1). While a run
-/// works: what the bot is doing, then the model. At rest: the model that wrote the newest reply, then the tokens and
+/// works: what the bot is doing, then the model. At rest: the model the conversation answers with, then the tokens and
 /// the cost of that reply once they are read. A part that is not known is left out, never shown as zero. What the
 /// newest reply used is read once, when the line first shows that reply, and the line then opens the whole of it.
 /// A read that fails leaves the figures out; the popover says what failed. With nothing to say the line is not there.
@@ -45,12 +45,21 @@ public sealed class ConversationStatusViewModel : ObservableObject
 
     private bool working;
 
+    private bool enabled = true;
+
     #endregion
 
     #region Properties
 
     /// <summary>The parts of the line, in the order they stand. Empty when the line has nothing to say.</summary>
     public IReadOnlyList<StatusPart> Parts { get; private set; } = [];
+
+    /// <summary>Whether the device shows the bar and reads its usage.</summary>
+    public bool Enabled
+    {
+        get => enabled;
+        set => SetProperty(ref enabled, value);
+    }
 
     /// <summary>What the newest finished reply used, when this person may read it: the line then opens it.</summary>
     public ReplyUsageViewModel? Usage => working ? null : read;
@@ -63,7 +72,7 @@ public sealed class ConversationStatusViewModel : ObservableObject
 
     /// <summary>
     /// The whole line as a sentence, for someone who cannot see it, whatever part of it fits the screen:
-    /// "vendor/model, 1,240 tokens, USD 0.02. Shows usage for this reply."
+    /// "vendor/model, In 1,040, Out 200, USD 0.02. Shows usage for this reply."
     /// </summary>
     public string Name => !HasAny ? string.Empty
         : Usage is null ? $"{string.Join(", ", Parts.Select(part => part.Text))}."
@@ -77,9 +86,9 @@ public sealed class ConversationStatusViewModel : ObservableObject
     public void Show(ConversationStatusFacts facts, Func<Guid, Task<RunUsageDetail>>? load, ILogger logger)
     {
         working = facts.Working;
-        var reply = ChatRows.NewestFinished(facts.Messages);
+        var reply = Enabled ? ChatRows.NewestFinished(facts.Messages) : null;
         Follow(reply is not null && ChatRows.OffersUsage(reply, load is not null) ? reply : null, load, logger);
-        Parts = working ? WorkingParts(facts) : RestParts(reply, facts);
+        Parts = !Enabled ? [] : working ? WorkingParts(facts) : RestParts(reply, facts);
         OnPropertyChanged(string.Empty);
     }
 
@@ -148,10 +157,10 @@ public sealed class ConversationStatusViewModel : ObservableObject
         return parts;
     }
 
-    // At rest the model is the one that wrote the newest reply. Before any reply it is the conversation's own.
+    // A reply's model is a fallback when the conversation's current model is unavailable.
     private List<StatusPart> RestParts(ChatMessage? reply, ConversationStatusFacts facts)
     {
-        var model = reply is null ? ModelWords(facts) : reply.Model;
+        var model = ModelWords(facts) ?? reply?.Model;
         List<StatusPart> parts = model is null ? [] : [new(model)];
         parts.AddRange(Figures(read?.Detail));
         return parts;
@@ -174,7 +183,8 @@ public sealed class ConversationStatusViewModel : ObservableObject
         }
 
         var figure = read.Tree ?? read.Own;
-        yield return new($"{UsageWords.Tokens(figure.InputTokens + figure.OutputTokens)} tokens", IsNumber: true);
+        yield return new($"In {UsageWords.Tokens(figure.InputTokens)}", IsNumber: true);
+        yield return new($"Out {UsageWords.Tokens(figure.OutputTokens)}", IsNumber: true);
 
         if (figure.Cost is { } cost)
         {

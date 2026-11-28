@@ -221,7 +221,7 @@ public sealed class ShellView : Grid
         var dialog = new Dialog
         {
             Title = "Appearance",
-            Body = new AppearanceChoices(appearanceModel) { FocusHeld = held },
+            Body = new AppearanceChoices(appearanceModel, services.GetRequiredService<ConversationDisplaySettings>()) { FocusHeld = held },
             OpensAtOnce = before is not null,
         };
         dialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AppearanceClosedByPerson(dialog));

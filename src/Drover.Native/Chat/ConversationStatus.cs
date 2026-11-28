@@ -1,38 +1,34 @@
 namespace Drover.Native.Chat;
 
-/// <summary>
-/// The one quiet line under a conversation's composer: text only, its parts joined by a middle dot. While a run
-/// works it says what the bot is doing, in the color of a bot at work, then the model. At rest it names the model
-/// that wrote the newest reply, then the tokens and the cost of that reply, the numbers in the machine font. When it
-/// has usage to open it is one button that opens the popover of it; otherwise it is plain text. It never wraps and
-/// never moves: where the line is too narrow it shows the leading parts that fit, and the first is cut short if it
-/// alone is too long. The whole sentence is its accessible name. With nothing to say the line takes no room.
-/// </summary>
-public sealed class ConversationStatus : Grid
+/// <summary>Application chrome for the current model, run state, and usage of the last finished reply.</summary>
+public sealed class ConversationStatus : Border
 {
     #region Private Fields
 
-    private readonly TextBlock words = Line();
+    private readonly TextBlock current = Text();
 
-    private readonly PlainButton button = new()
+    private readonly TextBlock modelWords = Text();
+
+    private readonly TextBlock activity = Text();
+
+    private readonly Icon expand = new()
     {
-        Ink = "DvText3",
-        HoverInk = "DvText2",
-        HoverFill = null,
-        Radius = null,
-        MinHeight = Targets.Minimum,
-        Padding = new(Tokens.Number("DvSpace1"), 0, Tokens.Number("DvSpace1"), 0),
-        HorizontalAlignment = HorizontalAlignment.Left,
-        HorizontalContentAlignment = HorizontalAlignment.Left,
+        NameOfIcon = IconName.ChevronDown,
+        Size = (int)Tokens.Number("DvIcon16"),
+        VerticalAlignment = VerticalAlignment.Center,
     };
 
-    private readonly Border plain = new() { Padding = new(Tokens.Number("DvSpace1"), 0, Tokens.Number("DvSpace1"), 0) };
+    private readonly PlainButton modelButton = Segment();
+
+    private readonly PlainButton usageButton = Segment();
+
+    private readonly StackPanel figures = new() { Orientation = Orientation.Horizontal };
 
     private readonly UsagePopover popover = new();
 
     private ConversationStatusViewModel? model;
 
-    private bool lit;
+    private ComposerViewModel? composer;
 
     #endregion
 
@@ -41,26 +37,53 @@ public sealed class ConversationStatus : Grid
     public ConversationStatus()
     {
         MinHeight = Targets.Minimum;
-        Children.Add(plain);
-        Children.Add(button);
+        BorderThickness = new(0, Tokens.Number("DvBorder"), 0, 0);
         AutomationProperties.SetAutomationId(this, "ConversationStatus");
-        button.Click += async (_, _) => await popover.Open(button);
-        button.PointerEntered += (_, _) => Light(true);
-        button.PointerExited += (_, _) => Light(button.FocusState is FocusState.Keyboard);
-        button.GotFocus += (_, _) => Light(true);
-        button.LostFocus += (_, _) => Light(false);
 
-        // The line is written again once the layout that gave it its width is over: text changed inside that layout
-        // is not laid out again.
-        SizeChanged += (_, _) => DispatcherQueue.TryEnqueue(Write);
+        var chrome = new Grid();
+        chrome.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        chrome.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        chrome.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+
+        var name = new Grid { ColumnSpacing = Tokens.Number("DvSpace1") };
+        name.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        name.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        Grid.SetColumn(expand, 1);
+        name.Children.Add(modelWords);
+        name.Children.Add(expand);
+        modelButton.Content = name;
+
+        current.Margin = Tokens.Space("DvSpace3", "DvSpace1");
+        activity.Margin = Tokens.Space("DvSpace2", "DvSpace1");
+        Grid.SetColumn(activity, 1);
+        Grid.SetColumn(usageButton, 2);
+        usageButton.Padding = new(0);
+        usageButton.Content = figures;
+        chrome.Children.Add(current);
+        chrome.Children.Add(modelButton);
+        chrome.Children.Add(activity);
+        chrome.Children.Add(usageButton);
+        Child = chrome;
+
+        modelButton.Click += (_, _) =>
+        {
+            if (composer is { } shown)
+            {
+                Picker?.Open(modelButton, shown);
+            }
+        };
+        usageButton.Click += async (_, _) => await popover.Open(usageButton);
+
         this.WhenShownOrRethemed(Show);
+        Show();
     }
 
     #endregion
 
     #region Properties
 
-    /// <summary>What the line says: set by the conversation it stands under.</summary>
+    internal ConversationModelPicker? Picker { get; init; }
+
     public ConversationStatusViewModel? Model
     {
         get => model;
@@ -73,20 +96,42 @@ public sealed class ConversationStatus : Grid
         }
     }
 
+    public ComposerViewModel? Composer
+    {
+        get => composer;
+        set
+        {
+            composer?.PropertyChanged -= Changed;
+            composer = value;
+            composer?.PropertyChanged += Changed;
+            Show();
+        }
+    }
+
     #endregion
 
     #region Private Methods
 
-    private static TextBlock Line()
+    private static TextBlock Text() => new()
     {
-        var line = Styles.Text(null, "DvTextCaption");
-        line.TextWrapping = TextWrapping.NoWrap;
-        line.TextTrimming = TextTrimming.CharacterEllipsis;
-        line.VerticalAlignment = VerticalAlignment.Center;
-        return line;
-    }
+        FontFamily = Tokens.FontMono,
+        FontSize = Tokens.Number("DvText12"),
+        TextWrapping = TextWrapping.NoWrap,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
 
-    // A conversation can say what changed from the server's answer, off the screen's own turn.
+    private static PlainButton Segment() => new()
+    {
+        Ink = "DvText2",
+        Radius = null,
+        RingInside = true,
+        MinHeight = Targets.Minimum,
+        Padding = Tokens.Space("DvSpace3", "DvSpace1"),
+        HorizontalContentAlignment = HorizontalAlignment.Left,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+    };
+
     private void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
     {
         if (DispatcherQueue.HasThreadAccess)
@@ -99,88 +144,70 @@ public sealed class ConversationStatus : Grid
         }
     }
 
-    private void Light(bool value)
-    {
-        lit = value;
-        Write();
-    }
-
-    // The line is a button only when it opens something. Its words are the same text either way.
     private void Show()
     {
-        var opens = model?.Usage is not null;
-        popover.Model = model?.Usage;
-        Visibility = model?.HasAny is true ? Visibility.Visible : Visibility.Collapsed;
-        button.Visibility = opens ? Visibility.Visible : Visibility.Collapsed;
-        plain.Visibility = opens ? Visibility.Collapsed : Visibility.Visible;
-
-        if (opens && !ReferenceEquals(button.Content, words))
-        {
-            plain.Child = null;
-            button.Content = words;
-        }
-        else if (!opens && !ReferenceEquals(plain.Child, words))
-        {
-            button.Content = null;
-            plain.Child = words;
-        }
-
-        var name = model?.Name ?? string.Empty;
-        AutomationProperties.SetName(button, name);
-        AutomationProperties.SetName(words, name);
-        ToolTipService.SetToolTip(button, opens ? ConversationStatusViewModel.OpensUsage : null);
-        Write();
-    }
-
-    // As many of the leading parts as fit the line's width, and never fewer than the first.
-    private void Write()
-    {
         var parts = model?.Parts ?? [];
-        var room = ActualWidth - (2 * Tokens.Number("DvSpace1"));
-        var fits = parts.Count;
-        Fill(words, parts);
+        var name = composer?.ActiveModelName ?? parts.FirstOrDefault(part => !part.IsNumber && !part.IsState)?.Text;
+        var state = parts.FirstOrDefault(part => part.IsState)?.Text;
+        var canPick = Picker is not null && composer is { HasModelChoice: true, Disabled: false };
+        var visible = model is { Enabled: true } && (model.HasAny || model.Usage is not null || name is not null);
 
-        while (fits > 1 && room > 0 && Measured() > room)
+        Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        modelButton.Visibility = canPick ? Visibility.Visible : Visibility.Collapsed;
+        modelButton.IsEnabled = composer?.ChoosingModel is not true;
+        current.Visibility = canPick ? Visibility.Collapsed : Visibility.Visible;
+        current.Text = modelWords.Text = name ?? string.Empty;
+
+        AutomationProperties.SetName(modelButton, $"{ComposerViewModel.ModelLabel}, {name}");
+        ToolTipService.SetToolTip(modelButton, name);
+        ToolTipService.SetToolTip(current, name);
+        activity.Text = state ?? string.Empty;
+        activity.Visibility = state is null ? Visibility.Collapsed : Visibility.Visible;
+        activity.MaxWidth = Tokens.Number("DvMenuWidth") / 2;
+        ToolTipService.SetToolTip(activity, state);
+        PaintFigures(parts.Where(part => part.IsNumber), visible ? model?.Usage : null);
+        Background = Tokens.Brush(this, "DvBg1");
+        BorderBrush = Tokens.Brush(this, "DvLine");
+        current.Foreground = Tokens.Brush(this, "DvText2");
+        activity.Foreground = Tokens.Brush(this, "DvIon");
+    }
+
+    private void PaintFigures(IEnumerable<StatusPart> parts, ReplyUsageViewModel? usage)
+    {
+        popover.Model = usage;
+        usageButton.Visibility = usage is null ? Visibility.Collapsed : Visibility.Visible;
+        var words = parts.Select(part => part.Text).ToArray();
+        AutomationProperties.SetName(usageButton, words.Length == 0
+            ? ReplyUsageViewModel.Label
+            : $"{ReplyUsageViewModel.Label}, {string.Join(", ", words)}");
+        ToolTipService.SetToolTip(usageButton, ReplyUsageViewModel.Label);
+
+        if (figures.Children.OfType<Border>().Select(part => (part.Child as TextBlock)?.Text)
+            .SequenceEqual(words.Length == 0 ? ["Usage"] : words))
         {
-            fits--;
-            Fill(words, parts.Take(fits));
+            foreach (var rule in figures.Children.OfType<Border>())
+            {
+                rule.BorderBrush = Tokens.Brush(this, "DvLine");
+                ((TextBlock)rule.Child).Foreground = Tokens.Brush(this, "DvText2");
+            }
+
+            return;
         }
 
-        words.Foreground = Tokens.Brush(this, lit ? "DvText2" : "DvText3");
-
-        // What was measured with all the room there is must not stand as the line's size.
-        words.InvalidateMeasure();
-    }
-
-    private double Measured()
-    {
-        words.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
-        return Math.Ceiling(words.DesiredSize.Width);
-    }
-
-    private void Fill(TextBlock line, IEnumerable<StatusPart> parts)
-    {
-        line.Inlines.Clear();
-
-        foreach (var part in parts)
+        figures.Children.Clear();
+        foreach (var word in words.Length == 0 ? ["Usage"] : words)
         {
-            if (line.Inlines.Count > 0)
+            var label = Text();
+            label.Text = word;
+            label.Foreground = Tokens.Brush(this, "DvText2");
+            figures.Children.Add(new Border
             {
-                line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = ConversationStatusViewModel.Separator });
-            }
-
-            var run = new Microsoft.UI.Xaml.Documents.Run { Text = part.Text };
-            if (part.IsNumber)
-            {
-                run.FontFamily = Tokens.FontMono;
-            }
-
-            if (part.IsState)
-            {
-                run.Foreground = Tokens.Brush(this, "DvIon");
-            }
-
-            line.Inlines.Add(run);
+                Child = label,
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = Tokens.Space("DvSpace2", "DvSpace1"),
+                BorderBrush = Tokens.Brush(this, "DvLine"),
+                BorderThickness = new(Tokens.Number("DvBorder"), 0, 0, 0),
+            });
         }
     }
 

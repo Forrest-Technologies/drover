@@ -20,6 +20,8 @@ public sealed class Menu : Grid
 
     private readonly Flyout flyout = new() { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
 
+    private MenuItem? afterClose;
+
     #endregion
 
     #region Constructors
@@ -38,6 +40,14 @@ public sealed class Menu : Grid
 
         flyout.Content = list;
         flyout.Opened += (_, _) => FirstOpen()?.TakeFocus();
+        flyout.Closed += (_, _) =>
+        {
+            if (afterClose is { } item)
+            {
+                afterClose = null;
+                DispatcherQueue.TryEnqueue(() => Act(item));
+            }
+        };
         list.KeyDown += (_, key) => Move(key);
         Items.CollectionChanged += (_, _) => Describe();
         Describe();
@@ -90,6 +100,13 @@ public sealed class Menu : Grid
     /// <summary>The menu's button, for a layout that shapes it: the dock of a phone stacks its icon over its label.</summary>
     public PlainButton Trigger => trigger;
 
+    /// <summary>Where the list opens relative to its trigger.</summary>
+    public FlyoutPlacementMode Placement
+    {
+        get => flyout.Placement;
+        set => flyout.Placement = value;
+    }
+
     #endregion
 
     #region Public Methods
@@ -140,9 +157,22 @@ public sealed class Menu : Grid
     // button as the place to return to.
     private void Choose(object sender, RoutedEventArgs args)
     {
+        var item = (MenuItem)sender;
+        if (item.OpensFlyout)
+        {
+            afterClose = item;
+            flyout.Hide();
+            return;
+        }
+
         flyout.Hide();
+        Act(item);
+    }
+
+    private void Act(MenuItem item)
+    {
         trigger.TakeFocus();
-        ((MenuItem)sender).RaiseSelected();
+        item.RaiseSelected();
     }
 
     private MenuItem? FirstOpen() => Items.FirstOrDefault(item => item.IsEnabled);

@@ -592,6 +592,11 @@ framework:
   can report no size or a stale size. The Android composer reads the bytes within the server's file limit before the
   HTTP handler sends the request, so the request's length matches the bytes it carries.
 
+The conversation pane gives the status bar its own row below the composer. The model button opens the picker
+for the current conversation's allowed catalog. The latest completed reply's input, output, and cost share a
+separate usage action. The composer plus opens an anchored flyout without changing the height of the composer.
+A device preference in Appearance hides the bar, skips its usage read, and moves the model action into that flyout.
+
 The conversation's "More" menu ends with "Save conversation as Markdown" and "Save conversation as JSON". The server
 writes the file (`ConversationSaver` asks for it through `DroverApi.ExportConversation`), and the platform saves it
 the way a bot's file is saved (`PlatformFiles.SaveText`): the system's save dialog on desktop and
