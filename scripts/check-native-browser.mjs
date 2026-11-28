@@ -1379,25 +1379,28 @@ async function composerRingCheck(page) {
 
 async function checkComposerBounds(page) {
     const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
-    const buttons = ['More options', 'Attach', 'Send'];
+    const buttons = ['More options', 'Send'];
     const { settled, close } = await composerRingCheck(page);
     const more = page.getByRole('button', { name: 'More options', exact: true });
+    const attach = page.getByRole('menuitem', { name: 'Attach file', exact: true });
 
     try {
-        await more.dispatchEvent('click');
-        await settled('options open', buttons.filter(label => label !== 'Send'));
+        await settled('empty field', buttons);
         await field.focus();
         await page.keyboard.type('one');
         await page.keyboard.press('Shift+Enter');
         await page.keyboard.type('two');
         await page.keyboard.press('Shift+Enter');
         await page.keyboard.type('three');
-        await settled('options open and the field three lines tall', buttons);
-        await more.dispatchEvent('click');
-        await settled('options closed and the field three lines tall', ['More options', 'Send']);
-        await more.dispatchEvent('click');
-        await settled('options open again', buttons);
-        await more.dispatchEvent('click');
+        await settled('field three lines tall', buttons);
+
+        const before = await field.boundingBox();
+        await more.press('Enter');
+        await attach.waitFor({ state: 'visible', timeout: 5000 });
+        assert.deepEqual(await field.boundingBox(), before, 'Opening the plus menu keeps the multiline field in place.');
+        await page.keyboard.press('Escape');
+        await attach.waitFor({ state: 'hidden', timeout: 5000 });
+        await settled('multiline field after dismissing the menu', buttons);
         await field.focus();
         await page.keyboard.press('ControlOrMeta+A');
         await page.keyboard.press('Delete');
@@ -1590,7 +1593,7 @@ async function checkPastedAndDroppedFiles(page, uploadedFiles, width, theme) {
     const moreBox = await more.boundingBox({ timeout: 5000 });
     assert.ok(moreBox, 'More options has an accessible box in the composer.');
     await page.mouse.click(moreBox.x + moreBox.width / 2, moreBox.y + moreBox.height / 2);
-    const attach = page.getByRole('button', { name: 'Attach', exact: true });
+    const attach = page.getByRole('menuitem', { name: 'Attach file', exact: true });
     await attach.waitFor({ state: 'attached', timeout: 5000 });
     const closeBox = await more.boundingBox({ timeout: 5000 });
     assert.ok(closeBox, 'More options still has an accessible box while options are open.');
@@ -2086,6 +2089,16 @@ async function checkConversationStatus(page, width, theme) {
     await capture('conversation-status-actions');
     await page.mouse.click(anchorBounds.x + anchorBounds.width / 2, anchorBounds.y - menuBounds.height - 50);
     await attach.waitFor({ state: 'hidden' });
+
+    await click(more);
+    const chooseFile = page.waitForEvent('filechooser', { timeout: 10000 });
+    await click(attach);
+    const chooser = await chooseFile;
+    await attach.waitFor({ state: 'hidden' });
+    await chooser.setFiles({ name: 'sample-chooser.txt', mimeType: 'text/plain', buffer: Buffer.from('Sample attachment.') });
+    const remove = button('Remove sample-chooser.txt');
+    await click(remove);
+    await remove.waitFor({ state: 'hidden' });
 
     await click(model('Sample default'));
     await search.waitFor({ state: 'visible' });
