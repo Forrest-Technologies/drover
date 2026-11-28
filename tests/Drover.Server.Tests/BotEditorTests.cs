@@ -925,17 +925,17 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var taken = (await Audit(alice, bot.Id)).Single(entry => entry.Action == "grant.changed");
 
         listed.Grant.Should().Be("off", "a deny shows as off");
+        var expected = BuiltinTools.GrantedToNewBots.Select(name => (name, "allow", "current"))
+            .Concat(AutomationTools.AskedByDefault.Concat(BuiltinTools.AskedOfNewTopBots)
+                .Select(name => (name, "ask", "current")))
+            .OrderBy(grant => grant.name, StringComparer.Ordinal)
+            .Select(grant => ((string?)grant.name, (string?)grant.Item2, (string?)grant.Item3));
         foreach (var entry in (AuditLogEntry[])[created, duplicated])
         {
             var grants = entry.Data.GetProperty("changes").GetProperty("grants").GetProperty("after");
-            grants.EnumerateArray().Select(grant => (grant.GetProperty("tool").GetString(), grant.GetProperty("effect").GetString(), grant.GetProperty("review_state").GetString()))
-                .Should().Equal(
-                    ("crew.add", "ask", "current"),
-                    ("crew.change", "ask", "current"),
-                    ("crew.list", "ask", "current"),
-                    ("crew.remove", "ask", "current"),
-                    ("message_bot", "allow", "current"),
-                    ("time.now", "allow", "current"));
+            grants.EnumerateArray().Select(grant => (grant.GetProperty("tool").GetString(),
+                grant.GetProperty("effect").GetString(), grant.GetProperty("review_state").GetString()))
+                .Should().Equal(expected);
         }
 
         Fact(taken, "effect").Should().Be(("deny", null), "taking a deny away is a change, though both show as off");
