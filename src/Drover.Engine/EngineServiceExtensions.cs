@@ -31,6 +31,13 @@ public static class EngineServiceExtensions
         services.AddScoped<SpaceService>();
         services.AddScoped<StatusService>();
         services.AddSingleton<ModelProviderCatalog>();
+        services.AddOptions<DeploymentPolicyOptions>();
+        services.AddOptions<MemoryOptions>();
+        services.TryAddSingleton<IValidateOptions<MemoryOptions>, MemoryOptionsValidator>();
+        services.TryAddSingleton<RunScopes>();
+        services.TryAddSingleton<MemoryFeed>();
+        services.TryAddSingleton<MemoryForgetRetry>();
+        services.TryAddScoped<PolicyService>();
         return services;
     }
 
@@ -46,7 +53,9 @@ public static class EngineServiceExtensions
         services.AddImageTools();
         services.AddSingleton<SandboxAvailability>();
         services.AddSingleton<SandboxControlService>();
-        services.AddSingleton<RunScopes>();
+        services.TryAddSingleton<RunScopes>();
+        services.TryAddSingleton<MemoryFeed>();
+        services.TryAddSingleton<MemoryForgetRetry>();
         services.AddSingleton<RunSignal>();
         services.AddSingleton<RunEventHub>();
         services.AddSingleton<UserSignalHub>();

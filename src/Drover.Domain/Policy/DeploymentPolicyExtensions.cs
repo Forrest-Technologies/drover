@@ -175,6 +175,7 @@ public static class DeploymentPolicyExtensions
         {
             MaxMemoryNoteCharacters = DeploymentPolicy.HostedMaxMemoryNoteCharacters,
             MaxMemoryCharactersPerPerson = DeploymentPolicy.HostedMaxMemoryCharactersPerPerson,
+            AllowMemoryService = false,
         };
 
     public static DeploymentPolicy WithoutWebTools(this DeploymentPolicy policy) =>

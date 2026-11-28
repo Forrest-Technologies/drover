@@ -550,6 +550,13 @@ public sealed record DeploymentPolicy
     public int MaxMemoryCharactersPerPerson { get; init; } = SelfHostedMaxMemoryCharactersPerPerson;
 
     /// <summary>
+    /// Whether this server may send private conversations to a configured memory service and recall what it knows.
+    /// Off in the hosted preset: a stranger's conversations would go to a service that reasons over them under the
+    /// operator's account. Off, no provider is registered and nothing is sent, whatever configuration says.
+    /// </summary>
+    public bool AllowMemoryService { get; init; } = true;
+
+    /// <summary>
     /// A bot granted the web tools may search the web and read a page by its address. Off in the hosted preset: every
     /// search and every page is a request from the operator's server, on the operator's address, made for a stranger.
     /// Off, neither tool is offered to a model and a call of one is refused in words naming this rule.
@@ -865,6 +872,10 @@ public sealed record DeploymentPolicy
             policy => policy.MaxMemoryCharactersPerPerson,
             HostedMaxMemoryCharactersPerPerson,
             Enforcement.Now("MemoryService, on every note saved or changed and on every recall; BotService, when a bot is saved")),
+        PolicyRule.Permission(
+            nameof(AllowMemoryService),
+            policy => policy.AllowMemoryService,
+            Enforcement.Now("Memory service registration at server start, MemoryFeed, and RunExecutor")),
         PolicyRule.Permission(
             nameof(AllowWebTools),
             policy => policy.AllowWebTools,

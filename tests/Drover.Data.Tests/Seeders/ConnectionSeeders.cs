@@ -114,3 +114,13 @@ public sealed class DecisionConnectionSeeder : PlainSeeder<DecisionConnection>
         ["status"] = "ready",
     };
 }
+
+public sealed class MemoryForgetRequestSeeder : PlainSeeder<MemoryForgetRequest>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["kind"] = "person",
+        ["person_id"] = seed.Placement.User,
+    };
+}

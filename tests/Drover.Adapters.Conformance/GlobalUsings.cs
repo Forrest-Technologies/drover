@@ -23,6 +23,7 @@ global using Drover.Domain.Bots;
 global using Drover.Domain.Decisions;
 global using Drover.Domain.Files;
 global using Drover.Domain.Images;
+global using Drover.Domain.Memory;
 global using Drover.Domain.Models;
 global using Drover.Domain.Policy;
 global using Drover.Domain.Push;

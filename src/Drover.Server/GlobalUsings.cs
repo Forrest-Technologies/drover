@@ -97,6 +97,7 @@ global using Drover.Server.Decisions;
 global using Drover.Server.Extensions;
 global using Drover.Server.Files;
 global using Drover.Server.Health;
+global using Drover.Server.Memory;
 global using Drover.Server.Models;
 global using Drover.Server.Policy;
 global using Drover.Server.Projects;

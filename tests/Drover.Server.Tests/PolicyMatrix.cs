@@ -81,6 +81,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxJudgedChecksPerRun), "No limit", "200"),
         new(nameof(DeploymentPolicy.MaxMemoryNoteCharacters), "1000", "500"),
         new(nameof(DeploymentPolicy.MaxMemoryCharactersPerPerson), "20000", "8000"),
+        new(nameof(DeploymentPolicy.AllowMemoryService), "true", "false"),
         new(nameof(DeploymentPolicy.AllowWebTools), "true", "false"),
         new(nameof(DeploymentPolicy.MaxWebPageBytes), "4194304", "1048576"),
         new(nameof(DeploymentPolicy.MaxWebRequestSeconds), "30", "15"),

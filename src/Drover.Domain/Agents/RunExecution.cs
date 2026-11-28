@@ -32,6 +32,12 @@ public sealed record RunExecution
     public RecalledMemory? Memory { get; init; }
 
     /// <summary>
+    /// What the configured memory service recalled about the run's person for this bot, given as reference material.
+    /// Null when no memory service is active, memory is off, the conversation is not private, or recall failed.
+    /// </summary>
+    public RecalledServiceMemory? ServiceMemory { get; init; }
+
+    /// <summary>
     /// The project this conversation belongs to, read with the bot. Null when the conversation is in no project, or
     /// that project is gone. Its instructions are a separate source and grant nothing by themselves.
     /// </summary>

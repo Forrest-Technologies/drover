@@ -29,7 +29,11 @@ public sealed class ThreadService(
     RunRepository runs,
     RunEventRepository events,
     BotScheduleRepository schedules,
+    MemoryForgetRepository forgets,
+    PolicyService policies,
     TenantScope scope,
+    RunScopes runScopes,
+    MemoryFeed memoryFeed,
     UserSignalHub signals,
     ConversationModels models,
     SandboxRepository sandboxes,
@@ -217,6 +221,60 @@ public sealed class ThreadService(
         }
 
         await work.Commit(cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// Deletes a private conversation owned by <paramref name="userId"/> when no run is active on it, records a
+    /// durable forget request in the same transaction whenever the deployment policy permits a memory service, and
+    /// tells the active memory provider after the commit with no tenant transaction open. False when the conversation
+    /// is missing, shared, delegated, not owned by the caller, or busy.
+    /// </summary>
+    public async Task<bool> Delete(Guid threadId, Guid userId, CancellationToken cancellationToken)
+    {
+        MemoryForgetRequest? forget = null;
+        EffectivePolicy? policy = null;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            var thread = await threads.GetThreadForUpdate(threadId, cancellationToken);
+
+            if (thread is null
+                || thread.OwnerUserId != userId
+                || thread.AudienceUserId != userId
+                || thread.Origin is ThreadOrigin.Delegation)
+            {
+                return false;
+            }
+
+            if (await runs.FindActiveRun(threadId, cancellationToken) is not null)
+            {
+                return false;
+            }
+
+            if (memoryFeed.IsAllowed)
+            {
+                forget = new MemoryForgetRequest
+                {
+                    Kind = MemoryForgetKind.Conversation,
+                    PersonId = thread.OwnerUserId,
+                    BotId = thread.BotId,
+                    ThreadId = thread.Id,
+                    CreatedAt = time.GetUtcNow(),
+                };
+                forgets.Add(forget);
+                policy = await policies.GetEffective(thread.SpaceId, cancellationToken);
+            }
+
+            await threads.Delete(threadId, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        if (forget is not null && memoryFeed.IsActive)
+        {
+            await memoryFeed.TryForget(runScopes, forget, policy!, cancellationToken);
+        }
+
         return true;
     }
 

@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261127213903_ToolCallsClearedByRuleCheck";
+    public override string LastMigrationId => "20261127221237_MemoryForgetRequests";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1009,6 +1009,58 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                         t.HasCheckConstraint("ck_files_project_audience", "project_id IS NULL OR (message_id IS NULL AND audience_user_id = sys.everyone())");
 
                         t.HasCheckConstraint("ck_files_size", "size >= 0");
+                    });
+            });
+
+        modelBuilder.Entity("Drover.Domain.Memory.MemoryForgetRequest", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<DateTimeOffset?>("AttemptedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("attempted_at");
+
+                b.Property<Guid?>("BotId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("bot_id");
+
+                b.Property<DateTimeOffset>("CreatedAt")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at")
+                    .HasDefaultValueSql("now()");
+
+                b.Property<string>("Kind")
+                    .IsRequired()
+                    .HasMaxLength(32)
+                    .HasColumnType("character varying(32)")
+                    .HasColumnName("kind");
+
+                b.Property<Guid>("PersonId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("person_id");
+
+                b.Property<Guid>("SpaceId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("space_id");
+
+                b.Property<Guid?>("ThreadId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("thread_id");
+
+                b.HasKey("Id")
+                    .HasName("pk_memory_forget_requests");
+
+                b.HasIndex("SpaceId", "AttemptedAt", "CreatedAt", "Id")
+                    .HasDatabaseName("ix_memory_forget_requests_space_id_attempted_at_created_at_id");
+
+                b.ToTable("memory_forget_requests", t =>
+                    {
+                        t.HasCheckConstraint("ck_memory_forget_requests_kind", "kind IN ('conversation', 'person')");
+
+                        t.HasCheckConstraint("ck_memory_forget_requests_scope", "(kind = 'conversation' AND bot_id IS NOT NULL AND thread_id IS NOT NULL) OR (kind = 'person' AND bot_id IS NULL AND thread_id IS NULL)");
                     });
             });
 

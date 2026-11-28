@@ -87,6 +87,26 @@ public sealed class RunRepository(DroverDbContext db)
             .Select(run => run.Id)
             .ToListAsync(cancellationToken);
 
+    /// <summary>Whether another completed root run on this thread already answered <paramref name="triggerMessageId"/>.</summary>
+    public Task<bool> HasEarlierCompletedRunForTrigger(
+        Guid threadId,
+        Guid triggerMessageId,
+        Guid runId,
+        CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .AnyAsync(
+                run => run.ThreadId == threadId
+                    && run.ParentRunId == null
+                    && run.TriggerMessageId == triggerMessageId
+                    && run.Status == RunStatus.Completed
+                    && run.Id != runId,
+                cancellationToken);
+
+    /// <summary>Whether any run in the delegation tree rooted at <paramref name="rootRunId"/> is tainted.</summary>
+    public Task<bool> AnyRunInTreeTainted(Guid rootRunId, CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .AnyAsync(run => run.RootRunId == rootRunId && run.Tainted, cancellationToken);
+
     /// <summary>
     /// Each of these runs whose conversation the caller can see, by id. A run has no audience of its own, so it is
     /// joined to its thread, which row-level security hides when it is another person's private conversation.

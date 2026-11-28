@@ -18,6 +18,83 @@ public sealed class ThreadRepository(DroverDbContext db)
     public void Add(ChatThread thread) => db.Threads.Add(thread);
 
     /// <summary>
+    /// Deletes a thread and every conversation-owned row that references it, including its runs, delegation child
+    /// threads, usage records, and source pointers on saved notes, inside the caller's tenant scope.
+    /// </summary>
+    public async Task Delete(Guid threadId, CancellationToken cancellationToken)
+    {
+        var rootRunIds = await db.Runs.AsNoTracking()
+            .Where(run => run.ThreadId == threadId)
+            .Select(run => run.RootRunId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var treeRuns = await db.Runs.AsNoTracking()
+            .Where(run => run.ThreadId == threadId || rootRunIds.Contains(run.RootRunId))
+            .Select(run => new { run.Id, run.ThreadId })
+            .ToListAsync(cancellationToken);
+        Guid[] runIds = [.. treeRuns.Select(run => run.Id).Distinct()];
+        Guid[] threadIds = [.. treeRuns.Select(run => run.ThreadId).Append(threadId).Distinct()];
+
+        if (runIds.Length > 0)
+        {
+            await db.BotSchedules
+                .Where(schedule => schedule.LastRunId != null && runIds.Contains(schedule.LastRunId.Value))
+                .ExecuteUpdateAsync(set => set.SetProperty(schedule => schedule.LastRunId, (Guid?)null), cancellationToken);
+        }
+
+        await db.Memories
+            .Where(note => note.SourceThreadId != null && threadIds.Contains(note.SourceThreadId.Value))
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(note => note.SourceThreadId, (Guid?)null)
+                    .SetProperty(note => note.SourceMessageId, (Guid?)null),
+                cancellationToken);
+        await db.AgentSessions.Where(session => threadIds.Contains(session.ThreadId)).ExecuteDeleteAsync(cancellationToken);
+        await db.ToolCalls
+            .Where(call => threadIds.Contains(call.ThreadId)
+                || (runIds.Length > 0 && (runIds.Contains(call.RunId) || (call.ChildRunId != null && runIds.Contains(call.ChildRunId.Value)))))
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.RunEvents
+            .Where(stored => threadIds.Contains(stored.ThreadId)
+                || (runIds.Length > 0 && (runIds.Contains(stored.RunId) || runIds.Contains(stored.RootRunId))))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (runIds.Length > 0)
+        {
+            await db.UsageRecords
+                .Where(record => runIds.Contains(record.RunId) || runIds.Contains(record.RootRunId))
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+
+        await db.Files
+            .Where(file => file.ThreadId != null && threadIds.Contains(file.ThreadId.Value))
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.Messages
+            .Where(message => threadIds.Contains(message.ThreadId) && message.ParentId != null)
+            .ExecuteUpdateAsync(set => set.SetProperty(message => message.ParentId, (Guid?)null), cancellationToken);
+        await db.Messages
+            .Where(message => threadIds.Contains(message.ThreadId)
+                || (runIds.Length > 0 && message.RunId != null && runIds.Contains(message.RunId.Value)))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (runIds.Length > 0)
+        {
+            await db.Runs
+                .Where(run => runIds.Contains(run.Id) && run.ParentRunId != null)
+                .ExecuteUpdateAsync(set => set.SetProperty(run => run.ParentRunId, (Guid?)null), cancellationToken);
+            await db.Runs
+                .Where(run => runIds.Contains(run.Id) && run.Id != run.RootRunId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await db.Runs
+                .Where(run => runIds.Contains(run.Id))
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+
+        await db.ThreadReads.Where(read => threadIds.Contains(read.ThreadId)).ExecuteDeleteAsync(cancellationToken);
+        await db.Threads.Where(thread => threadIds.Contains(thread.Id)).ExecuteDeleteAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Makes a shared thread private to its owner. Child rows follow, because their foreign key updates with this
     /// one. False when the thread is missing or already private.
     /// </summary>

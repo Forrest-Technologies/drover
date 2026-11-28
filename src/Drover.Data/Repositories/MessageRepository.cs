@@ -58,6 +58,30 @@ public sealed class MessageRepository(DroverDbContext db)
             .ThenByDescending(message => message.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    /// <summary>The bot's final reply stored for <paramref name="runId"/> in the shown conversation.</summary>
+    public Task<Message?> FindFinalReplyForRun(Guid threadId, Guid runId, CancellationToken cancellationToken) =>
+        db.Messages
+            .AsNoTracking()
+            .Where(message => message.ThreadId == threadId && message.RunId == runId
+                && message.Role == MessageRole.Assistant
+                && message.Position != null && message.ShelvedAt == null && !message.Withheld)
+            .OrderByDescending(message => message.Position)
+            .ThenByDescending(message => message.CreatedAt)
+            .ThenByDescending(message => message.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    /// <summary>The latest non-withheld message from a person in the shown conversation.</summary>
+    public Task<Message?> FindLatestPersonMessage(Guid threadId, CancellationToken cancellationToken) =>
+        db.Messages
+            .AsNoTracking()
+            .Where(message => message.ThreadId == threadId && message.Role == MessageRole.User
+                && message.ScheduleId == null
+                && message.Position != null && message.ShelvedAt == null && !message.Withheld)
+            .OrderByDescending(message => message.Position)
+            .ThenByDescending(message => message.CreatedAt)
+            .ThenByDescending(message => message.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
     /// <summary>
     /// The versions of each place in the conversation that has more than one, by the id of every version: the ids of
     /// the messages that share its parent, oldest first. A place with one version is left out.

@@ -13,6 +13,8 @@ public sealed class AccountRepository(DroverDbContext db)
 
     private const long FirstRunLockKey = 0x44524F56_45520002;
 
+    private const long MembershipLockSeed = 0x4D454D42;
+
     #endregion
 
     #region Public Methods
@@ -226,6 +228,26 @@ public sealed class AccountRepository(DroverDbContext db)
     public void Add(User user) => db.Users.Add(user);
 
     public void Add(Membership membership) => db.Memberships.Add(membership);
+
+    /// <summary>Serializes membership changes in one space until the current transaction ends.</summary>
+    public Task LockSpaceMemberships(Guid spaceId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({spaceId}::text, {MembershipLockSeed}))",
+            cancellationToken);
+
+    /// <summary>The tracked membership row, locked until the transaction ends.</summary>
+    public async Task<Membership?> FindMembershipForUpdate(Guid spaceId, Guid userId, CancellationToken cancellationToken) =>
+        (await db.Memberships
+            .FromSql($"SELECT * FROM memberships WHERE space_id = {spaceId} AND user_id = {userId} FOR UPDATE")
+            .ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
+    public Task<int> CountOwners(Guid spaceId, CancellationToken cancellationToken) =>
+        db.Memberships.CountAsync(
+            membership => membership.SpaceId == spaceId && membership.Role == MembershipRole.Owner,
+            cancellationToken);
+
+    public void Remove(Membership membership) => db.Memberships.Remove(membership);
 
     /// <summary>Makes a personal space shared. Zero when it is missing or already shared.</summary>
     public Task<int> MakeShared(Guid spaceId, CancellationToken cancellationToken) =>
