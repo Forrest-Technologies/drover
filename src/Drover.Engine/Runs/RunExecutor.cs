@@ -367,7 +367,7 @@ public sealed partial class RunExecutor(
         }
 
         if (triggerMessageId is { } triggerId
-            && await messages.FindMessage(triggerId, cancellationToken) is { Role: MessageRole.User, Withheld: false, ShelvedAt: null } trigger)
+            && await messages.FindMessage(triggerId, cancellationToken) is { Role: MessageRole.User, ScheduleId: null, Withheld: false, ShelvedAt: null } trigger)
         {
             var text = MemoryFeed.SpokenText(trigger);
 
@@ -795,7 +795,7 @@ public sealed partial class RunExecutor(
         }
 
         var latestFromArrived = arrived
-            .Where(message => message.Role is MessageRole.User && !message.Withheld && message.ShelvedAt is null)
+            .Where(message => message.Role is MessageRole.User && message.ScheduleId is null && !message.Withheld && message.ShelvedAt is null)
             .Select(MemoryFeed.SpokenText)
             .LastOrDefault(text => text.Length > 0);
         var latestMessage = latestFromArrived ?? loaded.LatestPersonMessage;

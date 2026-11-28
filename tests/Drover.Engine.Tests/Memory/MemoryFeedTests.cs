@@ -91,6 +91,97 @@ public sealed class MemoryFeedTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_root_reply_based_on_a_tainted_child_is_not_remembered()
+    {
+        var memory = new FakeMemoryProvider();
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel(),
+            everyHost: services => UseMemoryProvider(services, memory));
+        await TurnMemoryOn(world);
+        var childBotId = await world.NewBotBeneath(world.BotId, "Researcher", "Fetches untrusted pages.");
+        world.Server.Offer("fetch", "Fetch an untrusted page.", readOnly: true, """{"body":"untrusted delegated text"}""");
+        var connection = await world.Connect("Untrusted", TrustLevel.Untrusted);
+        var toolName = await world.Read(db => db.Tools.AsNoTracking()
+            .Where(tool => tool.ToolConnectionId == connection.Id)
+            .Select(tool => tool.Name)
+            .SingleAsync(RunWorld.Token));
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.Grant(toolName, GrantEffect.Allow);
+        await world.GrantTo(childBotId, toolName, GrantEffect.Allow);
+        world.Script.Then(
+            [new ToolCallOutput("d1", DelegateTool.Name, JsonSerializer.Serialize(new { bot_id = childBotId, task = "Fetch that page." }))],
+            [new ToolCallOutput("c1", "untrusted__fetch", "{}")],
+            [new TextOutput("Child read untrusted page.")],
+            [new TextOutput("Parent reply repeating untrusted child content.")]);
+        var host = world.StartHost();
+        var thread = await world.NewThread();
+
+        var rootRunId = await world.Post(thread, "Have Researcher check that site.", through: host);
+        var rootRun = await world.WaitForStatus(rootRunId, RunStatus.Completed, RunStatus.Failed);
+        await WaitFor(() => memory.Remembers.Count > 0);
+
+        rootRun.Status.Should().Be(RunStatus.Completed, rootRun.Error?.Message);
+        var childRun = (await world.ReadTree(rootRunId)).Should().ContainSingle(run => run.Id != rootRunId).Subject;
+        childRun.Tainted.Should().BeTrue();
+        var recorded = memory.Remembers.Should().ContainSingle().Subject;
+        recorded.Turns.Should().ContainSingle();
+        recorded.Turns[0].Speaker.Should().Be(MemorySpeaker.Person);
+        recorded.Turns[0].Text.Should().Be("Have Researcher check that site.");
+    }
+
+    [Fact]
+    public async Task Scheduled_prompts_are_not_sent_as_person_authored_memory()
+    {
+        var memory = new FakeMemoryProvider();
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel([new TextOutput("Morning briefing complete.")]),
+            everyHost: services => UseMemoryProvider(services, memory));
+        await TurnMemoryOn(world);
+        var host = world.StartHost();
+        BotSchedule schedule;
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
+            await using var tx = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(RunWorld.Token);
+            var created = await scope.ServiceProvider.GetRequiredService<ScheduleService>().Create(
+                world.BotId,
+                new ScheduleEdit(
+                    "0 9 * * *",
+                    "UTC",
+                    "Automated morning briefing prompt never authored by person.",
+                    ScheduleThreadMode.NewThread,
+                    true),
+                world.UserId,
+                RunWorld.Token);
+            created.Problem.Should().BeNull();
+            schedule = created.Schedule!;
+            await tx.Commit(RunWorld.Token);
+        }
+
+        ScheduleTrial trial;
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
+            trial = await scope.ServiceProvider.GetRequiredService<ScheduleFiring>()
+                .RunOnce(world.BotId, schedule.Id, world.UserId, RunWorld.Token);
+        }
+
+        trial.Problem.Should().BeNull();
+        var run = await world.WaitForStatus(trial.RunId!.Value, RunStatus.Completed, RunStatus.Failed);
+        await WaitFor(() => memory.Remembers.Count > 0);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        memory.Recalls.Should().ContainSingle().Which.Request.LatestMessage.Should().BeNull();
+        var recorded = memory.Remembers.Should().ContainSingle().Subject;
+        recorded.Turns.Should().NotContain(turn => turn.Speaker == MemorySpeaker.Person);
+        recorded.Turns.Should().NotContain(turn => turn.Text.Contains("Automated morning briefing prompt", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Nothing_is_sent_from_a_conversation_with_more_than_one_person()
     {
         var memory = new FakeMemoryProvider();
@@ -528,6 +619,98 @@ public sealed class MemoryFeedTests(PostgresServer postgres)
         var remainingOwners = await world.Read(db => db.Memberships.AsNoTracking()
             .CountAsync(membership => membership.SpaceId == world.SpaceId && membership.Role == MembershipRole.Owner, RunWorld.Token));
         remainingOwners.Should().Be(1, "concurrent removals must never leave a space without an owner");
+    }
+
+    [Fact]
+    public async Task A_late_remember_cannot_restore_forgotten_conversation_or_person_data()
+    {
+        var conversationRememberStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseConversationRemember = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var personRememberStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePersonRemember = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Guid? conversationThreadId = null;
+        Guid? memberUserId = null;
+        var memory = new FakeMemoryProvider
+        {
+            OnRemember = async (scope, _, _) =>
+            {
+                if (scope.ThreadId == conversationThreadId)
+                {
+                    conversationRememberStarted.TrySetResult();
+                    await releaseConversationRemember.Task;
+                }
+                else if (scope.PersonId == memberUserId)
+                {
+                    personRememberStarted.TrySetResult();
+                    await releasePersonRemember.Task;
+                }
+            },
+        };
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel(
+                [new TextOutput("Remembered conversation answer.")],
+                [new TextOutput("Remembered member answer.")]),
+            everyHost: services => UseMemoryProvider(services, memory, rememberTimeoutSeconds: 1));
+        await TurnMemoryOn(world);
+        var host = world.StartHost();
+
+        // Part 1: conversation deleted while an earlier Remember write hangs past WaitAsync timeout.
+        var threadId = await world.NewThread();
+        conversationThreadId = threadId;
+        var conversationRunId = await world.Post(threadId, "Deleted conversation secret 77b1.", through: host);
+        (await world.WaitForStatus(conversationRunId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        await conversationRememberStarted.Task.WaitAsync(TimeSpan.FromSeconds(10), RunWorld.Token);
+        await Task.Delay(1200, RunWorld.Token); // Let Remember's 1s WaitAsync time out while write stays in flight.
+
+        (await DeleteThread(host, world.SpaceId, world.UserId, threadId)).Should().BeTrue();
+        (await world.Read(db => db.MemoryForgetRequests.AsNoTracking().CountAsync(RunWorld.Token))).Should().Be(0);
+
+        // Now the late Remember finishes and writes into the provider; post-remember reconciliation must re-forget it.
+        releaseConversationRemember.TrySetResult();
+        await WaitFor(() => memory.ForgottenConversations.Count(scope => scope.ThreadId == threadId) >= 2);
+        var conversationScope = new MemoryScope(world.SpaceId, world.BotId, world.UserId, threadId);
+        var recalledAfterDelete = await memory.Recall(conversationScope, new MemoryRecallRequest("Anything?", 4000), RunWorld.Token);
+        string.Join("\n", recalledAfterDelete?.Facts ?? []).Should().NotContain("77b1");
+        (await world.Read(db => db.MemoryForgetRequests.AsNoTracking().CountAsync(RunWorld.Token))).Should().Be(0);
+
+        // Part 2: member removed while their earlier Remember write hangs past WaitAsync timeout.
+        var member = await world.AddMember(MembershipRole.Member);
+        memberUserId = member;
+        Guid memberThreadId;
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, member);
+            await using var tx = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(RunWorld.Token);
+            memberThreadId = (await scope.ServiceProvider.GetRequiredService<ThreadService>().Create(world.BotId, null, member, RunWorld.Token))!.Id;
+            await tx.Commit(RunWorld.Token);
+        }
+
+        var memberPost = await world.PostRaw(memberThreadId, "Removed member secret 88c2.", through: host, asUser: member);
+        memberPost.Problem.Should().Be(PostProblem.None, memberPost.Detail);
+        var memberRun = await world.WaitForStatus(memberPost.Run!.Id, RunStatus.Completed, RunStatus.Failed);
+        memberRun.Status.Should().Be(RunStatus.Completed, memberRun.Error?.Message);
+        await personRememberStarted.Task.WaitAsync(TimeSpan.FromSeconds(10), RunWorld.Token);
+        await Task.Delay(1200, RunWorld.Token); // Let Remember's 1s WaitAsync time out while write stays in flight.
+
+        (await RemoveMember(host, world.SpaceId, world.UserId, member)).Should().BeTrue();
+        (await world.Read(db => db.MemoryForgetRequests.AsNoTracking().CountAsync(RunWorld.Token))).Should().Be(0);
+
+        // Now the late Remember finishes; post-remember reconciliation must re-forget the removed person.
+        releasePersonRemember.TrySetResult();
+        await WaitFor(() => memory.ForgottenPeople.Count(scope => scope.PersonId == member && scope.SpaceId == world.SpaceId) >= 2);
+        var memberScope = new MemoryScope(world.SpaceId, world.BotId, member, memberThreadId);
+        var recalledAfterRemoval = await memory.Recall(memberScope, new MemoryRecallRequest("Anything?", 4000), RunWorld.Token);
+        string.Join("\n", recalledAfterRemoval?.Facts ?? []).Should().NotContain("88c2");
+        (await world.Read(db => db.MemoryForgetRequests.AsNoTracking().CountAsync(RunWorld.Token))).Should().Be(0);
+
+        // Also: a removed member's completed run reaching MemoryFeed.Remember directly must send nothing.
+        var countBefore = memory.Remembers.Count;
+        var feed = host.Services.GetRequiredService<MemoryFeed>();
+        var scopes = host.Services.GetRequiredService<RunScopes>();
+        await feed.Remember(scopes.For(world.SpaceId, member), memberRun, RunWorld.Token);
+        memory.Remembers.Count.Should().Be(countBefore);
     }
 
     #endregion

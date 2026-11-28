@@ -75,6 +75,7 @@ public sealed class MessageRepository(DroverDbContext db)
         db.Messages
             .AsNoTracking()
             .Where(message => message.ThreadId == threadId && message.Role == MessageRole.User
+                && message.ScheduleId == null
                 && message.Position != null && message.ShelvedAt == null && !message.Withheld)
             .OrderByDescending(message => message.Position)
             .ThenByDescending(message => message.CreatedAt)

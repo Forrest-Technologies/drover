@@ -6,6 +6,7 @@ namespace Drover.Engine.Memory;
 /// message text, recalled facts, or secrets in any log line.
 /// </summary>
 public sealed class MemoryFeed(
+    RunScopes scopes,
     IEnumerable<IMemoryProvider> providers,
     IOptions<MemoryOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
@@ -72,16 +73,29 @@ public sealed class MemoryFeed(
             EnsureNoOpenTransaction();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(options.Value.RememberTimeoutSeconds), time);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-            using var outbound = OutboundAttempt.Begin(pending.Policy);
-            await provider.Remember(pending.Scope, pending.Turns, linked.Token).WaitAsync(linked.Token);
+            Task rememberTask;
+
+            using (OutboundAttempt.Begin(pending.Policy))
+            {
+                rememberTask = provider.Remember(pending.Scope, pending.Turns, linked.Token);
+
+                try
+                {
+                    await rememberTask.WaitAsync(linked.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogWarning("Memory service {Provider} timed out remembering run {RunId}", provider.Kind, completedRun.Id);
+                    _ = ReconcileLateRemember(rememberTask, pending.Scope, pending.Policy, provider.Kind, completedRun.Id);
+                    return;
+                }
+            }
+
+            await ReconcileAfterRemember(pending.Scope, pending.Policy, provider.Kind, completedRun.Id, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             logger.LogDebug("Memory service {Provider} remember for run {RunId} stopped with the server", provider.Kind, completedRun.Id);
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogWarning("Memory service {Provider} timed out remembering run {RunId}", provider.Kind, completedRun.Id);
         }
         catch (Exception failure)
         {
@@ -238,6 +252,11 @@ public sealed class MemoryFeed(
             return null;
         }
 
+        if (await services.GetRequiredService<AccountRepository>().FindRole(run.SpaceId, run.PrincipalUserId, cancellationToken) is null)
+        {
+            return null;
+        }
+
         var thread = await services.GetRequiredService<ThreadRepository>().FindThread(run.ThreadId, cancellationToken);
 
         if (thread is null
@@ -258,9 +277,10 @@ public sealed class MemoryFeed(
         var messages = services.GetRequiredService<MessageRepository>();
         List<MemoryTurn> turns = [];
 
-        if (run.TriggerMessageId is { } triggerId
+        if (run.Trigger is not RunTrigger.Schedule
+            && run.TriggerMessageId is { } triggerId
             && !await runs.HasEarlierCompletedRunForTrigger(thread.Id, triggerId, run.Id, cancellationToken)
-            && await messages.FindMessage(triggerId, cancellationToken) is { Role: MessageRole.User, Withheld: false, ShelvedAt: null } trigger)
+            && await messages.FindMessage(triggerId, cancellationToken) is { Role: MessageRole.User, ScheduleId: null, Withheld: false, ShelvedAt: null } trigger)
         {
             var text = SpokenText(trigger);
 
@@ -270,7 +290,9 @@ public sealed class MemoryFeed(
             }
         }
 
-        if (!run.Tainted
+        var tainted = run.Tainted || await runs.AnyRunInTreeTainted(run.Id, cancellationToken);
+
+        if (!tainted
             && await messages.FindFinalReplyForRun(thread.Id, run.Id, cancellationToken) is { } reply)
         {
             var text = SpokenText(reply);
@@ -289,6 +311,98 @@ public sealed class MemoryFeed(
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
         var scope = new MemoryScope(run.SpaceId, bot.Id, run.PrincipalUserId, thread.Id);
         return new PendingRemember(scope, turns, policy);
+    }
+
+    private async Task ReconcileLateRemember(
+        Task rememberTask,
+        MemoryScope scope,
+        EffectivePolicy policy,
+        string providerKind,
+        Guid runId)
+    {
+        try
+        {
+            await rememberTask;
+        }
+        catch (Exception failure)
+        {
+            // Even if the late task faulted after sending bytes, log only the failure kind and still reconcile.
+            logger.LogDebug(
+                "Late memory service {Provider} remember for run {RunId} ended with {Failure}",
+                providerKind,
+                runId,
+                FailureKind(failure));
+        }
+
+        await ReconcileAfterRemember(scope, policy, providerKind, runId, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Ensures a concurrent conversation delete or member removal always wins over an in-flight or late
+    /// <see cref="IMemoryProvider.Remember"/> write. If the person left the space or the thread was deleted before
+    /// this write finished, records a fresh durable forget request and sends it immediately outside the transaction.
+    /// </summary>
+    private async Task ReconcileAfterRemember(
+        MemoryScope scope,
+        EffectivePolicy policy,
+        string providerKind,
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var forget = await scopes.For(scope.SpaceId, scope.PersonId).Transact(
+                async services =>
+                {
+                    if (await services.GetRequiredService<AccountRepository>()
+                        .FindRole(scope.SpaceId, scope.PersonId, cancellationToken) is null)
+                    {
+                        var personForget = new MemoryForgetRequest
+                        {
+                            Kind = MemoryForgetKind.Person,
+                            PersonId = scope.PersonId,
+                            CreatedAt = time.GetUtcNow(),
+                        };
+                        services.GetRequiredService<MemoryForgetRepository>().Add(personForget);
+                        return personForget;
+                    }
+
+                    if (await services.GetRequiredService<ThreadRepository>()
+                        .FindThread(scope.ThreadId, cancellationToken) is null)
+                    {
+                        var conversationForget = new MemoryForgetRequest
+                        {
+                            Kind = MemoryForgetKind.Conversation,
+                            PersonId = scope.PersonId,
+                            BotId = scope.BotId,
+                            ThreadId = scope.ThreadId,
+                            CreatedAt = time.GetUtcNow(),
+                        };
+                        services.GetRequiredService<MemoryForgetRepository>().Add(conversationForget);
+                        return conversationForget;
+                    }
+
+                    return null;
+                },
+                cancellationToken);
+
+            if (forget is not null)
+            {
+                await TryForget(scopes, forget, policy, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug("Memory service {Provider} post-remember reconciliation for run {RunId} stopped", providerKind, runId);
+        }
+        catch (Exception failure)
+        {
+            logger.LogWarning(
+                "Memory service {Provider} failed post-remember reconciliation for run {RunId}: {Failure}",
+                providerKind,
+                runId,
+                FailureKind(failure));
+        }
     }
 
     private static void EnsureNoOpenTransaction()
