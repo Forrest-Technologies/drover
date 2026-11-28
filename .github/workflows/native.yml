@@ -124,10 +124,17 @@ jobs:
           python3 scripts/check-native-android-text-editing.py --field-input
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: android-layout
         if: always()
         with:
           name: native-android-layout
           path: artifacts/android-layout/
+
+      - name: Link Android screenshots
+        if: always() && steps.android-layout.outputs.artifact-url != ''
+        env:
+          SCREENSHOTS_URL: ${{ steps.android-layout.outputs.artifact-url }}
+        run: printf '### Screenshots\n\n- [Android layout and diagnostics](%s)\n' "$SCREENSHOTS_URL" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -416,16 +423,36 @@ jobs:
       - name: Record a message, read a reply aloud and hold a scripted call with Chromium's fake microphone
         run: node scripts/check-native-voice.mjs artifacts/native/wwwroot artifacts/native-voice
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: browser-screens
+        if: always()
         with:
           name: browser-screens
           path: artifacts/native-smoke
           if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: browser-voice-screens
         if: always()
         with:
           name: browser-voice-screens
           path: artifacts/native-voice
           if-no-files-found: warn
+
+      - name: Link browser screenshots
+        if: always() && (steps.browser-screens.outputs.artifact-url != '' || steps.browser-voice-screens.outputs.artifact-url != '')
+        env:
+          BROWSER_URL: ${{ steps.browser-screens.outputs.artifact-url }}
+          VOICE_URL: ${{ steps.browser-voice-screens.outputs.artifact-url }}
+        run: |
+          {
+            printf '### Screenshots\n\n'
+            if [[ -n "$BROWSER_URL" ]]; then
+              printf -- '- [Browser screen checks](%s)\n' "$BROWSER_URL"
+            fi
+            if [[ -n "$VOICE_URL" ]]; then
+              printf -- '- [Browser voice and call checks](%s)\n' "$VOICE_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-browser
