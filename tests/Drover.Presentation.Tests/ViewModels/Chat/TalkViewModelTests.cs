@@ -2449,7 +2449,7 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
         await Go($"/talk/{botId}");
         await Until(() => MainPane.Composer.HasModelChoice.Should().BeTrue());
-        MainPane.Composer.ModelOptions.Select(option => option.Label).Should().Equal("Sample default (the bot's own)", "Sample stronger");
+        MainPane.Composer.ModelOptions.Select(option => option.Label).Should().Equal("Use the bot's default", "Sample stronger");
 
         await Do(() => MainPane.Composer.ChooseModel("sample-stronger"));
 

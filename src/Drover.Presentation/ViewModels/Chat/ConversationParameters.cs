@@ -9,6 +9,8 @@ public sealed record ConversationParameters(BotSummary Bot)
     /// <summary>True for the bot's main conversation, which the server keeps one of for each person.</summary>
     public bool Main { get; init; }
 
+    public string? ModelConnectionName { get; init; }
+
     /// <summary>
     /// The person chose this conversation, so having it open is seeing it. False where the conversation is there
     /// without being chosen: at the start page a phone shows the crew, not the lead's conversation.

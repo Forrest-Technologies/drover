@@ -12,9 +12,13 @@ public sealed class ConversationPane : Grid
 
     private readonly MessageList list = new();
 
-    private readonly Composer composer = new();
+    private readonly Composer composer;
 
-    private readonly ConversationStatus status = new();
+    private readonly ConversationStatus status;
+
+    private readonly ConversationModelPicker picker = new();
+
+    private readonly Border statusHost = new();
 
     private readonly TextBlock loading = Styles.Text(ConversationViewModel.LoadingHint);
 
@@ -24,9 +28,6 @@ public sealed class ConversationPane : Grid
     private readonly Border center = new() { Padding = new(Tokens.Number("DvSpace4")) };
 
     private readonly Border readBox = new();
-
-    // The notice that takes the field's place, with the status line under it.
-    private readonly StackPanel readColumn = new();
 
     private readonly TextBlock readHint = Styles.Text(null);
 
@@ -46,24 +47,29 @@ public sealed class ConversationPane : Grid
 
     public ConversationPane()
     {
+        composer = new() { Picker = picker };
+        status = new() { Picker = picker };
+        statusHost.Child = status;
         RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
+        RowDefinitions.Add(new() { Height = GridLength.Auto });
         RowDefinitions.Add(new() { Height = GridLength.Auto });
 
         loading.HorizontalAlignment = HorizontalAlignment.Center;
         loading.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetLiveSetting(loading, AutomationLiveSetting.Polite);
 
-        readColumn.Children.Add(readHint);
-        readBox.Child = readColumn;
+        readBox.Child = readHint;
         readBox.Padding = Tokens.Space("DvSpace4", "DvSpace3");
         readBox.BorderThickness = new(0, Tokens.Number("DvBorder"), 0, 0);
         SetRow(composer, 1);
         SetRow(readBox, 1);
+        SetRow(statusHost, 2);
 
         Children.Add(list);
         Children.Add(center);
         Children.Add(composer);
         Children.Add(readBox);
+        Children.Add(statusHost);
         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         AllowDrop = true;
         DragOver += Carried;
@@ -82,7 +88,11 @@ public sealed class ConversationPane : Grid
             }
         };
         GotFocus += (_, _) => ResetDropping();
-        Unloaded += (_, _) => ResetDropping();
+        Unloaded += (_, _) =>
+        {
+            picker.Close();
+            ResetDropping();
+        };
 
         // The button stays pressable while the conversation is read again: Reload does nothing until the read ends,
         // so a second press neither asks again nor takes the focus off the way forward.
@@ -120,6 +130,7 @@ public sealed class ConversationPane : Grid
             composer.Model = value?.Composer;
             SyncDropping();
             status.Model = value?.List.Status;
+            status.Composer = value is { ReadOnly: false } ? value.Composer : null;
             Show();
         }
     }
@@ -158,7 +169,8 @@ public sealed class ConversationPane : Grid
         composer.Visibility = Shown(!missing && !reading && model is not null);
         readBox.Visibility = Shown(!missing && reading);
         readHint.Text = model?.ReadHint ?? string.Empty;
-        PlaceStatus(reading);
+        statusHost.Visibility = Shown(!missing && model is not null);
+        composer.ModelPickerInMenu = model?.List.Status.Enabled is false;
 
         if (missing)
         {
@@ -211,21 +223,6 @@ public sealed class ConversationPane : Grid
         }
 
         Paint();
-    }
-
-    // The status line stands under the composer, or under the notice that takes the composer's place.
-    private void PlaceStatus(bool reading)
-    {
-        if (reading && !readColumn.Children.Contains(status))
-        {
-            composer.Under = null;
-            readColumn.Children.Add(status);
-        }
-        else if (!reading && !ReferenceEquals(composer.Under, status))
-        {
-            readColumn.Children.Remove(status);
-            composer.Under = status;
-        }
     }
 
     // Files held over the conversation, its messages as much as its field: the composer's frame and a line of words say

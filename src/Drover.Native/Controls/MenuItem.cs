@@ -20,6 +20,9 @@ public sealed class MenuItem : PlainButton
     /// <summary>Raised when the item is chosen, after the menu has closed.</summary>
     public event EventHandler? Selected;
 
+    /// <summary>Waits for the menu to finish closing before another flyout takes focus.</summary>
+    internal bool OpensFlyout { get; init; }
+
     #endregion
 
     #region Private Methods

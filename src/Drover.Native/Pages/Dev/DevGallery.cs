@@ -89,11 +89,8 @@ internal static class DevGallery
             "turn" => ChatSamples.Turn(),
             _ => ChatSamples.Finished(),
         };
-        var composer = new Composer
-        {
-            Model = new() { BotName = "Sample lead bot", Running = working },
-            Under = new ConversationStatus { Model = list.Status },
-        };
+        var composer = ChatSamples.ComposerAndStatus(
+            new() { BotName = "Sample lead bot", Running = working }, list.Status);
         Grid.SetRow(composer, 1);
         pane.Children.Add(new MessageList { Model = list });
         pane.Children.Add(composer);

@@ -25,6 +25,7 @@ public static partial class AppServices
             .AddSingleton<ILiveNotifications, NoLiveNotifications>()
             .AddSingleton<ToastService>()
             .AddSingleton<ThemeModel>()
+            .AddSingleton<ConversationDisplaySettings>()
             .AddSingleton(ShareInbox.Process)
             .AddSingleton<MovedNotifications>()
             .AddSingleton<SpaceVoice>()

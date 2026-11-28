@@ -11,6 +11,8 @@ public sealed class AppearanceChoices : StackPanel
 
     private readonly AppearanceViewModel model;
 
+    private readonly Switch statusBar = new() { Label = ConversationDisplaySettings.StatusBarLabel };
+
     private readonly Dictionary<string, AppearanceOption> options = [];
 
     private readonly StackPanel body = new();
@@ -37,11 +39,14 @@ public sealed class AppearanceChoices : StackPanel
 
     #region Constructors
 
-    public AppearanceChoices(AppearanceViewModel model)
+    public AppearanceChoices(AppearanceViewModel model, ConversationDisplaySettings conversation)
     {
         this.model = model;
         body.Spacing = Tokens.Number("DvSpace5");
+        statusBar.Value = conversation.ShowStatusBar;
+        statusBar.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => conversation.ShowStatusBar = statusBar.Value);
         Children.Add(body);
+        Children.Add(statusBar);
         Children.Add(spoken);
         Loaded += (_, _) => Listen(true);
         Unloaded += (_, _) => Listen(false);
