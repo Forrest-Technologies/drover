@@ -51,6 +51,7 @@ public sealed class ConversationStatus : Border
         Grid.SetColumn(expand, 1);
         name.Children.Add(modelWords);
         name.Children.Add(expand);
+        modelButton.Padding = Tokens.Space("DvSpace2", "DvSpace1");
         modelButton.Content = name;
 
         current.Margin = Tokens.Space("DvSpace3", "DvSpace1");
@@ -204,7 +205,7 @@ public sealed class ConversationStatus : Border
             {
                 Child = label,
                 VerticalAlignment = VerticalAlignment.Center,
-                Padding = Tokens.Space("DvSpace2", "DvSpace1"),
+                Padding = new(Tokens.Number("DvSpace1")),
                 BorderBrush = Tokens.Brush(this, "DvLine"),
                 BorderThickness = new(Tokens.Number("DvBorder"), 0, 0, 0),
             });

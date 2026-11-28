@@ -25,13 +25,17 @@ public sealed class Composer : Grid
 
     private readonly TravelLine travel = new();
 
-    private readonly Menu more = new()
+    private readonly IconButton more = new()
     {
-        TriggerIcon = IconName.Plus,
+        Icon = IconName.Plus,
         Label = "More options",
-        ShowTriggerLabel = false,
-        Placement = FlyoutPlacementMode.TopEdgeAlignedLeft,
         VerticalAlignment = VerticalAlignment.Bottom,
+    };
+
+    private readonly Menu options = new()
+    {
+        Label = "Message options",
+        Placement = FlyoutPlacementMode.TopEdgeAlignedLeft,
     };
 
     private readonly TextBox field = new()
@@ -91,10 +95,7 @@ public sealed class Composer : Grid
 
         voice = Pieces.Make<VoiceComposerViewModel>(this);
         Labelled(attach, IconName.Attach, "Attach file");
-        more.Trigger.Padding = new(0);
-        more.Trigger.MinWidth = Targets.Minimum;
-        ToolTipService.SetToolTip(more.Trigger, more.Label);
-        more.Items.Add(attach);
+        options.Items.Add(attach);
         IconOnly(stop, IconName.Stop, StopLabel);
         IconOnly(send, IconName.Send, SendLabel);
         if (OperatingSystem.IsAndroid())
@@ -113,7 +114,7 @@ public sealed class Composer : Grid
         AutomationProperties.SetAutomationId(send, "ComposerSend");
         AutomationProperties.SetAutomationId(stop, "ComposerStop");
         AutomationProperties.SetAutomationId(attach, "ComposerAttach");
-        AutomationProperties.SetAutomationId(more.Trigger, "ComposerMore");
+        AutomationProperties.SetAutomationId(more, "ComposerMore");
 
         BuildField();
         BuildRow();
@@ -125,12 +126,13 @@ public sealed class Composer : Grid
         column.Children.Add(spoken);
         Children.Add(column);
 
+        more.Click += (_, _) => options.OpenAt(more);
         attach.Selected += async (_, _) => await Pick();
         pickModel.Selected += (_, _) =>
         {
             if (model is { } shown)
             {
-                Picker?.Open(more.Trigger, shown);
+                Picker?.Open(more, shown);
             }
         };
         stop.Click += async (_, _) => await (model?.Cancel() ?? Task.CompletedTask);
@@ -413,16 +415,16 @@ public sealed class Composer : Grid
         var offersModel = modelPickerInMenu && Picker is not null && model is { HasModelChoice: true };
         pickModel.IsEnabled = model is { Disabled: false, ChoosingModel: false };
 
-        if (offersModel && !more.Items.Contains(pickModel))
+        if (offersModel && !options.Items.Contains(pickModel))
         {
-            more.Items.Add(pickModel);
+            options.Items.Add(pickModel);
         }
         else if (!offersModel)
         {
-            more.Items.Remove(pickModel);
+            options.Items.Remove(pickModel);
         }
 
-        more.Trigger.IsEnabled = attach.IsEnabled || (offersModel && pickModel.IsEnabled);
+        more.IsEnabled = attach.IsEnabled || (offersModel && pickModel.IsEnabled);
     }
 
     // A narrow window with Stop and Send side by side gives the field the whole first row and puts the two under it.

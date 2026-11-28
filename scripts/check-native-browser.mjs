@@ -1385,7 +1385,7 @@ async function checkComposerBounds(page) {
     const attach = page.getByRole('menuitem', { name: 'Attach file', exact: true });
 
     try {
-        await settled('empty field', buttons);
+        await settled('empty field', ['More options']);
         await field.focus();
         await page.keyboard.type('one');
         await page.keyboard.press('Shift+Enter');
@@ -2066,6 +2066,7 @@ async function checkConversationStatus(page, width, theme) {
     const model = name => button(`Model for this conversation, ${name}`);
     const click = async target => {
         await target.waitFor({ state: 'visible', timeout: 10000 });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const bounds = await target.boundingBox();
         assert(bounds, 'The control has pointer bounds.');
         await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
@@ -2091,9 +2092,9 @@ async function checkConversationStatus(page, width, theme) {
     await attach.waitFor({ state: 'hidden' });
 
     await click(more);
-    const chooseFile = page.waitForEvent('filechooser', { timeout: 10000 });
-    await click(attach);
-    const chooser = await chooseFile;
+    // Force the standard HTML picker, which the browser driver can supply a file to.
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), click(attach)]);
     await attach.waitFor({ state: 'hidden' });
     await chooser.setFiles({ name: 'sample-chooser.txt', mimeType: 'text/plain', buffer: Buffer.from('Sample attachment.') });
     const remove = button('Remove sample-chooser.txt');

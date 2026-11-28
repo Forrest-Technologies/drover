@@ -22,6 +22,8 @@ public sealed class Menu : Grid
 
     private MenuItem? afterClose;
 
+    private Pressable? opener;
+
     #endregion
 
     #region Constructors
@@ -35,7 +37,7 @@ public sealed class Menu : Grid
         trigger.Content = content;
         trigger.Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0);
         trigger.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
-        trigger.Click += (_, _) => OpenList();
+        trigger.Click += (_, _) => OpenAt(trigger);
         Children.Add(trigger);
 
         flyout.Content = list;
@@ -116,6 +118,28 @@ public sealed class Menu : Grid
 
     #endregion
 
+    #region Internal Methods
+
+    /// <summary>Opens the actions from a control that has its own layout and accessible name.</summary>
+    internal void OpenAt(Pressable anchor)
+    {
+        opener = anchor;
+        var presenter = new Style(typeof(FlyoutPresenter));
+        presenter.Setters.Add(new Setter(Control.BackgroundProperty, Tokens.Brush(anchor, "DvBg2")));
+        presenter.Setters.Add(new Setter(Control.BorderBrushProperty, Tokens.Brush(anchor, "DvLine")));
+        presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(Tokens.Number("DvBorder"))));
+        presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(Tokens.Number("DvRadiusCard"))));
+        presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(Tokens.Number("DvSpace1"))));
+        presenter.Setters.Add(new Setter(MinWidthProperty, Tokens.Number("DvMenuWidth")));
+        presenter.Setters.Add(new Setter(MinHeightProperty, 0d));
+        presenter.Setters.Add(new Setter(Control.IsTabStopProperty, false));
+        flyout.FlyoutPresenterStyle = presenter;
+        list.RequestedTheme = anchor.ActualTheme;
+        flyout.ShowAt(anchor);
+    }
+
+    #endregion
+
     #region Private Methods
 
     private void Describe()
@@ -137,22 +161,6 @@ public sealed class Menu : Grid
         }
     }
 
-    private void OpenList()
-    {
-        var presenter = new Style(typeof(FlyoutPresenter));
-        presenter.Setters.Add(new Setter(Control.BackgroundProperty, Tokens.Brush(this, "DvBg2")));
-        presenter.Setters.Add(new Setter(Control.BorderBrushProperty, Tokens.Brush(this, "DvLine")));
-        presenter.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(Tokens.Number("DvBorder"))));
-        presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(Tokens.Number("DvRadiusCard"))));
-        presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(Tokens.Number("DvSpace1"))));
-        presenter.Setters.Add(new Setter(MinWidthProperty, Tokens.Number("DvMenuWidth")));
-        presenter.Setters.Add(new Setter(MinHeightProperty, 0d));
-        presenter.Setters.Add(new Setter(Control.IsTabStopProperty, false));
-        flyout.FlyoutPresenterStyle = presenter;
-        list.RequestedTheme = ActualTheme;
-        flyout.ShowAt(trigger);
-    }
-
     // The menu closes and the focus goes back to its button first, so a dialog the action opens remembers the
     // button as the place to return to.
     private void Choose(object sender, RoutedEventArgs args)
@@ -171,7 +179,7 @@ public sealed class Menu : Grid
 
     private void Act(MenuItem item)
     {
-        trigger.TakeFocus();
+        (opener ?? trigger).TakeFocus();
         item.RaiseSelected();
     }
 
