@@ -21,6 +21,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private readonly ILogger<ConversationViewModel> logger;
 
+    private readonly ConversationDisplaySettings? display;
+
     private readonly AttachmentDraft draft = new();
 
     // The notes forgotten from this conversation's cards, so each card says so, and says so no longer once undone.
@@ -108,9 +110,16 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         ShareInbox inbox,
         IUiThread ui,
         ILogger<ConversationViewModel> logger,
-        ConversationParameters parameters)
+        ConversationParameters parameters,
+        ConversationDisplaySettings? display = null)
     {
         (this.api, this.session, this.toasts, this.inbox, this.ui, this.logger, this.parameters) = (api, session, toasts, inbox, ui, logger, parameters);
+        this.display = display;
+        display?.PropertyChanged += DisplayChanged;
+
+        Composer.RecentModels = () => session.Current is { } person
+            ? display?.Recent(person.UserId, Bot.ModelConnectionId) ?? []
+            : [];
         seenThreadRevision = pendingThreadRevision = parameters.ThreadRevision;
         Composer.OnSend = text => Rendered(Send(text));
         Composer.OnCancel = () => Rendered(Stop());
@@ -262,6 +271,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         }
 
         gone = true;
+        display?.PropertyChanged -= DisplayChanged;
+
         Composer.TakesFiles = false;
         watch?.Cancel();
         watch?.Dispose();
@@ -520,7 +531,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
         try
         {
-            Composer.ShowModels(await api.ChooseConversationModel(SpaceId, shown.Id, model));
+            var choice = await api.ChooseConversationModel(SpaceId, shown.Id, model);
+            Composer.ShowModels(choice);
+            if (session.Current is { } person && model is not null && choice.Chosen == model)
+            {
+                display?.Remember(person.UserId, Bot.ModelConnectionId, model);
+            }
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -1376,6 +1392,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         _ = AfterShown();
     }
 
+    private void DisplayChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs change)
+    {
+        ShowList();
+        OnPropertyChanged(string.Empty);
+    }
+
     private void ShowList()
     {
         List.Messages = Messages;
@@ -1386,7 +1408,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.Working = Working;
         List.Waiting = Waiting;
         List.ModelIsChosen = Composer.ChosenModel != ComposerViewModel.BotsOwnModel;
-        List.Model = List.ModelIsChosen ? Composer.ChosenModel : Bot.Model;
+        List.Model = Composer.ActiveModelName ?? (List.ModelIsChosen ? Composer.ChosenModel : Bot.Model);
+        List.Status.Enabled = display?.ShowStatusBar ?? true;
         List.Asker = ReadOnly ? Asker : null;
         List.Problem = problem;
         List.Notice = Notice;
@@ -1405,6 +1428,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     private void ShowComposer()
     {
         Composer.BotName = Bot.Name;
+        Composer.ModelConnectionName = parameters.ModelConnectionName;
         Composer.Running = Working;
         Composer.Waiting = Waiting;
         Composer.Disabled = loading || LoadFailed;

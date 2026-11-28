@@ -311,20 +311,16 @@ public sealed class ChatViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Writing_a_draft_puts_the_cursor_in_the_field_and_the_options_row_takes_the_focus_when_it_opens()
+    public void Writing_a_draft_puts_the_cursor_in_the_field()
     {
         var composer = Composer();
-        var (field, options) = (0, 0);
+        var field = 0;
         composer.FocusRequested += () => field++;
-        composer.OptionsFocusRequested += () => options++;
 
         composer.Write("Sample words");
-        composer.ToggleOptions();
-        composer.ToggleOptions();
 
         composer.Text.Should().Be("Sample words");
-        (field, options).Should().Be((1, 1));
-        composer.OptionsOpen.Should().BeFalse();
+        field.Should().Be(1);
     }
 
     [Fact]
@@ -368,9 +364,10 @@ public sealed class ChatViewModelTests : IDisposable
         ComposerViewModel.ModelLabel.Should().Be("Model for this conversation");
         composer.HasModelChoice.Should().BeTrue();
         composer.ModelOptions.Should().Equal(
-            new ModelOption(ComposerViewModel.BotsOwnModel, "Sample model (the bot's own)"),
+            new ModelOption(ComposerViewModel.BotsOwnModel, "Use the bot's default"),
             new ModelOption("sample-stronger", "Sample stronger"));
         composer.ChosenModel.Should().Be(ComposerViewModel.BotsOwnModel);
+        composer.ActiveModelName.Should().Be("Sample model");
 
         await composer.ChooseModel("sample-stronger");
         await composer.ChooseModel("sample-stronger");

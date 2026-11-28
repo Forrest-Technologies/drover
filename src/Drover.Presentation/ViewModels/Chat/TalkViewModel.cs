@@ -12,7 +12,8 @@ public sealed class TalkViewModel(
     ToastService toasts,
     ShareInbox inbox,
     IUiThread ui,
-    ILoggerFactory loggers) : ObservableObject, IDisposable
+    ILoggerFactory loggers,
+    ConversationDisplaySettings? display = null) : ObservableObject, IDisposable
 {
     #region Private Fields
 
@@ -775,15 +776,18 @@ public sealed class TalkViewModel(
             return null;
         }
 
+        var next = parameters();
+        next = next with { ModelConnectionName = connections?.FirstOrDefault(connection => connection.Id == next.Bot.ModelConnectionId)?.Name };
+
         if (current is null || !Equals(key, wanted))
         {
             current?.Dispose();
-            current = new(api, session, toasts, inbox, ui, loggers.CreateLogger<ConversationViewModel>(), parameters());
+            current = new(api, session, toasts, inbox, ui, loggers.CreateLogger<ConversationViewModel>(), next, display);
             listen(current);
             key = wanted;
         }
 
-        _ = current.SetParameters(parameters());
+        _ = current.SetParameters(next);
         return current;
     }
 

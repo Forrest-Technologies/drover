@@ -31,7 +31,7 @@ The server holds the permissions. A bot can only call a tool you granted it, and
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/images/readme/conversation-light.png" />
-    <img src="docs/images/readme/conversation-dark.png" width="900" alt="Drover in a browser with a sample conversation and its open ledger. Colored icons mark web search and a page read, and a gray terminal icon marks a command." />
+    <img src="docs/images/readme/conversation-dark.png" width="900" alt="Drover in a browser with a sample conversation. The status bar below the message field shows the current model and the latest reply's input and output tokens." />
   </picture>
 </p>
 

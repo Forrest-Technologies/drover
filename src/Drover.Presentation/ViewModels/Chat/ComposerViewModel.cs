@@ -2,8 +2,7 @@ namespace Drover.Presentation.ViewModels.Chat;
 
 /// <summary>
 /// The field a person writes to a bot in, and what stands beside it: Send, Stop while the bot works, the files
-/// chosen for the message, and the row of options behind the plus button. The row offers the model the
-/// conversation answers with when the bot may use more than one. The conversation around it says what is going on
+/// chosen for the message, and the models the conversation may answer with. The conversation around it says what is going on
 /// and hears what the person does.
 /// </summary>
 public sealed partial class ComposerViewModel : ObservableObject
@@ -47,14 +46,14 @@ public sealed partial class ComposerViewModel : ObservableObject
     private string text = string.Empty;
 
     [ObservableProperty]
-    private bool optionsOpen;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasModelChoice))]
     private IReadOnlyList<ModelOption> modelOptions = [];
 
     [ObservableProperty]
     private string chosenModel = BotsOwnModel;
+
+    [ObservableProperty]
+    private bool choosingModel;
 
     #endregion
 
@@ -106,6 +105,12 @@ public sealed partial class ComposerViewModel : ObservableObject
     /// <summary>The value of the option that answers with the bot's own model.</summary>
     public static string BotsOwnModel => string.Empty;
 
+    public string? ActiveModelName { get; private set; }
+
+    public string? ModelConnectionName { get; set; }
+
+    public Func<IReadOnlyList<string>>? RecentModels { get; set; }
+
     public static string ModelLabel => "Model for this conversation";
 
     /// <summary>The choice is offered only when there is one to make.</summary>
@@ -129,9 +134,6 @@ public sealed partial class ComposerViewModel : ObservableObject
 
     /// <summary>Raised to put the cursor in the message field.</summary>
     public event Action? FocusRequested;
-
-    /// <summary>Raised when the row of options opened, to put the focus on its first option.</summary>
-    public event Action? OptionsFocusRequested;
 
     #endregion
 
@@ -157,17 +159,6 @@ public sealed partial class ComposerViewModel : ObservableObject
     /// <summary>Puts the cursor back in the message field.</summary>
     public void Focus() => FocusRequested?.Invoke();
 
-    /// <summary>Opening the row by keyboard puts focus on its first option, since the row comes before the plus button.</summary>
-    [RelayCommand]
-    public void ToggleOptions()
-    {
-        OptionsOpen = !OptionsOpen;
-        if (OptionsOpen)
-        {
-            OptionsFocusRequested?.Invoke();
-        }
-    }
-
     /// <summary>
     /// Shows what the server said the conversation may answer with: the bot's own model first, then the others it may
     /// choose. Nothing is offered while that is not known.
@@ -178,22 +169,34 @@ public sealed partial class ComposerViewModel : ObservableObject
             ? []
             :
             [
-                new(BotsOwnModel, $"{choice.BotModelName} (the bot's own)"),
+                new(BotsOwnModel, "Use the bot's default"),
                 .. choice.Models.Where(option => option.Model != choice.BotModel).Select(option => new ModelOption(option.Model, option.Name)),
             ];
         ChosenModel = choice?.Chosen ?? BotsOwnModel;
+        ActiveModelName = choice is null ? null
+            : ChosenModel == BotsOwnModel ? choice.BotModelName
+            : ModelOptions.FirstOrDefault(option => option.Value == ChosenModel)?.Label ?? ChosenModel;
+        OnPropertyChanged(nameof(ActiveModelName));
     }
 
     /// <summary>The person picked a model. The conversation asks the server, which may refuse it.</summary>
-    public Task ChooseModel(string value)
+    public async Task ChooseModel(string value)
     {
-        if (value == ChosenModel)
+        if (ChoosingModel || value == ChosenModel)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        ChosenModel = value;
-        return OnModelChosen?.Invoke(value == BotsOwnModel ? null : value) ?? Task.CompletedTask;
+        ChoosingModel = true;
+        try
+        {
+            ChosenModel = value;
+            await (OnModelChosen?.Invoke(value == BotsOwnModel ? null : value) ?? Task.CompletedTask);
+        }
+        finally
+        {
+            ChoosingModel = false;
+        }
     }
 
     /// <summary>Tells the person something about the files they handed over, in one sentence.</summary>

@@ -4,8 +4,8 @@ namespace Drover.Native.Chat;
 /// The console a person writes to a bot in: the field and its actions in one frame. Enter sends and Shift+Enter
 /// breaks the line; on a touch keyboard Enter breaks the line and Send sends. The field grows with its text up to
 /// a set number of lines. Files chosen with Attach, pasted into the field, or dropped on the conversation all go the
-/// same way. While the bot works, a line travels around the frame and Stop stands where Send was. The model the
-/// conversation answers with is chosen behind the plus button, beside Attach, when the bot may use more than one.
+/// same way. The plus button opens message actions above the field. While the bot works, a line travels around the
+/// frame and Stop stands where Send was.
 /// </summary>
 public sealed class Composer : Grid
 {
@@ -15,11 +15,9 @@ public sealed class Composer : Grid
 
     private readonly AttachmentTray tray = new();
 
-    private readonly FlowPanel options = new() { Gap = Tokens.Number("DvSpace2"), Visibility = Visibility.Collapsed };
+    private readonly MenuItem attach = new();
 
-    private readonly Button attach = new();
-
-    private readonly Select modelPick = new() { Label = ComposerViewModel.ModelLabel, Visibility = Visibility.Collapsed };
+    private readonly MenuItem pickModel = new() { Content = ComposerViewModel.ModelLabel, OpensFlyout = true };
 
     private readonly Facet frame = new();
 
@@ -27,7 +25,18 @@ public sealed class Composer : Grid
 
     private readonly TravelLine travel = new();
 
-    private readonly IconButton more = new() { Icon = IconName.Plus, Label = "More options", VerticalAlignment = VerticalAlignment.Bottom };
+    private readonly IconButton more = new()
+    {
+        Icon = IconName.Plus,
+        Label = "More options",
+        VerticalAlignment = VerticalAlignment.Bottom,
+    };
+
+    private readonly Menu options = new()
+    {
+        Label = "Message options",
+        Placement = FlyoutPlacementMode.TopEdgeAlignedLeft,
+    };
 
     private readonly TextBox field = new()
     {
@@ -74,9 +83,7 @@ public sealed class Composer : Grid
 
     private bool focusWanted;
 
-    private FrameworkElement? under;
-
-    private long underWatch;
+    private bool modelPickerInMenu;
 
     #endregion
 
@@ -87,7 +94,8 @@ public sealed class Composer : Grid
         MaxWidth = Tokens.Number("DvMeasure") + Tokens.Number("DvSpace6");
 
         voice = Pieces.Make<VoiceComposerViewModel>(this);
-        Labelled(attach, IconName.Attach, "Attach");
+        Labelled(attach, IconName.Attach, "Attach file");
+        options.Items.Add(attach);
         IconOnly(stop, IconName.Stop, StopLabel);
         IconOnly(send, IconName.Send, SendLabel);
         if (OperatingSystem.IsAndroid())
@@ -100,7 +108,6 @@ public sealed class Composer : Grid
         IconOnly(discard, IconName.Close, VoiceWords.DiscardRecording);
         AutomationProperties.SetAutomationId(microphone, "ComposerMicrophone");
         AutomationProperties.SetAutomationId(discard, "ComposerDiscardRecording");
-        AutomationProperties.SetName(options, "Message options");
         AutomationProperties.SetName(this, "Message composer");
         AutomationProperties.SetName(frame, "Write a message");
         AutomationProperties.SetAutomationId(field, "ComposerField");
@@ -108,23 +115,26 @@ public sealed class Composer : Grid
         AutomationProperties.SetAutomationId(stop, "ComposerStop");
         AutomationProperties.SetAutomationId(attach, "ComposerAttach");
         AutomationProperties.SetAutomationId(more, "ComposerMore");
-        options.Children.Add(attach);
-        options.Children.Add(modelPick);
 
         BuildField();
         BuildRow();
 
         dropNote.Visibility = Visibility.Collapsed;
         column.Children.Add(tray);
-        column.Children.Add(options);
         column.Children.Add(frame);
         column.Children.Add(dropNote);
         column.Children.Add(spoken);
         Children.Add(column);
 
-        more.Click += (_, _) => model?.ToggleOptions();
-        attach.Click += async (_, _) => await Pick();
-        modelPick.RegisterPropertyChangedCallback(Select.ValueProperty, async (_, _) => await ChooseModel());
+        more.Click += (_, _) => options.OpenAt(more);
+        attach.Selected += async (_, _) => await Pick();
+        pickModel.Selected += (_, _) =>
+        {
+            if (model is { } shown)
+            {
+                Picker?.Open(more, shown);
+            }
+        };
         stop.Click += async (_, _) => await (model?.Cancel() ?? Task.CompletedTask);
         send.Click += async (_, _) => await Send();
         tray.Remove += async (_, id) => await (model?.Remove(id) ?? Task.CompletedTask);
@@ -164,7 +174,6 @@ public sealed class Composer : Grid
             {
                 model.PropertyChanged -= Changed;
                 model.FocusRequested -= TakeFocus;
-                model.OptionsFocusRequested -= FocusOptions;
             }
 
             model = value;
@@ -177,38 +186,24 @@ public sealed class Composer : Grid
             {
                 model.PropertyChanged += Changed;
                 model.FocusRequested += TakeFocus;
-                model.OptionsFocusRequested += FocusOptions;
             }
 
             Show();
         }
     }
 
-    /// <summary>
-    /// What stands under the frame, inside the composer's own width and tight to it: the conversation's status line.
-    /// It is a footer of the composer: the frame keeps its height whether the line is there or not, and while the line
-    /// shows it takes the room the composer otherwise leaves empty at its foot.
-    /// </summary>
-    public FrameworkElement? Under
+    internal ConversationModelPicker? Picker { get; init; }
+
+    internal bool ModelPickerInMenu
     {
-        get => under;
+        get => modelPickerInMenu;
         set
         {
-            if (under is not null)
+            if (modelPickerInMenu != value)
             {
-                column.Children.Remove(under);
-                under.UnregisterPropertyChangedCallback(VisibilityProperty, underWatch);
+                modelPickerInMenu = value;
+                ShowMenu();
             }
-
-            under = value;
-
-            if (under is not null)
-            {
-                column.Children.Add(under);
-                underWatch = under.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => Fit());
-            }
-
-            Fit();
         }
     }
 
@@ -340,9 +335,7 @@ public sealed class Composer : Grid
         return mark;
     }
 
-    // Attach keeps its word: it stands in the options list beside the model choice, where a lone icon would read as
-    // a mark rather than an action.
-    private static void Labelled(Button button, IconName icon, string label)
+    private static void Labelled(MenuItem button, IconName icon, string label)
     {
         var mark = new Icon { NameOfIcon = icon, VerticalAlignment = VerticalAlignment.Center };
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
@@ -364,6 +357,7 @@ public sealed class Composer : Grid
         var shown = model;
 
         ShowVoice(shown);
+        ShowMenu();
 
         if (shown is null)
         {
@@ -383,13 +377,9 @@ public sealed class Composer : Grid
         placeholder.Visibility = field.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetName(field, shown.FieldName);
         AutomationProperties.SetHelpText(field, shown.FieldDescription);
-        AutomationProperties.SetItemStatus(more, shown.OptionsOpen ? "Expanded" : "Collapsed");
 
         tray.BotName = shown.BotName;
         tray.Items = shown.Attachments;
-        options.Visibility = shown.OptionsOpen ? Visibility.Visible : Visibility.Collapsed;
-        attach.IsEnabled = shown.TakesFiles;
-        ShowModels(shown);
         stop.Visibility = shown.ShowsStop ? Visibility.Visible : Visibility.Collapsed;
         send.Visibility = shown.ShowsSend && voice.Phase is VoicePhase.Idle ? Visibility.Visible : Visibility.Collapsed;
         send.IsEnabled = shown.CanSend;
@@ -419,17 +409,22 @@ public sealed class Composer : Grid
         spoken.Say(listens ? voice.Announcement : null);
     }
 
-    private void ShowModels(ComposerViewModel shown)
+    private void ShowMenu()
     {
-        modelPick.Visibility = shown.HasModelChoice ? Visibility.Visible : Visibility.Collapsed;
-        modelPick.Disabled = shown.Disabled;
+        attach.IsEnabled = model?.TakesFiles is true;
+        var offersModel = modelPickerInMenu && Picker is not null && model is { HasModelChoice: true };
+        pickModel.IsEnabled = model is { Disabled: false, ChoosingModel: false };
 
-        if (!modelPick.Options.Select(option => (option.Value, option.Label)).SequenceEqual(shown.ModelOptions.Select(option => (option.Value, option.Label))))
+        if (offersModel && !options.Items.Contains(pickModel))
         {
-            modelPick.Options = [.. shown.ModelOptions.Select(option => new SelectOption(option.Value, option.Label))];
+            options.Items.Add(pickModel);
+        }
+        else if (!offersModel)
+        {
+            options.Items.Remove(pickModel);
         }
 
-        modelPick.Value = shown.ChosenModel;
+        more.IsEnabled = attach.IsEnabled || (offersModel && pickModel.IsEnabled);
     }
 
     // A narrow window with Stop and Send side by side gives the field the whole first row and puts the two under it.
@@ -438,8 +433,7 @@ public sealed class Composer : Grid
         var phone = ActualWidth > 0 && ActualWidth < (double)Styles.Dictionary["DvBreakPhone"];
         var two = phone && (model?.HasTwoActions ?? false);
         var inline = Tokens.Number(phone ? "DvSpace2" : "DvSpace4");
-        var foot = Tokens.Number(under?.Visibility is Visibility.Visible ? "DvSpace1" : "DvSpace4");
-        column.Padding = new(inline, Tokens.Number("DvSpace3"), inline, foot);
+        column.Padding = new(inline, Tokens.Number("DvSpace3"), inline, Tokens.Number("DvSpace3"));
 
         if (two == stacked)
         {
@@ -489,9 +483,6 @@ public sealed class Composer : Grid
         }
     }
 
-    // Opening the row by keyboard puts focus on its first option, since the row comes before the plus button.
-    private void FocusOptions() => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, attach.TakeFocus);
-
     #endregion
 
     #region Writing And Sending
@@ -522,14 +513,6 @@ public sealed class Composer : Grid
         key.Handled = true;
         Typed();
         await Send();
-    }
-
-    private async Task ChooseModel()
-    {
-        if (model is not null)
-        {
-            await model.ChooseModel(modelPick.Value);
-        }
     }
 
     private async Task Send()

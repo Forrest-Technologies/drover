@@ -47,6 +47,51 @@ public sealed class ConversationStatusTests
             .Line.Should().Be("vendor/sample-stronger, for this conversation");
     }
 
+    [Fact]
+    public void The_current_model_is_shown_independently_of_which_model_wrote_the_last_reply()
+    {
+        var status = Shown(new([Finished("a", run, Model)], Model: "Chosen model"));
+
+        status.Line.Should().Be("Chosen model · In 1,040 · Out 200 · USD 0.02");
+        status.Usage!.WrittenBy.Should().Be($"Model: {Model}");
+    }
+
+    [Fact]
+    public void Turning_off_the_bar_hides_it_and_skips_the_latest_reply_usage_read()
+    {
+        var device = new MemorySettings();
+        var settings = new ConversationDisplaySettings(device, NullLogger<ConversationDisplaySettings>.Instance);
+        settings.ShowStatusBar.Should().BeTrue();
+        settings.ShowStatusBar = false;
+
+        var saved = new ConversationDisplaySettings(device, NullLogger<ConversationDisplaySettings>.Instance);
+        var status = new ConversationStatusViewModel { Enabled = saved.ShowStatusBar };
+        status.Show(new([Finished("a", run, Model)]), Read(), NullLogger.Instance);
+        status.HasAny.Should().BeFalse();
+        status.Usage.Should().BeNull();
+        asked.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Recent_model_choices_are_distinct_and_scoped_to_the_person_and_connection()
+    {
+        var settings = new ConversationDisplaySettings(new MemorySettings(), NullLogger<ConversationDisplaySettings>.Instance);
+        var person = Guid.NewGuid();
+        var connection = Guid.NewGuid();
+
+        for (var index = 1; index <= 6; index++)
+        {
+            settings.Remember(person, connection, $"provider/model-{index}");
+        }
+
+        settings.Remember(person, connection, "provider/model-3");
+
+        settings.Recent(person, connection).Should().Equal(
+            "provider/model-3", "provider/model-6", "provider/model-5", "provider/model-4", "provider/model-2");
+        settings.Recent(Guid.NewGuid(), connection).Should().BeEmpty();
+        settings.Recent(person, Guid.NewGuid()).Should().BeEmpty();
+    }
+
     #endregion
 
     #region While A Run Works
@@ -90,7 +135,7 @@ public sealed class ConversationStatusTests
 
         status.Show(new([.. first, new("q2", true, "Second")]), Read(), NullLogger.Instance);
 
-        status.Line.Should().Be("vendor/sample-model · 1,240 tokens · USD 0.02", "the run ended with no reply, so the newest reply is the one before");
+        status.Line.Should().Be("vendor/sample-model · In 1,040 · Out 200 · USD 0.02", "the run ended with no reply, so the newest reply is the one before");
         asked.Should().Equal([run], "what was read for that reply is kept while the run worked");
     }
 
@@ -106,11 +151,11 @@ public sealed class ConversationStatusTests
 
         status.Show(new(conversation), Read(), NullLogger.Instance);
 
-        status.Line.Should().Be("vendor/sample-model · 1,240 tokens · USD 0.02");
-        status.Parts.Select(part => part.IsNumber).Should().Equal(false, true, true);
+        status.Line.Should().Be("vendor/sample-model · In 1,040 · Out 200 · USD 0.02");
+        status.Parts.Select(part => part.IsNumber).Should().Equal(false, true, true, true);
         status.Parts.Should().NotContain(part => part.IsState);
         status.Usage.Should().NotBeNull();
-        status.Name.Should().Be("vendor/sample-model, 1,240 tokens, USD 0.02. Shows usage for this reply.");
+        status.Name.Should().Be("vendor/sample-model, In 1,040, Out 200, USD 0.02. Shows usage for this reply.");
         asked.Should().Equal([run], "one request for a finished run, however often the conversation is drawn");
     }
 
@@ -122,7 +167,7 @@ public sealed class ConversationStatusTests
 
         status.Show(new([Finished("a", run, null)]), _ => Task.FromResult(detail), NullLogger.Instance);
 
-        status.Line.Should().Be("500 tokens", "neither a model nor a price that is not known is shown as nothing");
+        status.Line.Should().Be("In 400 · Out 100", "neither a model nor a price that is not known is shown as nothing");
     }
 
     [Fact]
@@ -141,7 +186,7 @@ public sealed class ConversationStatusTests
         var before = changes;
         waiting.SetResult(new(run, "USD", new UsageFigure(0.02m, 1_040, 200), null));
 
-        status.Line.Should().Be("vendor/sample-model · 1,240 tokens · USD 0.02");
+        status.Line.Should().Be("vendor/sample-model · In 1,040 · Out 200 · USD 0.02");
         changes.Should().BeGreaterThan(before, "the screen is told the figures arrived");
     }
 
@@ -167,7 +212,7 @@ public sealed class ConversationStatusTests
 
         waiting.SetResult(new(run, "USD", new UsageFigure(0.02m, 1_040, 200), null));
 
-        status.Line.Should().Be("vendor/sample-model · 1,240 tokens · USD 0.02");
+        status.Line.Should().Be("vendor/sample-model · In 1,040 · Out 200 · USD 0.02");
         status.Usage!.WrittenBy.Should().Be("Model: vendor/sample-model");
         asked.Should().Equal([run]);
     }
@@ -213,7 +258,7 @@ public sealed class ConversationStatusTests
         ChatMessage[] done = [.. first, new("q2", true, "Second"), Finished("a2", second, "vendor/sample-stronger")];
         status.Show(new(done), Read(), NullLogger.Instance);
 
-        status.Line.Should().Be("vendor/sample-stronger · 1,240 tokens · USD 0.02");
+        status.Line.Should().Be("vendor/sample-stronger · In 1,040 · Out 200 · USD 0.02");
         asked.Should().Equal([run, second], "one request for each finished run, none for an older reply");
     }
 
@@ -237,7 +282,7 @@ public sealed class ConversationStatusTests
         (list.Working, list.Thinking) = (false, false);
         list.Update();
 
-        list.Status.Line.Should().Be("vendor/sample-model · 1,240 tokens · USD 0.02");
+        list.Status.Line.Should().Be("vendor/sample-model · In 1,040 · Out 200 · USD 0.02");
     }
 
     #endregion
