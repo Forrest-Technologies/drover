@@ -573,7 +573,7 @@ public sealed class ModelConnectionsPage : Screen
     private ModelSignInPanel SignInPanel(bool stretch) =>
         new(model.SignIn, () =>
         {
-            Run(() => model.ActOnSignIn(PlatformShell.OpenOutside));
+            Run(() => model.ActOnSignIn(ModelSignInPanel.OpenApprovalPage));
             return Task.CompletedTask;
         }, stretch, ButtonKind.Primary);
 
@@ -685,7 +685,7 @@ public sealed class ModelConnectionsPage : Screen
 
         if (model.SignInActionWords(connection) is { } words)
         {
-            beneath.Children.Add(PageParts.Action(words, () => model.SignInAgain(connection, PlatformShell.OpenOutside), Refresh, !model.ChangePending, ButtonKind.Primary));
+            beneath.Children.Add(PageParts.Action(words, () => model.SignInAgain(connection, ModelSignInPanel.OpenApprovalPage), Refresh, !model.ChangePending, ButtonKind.Primary));
         }
     }
 

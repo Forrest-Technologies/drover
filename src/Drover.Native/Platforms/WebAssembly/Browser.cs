@@ -40,6 +40,9 @@ internal static partial class Browser
     [JSImport("globalThis.location.assign")]
     public static partial void OpenOutside(string address);
 
+    [JSImport("globalThis.open")]
+    public static partial void OpenWindow(string address, string target, string features);
+
     [JSImport("globalThis.history.back")]
     public static partial void GoBack();
 

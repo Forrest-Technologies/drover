@@ -39,6 +39,9 @@ public sealed class Link : PlainButton
         set => SetValue(AddressProperty, value);
     }
 
+    /// <summary>Keeps this app open when a browser follows the link.</summary>
+    public bool OpensNewTab { get; set; }
+
     /// <summary>The words of the link. They say where it goes.</summary>
     public string Text
     {
@@ -53,12 +56,20 @@ public sealed class Link : PlainButton
 
     #region Public Methods
 
-    internal static Task OpenOutside(Uri address)
+    internal static Task OpenOutside(Uri address, bool opensNewTab = false)
     {
 #if __WASM__
         if (OperatingSystem.IsBrowser())
         {
-            Browser.OpenOutside(address.AbsoluteUri);
+            if (opensNewTab)
+            {
+                Browser.OpenWindow(address.AbsoluteUri, "_blank", "noopener,noreferrer");
+            }
+            else
+            {
+                Browser.OpenOutside(address.AbsoluteUri);
+            }
+
             return Task.CompletedTask;
         }
 #endif
@@ -80,7 +91,7 @@ public sealed class Link : PlainButton
 
         if (Uri.TryCreate(address, UriKind.Absolute, out var outside) && outside.Scheme is "http" or "https" or "mailto")
         {
-            _ = OpenOutside(outside);
+            _ = OpenOutside(outside, OpensNewTab);
             return;
         }
 

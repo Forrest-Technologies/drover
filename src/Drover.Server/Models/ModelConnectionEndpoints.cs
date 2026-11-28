@@ -31,6 +31,7 @@ public static class ModelConnectionEndpoints
         calling.MapPost("/sign-in", StartSignIn).WithName("StartModelSignIn");
         calling.MapPost("/sign-in/{attemptId:guid}/finish", FinishSignIn).WithName("FinishModelSignIn");
         calling.MapGet("/sign-in/{attemptId:guid}", ReadSignIn).WithName("ReadModelSignIn");
+        calling.MapDelete("/sign-in/{attemptId:guid}", CancelSignIn).WithName("CancelModelSignIn");
         calling.MapDelete("/{connectionId:guid}/sign-in", SignOut).WithName("SignOutOfModelConnection");
         return space;
     }
@@ -295,6 +296,20 @@ public static class ModelConnectionEndpoints
 
         var connection = outcome.ConnectionId is { } connectionId ? await Summarize(scopes, access, connectionId, context.RequestAborted) : null;
         return TypedResults.Ok(new ModelSignInProgress(ToWireName(state), connection, outcome.Problem));
+    }
+
+    private static Results<NoContent, NotFound, ProblemHttpResult> CancelSignIn(
+        Guid attemptId, HttpContext context, ModelSignIns signIns)
+    {
+        var access = context.GetSpaceAccess();
+        return signIns.CancelPoll(access.SpaceId, access.UserId, attemptId) switch
+        {
+            204 => TypedResults.NoContent(),
+            404 => TypedResults.NotFound(),
+            _ => TypedResults.Problem(
+                title: "This sign-in already ended or is finishing. Check Models for the result.",
+                statusCode: StatusCodes.Status409Conflict),
+        };
     }
 
     private static async Task<Results<NoContent, NotFound>> SignOut(Guid connectionId, HttpContext context, ModelSignIns signIns)

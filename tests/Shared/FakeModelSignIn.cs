@@ -112,6 +112,9 @@ public sealed class FakeModelSignIn(
     /// <summary>The provider's interval between polls, for <see cref="ModelSignInWait.Poll"/>.</summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>Lets a test hold the provider's poll answer while the caller cancels.</summary>
+    public Func<CancellationToken, Task>? BeforePollAnswer { get; set; }
+
     /// <summary>How long the provider's code lasts, for <see cref="ModelSignInWait.Poll"/>.</summary>
     public TimeSpan CodeLifetime { get; set; } = TimeSpan.FromMinutes(15);
 
@@ -194,7 +197,7 @@ public sealed class FakeModelSignIn(
     {
         if (attempt.Begun.ContainsKey("device"))
         {
-            return Poll();
+            return Poll(cancellation);
         }
 
         var answer = Read(arrived.Text);
@@ -254,9 +257,14 @@ public sealed class FakeModelSignIn(
     #region Private Methods
 
     /// <summary>One poll of the provider's device flow.</summary>
-    private Task<ModelTokens?> Poll()
+    private async Task<ModelTokens?> Poll(CancellationToken cancellation)
     {
         polls.Enqueue(clock.GetUtcNow());
+
+        if (BeforePollAnswer is { } wait)
+        {
+            await wait(cancellation);
+        }
 
         if (SlowDownOnce)
         {
@@ -277,11 +285,11 @@ public sealed class FakeModelSignIn(
 
         if (!DeviceApproved)
         {
-            return Task.FromResult<ModelTokens?>(null);
+            return null;
         }
 
         received.Enqueue(new FakeTokenRequest("device_code", null, null, null));
-        return Task.FromResult<ModelTokens?>(NewTokens() with { Details = new Dictionary<string, string> { ["flow"] = "code" } });
+        return NewTokens() with { Details = new Dictionary<string, string> { ["flow"] = "code" } };
     }
 
     private ModelTokens NewTokens()
