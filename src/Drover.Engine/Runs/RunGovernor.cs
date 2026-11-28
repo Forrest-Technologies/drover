@@ -480,7 +480,9 @@ public sealed class RunGovernor(
             RecordModelUsage = Record,
             ThreadId = session.Thread.Id,
             IsDelegated = session.RootRunId != session.RunId,
+            Approved = toolCall.Approved,
             Redact = session.Redactor.Redact,
+            RedactJson = session.Redactor.Redact,
             IsTainted = () => session.Tainted,
             AnnounceMessage = session.AnnounceChangedMessage,
         };

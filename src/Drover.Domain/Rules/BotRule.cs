@@ -31,5 +31,7 @@ public sealed class BotRule : ISpaceOwned
 
     public Guid? CreatedByUserId { get; set; }
 
+    public Guid? ManagingBotId { get; set; }
+
     #endregion
 }

@@ -695,8 +695,10 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         tool.Should().Match<BotToolEntry>(found => found.Name == "time.now" && found.Title == "Current time" && found.Source == "builtin" && found.Grant == "allow" && found.Ceiling == "allow" && found.Sensitivity == "read");
         off.Grant.Should().Be("off");
         listed.Grant.Should().Be("off");
-        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove"], "the granted tools are sent to the model");
-        model.ToolsOffered[1].Should().BeEquivalentTo(["crew_list", "crew_add", "crew_change", "crew_remove"], "a tool with no grant is never sent to the model");
+        var automationTools = AutomationTools.AllowedByDefault.Concat(AutomationTools.AskedByDefault)
+            .Select(BuiltinTool.ModelName);
+        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove", .. automationTools], "the granted tools are sent to the model");
+        model.ToolsOffered[1].Should().BeEquivalentTo(["crew_list", "crew_add", "crew_change", "crew_remove", .. automationTools], "a tool with no grant is never sent to the model");
         misspelled.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

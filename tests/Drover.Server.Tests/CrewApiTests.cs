@@ -33,15 +33,17 @@ public sealed class CrewApiTests(PostgresServer postgres) : ServerTestBase(postg
         var child = await CreateBot(client, alice.SpaceId, connection.Id, "Child", lead.Id);
         var childTools = await Tools(client, alice.SpaceId, child.Id);
 
+        var defaultGrants = BuiltinTools.GrantedToNewBots.Select(name => (name, "allow"))
+            .Concat(AutomationTools.AskedByDefault.Select(name => (name, "ask")));
         leadTools.Where(entry => entry.Grant != "off").Select(entry => (entry.Name, entry.Grant)).Should().BeEquivalentTo(
-            [("time.now", "allow"), ("message_bot", "allow"), ("crew.list", "ask"), ("crew.add", "ask"), ("crew.change", "ask"), ("crew.remove", "ask")]);
+            [.. defaultGrants, ("crew.list", "ask"), ("crew.add", "ask"), ("crew.change", "ask"), ("crew.remove", "ask")]);
         leadTools.Where(entry => crewTools.Contains(entry.Name)).Should().OnlyContain(entry => entry.Sensitivity == (entry.Name == "crew.list" ? "read" : "write"));
         leadTools.Where(entry => entry.AlwaysAsks).Select(entry => entry.Name).Should().Equal("crew.add");
         allowed.Where(entry => entry.AlwaysAsks).Select(entry => (entry.Name, entry.Grant)).Should().Equal(
             [("crew.add", "allow")],
             "making a bot asks a person whatever its grant, and the list says so even where it is set to allow");
         childTools.Where(entry => entry.Grant != "off").Select(entry => (entry.Name, entry.Grant)).Should().BeEquivalentTo(
-            [("time.now", "allow"), ("message_bot", "allow")],
+            defaultGrants,
             "a bot beneath a parent is not given the crew tools, even where its parent allows them");
     }
 

@@ -6,11 +6,11 @@ public static class BuiltinTools
     #region Properties
 
     /// <summary>
-    /// The built-in tools a new bot is granted, as allow, when a person creates it. A list of names on purpose, not
-    /// "every tool that only reads": a later built-in that reads the web, a file, or memory must not reach every new
-    /// bot by default. Adding a name here is a product decision.
+    /// The built-in tools every new bot starts with as Allow, subject to effective grants. Later built-ins
+    /// reach new bots only when explicitly added here.
     /// </summary>
-    public static IReadOnlyList<string> GrantedToNewBots { get; } = ["time.now", DelegateTool.MessageBotName];
+    public static IReadOnlyList<string> GrantedToNewBots { get; } =
+        ["time.now", DelegateTool.MessageBotName, .. MemoryTools.Names, .. AutomationTools.AllowedByDefault];
 
     /// <summary>
     /// The built-in tools a bot a person creates at the top of the tree is granted as well, as ask, so a person
@@ -29,7 +29,8 @@ public static class BuiltinTools
             .AddSingleton(provider => TimeNow(provider.GetRequiredService<TimeProvider>()))
             .AddCrewTools()
             .AddDelegateTool()
-            .AddMemoryTools();
+            .AddMemoryTools()
+            .AddAutomationTools();
 
     /// <summary><c>time.now</c>: the current time, in UTC and in a time zone the model may name. Reads nothing else.</summary>
     public static BuiltinTool TimeNow(TimeProvider time) =>

@@ -100,7 +100,10 @@ public sealed class ScheduleService(
         return new ScheduleCheck(null, [.. next]);
     }
 
-    public async Task<ScheduleChange> Create(Guid botId, ScheduleEdit edit, Guid actorUserId, CancellationToken cancellationToken)
+    public Task<ScheduleChange> Create(Guid botId, ScheduleEdit edit, Guid actorUserId, CancellationToken cancellationToken) =>
+        Create(botId, edit, AuditActor.Person(actorUserId), cancellationToken);
+
+    internal async Task<ScheduleChange> Create(Guid botId, ScheduleEdit edit, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await FindBot(botId, cancellationToken) is null)
         {
@@ -128,7 +131,7 @@ public sealed class ScheduleService(
         var schedule = new BotSchedule
         {
             BotId = botId,
-            OwnerUserId = actorUserId,
+            OwnerUserId = actor.UserId,
             Cron = edit.Cron.Trim(),
             TimeZone = edit.TimeZone.Trim(),
             Prompt = edit.Prompt,
@@ -137,13 +140,16 @@ public sealed class ScheduleService(
         };
         schedule.NextRunAt = NextRun(schedule);
         schedules.Add(schedule);
-        audit.Record(actorUserId, "bot.schedule_added", AuditTargets.Bot, botId, null, Snapshot(schedule), About(schedule));
+        audit.Record(actor, "bot.schedule_added", AuditTargets.Bot, botId, null, Snapshot(schedule), About(schedule));
 
         logger.LogInformation("Schedule {ScheduleId} added to bot {BotId}", schedule.Id, botId);
         return new ScheduleChange(schedule, null);
     }
 
-    public async Task<ScheduleChange> Update(Guid botId, Guid scheduleId, ScheduleEdit edit, Guid actorUserId, CancellationToken cancellationToken)
+    public Task<ScheduleChange> Update(Guid botId, Guid scheduleId, ScheduleEdit edit, Guid actorUserId, CancellationToken cancellationToken) =>
+        Update(botId, scheduleId, edit, AuditActor.Person(actorUserId), cancellationToken);
+
+    internal async Task<ScheduleChange> Update(Guid botId, Guid scheduleId, ScheduleEdit edit, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await FindBot(botId, cancellationToken) is null
             || await schedules.GetScheduleForUpdate(botId, scheduleId, cancellationToken) is not { } schedule)
@@ -151,9 +157,14 @@ public sealed class ScheduleService(
             return ScheduleChange.NotFound;
         }
 
-        if (schedule.OwnerUserId != actorUserId)
+        if (schedule.OwnerUserId != actor.UserId)
         {
-            var turnedOff = TurnOffForOwner(schedule, edit, actorUserId);
+            if (actor.BotId is not null)
+            {
+                return ScheduleChange.NotFound;
+            }
+
+            var turnedOff = TurnOffForOwner(schedule, edit, actor.UserId);
             return turnedOff.Schedule is { } kept ? await WithLastRun(kept, cancellationToken) : turnedOff;
         }
 
@@ -170,7 +181,7 @@ public sealed class ScheduleService(
         schedule.Enabled = edit.Enabled;
         schedule.NextRunAt = NextRun(schedule);
 
-        if (audit.Record(actorUserId, "bot.schedule_changed", AuditTargets.Bot, botId, before, Snapshot(schedule), About(schedule)))
+        if (audit.Record(actor, "bot.schedule_changed", AuditTargets.Bot, botId, before, Snapshot(schedule), About(schedule)))
         {
             logger.LogInformation("Schedule {ScheduleId} of bot {BotId} changed", schedule.Id, botId);
         }
@@ -179,7 +190,10 @@ public sealed class ScheduleService(
     }
 
     /// <summary>Removes a schedule. False when there is no such bot or schedule.</summary>
-    public async Task<bool> Remove(Guid botId, Guid scheduleId, Guid actorUserId, CancellationToken cancellationToken)
+    public Task<bool> Remove(Guid botId, Guid scheduleId, Guid actorUserId, CancellationToken cancellationToken) =>
+        Remove(botId, scheduleId, AuditActor.Person(actorUserId), cancellationToken);
+
+    internal async Task<bool> Remove(Guid botId, Guid scheduleId, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await FindBot(botId, cancellationToken) is null
             || await schedules.GetScheduleForUpdate(botId, scheduleId, cancellationToken) is not { } schedule)
@@ -187,8 +201,13 @@ public sealed class ScheduleService(
             return false;
         }
 
+        if (actor.BotId is not null && schedule.OwnerUserId != actor.UserId)
+        {
+            return false;
+        }
+
         schedules.Remove(schedule);
-        audit.Record(actorUserId, "bot.schedule_removed", AuditTargets.Bot, botId, Snapshot(schedule), null, About(schedule));
+        audit.Record(actor, "bot.schedule_removed", AuditTargets.Bot, botId, Snapshot(schedule), null, About(schedule));
 
         logger.LogInformation("Schedule {ScheduleId} removed from bot {BotId}", schedule.Id, botId);
         return true;

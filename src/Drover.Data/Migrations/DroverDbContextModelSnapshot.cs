@@ -18,7 +18,7 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261127213903_ToolCallsClearedByRuleCheck";
+    public override string LastMigrationId => "20261128012223_BotAutomation";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1577,6 +1577,10 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .HasColumnName("conditions")
                     .HasDefaultValueSql("'[]'::jsonb");
 
+                b.Property<Guid?>("ManagingBotId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("managing_bot_id");
+
                 b.Property<Guid?>("CreatedByUserId")
                     .HasColumnType("uuid")
                     .HasColumnName("created_by_user_id");
@@ -1613,6 +1617,9 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
 
                 b.HasIndex("SpaceId", "BotId")
                     .HasDatabaseName("ix_bot_rules_space_id_bot_id");
+
+                b.HasIndex("SpaceId", "ManagingBotId")
+                    .HasDatabaseName("ix_bot_rules_space_id_managing_bot_id");
 
                 b.ToTable("bot_rules", t =>
                     {
@@ -3321,6 +3328,13 @@ partial class DroverDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired()
                     .HasConstraintName("fk_bot_rules_bots_space_id_bot_id");
+
+                b.HasOne("Drover.Domain.Bots.Bot", null)
+                    .WithMany()
+                    .HasForeignKey("SpaceId", "ManagingBotId")
+                    .HasPrincipalKey("SpaceId", "Id")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .HasConstraintName("fk_bot_rules_bots_space_id_managing_bot_id");
             });
 
         modelBuilder.Entity("Drover.Domain.Runs.AgentSession", b =>

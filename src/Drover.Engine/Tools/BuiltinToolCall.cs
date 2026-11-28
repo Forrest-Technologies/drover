@@ -46,11 +46,16 @@ public sealed record BuiltinToolCall(
     /// <summary>The run is a delegated child run: its conversation is its own, not the person's.</summary>
     public bool IsDelegated { get; init; }
 
+    /// <summary>Whether the person approved this exact tool call.</summary>
+    public bool Approved { get; init; }
+
     /// <summary>
     /// Takes out of a text anything the run knows to be secret, as the run's events and stored results are. A tool
     /// that keeps text the model wrote calls it first, so no secret is kept or given to a later run.
     /// </summary>
     public Func<string, string> Redact { get; init; } = text => text;
+
+    public Func<JsonElement, JsonElement> RedactJson { get; init; } = value => value;
 
     /// <summary>Whether the run has read text from an untrusted source, as it stands when the tool asks.</summary>
     public Func<bool> IsTainted { get; init; } = () => false;
